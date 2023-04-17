@@ -24,16 +24,30 @@ startup(Engine *engine, const Engine_Configuration &configuration)
     }
 
     U8 *permanent_memory = (U8 *)memory;
-    engine->permanent_memory_size = configuration.permanent_memory_size;
-    engine->permanent_arena = create_memory_arena(permanent_memory,
-                                                 configuration.permanent_memory_size);
+    engine->memory.permanent_memory_size = configuration.permanent_memory_size;
+    engine->memory.permanent_arena = create_memory_arena(permanent_memory,
+                                                         configuration.permanent_memory_size);
 
     U8 *transient_memory = (U8 *)memory + configuration.permanent_memory_size;
-    engine->transient_memory_size = configuration.transient_memory_size;
-    engine->transient_arena = create_memory_arena(transient_memory,
-                                                 configuration.transient_memory_size);
+    engine->memory.transient_memory_size = configuration.transient_memory_size;
+    engine->memory.transient_arena = create_memory_arena(transient_memory,
+                                                         configuration.transient_memory_size);
+    engine->show_cursor = configuration.show_cursor;
+    engine->window_mode = configuration.window_mode;
 
-    return true;
+    engine->platform.allocate_memory = &platform_allocate_memory;
+    engine->platform.debug_printf = &platform_debug_printf;
+
+    Game_Code *game_code = &engine->game_code;
+    bool game_initialized = game_code->init_game(engine);
+    return game_initialized;
+}
+
+internal_function void
+game_loop(Engine *engine, F32 delta_time)
+{
+    Game_Code *game_code = &engine->game_code;
+    game_code->on_update(engine, delta_time);
 }
 
 internal_function void

@@ -2,20 +2,17 @@
 
 #include "memory.h"
 
-internal_function void
-zero(void *memory, Mem_Size size)
+void zero(void *memory, Mem_Size size)
 {
     memset(memory, 0, size);
 }
 
-internal_function void
-copy(void *dst, void *src, Mem_Size size)
+void copy(void *dst, void *src, Mem_Size size)
 {
     memcpy(dst, src, size);
 }
 
-internal_function Memory_Arena
-create_memory_arena(void *memory, Mem_Size size)
+Memory_Arena create_memory_arena(void *memory, Mem_Size size)
 {
     HE_Assert(memory);
     HE_Assert(size);
@@ -29,14 +26,12 @@ create_memory_arena(void *memory, Mem_Size size)
     return result;
 }
 
-internal_function bool
-is_power_of_2(U16 value)
+bool is_power_of_2(U16 value)
 {
     return (value & (value - 1)) == 0;
 }
 
-internal_function Mem_Size
-get_number_of_bytes_to_align_address(Mem_Size address, U16 alignment)
+Mem_Size get_number_of_bytes_to_align_address(Mem_Size address, U16 alignment)
 {
     Mem_Size result = 0;
 
@@ -53,8 +48,7 @@ get_number_of_bytes_to_align_address(Mem_Size address, U16 alignment)
     return result;
 }
 
-internal_function void*
-allocate(Memory_Arena *arena, Mem_Size size, U16 alignment, bool is_temprary)
+void* allocate(Memory_Arena *arena, Mem_Size size, U16 alignment, bool is_temprary)
 {
     HE_Assert(arena);
     HE_Assert(size);
@@ -73,8 +67,7 @@ allocate(Memory_Arena *arena, Mem_Size size, U16 alignment, bool is_temprary)
 
 
 
-internal_function Temprary_Memory_Arena
-begin_temprary_memory_arena(Memory_Arena *arena)
+Temprary_Memory_Arena begin_temprary_memory_arena(Memory_Arena *arena)
 {
     HE_Assert(arena);
     HE_Assert(arena->is_used_by_a_temprary_memory_arena == false);
@@ -89,7 +82,7 @@ begin_temprary_memory_arena(Memory_Arena *arena)
     return result;
 }
 
-internal_function void
+void
 end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena)
 {
     Memory_Arena *arena = temprary_arena->arena;

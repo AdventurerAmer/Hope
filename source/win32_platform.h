@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/defines.h"
+
 #ifndef VC_EXTRALEAN
 #define VC_EXTRALEAN 1
 #endif
@@ -12,6 +14,12 @@
 #include <strsafe.h>
 #include <windows.h>
 #pragma warning(pop)
+
+enum File_Operation : DWORD
+{
+    FileOperation_Read = GENERIC_READ,
+    FileOperation_Write = GENERIC_WRITE
+};
 
 struct Platform_File_Handle
 {

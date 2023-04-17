@@ -28,7 +28,7 @@ init_logger(Logger *logger, const char *name,
     Logging_Channel *main_channel = &logger->main_channel;
     main_channel->name = name;
 
-    main_channel->log_file = platform_open_file(name, File_Operation_Write);
+    main_channel->log_file = platform_open_file(name, FileOperation_Write);
     if (!platform_is_file_handle_valid(main_channel->log_file))
     {
         result = false;
@@ -42,7 +42,7 @@ init_logger(Logger *logger, const char *name,
         channel->name = channel_to_ansi_string[channel_index];
 
         const char *channel_filename = channel_to_filename[channel_index];
-        channel->log_file = platform_open_file(channel_filename, File_Operation_Write);
+        channel->log_file = platform_open_file(channel_filename, FileOperation_Write);
         if (!platform_is_file_handle_valid(channel->log_file))
         {
             result = false;
@@ -103,6 +103,7 @@ internal_function void
 debug_printf(Logger *logger, Channel channel,
              Verbosity verbosity, const char *format, ...)
 {
+    // note(amer): this is fine for now...
     local_presist char string_buffer[1024];
 
     va_list arg_list;
@@ -121,7 +122,8 @@ debug_printf(Logger *logger, Channel channel,
     }
 
     Logging_Channel *logging_channel = &logger->channels[U8(channel)];
-    if (platform_write_data_to_file(logging_channel->log_file, logging_channel->log_file_offset,
+    if (platform_write_data_to_file(logging_channel->log_file,
+                                    logging_channel->log_file_offset,
                                     (void*)string_buffer, written))
     {
         logging_channel->log_file_offset += written;
