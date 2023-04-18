@@ -29,12 +29,34 @@ struct Game_Code
     On_Update_Proc on_update;
 };
 
-typedef void*(*Allocate_Memory_Proc)(U64 size);
-typedef void(*Debug_Printf)(const char *message, ...);
+typedef void* (*Allocate_Memory_Proc)(U64 size);
 
-struct Platform
+typedef void (*Deallocate_Memory_Proc)(void *memory);
+
+typedef Platform_File_Handle (*Open_File_Proc)(const char *filename,
+                                               File_Operation operations);
+
+typedef bool (*Is_File_Handle_Valid_Proc)(Platform_File_Handle file_handle);
+
+typedef bool (*Read_Data_From_File_Proc)(Platform_File_Handle file_handle,
+                                         U64 offset, void *data, U64 size);
+
+typedef bool (*Write_Data_To_File_Proc)(Platform_File_Handle file_handle,
+                                        U64 offset, void *data, U64 size);
+
+typedef bool (*Close_File_Proc)(Platform_File_Handle file_handle);
+
+typedef void (*Debug_Printf)(const char *message, ...);
+
+struct Platform_API
 {
     Allocate_Memory_Proc allocate_memory;
+    Deallocate_Memory_Proc deallocate_memory;
+    Open_File_Proc open_file;
+    Is_File_Handle_Valid_Proc is_file_handle_valid;
+    Read_Data_From_File_Proc read_data_from_file;
+    Write_Data_To_File_Proc write_data_to_file;
+    Close_File_Proc close_file;
     Debug_Printf debug_printf;
 };
 
@@ -44,22 +66,27 @@ enum WindowMode : U8
     WindowMode_Fullscreen
 };
 
-struct Engine
-{
-    Game_Memory memory;
-    Game_Code game_code;
-    Platform platform;
-    bool show_cursor;
-    WindowMode window_mode;
-    bool is_running;
-};
-
 struct Engine_Configuration
 {
     Mem_Size permanent_memory_size;
     Mem_Size transient_memory_size;
     WindowMode window_mode;
     bool show_cursor;
+    U32 back_buffer_width;
+    U32 back_buffer_height;
+};
+
+struct Engine
+{
+    Platform_API platform_api;
+    Game_Memory memory;
+    Game_Code game_code;
+
+    bool is_running;
+    bool show_cursor;
+    WindowMode window_mode;
+    U32 back_buffer_width;
+    U32 back_buffer_height;
 };
 
 internal_function bool

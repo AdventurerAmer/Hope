@@ -8,10 +8,10 @@
 #define HE_TeraBytes(A) (U64(1024) * HE_GigaBytes((A)))
 
 internal_function void
-zero(void *memory, Mem_Size size);
+zero_memory(void *memory, Mem_Size size);
 
 internal_function void
-copy(void *dst, void *src, Mem_Size size);
+copy_memory(void *dst, void *src, Mem_Size size);
 
 
 

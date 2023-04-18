@@ -8,6 +8,7 @@
 
 enum Event_Type : U8
 {
+    EventType_Unknown,
     EventType_Key,
     EventType_Mouse,
     EventType_Resize,
@@ -27,6 +28,8 @@ struct Event
     bool pressed;
     bool held;
 
+    bool is_shift_down;
+    bool is_control_down;
     bool double_click;
     U16 mouse_x;
     U16 mouse_y;

@@ -4,12 +4,14 @@
 internal_function void*
 platform_allocate_memory(U64 size)
 {
+    HE_Assert(size);
     return VirtualAlloc(0, size, MEM_COMMIT, PAGE_READWRITE);
 }
 
 internal_function void
 platform_deallocate_memory(void *memory)
 {
+    HE_Assert(memory);
     VirtualFree(memory, 0, MEM_RELEASE);
 }
 

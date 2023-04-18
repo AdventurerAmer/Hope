@@ -2,16 +2,17 @@
 #include "core/engine.h"
 #include "core/input_codes.h"
 
-extern "C" bool init_game(Engine *engine)
+extern "C" bool
+init_game(Engine *engine)
 {
-	Platform *platform = &engine->platform;
+	Platform_API *platform = &engine->platform_api;
 	platform->debug_printf("init_game\n");
     return true;
 }
 
-extern "C" void on_event(Engine *engine, Event event)
+extern "C" void
+on_event(Engine *engine, Event event)
 {
-	Platform *platform = &engine->platform;
 	switch (event.type)
 	{
 		case EventType_Key:
@@ -27,7 +28,12 @@ extern "C" void on_event(Engine *engine, Event event)
 	}
 }
 
-extern "C" void on_update(Engine *engine, F32 delta_time)
+extern "C" void
+on_update(Engine *engine, F32 delta_time)
 {
-	Platform *platform = &engine->platform;
+	(void)engine;
+	(void)delta_time;
+	Platform_API *platform = &engine->platform_api;
+	U32 x = 10;
+	platform->debug_printf("hello, sailor my friend, %d\n", x);
 }

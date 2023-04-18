@@ -173,125 +173,9 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
 
             Event event = {};
             event.type = EventType_Resize;
-            event.width = client_width;
-            event.height = client_height;
+            event.width = u32_to_u16(client_width);
+            event.height = u32_to_u16(client_height);
             win32_state->engine.game_code.on_event(&win32_state->engine, event);
-        } break;
-
-        case WM_LBUTTONDOWN:
-        case WM_LBUTTONUP:
-        case WM_MBUTTONDOWN:
-        case WM_MBUTTONUP:
-        case WM_RBUTTONDOWN:
-        case WM_RBUTTONUP:
-        case WM_XBUTTONDOWN:
-        case WM_XBUTTONUP:
-        case WM_LBUTTONDBLCLK:
-        case WM_MBUTTONDBLCLK:
-        case WM_RBUTTONDBLCLK:
-        case WM_XBUTTONDBLCLK:
-        case WM_MOUSEMOVE:
-        {
-            Event event = {};
-            event.type = EventType_Mouse;
-            event.pressed = false;
-
-            U64 mouse_x = l_param & 0xFF;
-            U64 mouse_y = l_param >> 16;
-            event.mouse_x = (U16)mouse_x;
-            event.mouse_y = (U16)mouse_y;
-
-            // U64 xbutton = w_param >> 16;
-            // if (xbutton == XBUTTON1)
-            // {
-            // }
-            // else if (xbutton == XBUTTON2)
-            // {
-            // }
-
-            if (w_param & MK_CONTROL)
-            {
-            }
-
-            if (w_param & MK_LBUTTON)
-            {
-                event.button = VK_LBUTTON;
-                event.pressed = true;
-            }
-
-            if (w_param & MK_MBUTTON)
-            {
-                event.button = VK_MBUTTON;
-                event.pressed = true;
-            }
-
-            if (w_param & MK_RBUTTON)
-            {
-                event.button = VK_RBUTTON;
-                event.pressed = true;
-            }
-
-            if (w_param & MK_SHIFT)
-            {
-            }
-
-            if (w_param & MK_XBUTTON1)
-            {
-                event.button = VK_XBUTTON1;
-                event.pressed = true;
-            }
-
-            if (w_param & MK_XBUTTON2)
-            {
-                event.button = VK_XBUTTON2;
-                event.pressed = true;
-            }
-
-            win32_state->engine.game_code.on_event(&win32_state->engine, event);
-        } break;
-
-        case WM_MOUSEWHEEL:
-        {
-            S32 delta = u64_to_s32(w_param >> 16);
-            win32_state->mouse_wheel_accumulated_delta += delta;
-
-            Event event = {};
-            event.type = EventType_Mouse;
-
-            while (win32_state->mouse_wheel_accumulated_delta >= 120)
-            {
-                event.mouse_wheel_up = true;
-                win32_state->engine.game_code.on_event(&win32_state->engine, event);
-
-                win32_state->mouse_wheel_accumulated_delta -= 120;
-            }
-
-            while (win32_state->mouse_wheel_accumulated_delta <= -120)
-            {
-                event.mouse_wheel_down = true;
-                win32_state->engine.game_code.on_event(&win32_state->engine, event);
-
-                win32_state->mouse_wheel_accumulated_delta += 120;
-            }
-        } break;
-
-        case WM_SYSKEYDOWN:
-        case WM_SYSKEYUP:
-        case WM_KEYDOWN:
-        case WM_KEYUP:
-        {
-            U64 virtual_key_code = w_param;
-            bool was_down = l_param & (1 << 30);
-            bool is_down = (l_param & (1 << 31)) == 0;
-            bool is_held = is_down && was_down;
-
-            Event event = {};
-            event.type = EventType_Key;
-            event.key = (U16)virtual_key_code;
-            event.pressed = is_down;
-            event.held = is_held;
-            win32_state->engine.game_code.on_event(&win32_state->engine, event);
-
         } break;
 
         default:
@@ -303,17 +187,97 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
     return result;
 }
 
-internal_function bool
-win32_load_game_code(Game_Code *game_code)
+struct Win32_Game_Code
 {
-    HMODULE handle = LoadLibraryA("../bin/game.dll");
-    if (handle)
+    Game_Code *game_code;
+    const char *filename;
+    const char *temp_filename;
+    FILETIME last_write_time;
+    HMODULE library_handle;
+};
+
+internal_function FILETIME
+win32_get_last_write_time(const char *filename)
+{
+    FILETIME result = {};
+
+    WIN32_FIND_DATA find_data = {};
+    HANDLE find_handle = FindFirstFileA(filename, &find_data);
+    if (find_handle != INVALID_HANDLE_VALUE)
     {
-        game_code->init_game = (Init_Game_Proc)GetProcAddress(handle, "init_game");
-        game_code->on_event  = (On_Event_Proc)GetProcAddress(handle, "on_event");
-        game_code->on_update = (On_Update_Proc)GetProcAddress(handle, "on_update");
+        result = find_data.ftLastWriteTime;
+        FindClose(find_handle);
     }
-    return false;
+    return result;
+}
+
+internal_function bool
+win32_load_game_code(Win32_Game_Code *win32_game_code)
+{
+    bool result = true;
+
+    Game_Code *game_code = win32_game_code->game_code;
+
+    game_code->init_game = nullptr;
+    game_code->on_event = nullptr;
+    game_code->on_update = nullptr;
+
+    // todo(amer): why is the file locked at the time of the copy ????
+    while (CopyFileA(win32_game_code->filename, win32_game_code->temp_filename, FALSE) == 0)
+    {
+    }
+
+    win32_game_code->library_handle = LoadLibraryA(win32_game_code->temp_filename);
+
+    if (win32_game_code->library_handle)
+    {
+        Init_Game_Proc init_game_proc =
+            (Init_Game_Proc)GetProcAddress(win32_game_code->library_handle, "init_game");
+
+        if (init_game_proc)
+        {
+            game_code->init_game = init_game_proc;
+        }
+
+        On_Event_Proc on_event_proc =
+            (On_Event_Proc)GetProcAddress(win32_game_code->library_handle, "on_event");
+
+        if (on_event_proc)
+        {
+            game_code->on_event = on_event_proc;
+        }
+
+        On_Update_Proc on_update_proc =
+            (On_Update_Proc)GetProcAddress(win32_game_code->library_handle, "on_update");
+
+        if (on_update_proc)
+        {
+            game_code->on_update = on_update_proc;
+        }
+
+        result = init_game_proc && on_event_proc && on_update_proc;
+    }
+    else
+    {
+        result = false;
+    }
+
+    return result;
+}
+
+internal_function bool
+win32_reload_game_code(Win32_Game_Code *win32_game_code)
+{
+    if (win32_game_code->library_handle != NULL)
+    {
+        if (FreeLibrary(win32_game_code->library_handle) == 0)
+        {
+            win32_report_last_error_and_exit("failed to free game_temp.dll");
+        }
+        win32_game_code->library_handle = NULL;
+    }
+    bool loaded = win32_load_game_code(win32_game_code);
+    return loaded;
 }
 
 INT WINAPI
@@ -341,14 +305,23 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
     configuration.transient_memory_size = HE_MegaBytes(32);
     configuration.show_cursor = true;
     configuration.window_mode = WindowMode_Windowed;
+    configuration.back_buffer_width = 1280;
+    configuration.back_buffer_height = 720;
 
     // todo(amer): this should be allocated on the heap
     Win32_State win32_state = {};
     win32_state.instance = instance;
     win32_state.cursor = LoadCursor(NULL, IDC_ARROW);
 
-    win32_load_game_code(&win32_state.engine.game_code);
-    win32_set_window_client_size(&win32_state, 1280, 720);
+    Win32_Game_Code win32_game_code = {};
+    win32_game_code.filename = "../bin/game.dll";
+    win32_game_code.temp_filename = "../bin/game_temp.dll";
+    win32_game_code.game_code = &win32_state.engine.game_code;
+
+    win32_load_game_code(&win32_game_code);
+    win32_set_window_client_size(&win32_state,
+                                 configuration.back_buffer_width,
+                                 configuration.back_buffer_height);
 
     WNDCLASSA window_class = {};
     window_class.style = CS_DBLCLKS;
@@ -356,7 +329,6 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
     window_class.hInstance = instance;
     window_class.lpszClassName = HE_WINDOW_CLASS_NAME;
     window_class.hCursor = win32_state.cursor;
-
     // todo(amer): in the future we should be load icons from disk
     window_class.hIcon = NULL;
 
@@ -382,17 +354,20 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
         win32_toggle_fullscreen(&win32_state);
     }
 
+    Engine *engine = &win32_state.engine;
+    Game_Code *game_code = &engine->game_code;
+
+    bool started = startup(engine, configuration);
+    engine->is_running = started;
+
     LARGE_INTEGER performance_frequency;
     HE_Assert(QueryPerformanceFrequency(&performance_frequency));
     S64 counts_per_second = performance_frequency.QuadPart;
 
-    bool started = startup(&win32_state.engine, configuration);
-    win32_state.engine.is_running = started;
-
     LARGE_INTEGER last_counter;
     HE_Assert(QueryPerformanceCounter(&last_counter));
 
-    while (win32_state.engine.is_running)
+    while (engine->is_running)
     {
         LARGE_INTEGER current_counter;
         HE_Assert(QueryPerformanceCounter(&current_counter));
@@ -403,24 +378,144 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
 
         F32 delta_time = (F32)elapsed_time;
 
+        FILETIME last_write_time = win32_get_last_write_time(win32_game_code.filename);
+        if (CompareFileTime(&last_write_time, &win32_game_code.last_write_time) != 0)
+        {
+            win32_game_code.last_write_time = last_write_time;
+            win32_reload_game_code(&win32_game_code);
+        }
+
         MSG message = {};
         while (PeekMessageA(&message, win32_state.window, 0, 0, PM_REMOVE))
         {
-            // TranslateMessage(&message);
-            // todo(amer): we want to handle events here and dispatch messages we don't want
-            DispatchMessageA(&message);
+            switch (message.message)
+            {
+                case WM_LBUTTONDOWN:
+                case WM_LBUTTONUP:
+                case WM_MBUTTONDOWN:
+                case WM_MBUTTONUP:
+                case WM_RBUTTONDOWN:
+                case WM_RBUTTONUP:
+                case WM_XBUTTONDOWN:
+                case WM_XBUTTONUP:
+                case WM_MOUSEMOVE:
+                case WM_LBUTTONDBLCLK:
+                case WM_MBUTTONDBLCLK:
+                case WM_RBUTTONDBLCLK:
+                case WM_XBUTTONDBLCLK:
+                {
+                    Event event = {};
+                    event.type = EventType_Mouse;
+
+                    if (message.message == WM_LBUTTONDBLCLK ||
+                        message.message == WM_MBUTTONDBLCLK ||
+                        message.message == WM_RBUTTONDBLCLK ||
+                        message.message == WM_XBUTTONDBLCLK)
+                    {
+                        event.double_click = true;
+                    }
+
+                    U64 mouse_x = message.lParam & 0xFF;
+                    U64 mouse_y = message.lParam >> 16;
+                    event.mouse_x = (U16)mouse_x;
+                    event.mouse_y = (U16)mouse_y;
+
+                    if (message.wParam & MK_CONTROL)
+                    {
+                        event.is_control_down = true;
+                    }
+
+                    if (message.wParam & MK_LBUTTON)
+                    {
+                        event.button = VK_LBUTTON;
+                        event.pressed = true;
+                    }
+
+                    if (message.wParam & MK_MBUTTON)
+                    {
+                        event.button = VK_MBUTTON;
+                        event.pressed = true;
+                    }
+
+                    if (message.wParam & MK_RBUTTON)
+                    {
+                        event.button = VK_RBUTTON;
+                        event.pressed = true;
+                    }
+
+                    if (message.wParam & MK_SHIFT)
+                    {
+                        event.is_shift_down = true;
+                    }
+
+                    if (message.wParam & MK_XBUTTON1)
+                    {
+                        event.button = VK_XBUTTON1;
+                        event.pressed = true;
+                    }
+
+                    if (message.wParam & MK_XBUTTON2)
+                    {
+                        event.button = VK_XBUTTON2;
+                        event.pressed = true;
+                    }
+
+                    game_code->on_event(engine, event);
+                } break;
+
+                case WM_MOUSEWHEEL:
+                {
+                    S32 delta = u64_to_s32(message.wParam >> 16);
+                    win32_state.mouse_wheel_accumulated_delta += delta;
+
+                    Event event = {};
+                    event.type = EventType_Mouse;
+
+                    while (win32_state.mouse_wheel_accumulated_delta >= 120)
+                    {
+                        event.mouse_wheel_up = true;
+                        game_code->on_event(engine, event);
+
+                        win32_state.mouse_wheel_accumulated_delta -= 120;
+                    }
+
+                    while (win32_state.mouse_wheel_accumulated_delta <= -120)
+                    {
+                        event.mouse_wheel_down = true;
+                        game_code->on_event(engine, event);
+
+                        win32_state.mouse_wheel_accumulated_delta += 120;
+                    }
+                } break;
+
+                case WM_SYSKEYDOWN:
+                case WM_SYSKEYUP:
+                case WM_KEYDOWN:
+                case WM_KEYUP:
+                {
+                    U64 virtual_key_code = message.wParam;
+                    bool was_down = message.lParam & (1 << 30);
+                    bool is_down = (message.lParam & (1 << 31)) == 0;
+                    bool is_held = is_down && was_down;
+
+                    Event event = {};
+                    event.type = EventType_Key;
+                    event.key = (U16)virtual_key_code;
+                    event.pressed = is_down;
+                    event.held = is_held;
+                    game_code->on_event(engine, event);
+
+                } break;
+
+                default:
+                {
+                    // TranslateMessage(&message);
+                    DispatchMessageA(&message);
+                } break;
+            }
         }
 
         game_loop(&win32_state.engine, delta_time);
-
-        // SHORT key_state = GetAsyncKeyState(VK_ESCAPE);
-        // bool is_down = (key_state & (1 << 15));
-        // bool was_down = (key_state & 1);
-		// bool is_held = was_down && is_down;
-		// if (is_down || was_down)
-        // {
-        //     win32_state.is_running = false;
-        // }
     }
 
     shutdown(&win32_state.engine);

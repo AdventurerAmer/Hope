@@ -2,13 +2,17 @@
 
 #include "memory.h"
 
-void zero(void *memory, Mem_Size size)
+void zero_memory(void *memory, Mem_Size size)
 {
+    HE_Assert(memory);
     memset(memory, 0, size);
 }
 
-void copy(void *dst, void *src, Mem_Size size)
+void copy_memory(void *dst, void *src, Mem_Size size)
 {
+    HE_Assert(dst);
+    HE_Assert(src);
+    HE_Assert(size);
     memcpy(dst, src, size);
 }
 
@@ -33,6 +37,7 @@ bool is_power_of_2(U16 value)
 
 Mem_Size get_number_of_bytes_to_align_address(Mem_Size address, U16 alignment)
 {
+    // todo(amer): branchless version daddy
     Mem_Size result = 0;
 
     if (alignment != 0)
@@ -62,6 +67,7 @@ void* allocate(Memory_Arena *arena, Mem_Size size, U16 alignment, bool is_tempra
         result = cursor + padding;
         arena->offset += padding + size;
     }
+    zero_memory(result, padding + size);
     return result;
 }
 
