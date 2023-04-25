@@ -9,13 +9,6 @@ global_variable const char *channel_to_ansi_string[] =
 #undef X
 };
 
-global_variable const char *channel_to_filename[] =
-{
-#define X(name, str) str##".log",
-    Channel_Table
-#undef X
-};
-
 internal_function bool
 init_logger(Logger *logger, const char *name,
             Verbosity verbosity, U64 channel_mask)
@@ -28,7 +21,12 @@ init_logger(Logger *logger, const char *name,
     Logging_Channel *main_channel = &logger->main_channel;
     main_channel->name = name;
 
-    main_channel->log_file = platform_open_file(name, FileOperation_Write);
+    // todo(amer): string utils
+    // note(amer): should logging files be in bin ?
+    char main_channel_path[256];
+    sprintf(main_channel_path, "logging/%s.log", name);
+
+    main_channel->log_file = platform_open_file(main_channel_path, FileOperation_Write);
     if (!platform_is_file_handle_valid(main_channel->log_file))
     {
         result = false;
@@ -41,8 +39,11 @@ init_logger(Logger *logger, const char *name,
         Logging_Channel *channel = &logger->channels[channel_index];
         channel->name = channel_to_ansi_string[channel_index];
 
-        const char *channel_filename = channel_to_filename[channel_index];
-        channel->log_file = platform_open_file(channel_filename, FileOperation_Write);
+        // todo(amer): string utils
+        char channel_path[256];
+        sprintf(channel_path, "logging/%s.log", channel->name);
+
+        channel->log_file = platform_open_file(channel_path, FileOperation_Write);
         if (!platform_is_file_handle_valid(channel->log_file))
         {
             result = false;

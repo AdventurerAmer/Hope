@@ -19,7 +19,7 @@ struct Game_Memory
 struct Engine;
 
 typedef bool(*Init_Game_Proc)(Engine *engine);
-typedef void(*On_Event_Proc)(Engine *engine, Event input);
+typedef void(*On_Event_Proc)(Engine *engine, Event event);
 typedef void(*On_Update_Proc)(Engine *engine, F32 delta_time);
 
 struct Game_Code
@@ -28,6 +28,18 @@ struct Game_Code
     On_Event_Proc on_event;
     On_Update_Proc on_update;
 };
+
+internal_function void
+set_game_code_to_stubs(Game_Code *game_code);
+
+internal_function bool
+init_game_stub(Engine *engine);
+
+internal_function void
+on_event_stub(Engine *engine, Event event);
+
+internal_function void
+on_update_stub(Engine *engine, F32 delta_time);
 
 typedef void* (*Allocate_Memory_Proc)(U64 size);
 
@@ -46,6 +58,8 @@ typedef bool (*Write_Data_To_File_Proc)(Platform_File_Handle file_handle,
 
 typedef bool (*Close_File_Proc)(Platform_File_Handle file_handle);
 
+typedef void (*Toggle_Fullscreen_Proc)(struct Engine *engine);
+
 typedef void (*Debug_Printf)(const char *message, ...);
 
 struct Platform_API
@@ -57,6 +71,7 @@ struct Platform_API
     Read_Data_From_File_Proc read_data_from_file;
     Write_Data_To_File_Proc write_data_to_file;
     Close_File_Proc close_file;
+    Toggle_Fullscreen_Proc toggle_fullscreen;
     Debug_Printf debug_printf;
 };
 
@@ -87,10 +102,16 @@ struct Engine
     WindowMode window_mode;
     U32 back_buffer_width;
     U32 back_buffer_height;
+
+    /*
+        note(amer): this is a platform specific pointer to Win32_State on windows
+    */
+    void *platform_state;
 };
 
 internal_function bool
-startup(Engine *engine, const Engine_Configuration &configuration);
+startup(Engine *engine, const Engine_Configuration &configuration,
+        void *platform_state);
 
 internal_function void
 game_loop(Engine *engine, F32 delta_time);

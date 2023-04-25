@@ -10,11 +10,21 @@ set ReleaseConfig=-MT -O2
 set Config=%DebugConfig%
 set CommonLinkFlags=user32.lib -subsystem:windows -opt:ref /incremental:no
 
-set time_stamp=%date:~-4,4%%date:~-10,2%%date:~-7,2%_%time:~0,2%%time:~3,2%%time:~6,2%
+set TimeStamp=%DATE:/=_%_%TIME::=_%
+set TimeStamp=%timestamp: =%
 
 del *.pdb > nul 2> nul
 rem game
-cl %CommonFlags% %CommonDefines% %Config% /Fegame ../source/game/game.cpp /LD /link /PDB:game_%time_stamp%.pdb %CommonLinkFlags% /export:init_game /export:on_event /export:on_update
+cl %CommonFlags% %CommonDefines% %Config% /Fegame ../source/game/game.cpp /LD /link /PDB:game_%TimeStamp%.pdb %CommonLinkFlags% /export:init_game /export:on_event /export:on_update
+
 rem engine
-cl %CommonFlags% %CommonDefines% %Config% /Fehope ../source/win32_main.cpp /link %CommonLinkFlags%
+
+set Includes=-I../third_party/include
+set LibIncludes=-libpath:../third_party/lib
+
+cl %CommonFlags% %CommonDefines% %Config% %Includes% /Fehope ../source/win32_main.cpp /link %LibIncludes% %CommonLinkFlags% vulkan-1.lib
+
+"../tools/glslc.exe" ../data/shaders/basic.vert -o ../data/shaders/basic.vert.spv
+"../tools/glslc.exe" ../data/shaders/basic.frag -o ../data/shaders/basic.frag.spv
+
 popd

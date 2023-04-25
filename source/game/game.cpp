@@ -13,6 +13,8 @@ init_game(Engine *engine)
 extern "C" void
 on_event(Engine *engine, Event event)
 {
+	Platform_API *platform = &engine->platform_api;
+
 	switch (event.type)
 	{
 		case EventType_Key:
@@ -23,6 +25,10 @@ on_event(Engine *engine, Event event)
 				{
 					engine->is_running = false;
 				}
+				else if (event.key == HE_KEY_F11)
+				{
+					platform->toggle_fullscreen(engine);
+                }
 			}
 		} break;
 	}
@@ -34,6 +40,5 @@ on_update(Engine *engine, F32 delta_time)
 	(void)engine;
 	(void)delta_time;
 	Platform_API *platform = &engine->platform_api;
-	U32 x = 10;
-	platform->debug_printf("hello, sailor my friend, %d\n", x);
+	(void)platform;
 }

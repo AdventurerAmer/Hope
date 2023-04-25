@@ -37,6 +37,10 @@ struct Event
     bool mouse_wheel_up;
     bool mouse_wheel_down;
 
+    bool minimized;
+    bool maximized;
+    bool restored;
+
     U16 width;
     U16 height;
 };
@@ -53,6 +57,9 @@ platform_open_file(const char *filename, File_Operation operations);
 internal_function bool
 platform_is_file_handle_valid(Platform_File_Handle file_handle);
 
+internal_function U64
+platform_get_file_size(Platform_File_Handle file_handle);
+
 internal_function bool
 platform_read_data_from_file(Platform_File_Handle file_handle, U64 offset, void *data, U64 size);
 
@@ -61,6 +68,26 @@ platform_write_data_to_file(Platform_File_Handle file_handle, U64 offset, void *
 
 internal_function bool
 platform_close_file(Platform_File_Handle file_handle);
+
+struct Read_Entire_File_Result
+{
+    Platform_File_Handle file_handle;
+    U64 size;
+    bool success;
+};
+
+internal_function Read_Entire_File_Result
+platform_begin_read_entire_file(const char *filename);
+
+internal_function bool
+platform_end_read_entire_file(Read_Entire_File_Result *read_entire_file_result,
+                              void *data);
+
+internal_function void
+platform_toggle_fullscreen(struct Engine *engine);
+
+internal_function void
+platform_report_error_and_exit(const char *message, ...);
 
 internal_function void
 platform_debug_printf(const char *message, ...);

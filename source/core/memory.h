@@ -71,3 +71,6 @@ allocate(Scoped_Temprary_Memory_Arena *temprary_arena, Mem_Size size, U16 alignm
 
 #define ArenaPushAligned(ArenaPointer, Type)\
 (Type *)allocate((ArenaPointer), sizeof(Type), alignof(Type))
+
+#define ArenaPushArray(ArenaPointer, Type, Count)\
+(Type *)allocate((ArenaPointer), sizeof(Type) * (Count), alignof(Type))
