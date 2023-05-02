@@ -86,6 +86,9 @@ platform_end_read_entire_file(Read_Entire_File_Result *read_entire_file_result,
 internal_function void
 platform_toggle_fullscreen(struct Engine *engine);
 
+internal_function void*
+platform_create_vulkan_surface(struct Engine *engine, void *instance);
+
 internal_function void
 platform_report_error_and_exit(const char *message, ...);
 

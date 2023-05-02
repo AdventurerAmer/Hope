@@ -16,16 +16,16 @@ void copy_memory(void *dst, void *src, Mem_Size size)
     memcpy(dst, src, size);
 }
 
+// Memory Arena
+
 Memory_Arena create_memory_arena(void *memory, Mem_Size size)
 {
     HE_Assert(memory);
     HE_Assert(size);
 
-    Memory_Arena result;
+    Memory_Arena result = {};
     result.base = (U8 *)memory;
     result.size = size;
-    result.offset = 0;
-    result.is_used_by_a_temprary_memory_arena = false;
 
     return result;
 }
@@ -53,11 +53,11 @@ Mem_Size get_number_of_bytes_to_align_address(Mem_Size address, U16 alignment)
     return result;
 }
 
-void* allocate(Memory_Arena *arena, Mem_Size size, U16 alignment, bool is_temprary)
+void* allocate(Memory_Arena *arena, Mem_Size size, U16 alignment, Temprary_Memory_Arena *parent)
 {
     HE_Assert(arena);
     HE_Assert(size);
-    HE_Assert(arena->is_used_by_a_temprary_memory_arena == is_temprary);
+    HE_Assert(arena->temprary_owner == parent);
 
     void *result = 0;
     U8 *cursor = arena->base + arena->offset;
@@ -71,21 +71,21 @@ void* allocate(Memory_Arena *arena, Mem_Size size, U16 alignment, bool is_tempra
     return result;
 }
 
+// Temprary Memory Arena
 
-
-Temprary_Memory_Arena begin_temprary_memory_arena(Memory_Arena *arena)
+void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena,
+                                 Memory_Arena *arena)
 {
+    HE_Assert(temprary_memory_arena);
     HE_Assert(arena);
-    HE_Assert(arena->is_used_by_a_temprary_memory_arena == false);
 
-    // todo(amer): this should used in non-shipping builds only
-    arena->is_used_by_a_temprary_memory_arena = true;
+    temprary_memory_arena->arena = arena;
+    temprary_memory_arena->offset = arena->offset;
 
-    Temprary_Memory_Arena result;
-    result.arena = arena;
-    result.offset = arena->offset;
-
-    return result;
+    // todo(amer): this data member is used for debugging purposes only and
+    // should be used accessed non-shipping builds only
+    temprary_memory_arena->parent = arena->temprary_owner;
+    arena->temprary_owner = temprary_memory_arena;
 }
 
 void
@@ -95,18 +95,19 @@ end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena)
     HE_Assert(arena);
 
     arena->offset = temprary_arena->offset;
-    arena->is_used_by_a_temprary_memory_arena = false;
+    arena->temprary_owner = temprary_arena->parent;
 
-    // todo(amer): do this in non-shipping builds only
+    // todo(amer): this data member is used for debugging purposes only and
+    // should be used accessed non-shipping builds only
     temprary_arena->arena = nullptr;
     temprary_arena->offset = 0;
 }
 
-
+// Scoped Temprary Memory Arena
 
 Scoped_Temprary_Memory_Arena::Scoped_Temprary_Memory_Arena(Memory_Arena *arena)
 {
-    temprary_arena = begin_temprary_memory_arena(arena);
+    begin_temprary_memory_arena(&temprary_arena, arena);
 }
 
 Scoped_Temprary_Memory_Arena::~Scoped_Temprary_Memory_Arena()

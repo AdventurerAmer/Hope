@@ -24,30 +24,50 @@
 
 #endif
 
+#define HE_Max_Frames_In_Flight 3
+
+struct Vulkan_Swapchain_Support
+{
+    U32 surface_format_count;
+    VkSurfaceFormatKHR *surface_formats;
+
+    U32 present_mode_count;
+    VkPresentModeKHR *present_modes;
+};
+
 struct Vulkan_Swapchain
 {
     VkSwapchainKHR handle;
     U32 width;
     U32 height;
     VkPresentModeKHR present_mode;
-    VkSurfaceFormatKHR surface_format;
+    VkFormat image_format;
+    VkColorSpaceKHR image_color_space;
 
     // todo(amer): we only set the min image count
     // and vulkan could create more so we need a dynamic allocation
-    // here using an array for now
+    // here using an array and asserting for now....
     U32 image_count;
-    VkImage images[3];
-    VkImageView image_views[3];
+    VkImage images[HE_Max_Frames_In_Flight];
+    VkImageView image_views[HE_Max_Frames_In_Flight];
+    VkFramebuffer frame_buffers[HE_Max_Frames_In_Flight];
 };
 
 struct Vulkan_Context
 {
     VkInstance instance;
+
+    VkSurfaceKHR surface;
     VkPhysicalDevice physical_device;
+
+    U32 graphics_queue_family_index;
+    U32 present_queue_family_index;
     VkDevice logical_device;
+
     VkQueue graphics_queue;
     VkQueue present_queue;
-    VkSurfaceKHR surface;
+
+    Vulkan_Swapchain_Support swapchain_support;
     Vulkan_Swapchain swapchain;
 
     VkShaderModule vertex_shader_module;
@@ -56,15 +76,13 @@ struct Vulkan_Context
     VkRenderPass render_pass;
     VkPipeline graphics_pipeline;
 
-    VkFramebuffer frame_buffers[3];
-
     VkCommandPool graphics_command_pool;
-    VkCommandBuffer graphics_command_buffers[3];
+    VkCommandBuffer graphics_command_buffers[HE_Max_Frames_In_Flight];
+    VkSemaphore image_available_semaphores[HE_Max_Frames_In_Flight];
+    VkSemaphore rendering_finished_semaphores[HE_Max_Frames_In_Flight];
+    VkFence frame_in_flight_fences[HE_Max_Frames_In_Flight];
 
-    VkSemaphore image_available_semaphores[3];
-    VkSemaphore rendering_finished_semaphores[3];
-    VkFence frame_in_flight_fences[3];
-
+    U32 frames_in_flight;
     U32 current_frame_index;
 
 #if HE_VULKAN_DEBUGGING
@@ -73,10 +91,10 @@ struct Vulkan_Context
 };
 
 internal_function bool
-init_vulkan(Vulkan_Context *context, HWND window, HINSTANCE instance, struct Memory_Arena *arena);
+init_vulkan(Vulkan_Context *context, struct Engine *engine, struct Memory_Arena *arena);
 
 internal_function void
-vulkan_draw(Vulkan_Context *context);
+vulkan_draw(Vulkan_Context *context, U32 width, U32 height);
 
 internal_function void
 deinit_vulkan(Vulkan_Context *context);

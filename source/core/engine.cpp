@@ -1,6 +1,5 @@
 #include "engine.h"
 #include "platform.h"
-
 #include "rendering/vulkan.h"
 
 internal_function bool
@@ -44,6 +43,13 @@ startup(Engine *engine, const Engine_Configuration &configuration,
         platform_toggle_fullscreen(engine);
     }
 
+    engine->vulkan_context = ArenaPush(&engine->memory.permanent_arena, Vulkan_Context);
+    bool vulkan_inited = init_vulkan(engine->vulkan_context, engine, &engine->memory.permanent_arena);
+    if (!vulkan_inited)
+    {
+        return false;
+    }
+
     Platform_API *api = &engine->platform_api;
     api->allocate_memory = &platform_allocate_memory;
     api->deallocate_memory = &platform_deallocate_memory;
@@ -65,11 +71,18 @@ game_loop(Engine *engine, F32 delta_time)
 {
     Game_Code *game_code = &engine->game_code;
     game_code->on_update(engine, delta_time);
+
+    if (!engine->is_minimized)
+    {
+        vulkan_draw(engine->vulkan_context, engine->back_buffer_width, engine->back_buffer_height);
+    }
 }
 
 internal_function void
 shutdown(Engine *engine)
 {
+    deinit_vulkan(engine->vulkan_context);
+
     (void)engine;
     // todo(amer): logging should only be enabled in non-shipping builds
     Logger *logger = &debug_state.main_logger;

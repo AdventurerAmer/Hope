@@ -4,6 +4,8 @@
 #include "logging.h"
 #include "memory.h"
 
+// #include "rendering/vulkan.h"
+
 struct Game_Memory
 {
     Mem_Size permanent_memory_size;
@@ -98,10 +100,14 @@ struct Engine
     Game_Code game_code;
 
     bool is_running;
+    bool is_minimized;
     bool show_cursor;
     WindowMode window_mode;
     U32 back_buffer_width;
     U32 back_buffer_height;
+
+
+    struct Vulkan_Context *vulkan_context;
 
     /*
         note(amer): this is a platform specific pointer to Win32_State on windows

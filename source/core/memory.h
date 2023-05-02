@@ -13,8 +13,9 @@ zero_memory(void *memory, Mem_Size size);
 internal_function void
 copy_memory(void *dst, void *src, Mem_Size size);
 
+// Memory Arena
 
-
+struct Temprary_Memory_Arena;
 
 struct Memory_Arena
 {
@@ -22,35 +23,43 @@ struct Memory_Arena
     Mem_Size size;
     Mem_Size offset;
 
-    // todo(amer): this should used in non-shipping builds only
-    bool is_used_by_a_temprary_memory_arena;
+    // todo(amer): this data member is used for debugging purposes only and
+    // should be used accessed non-shipping builds only
+    Temprary_Memory_Arena *temprary_owner;
 };
 
 Memory_Arena
 create_memory_arena(void *memory, Mem_Size size);
 
 void*
-allocate(Memory_Arena *arena, Mem_Size size, U16 alignment, bool is_temprary = false);
+allocate(Memory_Arena *arena, Mem_Size size, U16 alignment, Temprary_Memory_Arena *parent = nullptr);
+
+// Temprary Memory Arena
 
 struct Temprary_Memory_Arena
 {
     Memory_Arena *arena;
     Mem_Size offset;
+
+    // todo(amer): this data member is used for debugging purposes only and
+    // should be used accessed non-shipping builds only
+    Temprary_Memory_Arena *parent;
 };
 
-Temprary_Memory_Arena
-begin_temprary_memory_arena(Memory_Arena *arena);
+void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena,
+                                 Memory_Arena *arena);
 
+// todo(amer): force inline
 inline internal_function void*
 allocate(Temprary_Memory_Arena *temprary_arena, Mem_Size size, U16 alignment)
 {
-    return allocate(temprary_arena->arena, size, alignment, true);
+    return allocate(temprary_arena->arena, size, alignment, temprary_arena);
 }
 
 void
 end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena);
 
-
+// Scoped Temprary Memory Arena
 
 struct Scoped_Temprary_Memory_Arena
 {
@@ -60,10 +69,11 @@ struct Scoped_Temprary_Memory_Arena
     ~Scoped_Temprary_Memory_Arena();
 };
 
+// todo(amer): force inline
 inline internal_function void*
-allocate(Scoped_Temprary_Memory_Arena *temprary_arena, Mem_Size size, U16 alignment)
+allocate(Scoped_Temprary_Memory_Arena *scoped_temprary_memory_arena, Mem_Size size, U16 alignment)
 {
-    return allocate(temprary_arena->temprary_arena.arena, size, alignment, true);
+    return allocate(scoped_temprary_memory_arena->temprary_arena.arena, size, alignment, &scoped_temprary_memory_arena->temprary_arena);
 }
 
 #define ArenaPush(ArenaPointer, Type)\
