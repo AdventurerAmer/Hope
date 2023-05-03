@@ -33,6 +33,8 @@ struct Vulkan_Swapchain_Support
 
     U32 present_mode_count;
     VkPresentModeKHR *present_modes;
+
+    VkFormat format;
 };
 
 struct Vulkan_Swapchain
@@ -53,6 +55,41 @@ struct Vulkan_Swapchain
     VkFramebuffer frame_buffers[HE_Max_Frames_In_Flight];
 };
 
+struct Vulkan_Graphics_Pipeline
+{
+    VkPipelineLayout layout;
+    VkPipeline handle;
+};
+
+struct Vector3
+{
+    F32 X;
+    F32 Y;
+    F32 Z;
+};
+
+struct Vector4
+{
+    F32 X;
+    F32 Y;
+    F32 Z;
+    F32 W;
+};
+
+struct Vertex
+{
+    Vector3 position;
+    Vector4 color;
+};
+
+struct Vulkan_Buffer
+{
+    VkBuffer handle;
+    VkDeviceMemory memory;
+    void *data;
+    U64 size;
+};
+
 struct Vulkan_Context
 {
     VkInstance instance;
@@ -70,11 +107,13 @@ struct Vulkan_Context
     Vulkan_Swapchain_Support swapchain_support;
     Vulkan_Swapchain swapchain;
 
+    VkRenderPass render_pass;
+
     VkShaderModule vertex_shader_module;
     VkShaderModule fragment_shader_module;
-    VkPipelineLayout pipeline_layout;
-    VkRenderPass render_pass;
-    VkPipeline graphics_pipeline;
+    Vulkan_Graphics_Pipeline graphics_pipeline;
+
+    Vulkan_Buffer vertex_buffer;
 
     VkCommandPool graphics_command_pool;
     VkCommandBuffer graphics_command_buffers[HE_Max_Frames_In_Flight];
@@ -83,7 +122,7 @@ struct Vulkan_Context
     VkFence frame_in_flight_fences[HE_Max_Frames_In_Flight];
 
     U32 frames_in_flight;
-    U32 current_frame_index;
+    U32 current_frame_in_flight_index;
 
 #if HE_VULKAN_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;

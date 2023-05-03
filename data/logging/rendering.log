@@ -1,8 +1,5 @@
-[Rendering-Trace]: Checking for Layer Manifest files in Registry at SOFTWARE\Khronos\Vulkan\ImplicitLayers
-[Rendering-Trace]: windows_add_json_entry: Located json file "C:\WINDOWS\System32\DriverStore\FileRepository\nv_dispi.inf_amd64_8156678a4c5d0913\nv-vk64.json" from PnP registry: E
-[Rendering-Trace]: Located json file "C:\Program Files\RenderDoc\renderdoc.json" from registry "HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\Vulkan\ImplicitLayers"
-[Rendering-Trace]: Located json file "C:\Program Files\NVIDIA Corporation\Nsight Graphics 2022.4.1\target\windows-desktop-nomad-x64\VK_LAYER_NV_nomad_release_public_2022_4_1.json" from registry "HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\Vulkan\ImplicitLayers"
-[Rendering-Trace]: Located json file "C:\Program Files\NVIDIA Corporation\Nsight Graphics 2022.4.1\target\windows-desktop-nomad-x64\VK_LAYER_NV_GPU_Trace_release_public_2022_4_1.json" from registry "HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\Vulkan\ImplicitLayers"
+[Rendering-Trace]: Validation Error: [ VUID-vkCmdDraw-None-04007 ] Object 0: handle = 0x2361945e720, type = VK_OBJECT_TYPE_COMMAND_BUFFER; Object 1: handle = 0x980f360000000011, type = VK_OBJECT_TYPE_PIPELINE; | MessageID = 0x9981c31b | vkCmdDraw: VkPipeline 0x980f360000000011[] expects that this Command Buffer's vertex binding Index 0 should be set via vkCmdBindVertexBuffers. This is because pVertexBindingDescriptions[0].binding value is 0. The Vulkan spec states: All vertex input bindings accessed via vertex input variables declared in the vertex shader entry point's interface must have either valid or VK_NULL_HANDLE buffers bound (https://vulkan.lunarg.com/doc/view/1.3.243.0/windows/1.3-extensions/vkspec.html#VUID-vkCmdDraw-None-04007)
+s\NVIDIA Corporation\Nsight Graphics 2022.4.1\target\windows-desktop-nomad-x64\VK_LAYER_NV_GPU_Trace_release_public_2022_4_1.json" from registry "HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\Vulkan\ImplicitLayers"
 [Rendering-Trace]: Located json file "C:\Program Files (x86)\Epic Games\Epic Online Services\managedArtifacts\98bc04bc842e4906993fd6d6644ffb8d\EOSOverlayVkLayer-Win64.json" from registry "HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\Vulkan\ImplicitLayers"
 [Rendering-Trace]: Located json file "C:\Program Files (x86)\Steam\SteamOverlayVulkanLayer64.json" from registry "HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\Vulkan\ImplicitLayers"
 [Rendering-Trace]: Located json file "C:\Program Files (x86)\Steam\SteamFossilizeVulkanLayer64.json" from registry "HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\Vulkan\ImplicitLayers"
@@ -61,7 +58,7 @@
 [Rendering-Trace]: Insert instance layer "VK_LAYER_KHRONOS_validation" (C:\VulkanSDK\1.3.243.0\Bin\.\VkLayer_khronos_validation.dll)
 [Rendering-Trace]: Insert instance layer "VK_LAYER_RTSS" (C:\Program Files (x86)\RivaTuner Statistics Server\Vulkan\.\RTSSVkLayer64.dll)
 [Rendering-Trace]: Insert instance layer "VK_LAYER_NV_optimus" (C:\WINDOWS\System32\DriverStore\FileRepository\nv_dispi.inf_amd64_8156678a4c5d0913\.\nvoglv64.dll)
-[Rendering-Trace]: Validation Information: [ UNASSIGNED-khronos-validation-createinstance-status-message ] Object 0: handle = 0x226e8a0a410, type = VK_OBJECT_TYPE_INSTANCE; | MessageID = 0xd7fa5f44 | Khronos Validation Layer Active:
+[Rendering-Trace]: Validation Information: [ UNASSIGNED-khronos-validation-createinstance-status-message ] Object 0: handle = 0x1bc8265b7a0, type = VK_OBJECT_TYPE_INSTANCE; | MessageID = 0xd7fa5f44 | Khronos Validation Layer Active:
     Settings File: None. Default location is C:\dev\cpp\Hope\data\vk_layer_settings.txt.
     Current Enables: None.
     Current Disables: None.
