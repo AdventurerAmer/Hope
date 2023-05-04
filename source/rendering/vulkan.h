@@ -61,6 +61,7 @@ struct Vulkan_Graphics_Pipeline
     VkPipeline handle;
 };
 
+// todo(amer): temprary
 struct Vector3
 {
     F32 X;
@@ -68,6 +69,7 @@ struct Vector3
     F32 Z;
 };
 
+// todo(amer): temprary
 struct Vector4
 {
     F32 X;
@@ -76,6 +78,7 @@ struct Vector4
     F32 W;
 };
 
+// todo(amer): temprary
 struct Vertex
 {
     Vector3 position;
@@ -114,6 +117,7 @@ struct Vulkan_Context
     Vulkan_Graphics_Pipeline graphics_pipeline;
 
     Vulkan_Buffer vertex_buffer;
+    Vulkan_Buffer index_buffer;
 
     VkCommandPool graphics_command_pool;
     VkCommandBuffer graphics_command_buffers[HE_Max_Frames_In_Flight];

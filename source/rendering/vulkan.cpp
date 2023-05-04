@@ -1020,9 +1020,17 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     };
 
     U64 vertex_size = sizeof(Vertex) * HE_ArrayCount(vertices);
+
     create_buffer(&context->vertex_buffer, context,
                   vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     copy_memory(context->vertex_buffer.data, vertices, vertex_size);
+
+    U32 indicies[3] = { 0, 1, 2 };
+    U64 index_size = sizeof(U32) * HE_ArrayCount(indicies);
+
+    create_buffer(&context->index_buffer, context,
+                  index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    copy_memory(context->index_buffer.data, indicies, index_size);
 
     VkCommandPoolCreateInfo graphics_command_pool_create_info
         = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
@@ -1116,13 +1124,15 @@ vulkan_draw(Vulkan_Context *context, U32 width, U32 height)
     }
 
     vkResetFences(context->logical_device, 1, &context->frame_in_flight_fences[current_frame_in_flight_index]);
-    vkResetCommandBuffer(context->graphics_command_buffers[current_frame_in_flight_index], 0);
+
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
+    vkResetCommandBuffer(command_buffer, 0);
 
     VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     command_buffer_begin_info.flags = 0;
     command_buffer_begin_info.pInheritanceInfo = 0;
 
-    vkBeginCommandBuffer(context->graphics_command_buffers[current_frame_in_flight_index],
+    vkBeginCommandBuffer(command_buffer,
                          &command_buffer_begin_info);
 
     VkClearValue clear_value = {};
@@ -1136,11 +1146,11 @@ vulkan_draw(Vulkan_Context *context, U32 width, U32 height)
     render_pass_begin_info.clearValueCount = 1;
     render_pass_begin_info.pClearValues = &clear_value;
 
-    vkCmdBeginRenderPass(context->graphics_command_buffers[current_frame_in_flight_index],
+    vkCmdBeginRenderPass(command_buffer,
                          &render_pass_begin_info,
                          VK_SUBPASS_CONTENTS_INLINE);
 
-    vkCmdBindPipeline(context->graphics_command_buffers[current_frame_in_flight_index],
+    vkCmdBindPipeline(command_buffer,
                       VK_PIPELINE_BIND_POINT_GRAPHICS,
                       context->graphics_pipeline.handle);
 
@@ -1151,7 +1161,7 @@ vulkan_draw(Vulkan_Context *context, U32 width, U32 height)
     viewport.height = (F32)context->swapchain.height;
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(context->graphics_command_buffers[current_frame_in_flight_index],
+    vkCmdSetViewport(command_buffer,
                      0, 1, &viewport);
 
     VkRect2D scissor = {};
@@ -1159,20 +1169,27 @@ vulkan_draw(Vulkan_Context *context, U32 width, U32 height)
     scissor.offset.y = 0;
     scissor.extent.width = context->swapchain.width;
     scissor.extent.height = context->swapchain.height;
-    vkCmdSetScissor(context->graphics_command_buffers[current_frame_in_flight_index],
+    vkCmdSetScissor(command_buffer,
                     0, 1, &scissor);
 
     VkBuffer vertex_buffers[] = { context->vertex_buffer.handle };
     VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(context->graphics_command_buffers[current_frame_in_flight_index],
+    vkCmdBindVertexBuffers(command_buffer,
                            0, 1, vertex_buffers, offsets);
 
-    U32 vertex_count = 3;
-    vkCmdDraw(context->graphics_command_buffers[current_frame_in_flight_index],
-              vertex_count, 1, 0, 0);
+    vkCmdBindIndexBuffer(command_buffer,
+                         context->index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
 
-    vkCmdEndRenderPass(context->graphics_command_buffers[current_frame_in_flight_index]);
-    vkEndCommandBuffer(context->graphics_command_buffers[current_frame_in_flight_index]);
+    // U32 vertex_count = 3;
+    // vkCmdDraw(command_buffer,
+    //           vertex_count, 1, 0, 0);
+
+    U32 index_count = 3;
+    vkCmdDrawIndexed(command_buffer,
+                     index_count, 1, 0, 0, 0);
+
+    vkCmdEndRenderPass(command_buffer);
+    vkEndCommandBuffer(command_buffer);
 
     VkPipelineStageFlags wait_stage =  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
@@ -1187,7 +1204,7 @@ vulkan_draw(Vulkan_Context *context, U32 width, U32 height)
     submit_info.pSignalSemaphores = &context->rendering_finished_semaphores[current_frame_in_flight_index];
 
     submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &context->graphics_command_buffers[current_frame_in_flight_index];
+    submit_info.pCommandBuffers = &command_buffer;
 
     vkQueueSubmit(context->graphics_queue, 1, &submit_info, context->frame_in_flight_fences[current_frame_in_flight_index]);
 
@@ -1230,6 +1247,7 @@ deinit_vulkan(Vulkan_Context *context)
     vkDeviceWaitIdle(context->logical_device);
 
     destroy_buffer(&context->vertex_buffer, context->logical_device);
+    destroy_buffer(&context->index_buffer, context->logical_device);
 
     for (U32 sync_primitive_index = 0;
          sync_primitive_index < HE_Max_Frames_In_Flight;
