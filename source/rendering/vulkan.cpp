@@ -514,10 +514,26 @@ create_graphics_pipeline(Vulkan_Context *context,
     color_blend_state_create_info.blendConstants[2] = 0.0f;
     color_blend_state_create_info.blendConstants[3] = 0.0f;
 
+    VkDescriptorSetLayoutBinding descriptor_layout_bindings = {};
+    descriptor_layout_bindings.binding = 0;
+    descriptor_layout_bindings.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptor_layout_bindings.descriptorCount = 1;
+    descriptor_layout_bindings.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info =
+        { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+    descriptor_set_layout_create_info.bindingCount = 1;
+    descriptor_set_layout_create_info.pBindings = &descriptor_layout_bindings;
+
+    CheckVkResult(vkCreateDescriptorSetLayout(context->logical_device,
+                                              &descriptor_set_layout_create_info,
+                                              nullptr,
+                                              &context->graphics_pipeline.descriptor_set_layout));
+
     VkPipelineLayoutCreateInfo pipeline_layout_create_info =
         { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-    pipeline_layout_create_info.setLayoutCount = 0;
-    pipeline_layout_create_info.pSetLayouts = nullptr;
+    pipeline_layout_create_info.setLayoutCount = 1;
+    pipeline_layout_create_info.pSetLayouts = &context->graphics_pipeline.descriptor_set_layout;
     pipeline_layout_create_info.pushConstantRangeCount = 0;
     pipeline_layout_create_info.pPushConstantRanges = nullptr;
 
@@ -556,6 +572,7 @@ void destroy_graphics_pipeline(VkDevice logical_device, Vulkan_Graphics_Pipeline
     HE_Assert(logical_device != VK_NULL_HANDLE);
     HE_Assert(graphics_pipeline);
 
+    vkDestroyDescriptorSetLayout(logical_device, graphics_pipeline->descriptor_set_layout, nullptr);
     vkDestroyPipelineLayout(logical_device, graphics_pipeline->layout, nullptr);
     vkDestroyPipeline(logical_device, graphics_pipeline->handle, nullptr);
 }
@@ -1023,6 +1040,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     create_buffer(&context->vertex_buffer, context,
                   vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+
     copy_memory(context->vertex_buffer.data, vertices, vertex_size);
 
     U32 indicies[3] = { 0, 1, 2 };
@@ -1030,7 +1048,70 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     create_buffer(&context->index_buffer, context,
                   index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
     copy_memory(context->index_buffer.data, indicies, index_size);
+
+    for (U32 frame_index = 0; frame_index < HE_Max_Frames_In_Flight; frame_index++)
+    {
+        Vulkan_Buffer *global_uniform_buffer = &context->global_uniform_buffers[frame_index];
+        create_buffer(global_uniform_buffer, context, sizeof(Global_Uniform_Buffer), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+
+        Global_Uniform_Buffer global_uniform_buffer_data = {};
+        global_uniform_buffer_data.offset = { (frame_index + 1) * 0.1f, (frame_index + 1) * 0.1f };
+        copy_memory(global_uniform_buffer->data,
+                    &global_uniform_buffer_data,
+                    sizeof(Global_Uniform_Buffer));
+    }
+
+    VkDescriptorPoolSize pool_size = {};
+    pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    pool_size.descriptorCount = HE_Max_Frames_In_Flight;
+
+    VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    descriptor_pool_create_info.poolSizeCount = 1;
+    descriptor_pool_create_info.pPoolSizes = &pool_size;
+    descriptor_pool_create_info.maxSets = HE_Max_Frames_In_Flight;
+
+    CheckVkResult(vkCreateDescriptorPool(context->logical_device,
+                                         &descriptor_pool_create_info,
+                                         nullptr, &context->descriptor_pool));
+
+    VkDescriptorSetLayout descriptor_set_layouts[HE_Max_Frames_In_Flight] = {};
+    for (U32 frame_index = 0;
+         frame_index < HE_Max_Frames_In_Flight;
+         frame_index++)
+    {
+        descriptor_set_layouts[frame_index] = context->graphics_pipeline.descriptor_set_layout;
+    }
+
+    VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    descriptor_set_allocation_info.descriptorPool = context->descriptor_pool;
+    descriptor_set_allocation_info.descriptorSetCount = HE_Max_Frames_In_Flight;
+    descriptor_set_allocation_info.pSetLayouts = descriptor_set_layouts;
+
+    CheckVkResult(vkAllocateDescriptorSets(context->logical_device,
+                                           &descriptor_set_allocation_info,
+                                           context->descriptor_sets));
+
+    for (U32 frame_index = 0;
+         frame_index < HE_Max_Frames_In_Flight;
+         frame_index++)
+    {
+        VkDescriptorBufferInfo descriptor_buffer_info = {};
+        descriptor_buffer_info.buffer = context->global_uniform_buffers[frame_index].handle;
+        descriptor_buffer_info.offset = 0;
+        descriptor_buffer_info.range = sizeof(Global_Uniform_Buffer);
+
+        VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write_descriptor_set.dstSet = context->descriptor_sets[frame_index];
+        write_descriptor_set.dstBinding = 0;
+        write_descriptor_set.dstArrayElement = 0;
+        write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        write_descriptor_set.descriptorCount = 1;
+        write_descriptor_set.pBufferInfo = &descriptor_buffer_info;
+
+        vkUpdateDescriptorSets(context->logical_device, 1, &write_descriptor_set, 0, nullptr);
+    }
 
     VkCommandPoolCreateInfo graphics_command_pool_create_info
         = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
@@ -1180,9 +1261,12 @@ vulkan_draw(Vulkan_Context *context, U32 width, U32 height)
     vkCmdBindIndexBuffer(command_buffer,
                          context->index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
 
-    // U32 vertex_count = 3;
-    // vkCmdDraw(command_buffer,
-    //           vertex_count, 1, 0, 0);
+    vkCmdBindDescriptorSets(command_buffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            context->graphics_pipeline.layout,
+                            0, 1,
+                            &context->descriptor_sets[current_frame_in_flight_index],
+                            0, nullptr);
 
     U32 index_count = 3;
     vkCmdDrawIndexed(command_buffer,
@@ -1246,23 +1330,27 @@ deinit_vulkan(Vulkan_Context *context)
 {
     vkDeviceWaitIdle(context->logical_device);
 
+    vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, nullptr);
+
     destroy_buffer(&context->vertex_buffer, context->logical_device);
     destroy_buffer(&context->index_buffer, context->logical_device);
 
-    for (U32 sync_primitive_index = 0;
-         sync_primitive_index < HE_Max_Frames_In_Flight;
-         sync_primitive_index++)
+    for (U32 frame_index = 0;
+         frame_index < HE_Max_Frames_In_Flight;
+         frame_index++)
     {
+        destroy_buffer(&context->global_uniform_buffers[frame_index], context->logical_device);
+
         vkDestroySemaphore(context->logical_device,
-                           context->image_available_semaphores[sync_primitive_index],
+                           context->image_available_semaphores[frame_index],
                            nullptr);
 
         vkDestroySemaphore(context->logical_device,
-                           context->rendering_finished_semaphores[sync_primitive_index],
+                           context->rendering_finished_semaphores[frame_index],
                            nullptr);
 
         vkDestroyFence(context->logical_device,
-                       context->frame_in_flight_fences[sync_primitive_index],
+                       context->frame_in_flight_fences[frame_index],
                        nullptr);
     }
 

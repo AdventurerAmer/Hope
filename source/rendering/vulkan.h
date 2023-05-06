@@ -24,7 +24,7 @@
 
 #endif
 
-#define HE_Max_Frames_In_Flight 3
+#define HE_Max_Frames_In_Flight 2
 
 struct Vulkan_Swapchain_Support
 {
@@ -57,6 +57,7 @@ struct Vulkan_Swapchain
 
 struct Vulkan_Graphics_Pipeline
 {
+    VkDescriptorSetLayout descriptor_set_layout;
     VkPipelineLayout layout;
     VkPipeline handle;
 };
@@ -83,6 +84,11 @@ struct Vertex
 {
     Vector3 position;
     Vector4 color;
+};
+
+struct Global_Uniform_Buffer
+{
+    Vector3 offset;
 };
 
 struct Vulkan_Buffer
@@ -124,6 +130,11 @@ struct Vulkan_Context
     VkSemaphore image_available_semaphores[HE_Max_Frames_In_Flight];
     VkSemaphore rendering_finished_semaphores[HE_Max_Frames_In_Flight];
     VkFence frame_in_flight_fences[HE_Max_Frames_In_Flight];
+
+    Vulkan_Buffer global_uniform_buffers[HE_Max_Frames_In_Flight];
+
+    VkDescriptorPool descriptor_pool;
+    VkDescriptorSet descriptor_sets[HE_Max_Frames_In_Flight];
 
     U32 frames_in_flight;
     U32 current_frame_in_flight_index;
