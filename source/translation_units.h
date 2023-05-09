@@ -8,3 +8,4 @@
 
 // rendering module
 #include "rendering/vulkan.cpp"
+#include "rendering/renderer.cpp"

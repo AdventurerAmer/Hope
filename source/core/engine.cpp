@@ -43,9 +43,17 @@ startup(Engine *engine, const Engine_Configuration &configuration,
         platform_toggle_fullscreen(engine);
     }
 
-    engine->vulkan_context = ArenaPush(&engine->memory.permanent_arena, Vulkan_Context);
-    bool vulkan_inited = init_vulkan(engine->vulkan_context, engine, &engine->memory.permanent_arena);
-    if (!vulkan_inited)
+    bool requested = request_renderer(RenderingAPI_Vulkan, &engine->renderer);
+    if (!requested)
+    {
+        return false;
+    }
+
+    Renderer *renderer = &engine->renderer;
+    bool renderer_inited = renderer->init(&engine->renderer_state,
+                                          engine,
+                                          &engine->memory.permanent_arena);
+    if (!renderer_inited)
     {
         return false;
     }
@@ -74,16 +82,16 @@ game_loop(Engine *engine, F32 delta_time)
 
     if (!engine->is_minimized)
     {
-        vulkan_draw(engine->vulkan_context, engine->back_buffer_width, engine->back_buffer_height);
+        engine->renderer.draw(&engine->renderer_state);
     }
 }
 
 internal_function void
 shutdown(Engine *engine)
 {
-    deinit_vulkan(engine->vulkan_context);
-
     (void)engine;
+
+    engine->renderer.deinit(&engine->renderer_state);
     // todo(amer): logging should only be enabled in non-shipping builds
     Logger *logger = &debug_state.main_logger;
     deinit_logger(logger);

@@ -3,6 +3,8 @@
 #include "core/debugging.h"
 #include "core/memory.h"
 
+static Vulkan_Context vulkan_context;
+
 internal_function VKAPI_ATTR VkBool32 VKAPI_CALL
 vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
                       VkDebugUtilsMessageTypeFlagsEXT message_type,
@@ -1159,7 +1161,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 }
 
 internal_function void
-vulkan_draw(Vulkan_Context *context, U32 width, U32 height)
+vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context)
 {
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
 
@@ -1167,13 +1169,14 @@ vulkan_draw(Vulkan_Context *context, U32 width, U32 height)
                     1, &context->frame_in_flight_fences[current_frame_in_flight_index],
                     VK_TRUE, UINT64_MAX);
 
-    if ((width != context->swapchain.width || height != context->swapchain.height) &&
-        width != 0 && height != 0)
+    if ((renderer_state->back_buffer_width != context->swapchain.width ||
+         renderer_state->back_buffer_height != context->swapchain.height) &&
+        renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
     {
         recreate_swapchain(context,
                            &context->swapchain,
-                           width,
-                           height,
+                           renderer_state->back_buffer_width,
+                           renderer_state->back_buffer_height,
                            context->swapchain.present_mode);
         return;
     }
@@ -1188,12 +1191,12 @@ vulkan_draw(Vulkan_Context *context, U32 width, U32 height)
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
     {
-        if (width != 0 && height != 0)
+        if (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
         {
             recreate_swapchain(context,
                                &context->swapchain,
-                               width,
-                               height,
+                               renderer_state->back_buffer_width,
+                               renderer_state->back_buffer_height,
                                context->swapchain.present_mode);
 
         }
@@ -1304,12 +1307,12 @@ vulkan_draw(Vulkan_Context *context, U32 width, U32 height)
     result = vkQueuePresentKHR(context->present_queue, &present_info);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
     {
-        if (width != 0 && height != 0)
+        if (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
         {
             recreate_swapchain(context,
                                &context->swapchain,
-                               width,
-                               height,
+                               renderer_state->back_buffer_width,
+                               renderer_state->back_buffer_height,
                                context->swapchain.present_mode);
         }
     }
@@ -1377,4 +1380,39 @@ deinit_vulkan(Vulkan_Context *context)
 #endif
 
     vkDestroyInstance(context->instance, nullptr);
+}
+
+internal_function bool
+vulkan_renderer_init(Renderer_State *renderer_state,
+                     Engine *engine,
+                     Memory_Arena *arena)
+{
+    (void)renderer_state;
+    return init_vulkan(&vulkan_context, engine, arena);
+}
+
+internal_function void
+vulkan_renderer_deinit(Renderer_State *renderer_state)
+{
+    (void)renderer_state;
+    deinit_vulkan(&vulkan_context);
+}
+
+internal_function void
+vulkan_renderer_on_resize(Renderer_State *renderer_state,
+                          U32 width,
+                          U32 height)
+{
+    (void)renderer_state;
+    recreate_swapchain(&vulkan_context,
+                       &vulkan_context.swapchain,
+                       width,
+                       height,
+                       vulkan_context.swapchain.present_mode);
+}
+
+internal_function void
+vulkan_renderer_draw(Renderer_State *renderer_state)
+{
+    vulkan_draw(renderer_state, &vulkan_context);
 }

@@ -65,18 +65,18 @@ struct Vulkan_Graphics_Pipeline
 // todo(amer): temprary
 struct Vector3
 {
-    F32 X;
-    F32 Y;
-    F32 Z;
+    F32 x;
+    F32 y;
+    F32 z;
 };
 
 // todo(amer): temprary
 struct Vector4
 {
-    F32 X;
-    F32 Y;
-    F32 Z;
-    F32 W;
+    F32 x;
+    F32 y;
+    F32 z;
+    F32 w;
 };
 
 // todo(amer): temprary
@@ -145,10 +145,15 @@ struct Vulkan_Context
 };
 
 internal_function bool
-init_vulkan(Vulkan_Context *context, struct Engine *engine, struct Memory_Arena *arena);
+vulkan_renderer_init(struct Renderer_State *renderer_State,
+                     struct Engine *engine,
+                     struct Memory_Arena *arena);
 
 internal_function void
-vulkan_draw(Vulkan_Context *context, U32 width, U32 height);
+vulkan_renderer_deinit(struct Renderer_State *renderer_State);
 
 internal_function void
-deinit_vulkan(Vulkan_Context *context);
+vulkan_renderer_on_resize(struct Renderer_State *renderer_State, U32 width, U32 height);
+
+internal_function void
+vulkan_renderer_draw(struct Renderer_State *renderer_State);

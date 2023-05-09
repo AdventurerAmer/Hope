@@ -208,10 +208,18 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
             U32 client_height = u64_to_u32(l_param >> 16);
             win32_set_window_client_size(win32_state, client_width, client_height);
 
+            win32_state->engine.renderer_state.back_buffer_width = client_width;
+            win32_state->engine.renderer_state.back_buffer_height = client_height;
+
+            if (win32_state->engine.renderer.on_resize)
+            {
+                win32_state->engine.renderer.on_resize(&win32_state->engine.renderer_state,
+                                                       client_width,
+                                                       client_height);
+            }
+
             event.width = u32_to_u16(client_width);
             event.height = u32_to_u16(client_height);
-            win32_state->engine.back_buffer_width = client_width;
-            win32_state->engine.back_buffer_height = client_height;
             win32_state->engine.game_code.on_event(&win32_state->engine, event);
         } break;
 

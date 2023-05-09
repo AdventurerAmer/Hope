@@ -3,8 +3,7 @@
 #include "platform.h"
 #include "logging.h"
 #include "memory.h"
-
-// #include "rendering/vulkan.h"
+#include "rendering/renderer.h"
 
 struct Game_Memory
 {
@@ -103,12 +102,9 @@ struct Engine
     bool is_minimized;
     bool show_cursor;
     WindowMode window_mode;
-    U32 back_buffer_width;
-    U32 back_buffer_height;
 
-
-    struct Vulkan_Context *vulkan_context;
-
+    Renderer_State renderer_state;
+    Renderer renderer;
     /*
         note(amer): this is a platform specific pointer to Win32_State on windows
     */
