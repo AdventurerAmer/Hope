@@ -15,15 +15,15 @@ struct Renderer_State
 
 struct Renderer
 {
-    bool (*init)(struct Renderer_State *state,
+    bool (*init)(struct Renderer_State *renderer_state,
                  struct Engine *engine,
                  struct Memory_Arena *arena);
 
-    void (*deinit)(struct Renderer_State *state);
+    void (*deinit)(struct Renderer_State *renderer_state);
 
-    void (*on_resize)(struct Renderer_State *state, U32 width, U32 height);
+    void (*on_resize)(struct Renderer_State *renderer_state, U32 width, U32 height);
 
-    void (*draw)(struct Renderer_State *state);
+    void (*draw)(struct Renderer_State *renderer_state);
 };
 
 internal_function bool

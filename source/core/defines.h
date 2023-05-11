@@ -65,7 +65,7 @@ typedef size_t Mem_Size;
 #define HE_Max(A, B) ((A) > (B) ? (A) : (B))
 #define HE_Clamp(X, A, B) HE_Min(HE_Max(A, X), B)
 
-// TODO(amer): test other compilers, platforms, arhitectures...
+// todo(amer): test other compilers, platforms, arhitectures...
 // Compiler Macros Wiki: https://sourceforge.net/p/predef/wiki/Home/
 
 #if defined(__clang__)

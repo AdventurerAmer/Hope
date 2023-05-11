@@ -24,7 +24,7 @@
 
 #endif
 
-#define HE_Max_Frames_In_Flight 2
+#define MAX_FRAMES_IN_FLIGHT 3
 
 struct Vulkan_Swapchain_Support
 {
@@ -46,13 +46,10 @@ struct Vulkan_Swapchain
     VkFormat image_format;
     VkColorSpaceKHR image_color_space;
 
-    // todo(amer): we only set the min image count
-    // and vulkan could create more so we need a dynamic allocation
-    // here using an array and asserting for now....
     U32 image_count;
-    VkImage images[HE_Max_Frames_In_Flight];
-    VkImageView image_views[HE_Max_Frames_In_Flight];
-    VkFramebuffer frame_buffers[HE_Max_Frames_In_Flight];
+    VkImage *images;
+    VkImageView *image_views;
+    VkFramebuffer *frame_buffers;
 };
 
 struct Vulkan_Graphics_Pipeline
@@ -126,18 +123,20 @@ struct Vulkan_Context
     Vulkan_Buffer index_buffer;
 
     VkCommandPool graphics_command_pool;
-    VkCommandBuffer graphics_command_buffers[HE_Max_Frames_In_Flight];
-    VkSemaphore image_available_semaphores[HE_Max_Frames_In_Flight];
-    VkSemaphore rendering_finished_semaphores[HE_Max_Frames_In_Flight];
-    VkFence frame_in_flight_fences[HE_Max_Frames_In_Flight];
+    VkCommandBuffer graphics_command_buffers[MAX_FRAMES_IN_FLIGHT];
+    VkSemaphore image_available_semaphores[MAX_FRAMES_IN_FLIGHT];
+    VkSemaphore rendering_finished_semaphores[MAX_FRAMES_IN_FLIGHT];
+    VkFence frame_in_flight_fences[MAX_FRAMES_IN_FLIGHT];
 
-    Vulkan_Buffer global_uniform_buffers[HE_Max_Frames_In_Flight];
+    Vulkan_Buffer global_uniform_buffers[MAX_FRAMES_IN_FLIGHT];
 
     VkDescriptorPool descriptor_pool;
-    VkDescriptorSet descriptor_sets[HE_Max_Frames_In_Flight];
+    VkDescriptorSet descriptor_sets[MAX_FRAMES_IN_FLIGHT];
 
     U32 frames_in_flight;
     U32 current_frame_in_flight_index;
+
+    Free_List_Allocator *allocator;
 
 #if HE_VULKAN_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;

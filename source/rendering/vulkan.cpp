@@ -32,7 +32,7 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *ar
         return VK_NULL_HANDLE;
     }
 
-    VkPhysicalDevice *physical_devices = ArenaPushArray(&temp_arena,
+    VkPhysicalDevice *physical_devices = AllocateArray(&temp_arena,
                                                         VkPhysicalDevice,
                                                         physical_device_count);
     HE_Assert(physical_devices);
@@ -64,7 +64,7 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *ar
         bool can_physical_device_do_graphics = false;
         bool can_physical_device_present = false;
 
-        VkQueueFamilyProperties *queue_families = ArenaPushArray(&temp_arena,
+        VkQueueFamilyProperties *queue_families = AllocateArray(&temp_arena,
                                                                  VkQueueFamilyProperties,
                                                                  queue_family_count);
 
@@ -132,7 +132,7 @@ init_swapchain_support(Vulkan_Context *context,
 
     HE_Assert(swapchain_support->surface_format_count);
 
-    swapchain_support->surface_formats = ArenaPushArray(arena,
+    swapchain_support->surface_formats = AllocateArray(arena,
                                                         VkSurfaceFormatKHR,
                                                         swapchain_support->surface_format_count);
 
@@ -149,7 +149,7 @@ init_swapchain_support(Vulkan_Context *context,
 
     HE_Assert(swapchain_support->present_mode_count);
 
-    swapchain_support->present_modes = ArenaPushArray(arena,
+    swapchain_support->present_modes = AllocateArray(arena,
                                                       VkPresentModeKHR,
                                                       swapchain_support->present_mode_count);
 
@@ -301,8 +301,9 @@ create_swapchain(Vulkan_Context *context,
                                           &swapchain->image_count,
                                           nullptr));
 
-    // todo(amer): general purpose allocation here this is a hack we could have images more then HE_ArrayCount(swapchain->images)
-    HE_Assert(swapchain->image_count <= HE_ArrayCount(swapchain->images));
+    swapchain->images = AllocateArray(context->allocator, VkImage, swapchain->image_count);
+    swapchain->image_views = AllocateArray(context->allocator, VkImageView, swapchain->image_count);
+    swapchain->frame_buffers = AllocateArray(context->allocator, VkFramebuffer, swapchain->image_count);
 
     CheckVkResult(vkGetSwapchainImagesKHR(context->logical_device,
                                           swapchain->handle,
@@ -353,26 +354,30 @@ create_swapchain(Vulkan_Context *context,
 }
 
 internal_function void
-destroy_swapchain(VkDevice logical_device, Vulkan_Swapchain *swapchain)
+destroy_swapchain(Vulkan_Context *context, Vulkan_Swapchain *swapchain)
 {
     for (U32 image_index = 0;
          image_index < swapchain->image_count;
          image_index++)
     {
-        vkDestroyFramebuffer(logical_device,
+        vkDestroyFramebuffer(context->logical_device,
                              swapchain->frame_buffers[image_index],
                              nullptr);
 
         swapchain->frame_buffers[image_index] = VK_NULL_HANDLE;
 
-        vkDestroyImageView(logical_device,
+        vkDestroyImageView(context->logical_device,
                            swapchain->image_views[image_index],
                            nullptr);
 
         swapchain->image_views[image_index] = VK_NULL_HANDLE;
     }
 
-    vkDestroySwapchainKHR(logical_device, swapchain->handle, nullptr);
+    deallocate(context->allocator, swapchain->images);
+    deallocate(context->allocator, swapchain->image_views);
+    deallocate(context->allocator, swapchain->frame_buffers);
+
+    vkDestroySwapchainKHR(context->logical_device, swapchain->handle, nullptr);
     swapchain->handle = VK_NULL_HANDLE;
 }
 
@@ -381,7 +386,7 @@ recreate_swapchain(Vulkan_Context *context, Vulkan_Swapchain *swapchain,
                    U32 width, U32 height, VkPresentModeKHR present_mode)
 {
     vkDeviceWaitIdle(context->logical_device);
-    destroy_swapchain(context->logical_device, swapchain);
+    destroy_swapchain(context, swapchain);
     create_swapchain(context, width, height,
                      swapchain->image_count, present_mode, swapchain);
 }
@@ -650,6 +655,8 @@ destroy_buffer(Vulkan_Buffer *buffer,
 internal_function bool
 init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 {
+    context->allocator = &engine->memory.free_list_allocator;
+
     const char *required_instance_extensions[] =
     {
         "VK_KHR_surface",
@@ -755,7 +762,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                                  &queue_family_count,
                                                  nullptr);
 
-        VkQueueFamilyProperties *queue_families = ArenaPushArray(&temp_arena,
+        VkQueueFamilyProperties *queue_families = AllocateArray(&temp_arena,
                                                                  VkQueueFamilyProperties,
                                                                  queue_family_count);
 
@@ -815,7 +822,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         }
 
         F32 queue_priority = 1.0f;
-        VkDeviceQueueCreateInfo *queue_create_infos = ArenaPushArray(&temp_arena,
+        VkDeviceQueueCreateInfo *queue_create_infos = AllocateArray(&temp_arena,
                                                                      VkDeviceQueueCreateInfo,
                                                                      2);
 
@@ -847,7 +854,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                              nullptr, &extension_property_count,
                                              nullptr);
 
-        VkExtensionProperties *extension_properties = ArenaPushArray(&temp_arena,
+        VkExtensionProperties *extension_properties = AllocateArray(&temp_arena,
                                                                      VkExtensionProperties,
                                                                      extension_property_count);
 
@@ -969,7 +976,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     U32 width = 1280;
     U32 height = 720;
     VkPresentModeKHR present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
-    U32 min_image_count = HE_Max_Frames_In_Flight;
+    U32 min_image_count = MAX_FRAMES_IN_FLIGHT;
     bool swapchain_created = create_swapchain(context, width, height,
                                               min_image_count, present_mode, &context->swapchain);
     HE_Assert(swapchain_created);
@@ -983,7 +990,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
         if (result.success)
         {
-            U8 *data = ArenaPushArray(&temp_arena, U8, result.size);
+            U8 *data = AllocateArray(&temp_arena, U8, result.size);
             HE_Assert(data);
 
             if (platform_end_read_entire_file(&result, data))
@@ -1008,7 +1015,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             platform_begin_read_entire_file("shaders/basic.frag.spv");
         if (result.success)
         {
-            U8 *data = ArenaPushArray(&temp_arena, U8, result.size);
+            U8 *data = AllocateArray(&temp_arena, U8, result.size);
             HE_Assert(data);
             if (platform_end_read_entire_file(&result, data))
             {
@@ -1053,7 +1060,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     copy_memory(context->index_buffer.data, indicies, index_size);
 
-    for (U32 frame_index = 0; frame_index < HE_Max_Frames_In_Flight; frame_index++)
+    for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
         Vulkan_Buffer *global_uniform_buffer = &context->global_uniform_buffers[frame_index];
         create_buffer(global_uniform_buffer, context, sizeof(Global_Uniform_Buffer), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
@@ -1067,20 +1074,20 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     VkDescriptorPoolSize pool_size = {};
     pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    pool_size.descriptorCount = HE_Max_Frames_In_Flight;
+    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
 
     VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
     descriptor_pool_create_info.poolSizeCount = 1;
     descriptor_pool_create_info.pPoolSizes = &pool_size;
-    descriptor_pool_create_info.maxSets = HE_Max_Frames_In_Flight;
+    descriptor_pool_create_info.maxSets = MAX_FRAMES_IN_FLIGHT;
 
     CheckVkResult(vkCreateDescriptorPool(context->logical_device,
                                          &descriptor_pool_create_info,
                                          nullptr, &context->descriptor_pool));
 
-    VkDescriptorSetLayout descriptor_set_layouts[HE_Max_Frames_In_Flight] = {};
+    VkDescriptorSetLayout descriptor_set_layouts[MAX_FRAMES_IN_FLIGHT] = {};
     for (U32 frame_index = 0;
-         frame_index < HE_Max_Frames_In_Flight;
+         frame_index < MAX_FRAMES_IN_FLIGHT;
          frame_index++)
     {
         descriptor_set_layouts[frame_index] = context->graphics_pipeline.descriptor_set_layout;
@@ -1088,7 +1095,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
     descriptor_set_allocation_info.descriptorPool = context->descriptor_pool;
-    descriptor_set_allocation_info.descriptorSetCount = HE_Max_Frames_In_Flight;
+    descriptor_set_allocation_info.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
     descriptor_set_allocation_info.pSetLayouts = descriptor_set_layouts;
 
     CheckVkResult(vkAllocateDescriptorSets(context->logical_device,
@@ -1096,7 +1103,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                            context->descriptor_sets));
 
     for (U32 frame_index = 0;
-         frame_index < HE_Max_Frames_In_Flight;
+         frame_index < MAX_FRAMES_IN_FLIGHT;
          frame_index++)
     {
         VkDescriptorBufferInfo descriptor_buffer_info = {};
@@ -1134,7 +1141,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                            context->graphics_command_buffers));
 
     for (U32 sync_primitive_index = 0;
-         sync_primitive_index < HE_Max_Frames_In_Flight;
+         sync_primitive_index < MAX_FRAMES_IN_FLIGHT;
          sync_primitive_index++)
     {
         CheckVkResult(vkCreateSemaphore(context->logical_device,
@@ -1156,7 +1163,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     context->current_frame_in_flight_index = 0;
     context->frames_in_flight = 2;
-    HE_Assert(context->frames_in_flight <= HE_Max_Frames_In_Flight);
+    HE_Assert(context->frames_in_flight <= MAX_FRAMES_IN_FLIGHT);
     return true;
 }
 
@@ -1339,7 +1346,7 @@ deinit_vulkan(Vulkan_Context *context)
     destroy_buffer(&context->index_buffer, context->logical_device);
 
     for (U32 frame_index = 0;
-         frame_index < HE_Max_Frames_In_Flight;
+         frame_index < MAX_FRAMES_IN_FLIGHT;
          frame_index++)
     {
         destroy_buffer(&context->global_uniform_buffers[frame_index], context->logical_device);
@@ -1359,7 +1366,7 @@ deinit_vulkan(Vulkan_Context *context)
 
     vkDestroyCommandPool(context->logical_device, context->graphics_command_pool, nullptr);
 
-    destroy_swapchain(context->logical_device, &context->swapchain);
+    destroy_swapchain(context, &context->swapchain);
     destroy_graphics_pipeline(context->logical_device, &context->graphics_pipeline);
 
     vkDestroyRenderPass(context->logical_device, context->render_pass, nullptr);

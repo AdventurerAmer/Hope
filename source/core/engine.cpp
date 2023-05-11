@@ -34,6 +34,11 @@ startup(Engine *engine, const Engine_Configuration &configuration,
     engine->memory.transient_memory_size = configuration.transient_memory_size;
     engine->memory.transient_arena = create_memory_arena(transient_memory,
                                                          configuration.transient_memory_size);
+
+    init_free_list_allocator(&engine->memory.free_list_allocator,
+                             &engine->memory.transient_arena,
+                             HE_MegaBytes(128));
+
     engine->show_cursor = configuration.show_cursor;
     engine->window_mode = configuration.window_mode;
     engine->platform_state = platform_state;

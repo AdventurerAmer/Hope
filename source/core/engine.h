@@ -3,6 +3,7 @@
 #include "platform.h"
 #include "logging.h"
 #include "memory.h"
+
 #include "rendering/renderer.h"
 
 struct Game_Memory
@@ -15,6 +16,7 @@ struct Game_Memory
 
     Memory_Arena permanent_arena;
     Memory_Arena transient_arena;
+    Free_List_Allocator free_list_allocator;
 };
 
 struct Engine;
