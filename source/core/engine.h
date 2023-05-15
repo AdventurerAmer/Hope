@@ -3,6 +3,7 @@
 #include "platform.h"
 #include "logging.h"
 #include "memory.h"
+#include "math.h"
 
 #include "rendering/renderer.h"
 

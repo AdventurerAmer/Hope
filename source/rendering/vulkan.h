@@ -2,6 +2,13 @@
 
 #include "core/defines.h"
 
+#include <glm/vec3.hpp> // glm::vec3
+#include <glm/vec4.hpp> // glm::vec4
+#include <glm/mat4x4.hpp> // glm::mat4
+#include <glm/ext/matrix_transform.hpp> // glm::translate, glm::rotate, glm::scale
+#include <glm/ext/matrix_clip_space.hpp> // glm::perspective
+#include <glm/ext/scalar_constants.hpp> // glm::pi
+
 #if HE_OS_WINDOWS
 #define VK_USE_PLATFORM_WIN32_KHR
 #endif
@@ -15,7 +22,7 @@
 #define CheckVkResult(VulkanFunctionCall)\
 {\
     VkResult vk_result = VulkanFunctionCall;\
-    HE_Assert(vk_result == VK_SUCCESS);\
+    Assert(vk_result == VK_SUCCESS);\
 }
 
 #else
@@ -59,33 +66,17 @@ struct Vulkan_Graphics_Pipeline
     VkPipeline handle;
 };
 
-// todo(amer): temprary
-struct Vector3
-{
-    F32 x;
-    F32 y;
-    F32 z;
-};
-
-// todo(amer): temprary
-struct Vector4
-{
-    F32 x;
-    F32 y;
-    F32 z;
-    F32 w;
-};
-
-// todo(amer): temprary
 struct Vertex
 {
-    Vector3 position;
-    Vector4 color;
+    glm::vec3 position;
+    glm::vec4 color;
 };
 
 struct Global_Uniform_Buffer
 {
-    Vector3 offset;
+    alignas(16) glm::mat4 model;
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 projection;
 };
 
 struct Vulkan_Buffer
@@ -119,6 +110,7 @@ struct Vulkan_Context
     VkShaderModule fragment_shader_module;
     Vulkan_Graphics_Pipeline graphics_pipeline;
 
+    Vulkan_Buffer transfer_buffer;
     Vulkan_Buffer vertex_buffer;
     Vulkan_Buffer index_buffer;
 

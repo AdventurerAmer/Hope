@@ -7,7 +7,6 @@ set CommonFlags=-FC -Gm- -GR- -EHa- -nologo -Oi -I../source/ -W4 /wd4996 /wd4127
 set CommonDefines=-DHE_UNITY_BUILD=1
 set DebugConfig=-Z7 -MTd -Od
 set ReleaseConfig=-MT -O2
-set Config=%DebugConfig%
 set CommonLinkFlags=user32.lib -subsystem:windows -opt:ref /incremental:no
 set ExportedGameFunctions=/export:init_game /export:on_event /export:on_update
 set Includes=-I../third_party/include
@@ -19,10 +18,10 @@ set TimeStamp=%timestamp: =%
 del *.pdb > nul 2> nul
 
 rem engine
-start /b cl %CommonFlags% %CommonDefines% %Config% %Includes% /Fehope ../source/win32_platform.cpp /link %LibIncludes% %CommonLinkFlags% vulkan-1.lib
+cl %CommonFlags% %CommonDefines% %DebugConfig% %Includes% /Fehope ../source/win32_platform.cpp /link %LibIncludes% %CommonLinkFlags% vulkan-1.lib
 
 rem game
-start /b cl %CommonFlags% %CommonDefines% %Config% /Fegame ../source/game/game.cpp /LD /link /PDB:game_%TimeStamp%.pdb %CommonLinkFlags% %ExportedGameFunctions%
+cl %CommonFlags% %CommonDefines% %DebugConfig% /Fegame ../source/game/game.cpp /LD /link /PDB:game_%TimeStamp%.pdb %CommonLinkFlags% %ExportedGameFunctions%
 
 rem todo(amer): temprary just compiling shaders here for now...
 "../tools/glslc.exe" ../data/shaders/basic.vert -o ../data/shaders/basic.vert.spv

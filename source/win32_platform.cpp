@@ -70,7 +70,7 @@ win32_set_window_client_size(Win32_State *win32_state,
     window_rect.top = 0;
     window_rect.bottom = client_height;
 
-    HE_Assert(AdjustWindowRect(&window_rect, WS_OVERLAPPEDWINDOW, FALSE));
+    Assert(AdjustWindowRect(&window_rect, WS_OVERLAPPEDWINDOW, FALSE));
     win32_state->window_width = window_rect.right - window_rect.left;
     win32_state->window_height = window_rect.bottom - window_rect.top;
     win32_state->window_client_width = client_width;
@@ -127,7 +127,7 @@ platform_create_vulkan_surface(Engine *engine, void *instance)
 
     VkSurfaceKHR surface = 0;
     VkResult result = vkCreateWin32SurfaceKHR((VkInstance)instance, &surface_create_info, nullptr, &surface);
-    HE_Assert(result == VK_SUCCESS);
+    Assert(result == VK_SUCCESS);
     return surface;
 }
 
@@ -401,16 +401,16 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
     engine->is_running = started;
 
     LARGE_INTEGER performance_frequency;
-    HE_Assert(QueryPerformanceFrequency(&performance_frequency));
+    Assert(QueryPerformanceFrequency(&performance_frequency));
     S64 counts_per_second = performance_frequency.QuadPart;
 
     LARGE_INTEGER last_counter;
-    HE_Assert(QueryPerformanceCounter(&last_counter));
+    Assert(QueryPerformanceCounter(&last_counter));
 
     while (engine->is_running)
     {
         LARGE_INTEGER current_counter;
-        HE_Assert(QueryPerformanceCounter(&current_counter));
+        Assert(QueryPerformanceCounter(&current_counter));
 
         S64 elapsed_counts = current_counter.QuadPart - last_counter.QuadPart;
         F64 elapsed_time = (F64)elapsed_counts / (F64)counts_per_second;
@@ -569,14 +569,14 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
 internal_function void*
 platform_allocate_memory(U64 size)
 {
-    HE_Assert(size);
+    Assert(size);
     return VirtualAlloc(0, size, MEM_COMMIT, PAGE_READWRITE);
 }
 
 internal_function void
 platform_deallocate_memory(void *memory)
 {
-    HE_Assert(memory);
+    Assert(memory);
     VirtualFree(memory, 0, MEM_RELEASE);
 }
 
@@ -604,7 +604,7 @@ platform_get_file_size(Platform_File_Handle file_handle)
 {
     LARGE_INTEGER result = {};
     BOOL return_value = GetFileSizeEx(file_handle.win32_file_handle, &result);
-    HE_Assert(return_value);
+    Assert(return_value);
     return result.QuadPart;
 }
 
@@ -691,7 +691,7 @@ platform_report_error_and_exit(const char *message, ...)
 
     va_start(arg_list, message);
     S32 written = vsprintf(string_buffer, message, arg_list);
-    HE_Assert(written >= 0);
+    Assert(written >= 0);
 
     MessageBoxA(NULL, string_buffer, TEXT("Error"), MB_OK);
 
@@ -706,7 +706,7 @@ platform_debug_printf(const char *message, ...)
 
     va_start(arg_list, message);
     S32 written = vsprintf(string_buffer, message, arg_list);
-    HE_Assert(written >= 0);
+    Assert(written >= 0);
     OutputDebugStringA(string_buffer);
     va_end(arg_list);
 }

@@ -111,7 +111,7 @@ debug_printf(Logger *logger, Channel channel,
     va_start(arg_list, format);
 
     S32 written = vsnprintf(string_buffer, sizeof(string_buffer), format, arg_list);
-    HE_Assert(written >= 0);
+    Assert(written >= 0);
 
     Logging_Channel *main_channel = &logger->main_channel;
 

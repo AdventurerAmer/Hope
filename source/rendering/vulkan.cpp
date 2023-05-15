@@ -14,8 +14,8 @@ vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
     (void)message_severity;
     (void)message_type;
     (void)user_data;
-    HE_DebugPrintf(Rendering, Trace, "%s\n", callback_data->pMessage);
-    HE_Assert(message_severity != VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT);
+    DebugPrintf(Rendering, Trace, "%s\n", callback_data->pMessage);
+    Assert(message_severity != VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT);
     return VK_FALSE;
 }
 
@@ -35,7 +35,7 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *ar
     VkPhysicalDevice *physical_devices = AllocateArray(&temp_arena,
                                                         VkPhysicalDevice,
                                                         physical_device_count);
-    HE_Assert(physical_devices);
+    Assert(physical_devices);
 
     CheckVkResult(vkEnumeratePhysicalDevices(instance,
                                              &physical_device_count,
@@ -130,7 +130,7 @@ init_swapchain_support(Vulkan_Context *context,
                                          &swapchain_support->surface_format_count,
                                          nullptr);
 
-    HE_Assert(swapchain_support->surface_format_count);
+    Assert(swapchain_support->surface_format_count);
 
     swapchain_support->surface_formats = AllocateArray(arena,
                                                         VkSurfaceFormatKHR,
@@ -147,7 +147,7 @@ init_swapchain_support(Vulkan_Context *context,
                                               &swapchain_support->present_mode_count,
                                               nullptr);
 
-    HE_Assert(swapchain_support->present_mode_count);
+    Assert(swapchain_support->present_mode_count);
 
     swapchain_support->present_modes = AllocateArray(arena,
                                                       VkPresentModeKHR,
@@ -199,11 +199,11 @@ create_swapchain(Vulkan_Context *context,
                  VkPresentModeKHR present_mode,
                  Vulkan_Swapchain *swapchain)
 {
-    HE_Assert(context);
-    HE_Assert(width);
-    HE_Assert(height);
-    HE_Assert(min_image_count);
-    HE_Assert(swapchain);
+    Assert(context);
+    Assert(width);
+    Assert(height);
+    Assert(min_image_count);
+    Assert(swapchain);
 
     const Vulkan_Swapchain_Support *swapchain_support = &context->swapchain_support;
 
@@ -214,13 +214,13 @@ create_swapchain(Vulkan_Context *context,
                                               context->surface,
                                               &surface_capabilities);
 
-    width = HE_Clamp(width,
-                     surface_capabilities.minImageExtent.width,
-                     surface_capabilities.maxImageExtent.width);
+    width = Clamp(width,
+                  surface_capabilities.minImageExtent.width,
+                  surface_capabilities.maxImageExtent.width);
 
-    height = HE_Clamp(height,
-                      surface_capabilities.minImageExtent.height,
-                      surface_capabilities.maxImageExtent.height);
+    height = Clamp(height,
+                   surface_capabilities.minImageExtent.height,
+                   surface_capabilities.maxImageExtent.height);
 
     swapchain->image_format = swapchain_support->format;
     swapchain->image_color_space = image_color_space;
@@ -240,11 +240,11 @@ create_swapchain(Vulkan_Context *context,
         }
     }
 
-    min_image_count = HE_Max(min_image_count, surface_capabilities.minImageCount);
+    min_image_count = Max(min_image_count, surface_capabilities.minImageCount);
 
     if (surface_capabilities.maxImageCount)
     {
-        min_image_count = HE_Min(min_image_count, surface_capabilities.maxImageCount);
+        min_image_count = Min(min_image_count, surface_capabilities.maxImageCount);
     }
 
     VkExtent2D extent = { width, height };
@@ -261,7 +261,7 @@ create_swapchain(Vulkan_Context *context,
     }
     else
     {
-        HE_Assert(false);
+        Assert(false);
     }
 
     VkSwapchainCreateInfoKHR swapchain_create_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
@@ -290,7 +290,7 @@ create_swapchain(Vulkan_Context *context,
         swapchain_create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     }
 
-    HE_Assert(swapchain->handle == VK_NULL_HANDLE);
+    Assert(swapchain->handle == VK_NULL_HANDLE);
     CheckVkResult(vkCreateSwapchainKHR(context->logical_device,
                                        &swapchain_create_info,
                                        nullptr,
@@ -420,7 +420,7 @@ create_graphics_pipeline(Vulkan_Context *context,
     vertex_input_state_create_info.vertexBindingDescriptionCount = 1;
     vertex_input_state_create_info.pVertexBindingDescriptions = &vertex_input_binding_description;
 
-    vertex_input_state_create_info.vertexAttributeDescriptionCount = HE_ArrayCount(vertex_input_attribute_descriptions);
+    vertex_input_state_create_info.vertexAttributeDescriptionCount = ArrayCount(vertex_input_attribute_descriptions);
     vertex_input_state_create_info.pVertexAttributeDescriptions = vertex_input_attribute_descriptions;
 
     VkPipelineShaderStageCreateInfo vertex_shader_stage_info
@@ -449,7 +449,7 @@ create_graphics_pipeline(Vulkan_Context *context,
 
     VkPipelineDynamicStateCreateInfo dynamic_state_create_info =
         { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
-    dynamic_state_create_info.dynamicStateCount = HE_ArrayCount(dynamic_states);
+    dynamic_state_create_info.dynamicStateCount = ArrayCount(dynamic_states);
     dynamic_state_create_info.pDynamicStates = dynamic_states;
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly_state_create_info =
@@ -576,8 +576,8 @@ create_graphics_pipeline(Vulkan_Context *context,
 internal_function
 void destroy_graphics_pipeline(VkDevice logical_device, Vulkan_Graphics_Pipeline *graphics_pipeline)
 {
-    HE_Assert(logical_device != VK_NULL_HANDLE);
-    HE_Assert(graphics_pipeline);
+    Assert(logical_device != VK_NULL_HANDLE);
+    Assert(graphics_pipeline);
 
     vkDestroyDescriptorSetLayout(logical_device, graphics_pipeline->descriptor_set_layout, nullptr);
     vkDestroyPipelineLayout(logical_device, graphics_pipeline->layout, nullptr);
@@ -587,11 +587,12 @@ void destroy_graphics_pipeline(VkDevice logical_device, Vulkan_Graphics_Pipeline
 
 internal_function bool
 create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
-              U64 size, VkBufferUsageFlags usage_flags)
+              U64 size, VkBufferUsageFlags usage_flags,
+              VkMemoryPropertyFlags memory_property_flags)
 {
-    HE_Assert(buffer);
-    HE_Assert(context);
-    HE_Assert(size);
+    Assert(buffer);
+    Assert(context);
+    Assert(size);
 
     VkBufferCreateInfo buffer_create_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     buffer_create_info.size = size;
@@ -606,9 +607,6 @@ create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
 
     VkPhysicalDeviceMemoryProperties physical_device_memory_properties = {};
     vkGetPhysicalDeviceMemoryProperties(context->physical_device, &physical_device_memory_properties);
-
-    VkMemoryPropertyFlags memory_property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|
-                                                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
     S32 picked_memory_type_index = -1;
 
@@ -627,7 +625,7 @@ create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
         }
     }
 
-    HE_Assert(picked_memory_type_index != -1);
+    Assert(picked_memory_type_index != -1);
 
     VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
     memory_allocate_info.allocationSize = memory_requirements.size;
@@ -639,9 +637,51 @@ create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
     CheckVkResult(vkBindBufferMemory(context->logical_device,
                                      buffer->handle, buffer->memory, 0));
 
-    vkMapMemory(context->logical_device, buffer->memory, 0, size, 0, &buffer->data);
+    if ((memory_property_flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+    {
+        vkMapMemory(context->logical_device, buffer->memory, 0, size, 0, &buffer->data);
+    }
     buffer->size = size;
     return true;
+}
+
+internal_function void
+copy_buffer(Vulkan_Context *context, Vulkan_Buffer *src_buffer, Vulkan_Buffer *dst_buffer, void *data, U64 size)
+{
+    Assert(context);
+    Assert(src_buffer);
+    Assert(dst_buffer);
+    Assert(data);
+    Assert(size);
+    Assert(size <= src_buffer->size && size <= dst_buffer->size);
+
+    memcpy(src_buffer->data, data, size);
+
+    // todo(amer): check if graphics queue families always does transfer
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[0];
+    vkResetCommandBuffer(command_buffer, 0);
+
+    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    command_buffer_begin_info.flags = 0;
+    command_buffer_begin_info.pInheritanceInfo = 0;
+
+    vkBeginCommandBuffer(command_buffer,
+                         &command_buffer_begin_info);
+
+    VkBufferCopy copy_region = {};
+    copy_region.srcOffset = 0;
+    copy_region.dstOffset = 0;
+    copy_region.size = size;
+
+    vkCmdCopyBuffer(command_buffer, src_buffer->handle, dst_buffer->handle, 1, &copy_region);
+    vkEndCommandBuffer(command_buffer);
+
+    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffer;
+
+    vkQueueSubmit(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+    vkQueueWaitIdle(context->graphics_queue);
 }
 
 internal_function void
@@ -686,7 +726,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         driver_api_version = VK_API_VERSION_1_0;
     }
 
-    HE_Assert(required_api_version <= driver_api_version);
+    Assert(required_api_version <= driver_api_version);
 
     VkApplicationInfo app_info = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
     app_info.pApplicationName = "Hope"; // todo(amer): hard coding "Hope" for now
@@ -697,7 +737,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     VkInstanceCreateInfo instance_create_info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
     instance_create_info.pApplicationInfo = &app_info;
-    instance_create_info.enabledExtensionCount = HE_ArrayCount(required_instance_extensions);
+    instance_create_info.enabledExtensionCount = ArrayCount(required_instance_extensions);
     instance_create_info.ppEnabledExtensionNames = required_instance_extensions;
 
 #if HE_VULKAN_DEBUGGING
@@ -723,7 +763,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         "VK_LAYER_KHRONOS_validation",
     };
 
-    instance_create_info.enabledLayerCount = HE_ArrayCount(layers);
+    instance_create_info.enabledLayerCount = ArrayCount(layers);
     instance_create_info.ppEnabledLayerNames = layers;
     instance_create_info.pNext = &debug_messenger_create_info;
 #endif
@@ -735,7 +775,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerExt =
         (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(context->instance,
                                                                   "vkCreateDebugUtilsMessengerEXT");
-    HE_Assert(vkCreateDebugUtilsMessengerExt);
+    Assert(vkCreateDebugUtilsMessengerExt);
 
     CheckVkResult(vkCreateDebugUtilsMessengerExt(context->instance,
                                                  &debug_messenger_create_info,
@@ -746,10 +786,10 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     context->surface = (VkSurfaceKHR)platform_create_vulkan_surface(engine,
                                                                     context->instance);
-    HE_Assert(context->surface);
+    Assert(context->surface);
 
     context->physical_device = pick_physical_device(context->instance, context->surface, arena);
-    HE_Assert(context->physical_device != VK_NULL_HANDLE);
+    Assert(context->physical_device != VK_NULL_HANDLE);
 
     {
         Scoped_Temprary_Memory_Arena temp_arena(arena);
@@ -865,7 +905,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         bool not_all_required_device_extensions_are_supported = false;
 
         for (U32 extension_index = 0;
-             extension_index < HE_ArrayCount(required_device_extensions);
+             extension_index < ArrayCount(required_device_extensions);
              extension_index++)
         {
             const char *device_extension = required_device_extensions[extension_index];
@@ -900,7 +940,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         device_create_info.queueCreateInfoCount = queue_create_info_count;
         device_create_info.pEnabledFeatures = &physical_device_features;
         device_create_info.ppEnabledExtensionNames = required_device_extensions;
-        device_create_info.enabledExtensionCount = HE_ArrayCount(required_device_extensions);
+        device_create_info.enabledExtensionCount = ArrayCount(required_device_extensions);
 
         CheckVkResult(vkCreateDevice(context->physical_device,
                                      &device_create_info, nullptr,
@@ -922,7 +962,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     init_swapchain_support(context,
                            formats,
-                           HE_ArrayCount(formats),
+                           ArrayCount(formats),
                            VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
                            arena,
                            &context->swapchain_support);
@@ -979,8 +1019,8 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     U32 min_image_count = MAX_FRAMES_IN_FLIGHT;
     bool swapchain_created = create_swapchain(context, width, height,
                                               min_image_count, present_mode, &context->swapchain);
-    HE_Assert(swapchain_created);
-    HE_Assert(color_attachment.format == context->swapchain.image_format);
+    Assert(swapchain_created);
+    Assert(color_attachment.format == context->swapchain.image_format);
 
     {
         Scoped_Temprary_Memory_Arena temp_arena(arena);
@@ -991,7 +1031,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         if (result.success)
         {
             U8 *data = AllocateArray(&temp_arena, U8, result.size);
-            HE_Assert(data);
+            Assert(data);
 
             if (platform_end_read_entire_file(&result, data))
             {
@@ -1016,7 +1056,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         if (result.success)
         {
             U8 *data = AllocateArray(&temp_arena, U8, result.size);
-            HE_Assert(data);
+            Assert(data);
             if (platform_end_read_entire_file(&result, data))
             {
                 VkShaderModuleCreateInfo fragment_shader_create_info =
@@ -1038,38 +1078,11 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                              context->render_pass,
                              &context->graphics_pipeline);
 
-    Vertex vertices[3] =
-    {
-        { { 0.0f, -0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-        { { -0.5f, 0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-        { { 0.5f, 0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-    };
-
-    U64 vertex_size = sizeof(Vertex) * HE_ArrayCount(vertices);
-
-    create_buffer(&context->vertex_buffer, context,
-                  vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-
-    copy_memory(context->vertex_buffer.data, vertices, vertex_size);
-
-    U32 indicies[3] = { 0, 1, 2 };
-    U64 index_size = sizeof(U32) * HE_ArrayCount(indicies);
-
-    create_buffer(&context->index_buffer, context,
-                  index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-
-    copy_memory(context->index_buffer.data, indicies, index_size);
-
     for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
         Vulkan_Buffer *global_uniform_buffer = &context->global_uniform_buffers[frame_index];
-        create_buffer(global_uniform_buffer, context, sizeof(Global_Uniform_Buffer), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-
-        Global_Uniform_Buffer global_uniform_buffer_data = {};
-        global_uniform_buffer_data.offset = { (frame_index + 1) * 0.1f, (frame_index + 1) * 0.1f };
-        copy_memory(global_uniform_buffer->data,
-                    &global_uniform_buffer_data,
-                    sizeof(Global_Uniform_Buffer));
+        create_buffer(global_uniform_buffer, context, sizeof(Global_Uniform_Buffer),
+                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     }
 
     VkDescriptorPoolSize pool_size = {};
@@ -1102,9 +1115,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                            &descriptor_set_allocation_info,
                                            context->descriptor_sets));
 
-    for (U32 frame_index = 0;
-         frame_index < MAX_FRAMES_IN_FLIGHT;
-         frame_index++)
+    for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
         VkDescriptorBufferInfo descriptor_buffer_info = {};
         descriptor_buffer_info.buffer = context->global_uniform_buffers[frame_index].handle;
@@ -1161,9 +1172,38 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                     &context->frame_in_flight_fences[sync_primitive_index]));
     }
 
+    create_buffer(&context->transfer_buffer, context, 1024 * 1024,
+                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    Vertex vertices[3] =
+    {
+        { { 0.0f,   0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+        { { 0.5f,  -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+    };
+
+    U64 vertex_size = sizeof(Vertex) * ArrayCount(vertices);
+
+    create_buffer(&context->vertex_buffer, context,
+                  vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    copy_buffer(context, &context->transfer_buffer, &context->vertex_buffer, vertices, vertex_size);
+
+    U32 indicies[3] = { 0, 1, 2 };
+    U64 index_size = sizeof(U32) * ArrayCount(indicies);
+
+    create_buffer(&context->index_buffer, context,
+                  index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
+                  VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    copy_buffer(context, &context->transfer_buffer, &context->index_buffer, indicies, index_size);
+
     context->current_frame_in_flight_index = 0;
     context->frames_in_flight = 2;
-    HE_Assert(context->frames_in_flight <= MAX_FRAMES_IN_FLIGHT);
+    Assert(context->frames_in_flight <= MAX_FRAMES_IN_FLIGHT);
     return true;
 }
 
@@ -1211,7 +1251,7 @@ vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context)
     }
     else
     {
-        HE_Assert(result == VK_SUCCESS);
+        Assert(result == VK_SUCCESS);
     }
 
     vkResetFences(context->logical_device, 1, &context->frame_in_flight_fences[current_frame_in_flight_index]);
@@ -1271,6 +1311,17 @@ vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context)
     vkCmdBindIndexBuffer(command_buffer,
                          context->index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
 
+    F32 aspect_ratio = (F32)renderer_state->back_buffer_width / (F32)renderer_state->back_buffer_height;
+
+    Global_Uniform_Buffer gub_data;
+    gub_data.model = glm::rotate(glm::mat4(1.0f), glm::radians(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    gub_data.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    gub_data.projection = glm::perspective(glm::radians(45.0f), aspect_ratio, 0.1f, 1000.0f);
+    gub_data.projection[1][1] *= -1;
+
+    Vulkan_Buffer *global_uniform_buffer = &context->global_uniform_buffers[current_frame_in_flight_index];
+    memcpy(global_uniform_buffer->data, &gub_data, sizeof(Global_Uniform_Buffer));
+
     vkCmdBindDescriptorSets(command_buffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
                             context->graphics_pipeline.layout,
@@ -1325,7 +1376,7 @@ vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context)
     }
     else
     {
-        HE_Assert(result == VK_SUCCESS);
+        Assert(result == VK_SUCCESS);
     }
 
     context->current_frame_in_flight_index++;
@@ -1342,6 +1393,7 @@ deinit_vulkan(Vulkan_Context *context)
 
     vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, nullptr);
 
+    destroy_buffer(&context->transfer_buffer, context->logical_device);
     destroy_buffer(&context->vertex_buffer, context->logical_device);
     destroy_buffer(&context->index_buffer, context->logical_device);
 
@@ -1380,7 +1432,7 @@ deinit_vulkan(Vulkan_Context *context)
      PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerExt =
         (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(context->instance,
                                                                   "vkDestroyDebugUtilsMessengerEXT");
-    HE_Assert(vkDestroyDebugUtilsMessengerExt);
+    Assert(vkDestroyDebugUtilsMessengerExt);
     vkDestroyDebugUtilsMessengerExt(context->instance,
                                     context->debug_messenger,
                                     nullptr);

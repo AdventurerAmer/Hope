@@ -4,15 +4,15 @@
 
 void zero_memory(void *memory, Mem_Size size)
 {
-    HE_Assert(memory);
+    Assert(memory);
     memset(memory, 0, size);
 }
 
 void copy_memory(void *dst, void *src, Mem_Size size)
 {
-    HE_Assert(dst);
-    HE_Assert(src);
-    HE_Assert(size);
+    Assert(dst);
+    Assert(src);
+    Assert(size);
     memcpy(dst, src, size);
 }
 
@@ -22,8 +22,8 @@ void copy_memory(void *dst, void *src, Mem_Size size)
 
 Memory_Arena create_memory_arena(void *memory, Mem_Size size)
 {
-    HE_Assert(memory);
-    HE_Assert(size);
+    Assert(memory);
+    Assert(size);
 
     Memory_Arena result = {};
     result.base = (U8 *)memory;
@@ -46,7 +46,7 @@ get_number_of_bytes_to_align_address(Mem_Size address, U16 alignment)
 
     if (alignment != 0)
     {
-        HE_Assert(is_power_of_2(alignment));
+        Assert(is_power_of_2(alignment));
         Mem_Size modulo = address & (alignment - 1);
 
         if (modulo != 0)
@@ -62,14 +62,14 @@ allocate(Memory_Arena *arena,
          Mem_Size size, U16 alignment,
          Temprary_Memory_Arena *parent)
 {
-    HE_Assert(arena);
-    HE_Assert(size);
-    HE_Assert(arena->current_temprary_owner == parent);
+    Assert(arena);
+    Assert(size);
+    Assert(arena->current_temprary_owner == parent);
 
     void *result = 0;
     U8 *cursor = arena->base + arena->offset;
     Mem_Size padding = get_number_of_bytes_to_align_address((Mem_Size)cursor, alignment);
-    HE_Assert(arena->offset + size + padding <= arena->size);
+    Assert(arena->offset + size + padding <= arena->size);
     result = cursor + padding;
     arena->offset += padding + size;
     zero_memory(result, padding + size);
@@ -83,8 +83,8 @@ allocate(Memory_Arena *arena,
 void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena,
                                  Memory_Arena *arena)
 {
-    HE_Assert(temprary_memory_arena);
-    HE_Assert(arena);
+    Assert(temprary_memory_arena);
+    Assert(arena);
 
     temprary_memory_arena->arena = arena;
     temprary_memory_arena->offset = arena->offset;
@@ -99,7 +99,7 @@ void
 end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena)
 {
     Memory_Arena *arena = temprary_arena->arena;
-    HE_Assert(arena);
+    Assert(arena);
 
     arena->offset = temprary_arena->offset;
     arena->current_temprary_owner = temprary_arena->parent;
@@ -137,8 +137,8 @@ internal_function void insert_after(Free_List_Node *node, Free_List_Node *before
 
 internal_function void remove_node(Free_List_Node *node)
 {
-    HE_Assert(node->next);
-    HE_Assert(node->prev);
+    Assert(node->next);
+    Assert(node->prev);
 
     node->prev->next = node->next;
     node->next->prev = node->prev;
@@ -157,9 +157,9 @@ void init_free_list_allocator(Free_List_Allocator *allocator,
                               Memory_Arena *arena,
                               Mem_Size size)
 {
-    HE_Assert(allocator);
-    HE_Assert(arena);
-    HE_Assert(size >= sizeof(Free_List_Node));
+    Assert(allocator);
+    Assert(arena);
+    Assert(size >= sizeof(Free_List_Node));
 
     U8 *base = AllocateArray(arena, U8, size);
     allocator->base = base;
@@ -182,7 +182,7 @@ struct Free_List_Allocation_Header
     Mem_Size reserved;
 };
 
-HE_StaticAssert(sizeof(Free_List_Allocation_Header) == sizeof(Free_List_Node));
+StaticAssert(sizeof(Free_List_Allocation_Header) == sizeof(Free_List_Node));
 
 void* allocate(Free_List_Allocator *allocator,
                Mem_Size size,
@@ -236,19 +236,19 @@ void* allocate(Free_List_Allocator *allocator,
         }
     }
 
-    HE_Assert(result);
+    Assert(result);
     zero_memory(result, size);
     return result;
 }
 
 void deallocate(Free_List_Allocator *allocator, void *memory)
 {
-    HE_Assert(allocator);
-    HE_Assert(memory >= allocator->base && memory <= allocator->base + allocator->size);
+    Assert(allocator);
+    Assert(memory >= allocator->base && memory <= allocator->base + allocator->size);
 
     Free_List_Allocation_Header header = ((Free_List_Allocation_Header *)memory)[-1];
-    HE_Assert(header.size >= 0);
-    HE_Assert(header.offset >= 0);
+    Assert(header.size >= 0);
+    Assert(header.offset >= 0);
 
     allocator->used -= header.size;
 
