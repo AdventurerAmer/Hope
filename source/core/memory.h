@@ -16,11 +16,8 @@
 #define AllocateArray(AllocatorPointer, Type, Count)\
 (Type *)allocate((AllocatorPointer), sizeof(Type) * (Count), alignof(Type))
 
-internal_function void
-zero_memory(void *memory, Mem_Size size);
-
-internal_function void
-copy_memory(void *dst, void *src, Mem_Size size);
+void zero_memory(void *memory, Mem_Size size);
+void copy_memory(void *dst, void *src, Mem_Size size);
 
 //
 // Memory Arena

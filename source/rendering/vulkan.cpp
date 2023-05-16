@@ -1,7 +1,11 @@
+#include <string.h>
+
 #include "vulkan.h"
 #include "core/platform.h"
 #include "core/debugging.h"
 #include "core/memory.h"
+#include "renderer.h"
+#include "core/engine.h"
 
 static Vulkan_Context vulkan_context;
 
@@ -655,7 +659,7 @@ copy_buffer(Vulkan_Context *context, Vulkan_Buffer *src_buffer, Vulkan_Buffer *d
     Assert(size);
     Assert(size <= src_buffer->size && size <= dst_buffer->size);
 
-    memcpy(src_buffer->data, data, size);
+    copy_memory(src_buffer->data, data, size);
 
     // todo(amer): check if graphics queue families always does transfer
     VkCommandBuffer command_buffer = context->graphics_command_buffers[0];
@@ -1386,8 +1390,7 @@ vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context)
     }
 }
 
-internal_function void
-deinit_vulkan(Vulkan_Context *context)
+void deinit_vulkan(Vulkan_Context *context)
 {
     vkDeviceWaitIdle(context->logical_device);
 
@@ -1441,26 +1444,23 @@ deinit_vulkan(Vulkan_Context *context)
     vkDestroyInstance(context->instance, nullptr);
 }
 
-internal_function bool
-vulkan_renderer_init(Renderer_State *renderer_state,
-                     Engine *engine,
-                     Memory_Arena *arena)
+bool vulkan_renderer_init(Renderer_State *renderer_state,
+                          Engine *engine,
+                          Memory_Arena *arena)
 {
     (void)renderer_state;
     return init_vulkan(&vulkan_context, engine, arena);
 }
 
-internal_function void
-vulkan_renderer_deinit(Renderer_State *renderer_state)
+void vulkan_renderer_deinit(Renderer_State *renderer_state)
 {
     (void)renderer_state;
     deinit_vulkan(&vulkan_context);
 }
 
-internal_function void
-vulkan_renderer_on_resize(Renderer_State *renderer_state,
-                          U32 width,
-                          U32 height)
+void vulkan_renderer_on_resize(Renderer_State *renderer_state,
+                               U32 width,
+                               U32 height)
 {
     (void)renderer_state;
     recreate_swapchain(&vulkan_context,
@@ -1470,8 +1470,7 @@ vulkan_renderer_on_resize(Renderer_State *renderer_state,
                        vulkan_context.swapchain.present_mode);
 }
 
-internal_function void
-vulkan_renderer_draw(Renderer_State *renderer_state)
+void vulkan_renderer_draw(Renderer_State *renderer_state)
 {
     vulkan_draw(renderer_state, &vulkan_context);
 }

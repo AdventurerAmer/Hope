@@ -1,3 +1,3 @@
 #include "debugging.h"
 
-global_variable Debug_State debug_state;
+Debug_State global_debug_state;

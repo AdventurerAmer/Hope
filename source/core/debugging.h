@@ -7,11 +7,13 @@ struct Debug_State
     Logger main_logger;
 };
 
+extern Debug_State global_debug_state;
+
 #define HE_LOGGING 1
 #if HE_LOGGING
 
 #define DebugPrintf(channel, verbosity, format, ...) debug_printf(\
-&debug_state.main_logger,\
+&global_debug_state.main_logger,\
 Glue(Channel_, channel),\
 Glue(Verbosity_, verbosity),\
 "[" Stringify(channel) "-" Stringify(verbosity) "]: " format,\

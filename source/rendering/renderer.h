@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/engine.h"
+#include "core/defines.h"
 
 enum RenderingAPI
 {
@@ -26,6 +26,4 @@ struct Renderer
     void (*draw)(struct Renderer_State *renderer_state);
 };
 
-internal_function bool
-request_renderer(RenderingAPI rendering_api,
-                 Renderer *renderer);
+bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);

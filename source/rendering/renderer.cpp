@@ -1,9 +1,8 @@
 #include "rendering/renderer.h"
 #include "rendering/vulkan.h"
 
-internal_function bool
-request_renderer(RenderingAPI rendering_api,
-                 Renderer *renderer)
+bool request_renderer(RenderingAPI rendering_api,
+                      Renderer *renderer)
 {
     bool result = true;
 

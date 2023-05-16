@@ -1,13 +1,14 @@
 #include "engine.h"
 #include "platform.h"
 #include "rendering/vulkan.h"
+#include "debugging.h"
 
-internal_function bool
-startup(Engine *engine, const Engine_Configuration &configuration,
-        void *platform_state)
+extern Debug_State global_debug_state;
+
+bool startup(Engine *engine, const Engine_Configuration &configuration, void *platform_state)
 {
     // todo(amer): logging should only be enabled in non-shipping builds
-    Logger *logger = &debug_state.main_logger;
+    Logger *logger = &global_debug_state.main_logger;
     U64 channel_mask = 0xFFFFFFFFFFFFFFFF;
     bool logger_initied = init_logger(logger, "all",
                                       Verbosity_Trace, channel_mask);
@@ -79,8 +80,7 @@ startup(Engine *engine, const Engine_Configuration &configuration,
     return game_initialized;
 }
 
-internal_function void
-game_loop(Engine *engine, F32 delta_time)
+void game_loop(Engine *engine, F32 delta_time)
 {
     Game_Code *game_code = &engine->game_code;
     game_code->on_update(engine, delta_time);
@@ -91,41 +91,37 @@ game_loop(Engine *engine, F32 delta_time)
     }
 }
 
-internal_function void
-shutdown(Engine *engine)
+void shutdown(Engine *engine)
 {
     (void)engine;
 
     engine->renderer.deinit(&engine->renderer_state);
     // todo(amer): logging should only be enabled in non-shipping builds
-    Logger *logger = &debug_state.main_logger;
+    Logger *logger = &global_debug_state.main_logger;
     deinit_logger(logger);
 }
 
-internal_function void
-set_game_code_to_stubs(Game_Code *game_code)
+void set_game_code_to_stubs(Game_Code *game_code)
 {
     game_code->init_game = &init_game_stub;
     game_code->on_event = &on_event_stub;
     game_code->on_update = &on_update_stub;
 }
 
-internal_function bool
-init_game_stub(Engine *engine)
+// todo(amer): maybe we should program a game in the stubs...
+bool init_game_stub(Engine *engine)
 {
     (void)engine;
     return true;
 }
 
-internal_function void
-on_event_stub(Engine *engine, Event event)
+void on_event_stub(Engine *engine, Event event)
 {
     (void)engine;
     (void)event;
 }
 
-internal_function void
-on_update_stub(Engine *engine, F32 delta_time)
+void on_update_stub(Engine *engine, F32 delta_time)
 {
     (void)engine;
     (void)delta_time;

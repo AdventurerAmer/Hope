@@ -17,11 +17,8 @@ set TimeStamp=%timestamp: =%
 
 del *.pdb > nul 2> nul
 
-rem engine
-cl %CommonFlags% %CommonDefines% %DebugConfig% %Includes% /Fehope ../source/win32_platform.cpp /link %LibIncludes% %CommonLinkFlags% vulkan-1.lib
-
 rem game
-cl %CommonFlags% %CommonDefines% %DebugConfig% /Fegame ../source/game/game.cpp /LD /link /PDB:game_%TimeStamp%.pdb %CommonLinkFlags% %ExportedGameFunctions%
+cl %CommonFlags% %CommonDefines% %DebugConfig% /Fegame ../game/game.cpp /LD /link /PDB:game_%TimeStamp%.pdb %CommonLinkFlags% %ExportedGameFunctions%
 
 rem todo(amer): temprary just compiling shaders here for now...
 "../tools/glslc.exe" ../data/shaders/basic.vert -o ../data/shaders/basic.vert.spv

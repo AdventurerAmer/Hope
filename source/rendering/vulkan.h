@@ -9,11 +9,9 @@
 #include <glm/ext/matrix_clip_space.hpp> // glm::perspective
 #include <glm/ext/scalar_constants.hpp> // glm::pi
 
-#if HE_OS_WINDOWS
-#define VK_USE_PLATFORM_WIN32_KHR
-#endif
-
 #include <vulkan/vulkan.h>
+
+#include "core/memory.h"
 
 #define HE_VULKAN_DEBUGGING 1
 
@@ -135,16 +133,12 @@ struct Vulkan_Context
 #endif
 };
 
-internal_function bool
-vulkan_renderer_init(struct Renderer_State *renderer_State,
-                     struct Engine *engine,
-                     struct Memory_Arena *arena);
+bool vulkan_renderer_init(struct Renderer_State *renderer_State,
+                          struct Engine *engine,
+                          struct Memory_Arena *arena);
 
-internal_function void
-vulkan_renderer_deinit(struct Renderer_State *renderer_State);
+void vulkan_renderer_deinit(struct Renderer_State *renderer_State);
 
-internal_function void
-vulkan_renderer_on_resize(struct Renderer_State *renderer_State, U32 width, U32 height);
+void vulkan_renderer_on_resize(struct Renderer_State *renderer_State, U32 width, U32 height);
 
-internal_function void
-vulkan_renderer_draw(struct Renderer_State *renderer_State);
+void vulkan_renderer_draw(struct Renderer_State *renderer_State);

@@ -2,10 +2,6 @@
 
 #include "defines.h"
 
-#if HE_OS_WINDOWS
-#include "win32_platform.h"
-#endif
-
 enum Event_Type : U8
 {
     EventType_Unknown,
@@ -45,29 +41,33 @@ struct Event
     U16 height;
 };
 
-internal_function void*
-platform_allocate_memory(U64 size);
 
-internal_function void
-platform_deallocate_memory(void *memory);
+enum File_Operation : U32
+{
+    FileOperation_Read  = 0x1,
+    FileOperation_Write = 0x2
+};
 
-internal_function Platform_File_Handle
-platform_open_file(const char *filename, File_Operation operations);
+struct Platform_File_Handle
+{
+    void *platform_data;
+};
 
-internal_function bool
-platform_is_file_handle_valid(Platform_File_Handle file_handle);
+void* platform_allocate_memory(U64 size);
 
-internal_function U64
-platform_get_file_size(Platform_File_Handle file_handle);
+void platform_deallocate_memory(void *memory);
 
-internal_function bool
-platform_read_data_from_file(Platform_File_Handle file_handle, U64 offset, void *data, U64 size);
+Platform_File_Handle platform_open_file(const char *filename, File_Operation operations);
 
-internal_function bool
-platform_write_data_to_file(Platform_File_Handle file_handle, U64 offset, void *data, U64 size);
+bool platform_is_file_handle_valid(Platform_File_Handle file_handle);
 
-internal_function bool
-platform_close_file(Platform_File_Handle file_handle);
+U64 platform_get_file_size(Platform_File_Handle file_handle);
+
+bool platform_read_data_from_file(Platform_File_Handle file_handle, U64 offset, void *data, U64 size);
+
+bool platform_write_data_to_file(Platform_File_Handle file_handle, U64 offset, void *data, U64 size);
+
+bool platform_close_file(Platform_File_Handle file_handle);
 
 struct Read_Entire_File_Result
 {
@@ -76,21 +76,14 @@ struct Read_Entire_File_Result
     bool success;
 };
 
-internal_function Read_Entire_File_Result
-platform_begin_read_entire_file(const char *filename);
+Read_Entire_File_Result platform_begin_read_entire_file(const char *filename);
 
-internal_function bool
-platform_end_read_entire_file(Read_Entire_File_Result *read_entire_file_result,
-                              void *data);
+bool platform_end_read_entire_file(Read_Entire_File_Result *read_entire_file_result, void *data);
 
-internal_function void
-platform_toggle_fullscreen(struct Engine *engine);
+void platform_toggle_fullscreen(struct Engine *engine);
 
-internal_function void*
-platform_create_vulkan_surface(struct Engine *engine, void *instance);
+void* platform_create_vulkan_surface(struct Engine *engine, void *instance);
 
-internal_function void
-platform_report_error_and_exit(const char *message, ...);
+void platform_report_error_and_exit(const char *message, ...);
 
-internal_function void
-platform_debug_printf(const char *message, ...);
+void platform_debug_printf(const char *message, ...);

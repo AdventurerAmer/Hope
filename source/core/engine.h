@@ -33,17 +33,13 @@ struct Game_Code
     On_Update_Proc on_update;
 };
 
-internal_function void
-set_game_code_to_stubs(Game_Code *game_code);
+void set_game_code_to_stubs(Game_Code *game_code);
 
-internal_function bool
-init_game_stub(Engine *engine);
+bool init_game_stub(Engine *engine);
 
-internal_function void
-on_event_stub(Engine *engine, Event event);
+void on_event_stub(Engine *engine, Event event);
 
-internal_function void
-on_update_stub(Engine *engine, F32 delta_time);
+void on_update_stub(Engine *engine, F32 delta_time);
 
 typedef void* (*Allocate_Memory_Proc)(U64 size);
 
@@ -114,12 +110,8 @@ struct Engine
     void *platform_state;
 };
 
-internal_function bool
-startup(Engine *engine, const Engine_Configuration &configuration,
-        void *platform_state);
+bool startup(Engine *engine, const Engine_Configuration &configuration, void *platform_state);
 
-internal_function void
-game_loop(Engine *engine, F32 delta_time);
+void game_loop(Engine *engine, F32 delta_time);
 
-internal_function void
-shutdown(Engine *engine);
+void shutdown(Engine *engine);

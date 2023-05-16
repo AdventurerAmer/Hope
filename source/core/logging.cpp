@@ -1,6 +1,8 @@
+#include <stdio.h>
 #include <stdarg.h>
 
-#include "core/logging.h"
+#include "logging.h"
+#include "platform.h"
 
 global_variable const char *channel_to_ansi_string[] =
 {
@@ -9,9 +11,7 @@ global_variable const char *channel_to_ansi_string[] =
 #undef X
 };
 
-internal_function bool
-init_logger(Logger *logger, const char *name,
-            Verbosity verbosity, U64 channel_mask)
+bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 channel_mask)
 {
     bool result = true;
 
@@ -54,8 +54,7 @@ init_logger(Logger *logger, const char *name,
     return result;
 }
 
-internal_function void
-deinit_logger(Logger *logger)
+void deinit_logger(Logger *logger)
 {
     platform_close_file(logger->main_channel.log_file);
 
@@ -68,41 +67,34 @@ deinit_logger(Logger *logger)
     }
 }
 
-internal_function void
-set_verbosity(Logger *logger, Verbosity verbosity)
+void set_verbosity(Logger *logger, Verbosity verbosity)
 {
     logger->verbosity = verbosity;
 }
 
-internal_function void
-enable_channel(Logger *logger, Channel channel)
+void enable_channel(Logger *logger, Channel channel)
 {
     U64 mask = U64(1) << (U64)channel;
     logger->channel_mask |= mask;
 }
 
-internal_function void
-enable_all_channels(Logger *logger)
+void enable_all_channels(Logger *logger)
 {
     logger->channel_mask = 0xFFFFFFFFFFFFFFFF;
 }
 
-internal_function void
-disable_channel(Logger *logger, Channel channel)
+void disable_channel(Logger *logger, Channel channel)
 {
     U64 mask = U64(1) << (U64)channel;
     logger->channel_mask &= ~mask;
 }
 
-internal_function void
-disable_all_channels(Logger *logger)
+void disable_all_channels(Logger *logger)
 {
     logger->channel_mask = 0;
 }
 
-internal_function void
-debug_printf(Logger *logger, Channel channel,
-             Verbosity verbosity, const char *format, ...)
+void debug_printf(Logger *logger, Channel channel, Verbosity verbosity, const char *format, ...)
 {
     // note(amer): this is fine for now...
     local_presist char string_buffer[1024];

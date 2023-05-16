@@ -53,28 +53,18 @@ struct Logger
     Logging_Channel channels[Channel_Count];
 };
 
-internal_function bool
-init_logger(Logger *logger, const char *name,
-            Verbosity verbosity, U64 channel_mask);
+bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 channel_mask);
 
-internal_function void
-deinit_logging(Logger *logger);
+void deinit_logger(Logger *logger);
 
-internal_function void
-set_verbosity(Logger *logger, Verbosity verbosity);
+void set_verbosity(Logger *logger, Verbosity verbosity);
 
-internal_function void
-enable_channel(Logger *logger, Channel channel);
+void enable_channel(Logger *logger, Channel channel);
 
-internal_function void
-enable_all_channels(Logger *logger);
+void enable_all_channels(Logger *logger);
 
-internal_function void
-disable_channel(Logger *logger, Channel channel);
+void disable_channel(Logger *logger, Channel channel);
 
-internal_function void
-disable_all_channels(Logger *logger);
+void disable_all_channels(Logger *logger);
 
-internal_function void
-debug_printf(Logger *logger, Channel channel,
-             Verbosity verobisty, const char *format, ...);
+void debug_printf(Logger *logger, Channel channel, Verbosity verobisty, const char *format, ...);
