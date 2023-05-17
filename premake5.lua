@@ -51,4 +51,3 @@ project "Engine"
     debugdir "data"
     targetdir "bin/%{prj.name}"
     objdir "bin/intermediates/%{prj.name}"
-

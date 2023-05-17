@@ -1,3 +1,6 @@
+#define CGLTF_IMPLEMENTATION
+#include <cgltf.h>
+
 #include <string.h>
 
 #include "vulkan.h"
@@ -407,16 +410,11 @@ create_graphics_pipeline(Vulkan_Context *context,
     vertex_input_binding_description.stride = sizeof(Vertex); // todo(amer): temprary
     vertex_input_binding_description.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    VkVertexInputAttributeDescription vertex_input_attribute_descriptions[2] = {};
+    VkVertexInputAttributeDescription vertex_input_attribute_descriptions[1] = {};
     vertex_input_attribute_descriptions[0].binding = 0;
     vertex_input_attribute_descriptions[0].location = 0;
     vertex_input_attribute_descriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     vertex_input_attribute_descriptions[0].offset = offsetof(Vertex, position);
-
-    vertex_input_attribute_descriptions[1].binding = 0;
-    vertex_input_attribute_descriptions[1].location = 1;
-    vertex_input_attribute_descriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    vertex_input_attribute_descriptions[1].offset = offsetof(Vertex, color);
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info =
         { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
@@ -959,7 +957,8 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                          0, &context->present_queue);
     }
 
-    VkFormat formats[] = {
+    VkFormat formats[] =
+    {
         VK_FORMAT_B8G8R8A8_SRGB,
         VK_FORMAT_R8G8B8A8_SRGB
     };
@@ -1176,34 +1175,120 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                     &context->frame_in_flight_fences[sync_primitive_index]));
     }
 
-    create_buffer(&context->transfer_buffer, context, 1024 * 1024,
+    create_buffer(&context->transfer_buffer, context, HE_MegaBytes(128),
                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-    Vertex vertices[3] =
+    Static_Mesh *static_mesh = &context->static_mesh;
+
+    Read_Entire_File_Result result =
+        platform_begin_read_entire_file("models/DamagedHelmet.glb");
+
+    U64 vertex_count = 0;
+    glm::vec3 *vertices = nullptr;
+
+    U32 index_count = 0;
+    U16 *indices = nullptr;
+
+    if (result.success)
     {
-        { { 0.0f,   0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-        { { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-        { { 0.5f,  -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-    };
+        U8 *buffer = AllocateArray(arena, U8, result.size);
+        platform_end_read_entire_file(&result, buffer);
 
-    U64 vertex_size = sizeof(Vertex) * ArrayCount(vertices);
+        cgltf_options options = {};
+        cgltf_data *data = nullptr;
+        if (cgltf_parse(&options, buffer, result.size, &data) == cgltf_result_success)
+        {
+            Assert(data->meshes_count >= 1);
+            cgltf_mesh *mesh = &data->meshes[0];
+            Assert(mesh->primitives_count >= 1);
+            cgltf_primitive *primitive = &mesh->primitives[0];
+            Assert(primitive->type == cgltf_primitive_type_triangles);
+            for (U32 i = 0; i < primitive->attributes_count; i++)
+            {
+                cgltf_attribute *attribute = &primitive->attributes[i];
+                Assert(attribute->type != cgltf_attribute_type_invalid);
+                switch (attribute->type)
+                {
+                    case cgltf_attribute_type_position:
+                    {
+                        Assert(attribute->data->type == cgltf_type_vec3);
+                        Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                        Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
 
-    create_buffer(&context->vertex_buffer, context,
+                        vertex_count = attribute->data->count;
+                        U64 stride = attribute->data->stride;
+                        Assert(stride == sizeof(glm::vec3));
+
+                        U64 buffer_offset = attribute->data->buffer_view->buffer->extras.start_offset;
+                        U8 *vertex_buffer = ((U8*)data->bin + buffer_offset) + attribute->data->buffer_view->offset;
+                        vertices = (glm::vec3 *)vertex_buffer;
+                    } break;
+
+                    case cgltf_attribute_type_normal:
+                    {
+                    } break;
+
+                    case cgltf_attribute_type_texcoord:
+                    {
+                    } break;
+                }
+            }
+
+            index_count = u64_to_u32(primitive->indices->count);
+            U64 buffer_offset = primitive->indices->buffer_view->buffer->extras.start_offset;
+            U8 *index_buffer = ((U8*)data->bin + buffer_offset) + primitive->indices->buffer_view->offset;
+            indices = (U16*)index_buffer;
+            cgltf_free(data);
+        }
+    }
+
+#if 1
+    U64 vertex_size = vertex_count * sizeof(Vertex);
+    create_buffer(&static_mesh->vertex_buffer, context,
                   vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    copy_buffer(context, &context->transfer_buffer, &context->vertex_buffer, vertices, vertex_size);
+    copy_buffer(context, &context->transfer_buffer, &static_mesh->vertex_buffer, vertices, vertex_size);
+    static_mesh->vertex_count = u64_to_u32(vertex_count);
 
-    U32 indicies[3] = { 0, 1, 2 };
-    U64 index_size = sizeof(U32) * ArrayCount(indicies);
-
-    create_buffer(&context->index_buffer, context,
+    U64 index_size = index_count * sizeof(U16);
+    create_buffer(&static_mesh->index_buffer, context,
                   index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
                   VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    copy_buffer(context, &context->transfer_buffer, &context->index_buffer, indicies, index_size);
+    copy_buffer(context, &context->transfer_buffer, &static_mesh->index_buffer, indices, index_size);
+    static_mesh->index_count = u32_to_u16(index_count);
+
+#else
+    Vertex vertices[4] =
+    {
+        { { -0.5f,  0.5f, 0.0f } },
+        { {  0.5f,  0.5f, 0.0f } },
+        { {  0.5f, -0.5f, 0.0f } },
+        { { -0.5f, -0.5f, 0.0f } },
+    };
+    U64 vertex_size = sizeof(Vertex) * ArrayCount(vertices);
+
+    create_buffer(&static_mesh->vertex_buffer, context,
+                  vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    copy_buffer(context, &context->transfer_buffer, &static_mesh->vertex_buffer, vertices, vertex_size);
+    static_mesh->vertex_count = ArrayCount(vertices);
+
+    U32 indices[6] = { 1, 0, 3, 1, 3, 2 };
+    U64 index_size = sizeof(U32) * ArrayCount(indicies);
+
+    create_buffer(&static_mesh->index_buffer, context,
+                  index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
+                  VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    copy_buffer(context, &context->transfer_buffer, &static_mesh->index_buffer, indices, index_size);
+    static_mesh->index_count = ArrayCount(indicies);
+#endif
 
     context->current_frame_in_flight_index = 0;
     context->frames_in_flight = 2;
@@ -1307,19 +1392,19 @@ vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context)
     vkCmdSetScissor(command_buffer,
                     0, 1, &scissor);
 
-    VkBuffer vertex_buffers[] = { context->vertex_buffer.handle };
+    VkBuffer vertex_buffers[] = { context->static_mesh.vertex_buffer.handle };
     VkDeviceSize offsets[] = { 0 };
     vkCmdBindVertexBuffers(command_buffer,
                            0, 1, vertex_buffers, offsets);
 
     vkCmdBindIndexBuffer(command_buffer,
-                         context->index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
+                         context->static_mesh.index_buffer.handle, 0, VK_INDEX_TYPE_UINT16);
 
     F32 aspect_ratio = (F32)renderer_state->back_buffer_width / (F32)renderer_state->back_buffer_height;
 
     Global_Uniform_Buffer gub_data;
     gub_data.model = glm::rotate(glm::mat4(1.0f), glm::radians(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    gub_data.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    gub_data.view = glm::lookAt(glm::vec3(0.0f, 1.0f, 5.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     gub_data.projection = glm::perspective(glm::radians(45.0f), aspect_ratio, 0.1f, 1000.0f);
     gub_data.projection[1][1] *= -1;
 
@@ -1333,9 +1418,8 @@ vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context)
                             &context->descriptor_sets[current_frame_in_flight_index],
                             0, nullptr);
 
-    U32 index_count = 3;
     vkCmdDrawIndexed(command_buffer,
-                     index_count, 1, 0, 0, 0);
+                     context->static_mesh.index_count, 1, 0, 0, 0);
 
     vkCmdEndRenderPass(command_buffer);
     vkEndCommandBuffer(command_buffer);
@@ -1397,8 +1481,8 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, nullptr);
 
     destroy_buffer(&context->transfer_buffer, context->logical_device);
-    destroy_buffer(&context->vertex_buffer, context->logical_device);
-    destroy_buffer(&context->index_buffer, context->logical_device);
+    destroy_buffer(&context->static_mesh.vertex_buffer, context->logical_device);
+    destroy_buffer(&context->static_mesh.index_buffer, context->logical_device);
 
     for (U32 frame_index = 0;
          frame_index < MAX_FRAMES_IN_FLIGHT;
