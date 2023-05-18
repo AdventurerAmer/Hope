@@ -23,7 +23,7 @@ struct Renderer
 
     void (*on_resize)(struct Renderer_State *renderer_state, U32 width, U32 height);
 
-    void (*draw)(struct Renderer_State *renderer_state);
+    void (*draw)(struct Renderer_State *renderer_state, F32 delta_time);
 };
 
 bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);

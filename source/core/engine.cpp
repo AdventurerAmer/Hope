@@ -87,7 +87,7 @@ void game_loop(Engine *engine, F32 delta_time)
 
     if (!engine->is_minimized)
     {
-        engine->renderer.draw(&engine->renderer_state);
+        engine->renderer.draw(&engine->renderer_state, delta_time);
     }
 }
 

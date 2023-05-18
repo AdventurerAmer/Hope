@@ -5,6 +5,8 @@
 #include <glm/vec3.hpp> // glm::vec3
 #include <glm/vec4.hpp> // glm::vec4
 #include <glm/mat4x4.hpp> // glm::mat4
+#include <glm/gtc/quaternion.hpp> // quaternion
+#include <glm/gtx/quaternion.hpp> // quaternion
 #include <glm/ext/matrix_transform.hpp> // glm::translate, glm::rotate, glm::scale
 #include <glm/ext/matrix_clip_space.hpp> // glm::perspective
 #include <glm/ext/scalar_constants.hpp> // glm::pi
@@ -42,6 +44,17 @@ struct Vulkan_Swapchain_Support
     VkFormat format;
 };
 
+struct Vulkan_Image
+{
+    VkImage handle;
+    VkDeviceMemory memory;
+    VkImageView view;
+    U32 width;
+    U32 height;
+    void* data;
+    U64 size;
+};
+
 struct Vulkan_Swapchain
 {
     VkSwapchainKHR handle;
@@ -55,6 +68,7 @@ struct Vulkan_Swapchain
     VkImage *images;
     VkImageView *image_views;
     VkFramebuffer *frame_buffers;
+    Vulkan_Image depth_sentcil_attachment;
 };
 
 struct Vulkan_Graphics_Pipeline
@@ -67,6 +81,8 @@ struct Vulkan_Graphics_Pipeline
 struct Vertex
 {
     glm::vec3 position;
+    glm::vec3 normal;
+    glm::vec2 uv;
 };
 
 struct Global_Uniform_Buffer
@@ -91,6 +107,9 @@ struct Static_Mesh
 
     Vulkan_Buffer index_buffer;
     U16 index_count;
+
+    VkSampler sampler;
+    Vulkan_Image image;
 };
 
 struct Vulkan_Context
@@ -99,6 +118,8 @@ struct Vulkan_Context
 
     VkSurfaceKHR surface;
     VkPhysicalDevice physical_device;
+    VkPhysicalDeviceProperties physical_device_properties;
+    VkPhysicalDeviceMemoryProperties physical_device_memory_properties;
 
     U32 graphics_queue_family_index;
     U32 present_queue_family_index;
@@ -148,4 +169,4 @@ void vulkan_renderer_deinit(struct Renderer_State *renderer_State);
 
 void vulkan_renderer_on_resize(struct Renderer_State *renderer_State, U32 width, U32 height);
 
-void vulkan_renderer_draw(struct Renderer_State *renderer_State);
+void vulkan_renderer_draw(struct Renderer_State *renderer_State, F32 delta_time);

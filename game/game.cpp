@@ -6,7 +6,7 @@ extern "C" bool
 init_game(Engine *engine)
 {
 	Platform_API *platform = &engine->platform_api;
-	platform->debug_printf("init_game\n");
+    (void)platform;
     return true;
 }
 

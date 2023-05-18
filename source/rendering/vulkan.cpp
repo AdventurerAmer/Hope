@@ -1,6 +1,9 @@
 #define CGLTF_IMPLEMENTATION
 #include <cgltf.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
+
 #include <string.h>
 
 #include "vulkan.h"
@@ -63,6 +66,11 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *ar
         VkPhysicalDeviceFeatures features = {};
         vkGetPhysicalDeviceFeatures(*current_physical_device, &features);
 
+        if (!features.samplerAnisotropy)
+        {
+            continue;
+        }
+
         U32 queue_family_count = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(*current_physical_device,
                                                  &queue_family_count,
@@ -104,14 +112,11 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *ar
 
         if (can_physical_device_do_graphics && can_physical_device_present)
         {
-            // todo(amer): add more checking as we do features in the future
-            // for now we are looking for a discrete gpu
             U32 score = 0;
             if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
             {
                 score++;
             }
-
             if (score >= best_physical_device_score_so_far)
             {
                 best_physical_device_score_so_far = score;
@@ -197,6 +202,204 @@ init_swapchain_support(Vulkan_Context *context,
 
     swapchain_support->format = format;
     return true;
+}
+
+internal_function S32 find_memory_type_index(Vulkan_Context *context,
+                                             VkMemoryRequirements memory_requirements,
+                                             VkMemoryPropertyFlags memory_property_flags)
+{
+    S32 result = -1;
+
+    for (U32 memory_type_index = 0;
+        memory_type_index < context->physical_device_memory_properties.memoryTypeCount;
+        memory_type_index++)
+    {
+        if (((1 << memory_type_index) & memory_requirements.memoryTypeBits))
+        {
+            const VkMemoryType* memory_type =
+                &context->physical_device_memory_properties.memoryTypes[memory_type_index];
+            if ((memory_type->propertyFlags & memory_property_flags) == memory_property_flags)
+            {
+                result = (S32)memory_type_index;
+            }
+        }
+    }
+
+    return result;
+}
+
+internal_function void
+transtion_image_to_layout(VkImage image,
+                          VkCommandBuffer command_buffer,
+                          VkImageLayout old_layout,
+                          VkImageLayout new_layout)
+{
+    VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    barrier.oldLayout = old_layout;
+    barrier.newLayout = new_layout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+
+    VkPipelineStageFlags source_stage;
+    VkPipelineStageFlags destination_stage;
+
+    if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
+        new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+             new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        destination_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
+             new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+        source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destination_stage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    }
+    else
+    {
+        Assert(false);
+    }
+
+    vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage,
+                         0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+}
+
+internal_function bool
+create_image(Vulkan_Image *image, Vulkan_Context *context,
+             U32 width, U32 height, VkFormat format,
+             VkImageTiling tiling, VkImageUsageFlags usage,
+             VkImageAspectFlags aspect_flags,
+             VkMemoryPropertyFlags properties)
+{
+    VkImageCreateInfo image_create_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    image_create_info.imageType = VK_IMAGE_TYPE_2D;
+    image_create_info.extent.width = width;
+    image_create_info.extent.height = height;
+    image_create_info.extent.depth = 1;
+    image_create_info.mipLevels = 1;
+    image_create_info.arrayLayers = 1;
+    image_create_info.format = format;
+    image_create_info.tiling = tiling;
+    image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_create_info.usage = usage;
+    image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_create_info.flags = 0;
+
+    CheckVkResult(vkCreateImage(context->logical_device, &image_create_info, nullptr, &image->handle));
+
+    VkMemoryRequirements memory_requirements = {};
+    vkGetImageMemoryRequirements(context->logical_device, image->handle, &memory_requirements);
+
+    VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+    memory_allocate_info.allocationSize = memory_requirements.size;
+    memory_allocate_info.memoryTypeIndex = find_memory_type_index(context, memory_requirements, properties);
+
+    CheckVkResult(vkAllocateMemory(context->logical_device, &memory_allocate_info, nullptr, &image->memory));
+    vkBindImageMemory(context->logical_device, image->handle, image->memory, 0);
+    image->size = memory_requirements.size;
+    image->data = nullptr;
+    image->width = width;
+    image->height = height;
+
+    VkImageViewCreateInfo image_view_create_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    image_view_create_info.image = image->handle;
+    image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    image_view_create_info.format = format;
+    image_view_create_info.subresourceRange.aspectMask = aspect_flags;
+    image_view_create_info.subresourceRange.baseMipLevel = 0;
+    image_view_create_info.subresourceRange.levelCount = 1;
+    image_view_create_info.subresourceRange.baseArrayLayer = 0;
+    image_view_create_info.subresourceRange.layerCount = 1;
+    CheckVkResult(vkCreateImageView(context->logical_device, &image_view_create_info, nullptr, &image->view));
+
+    return true;
+}
+
+internal_function void
+copy_buffer_to_image(Vulkan_Context *context, Vulkan_Buffer *buffer, Vulkan_Image *image, void *data, U64 size)
+{
+    Assert(context);
+    Assert(buffer);
+    Assert(data);
+    Assert(size);
+    Assert(size <= buffer->size && size <= image->size);
+
+    copy_memory(buffer->data, data, size);
+
+    // todo(amer): check if graphics queue families always does transfer
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[0];
+    vkResetCommandBuffer(command_buffer, 0);
+
+    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    command_buffer_begin_info.flags = 0;
+    command_buffer_begin_info.pInheritanceInfo = 0;
+
+    vkBeginCommandBuffer(command_buffer,
+                         &command_buffer_begin_info);
+
+    transtion_image_to_layout(image->handle,
+                              command_buffer,
+                              VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    VkBufferImageCopy region = {};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+
+    region.imageOffset = { 0, 0, 0 };
+    region.imageExtent = { image->width, image->height, 1 };
+
+    vkCmdCopyBufferToImage(command_buffer, buffer->handle,
+                           image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    transtion_image_to_layout(image->handle,
+                              command_buffer,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    vkEndCommandBuffer(command_buffer);
+
+    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffer;
+
+    vkQueueSubmit(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+    vkQueueWaitIdle(context->graphics_queue);
+}
+
+internal_function void destroy_image(Vulkan_Image *image, Vulkan_Context *context)
+{
+    vkDestroyImageView(context->logical_device, image->view, nullptr);
+    vkFreeMemory(context->logical_device, image->memory, nullptr);
+    vkDestroyImage(context->logical_device, image->handle, nullptr);
 }
 
 internal_function bool
@@ -341,12 +544,23 @@ create_swapchain(Vulkan_Context *context,
                                         &swapchain->image_views[image_index]));
     }
 
+    // todo(amer): we should check if VK_FORMAT_D32_SFLOAT_S8_UINT is supported
+    create_image(&swapchain->depth_sentcil_attachment, context, width, height, VK_FORMAT_D32_SFLOAT_S8_UINT,
+                 VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                 VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
     for (U32 image_index = 0; image_index < swapchain->image_count; image_index++)
     {
         VkFramebufferCreateInfo frame_buffer_create_info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
         frame_buffer_create_info.renderPass = context->render_pass;
-        frame_buffer_create_info.attachmentCount = 1;
-        frame_buffer_create_info.pAttachments = &swapchain->image_views[image_index];
+        VkImageView image_views[2] =
+        {
+            swapchain->image_views[image_index],
+            swapchain->depth_sentcil_attachment.view
+        };
+        frame_buffer_create_info.attachmentCount = ArrayCount(image_views);
+        frame_buffer_create_info.pAttachments = image_views;
         frame_buffer_create_info.width = swapchain->width;
         frame_buffer_create_info.height = swapchain->height;
         frame_buffer_create_info.layers = 1;
@@ -384,6 +598,8 @@ destroy_swapchain(Vulkan_Context *context, Vulkan_Swapchain *swapchain)
     deallocate(context->allocator, swapchain->image_views);
     deallocate(context->allocator, swapchain->frame_buffers);
 
+    destroy_image(&swapchain->depth_sentcil_attachment, context);
+
     vkDestroySwapchainKHR(context->logical_device, swapchain->handle, nullptr);
     swapchain->handle = VK_NULL_HANDLE;
 }
@@ -410,11 +626,21 @@ create_graphics_pipeline(Vulkan_Context *context,
     vertex_input_binding_description.stride = sizeof(Vertex); // todo(amer): temprary
     vertex_input_binding_description.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    VkVertexInputAttributeDescription vertex_input_attribute_descriptions[1] = {};
+    VkVertexInputAttributeDescription vertex_input_attribute_descriptions[3] = {};
     vertex_input_attribute_descriptions[0].binding = 0;
     vertex_input_attribute_descriptions[0].location = 0;
     vertex_input_attribute_descriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     vertex_input_attribute_descriptions[0].offset = offsetof(Vertex, position);
+
+    vertex_input_attribute_descriptions[1].binding = 0;
+    vertex_input_attribute_descriptions[1].location = 1;
+    vertex_input_attribute_descriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    vertex_input_attribute_descriptions[1].offset = offsetof(Vertex, normal);
+
+    vertex_input_attribute_descriptions[2].binding = 0;
+    vertex_input_attribute_descriptions[2].location = 2;
+    vertex_input_attribute_descriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+    vertex_input_attribute_descriptions[2].offset = offsetof(Vertex, uv);
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info =
         { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
@@ -523,16 +749,21 @@ create_graphics_pipeline(Vulkan_Context *context,
     color_blend_state_create_info.blendConstants[2] = 0.0f;
     color_blend_state_create_info.blendConstants[3] = 0.0f;
 
-    VkDescriptorSetLayoutBinding descriptor_layout_bindings = {};
-    descriptor_layout_bindings.binding = 0;
-    descriptor_layout_bindings.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    descriptor_layout_bindings.descriptorCount = 1;
-    descriptor_layout_bindings.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    VkDescriptorSetLayoutBinding descriptor_layout_bindings[2] = {};
+    descriptor_layout_bindings[0].binding = 0;
+    descriptor_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptor_layout_bindings[0].descriptorCount = 1;
+    descriptor_layout_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    descriptor_layout_bindings[1].binding = 1;
+    descriptor_layout_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptor_layout_bindings[1].descriptorCount = 1;
+    descriptor_layout_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info =
         { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-    descriptor_set_layout_create_info.bindingCount = 1;
-    descriptor_set_layout_create_info.pBindings = &descriptor_layout_bindings;
+    descriptor_set_layout_create_info.bindingCount = ArrayCount(descriptor_layout_bindings);
+    descriptor_set_layout_create_info.pBindings = descriptor_layout_bindings;
 
     CheckVkResult(vkCreateDescriptorSetLayout(context->logical_device,
                                               &descriptor_set_layout_create_info,
@@ -550,6 +781,19 @@ create_graphics_pipeline(Vulkan_Context *context,
                                          &pipeline_layout_create_info,
                                          nullptr, &pipeline->layout));
 
+    VkPipelineDepthStencilStateCreateInfo depth_stencil_state_create_info
+        = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
+
+    depth_stencil_state_create_info.depthTestEnable = VK_TRUE;
+    depth_stencil_state_create_info.depthWriteEnable = VK_TRUE;
+    depth_stencil_state_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
+    depth_stencil_state_create_info.depthBoundsTestEnable = VK_FALSE;
+    depth_stencil_state_create_info.minDepthBounds = 0.0f;
+    depth_stencil_state_create_info.maxDepthBounds = 1.0f;
+    depth_stencil_state_create_info.stencilTestEnable = VK_FALSE; // todo(amer): stencil test is disabled
+    depth_stencil_state_create_info.front = {};
+    depth_stencil_state_create_info.back = {};
+
     VkGraphicsPipelineCreateInfo graphics_pipeline_create_info =
         { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
     graphics_pipeline_create_info.stageCount = 2;
@@ -559,7 +803,7 @@ create_graphics_pipeline(Vulkan_Context *context,
     graphics_pipeline_create_info.pViewportState = &viewport_state_create_info;
     graphics_pipeline_create_info.pRasterizationState = &rasterization_state_create_info;
     graphics_pipeline_create_info.pMultisampleState = &multisampling_state_create_info;
-    graphics_pipeline_create_info.pDepthStencilState = nullptr;
+    graphics_pipeline_create_info.pDepthStencilState = &depth_stencil_state_create_info;
     graphics_pipeline_create_info.pColorBlendState = &color_blend_state_create_info;
     graphics_pipeline_create_info.pDynamicState = &dynamic_state_create_info;
     graphics_pipeline_create_info.layout = pipeline->layout;
@@ -607,31 +851,12 @@ create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
     VkMemoryRequirements memory_requirements = {};
     vkGetBufferMemoryRequirements(context->logical_device, buffer->handle, &memory_requirements);
 
-    VkPhysicalDeviceMemoryProperties physical_device_memory_properties = {};
-    vkGetPhysicalDeviceMemoryProperties(context->physical_device, &physical_device_memory_properties);
-
-    S32 picked_memory_type_index = -1;
-
-    for (U32 memory_type_index = 0;
-        memory_type_index < physical_device_memory_properties.memoryTypeCount;
-        memory_type_index++)
-    {
-        if (((1 << memory_type_index) & memory_requirements.memoryTypeBits))
-        {
-            const VkMemoryType* memory_type =
-                &physical_device_memory_properties.memoryTypes[memory_type_index];
-            if ((memory_type->propertyFlags & memory_property_flags) == memory_property_flags)
-            {
-                picked_memory_type_index = (S32)memory_type_index;
-            }
-        }
-    }
-
-    Assert(picked_memory_type_index != -1);
+    S32 memory_type_index = find_memory_type_index(context, memory_requirements, memory_property_flags);
+    Assert(memory_type_index != -1);
 
     VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
     memory_allocate_info.allocationSize = memory_requirements.size;
-    memory_allocate_info.memoryTypeIndex = picked_memory_type_index;
+    memory_allocate_info.memoryTypeIndex = memory_type_index;
 
     CheckVkResult(vkAllocateMemory(context->logical_device, &memory_allocate_info,
                                    nullptr, &buffer->memory));
@@ -692,6 +917,179 @@ destroy_buffer(Vulkan_Buffer *buffer,
 {
     vkFreeMemory(logical_device, buffer->memory, nullptr);
     vkDestroyBuffer(logical_device, buffer->handle, nullptr);
+}
+
+
+
+internal_function bool load_static_mesh(const char *path, Static_Mesh *static_mesh, Vulkan_Context *context, Memory_Arena *arena)
+{
+    Scoped_Temprary_Memory_Arena temp_arena(arena);
+    Read_Entire_File_Result result =
+        platform_begin_read_entire_file(path);
+
+    U32 position_count = 0;
+    glm::vec3 *positions = nullptr;
+
+    U32 normal_count = 0;
+    glm::vec3 *normals = nullptr;
+
+    U32 uv_count = 0;
+    glm::vec2 *uvs = nullptr;
+
+    U32 index_count = 0;
+    U16 *indices = nullptr;
+
+    if (result.success)
+    {
+        U8 *buffer = AllocateArray(&temp_arena, U8, result.size);
+        platform_end_read_entire_file(&result, buffer);
+
+        cgltf_options options = {};
+        cgltf_data *data = nullptr;
+        if (cgltf_parse(&options, buffer, result.size, &data) == cgltf_result_success)
+        {
+            Assert(data->meshes_count >= 1);
+            cgltf_mesh *mesh = &data->meshes[0];
+            Assert(mesh->primitives_count >= 1);
+            cgltf_primitive *primitive = &mesh->primitives[0];
+            Assert(primitive->type == cgltf_primitive_type_triangles);
+            for (U32 i = 0; i < primitive->attributes_count; i++)
+            {
+                cgltf_attribute *attribute = &primitive->attributes[i];
+                Assert(attribute->type != cgltf_attribute_type_invalid);
+                switch (attribute->type)
+                {
+                    case cgltf_attribute_type_position:
+                    {
+                        Assert(attribute->data->type == cgltf_type_vec3);
+                        Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                        Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
+
+                        position_count = u64_to_u32(attribute->data->count);
+                        U64 stride = attribute->data->stride;
+                        Assert(stride == sizeof(glm::vec3));
+
+                        U64 buffer_offset = attribute->data->buffer_view->buffer->extras.start_offset;
+                        U8 *position_buffer = ((U8*)data->bin + buffer_offset) + attribute->data->buffer_view->offset;
+                        positions = (glm::vec3 *)position_buffer;
+                    } break;
+
+                    case cgltf_attribute_type_normal:
+                    {
+                        Assert(attribute->data->type == cgltf_type_vec3);
+                        Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                        Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
+
+                        normal_count = u64_to_u32(attribute->data->count);
+                        U64 stride = attribute->data->stride;
+                        Assert(stride == sizeof(glm::vec3));
+
+                        U64 buffer_offset = attribute->data->buffer_view->buffer->extras.start_offset;
+                        U8* normal_buffer = ((U8*)data->bin + buffer_offset) + attribute->data->buffer_view->offset;
+                        normals = (glm::vec3*)normal_buffer;
+                    } break;
+
+                    case cgltf_attribute_type_texcoord:
+                    {
+                        Assert(attribute->data->type == cgltf_type_vec2);
+                        Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                        Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
+
+                        uv_count = u64_to_u32(attribute->data->count);
+                        U64 stride = attribute->data->stride;
+                        Assert(stride == sizeof(glm::vec2));
+
+                        U64 buffer_offset = attribute->data->buffer_view->buffer->extras.start_offset;
+                        U8* uv_buffer = ((U8*)data->bin + buffer_offset) + attribute->data->buffer_view->offset;
+                        uvs = (glm::vec2*)uv_buffer;
+                    } break;
+                }
+            }
+
+            Assert(primitive->indices->type == cgltf_type_scalar);
+            Assert(primitive->indices->component_type == cgltf_component_type_r_16u);
+            Assert(primitive->indices->stride == sizeof(U16));
+            index_count = u64_to_u32(primitive->indices->count);
+            U64 buffer_offset = primitive->indices->buffer_view->buffer->extras.start_offset;
+            U8 *index_buffer =
+                ((U8*)data->bin + buffer_offset) + primitive->indices->buffer_view->offset;
+            indices = (U16*)index_buffer;
+            cgltf_free(data);
+        }
+    }
+
+    Assert(position_count == normal_count);
+    Assert(position_count == uv_count);
+
+    U32 vertex_count = position_count;
+    Vertex *vertices = AllocateArray(&temp_arena, Vertex, vertex_count);
+
+    for (U32 vertex_index = 0; vertex_index < vertex_count; vertex_index++)
+    {
+        Vertex *vertex = &vertices[vertex_index];
+        vertex->position = positions[vertex_index];
+        vertex->normal = normals[vertex_index];
+        vertex->uv = uvs[vertex_index];
+    }
+
+    U64 vertex_size = vertex_count * sizeof(Vertex);
+    create_buffer(&static_mesh->vertex_buffer, context, vertex_size,
+                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    copy_buffer(context, &context->transfer_buffer,
+                &static_mesh->vertex_buffer, vertices, vertex_size);
+    static_mesh->vertex_count = u64_to_u32(vertex_count);
+
+    U64 index_size = index_count * sizeof(U16);
+    create_buffer(&static_mesh->index_buffer, context,
+                  index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
+                  VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    copy_buffer(context, &context->transfer_buffer,
+                &static_mesh->index_buffer, indices, index_size);
+    static_mesh->index_count = u32_to_u16(index_count);
+
+    S32 texture_width;
+    S32 texture_height;
+    S32 texture_channels;
+    stbi_uc* pixels = stbi_load("models/Default_albedo.jpg",
+                                &texture_width, &texture_height,
+                                &texture_channels, STBI_rgb_alpha);
+
+    Assert(pixels);
+
+    create_image(&static_mesh->image, context, texture_width, texture_height,
+                 VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+                 VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
+                 VK_IMAGE_ASPECT_COLOR_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    copy_buffer_to_image(context, &context->transfer_buffer,
+                         &static_mesh->image, pixels,
+                         texture_width * texture_height * sizeof(U32));
+
+    stbi_image_free(pixels);
+
+    VkSamplerCreateInfo sampler_create_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+    sampler_create_info.minFilter = VK_FILTER_LINEAR;
+    sampler_create_info.magFilter = VK_FILTER_LINEAR;
+    sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_create_info.anisotropyEnable = VK_TRUE;
+    sampler_create_info.maxAnisotropy = context->physical_device_properties.limits.maxSamplerAnisotropy;
+    sampler_create_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    sampler_create_info.unnormalizedCoordinates = VK_FALSE;
+    sampler_create_info.compareEnable = VK_FALSE;
+    sampler_create_info.compareOp = VK_COMPARE_OP_ALWAYS;
+    sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sampler_create_info.mipLodBias = 0.0f;
+    sampler_create_info.minLod = 0.0f;
+    sampler_create_info.maxLod = 0.0f;
+    CheckVkResult(vkCreateSampler(context->logical_device, &sampler_create_info, nullptr, &static_mesh->sampler));
+
+    return true;
 }
 
 internal_function bool
@@ -793,6 +1191,9 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     context->physical_device = pick_physical_device(context->instance, context->surface, arena);
     Assert(context->physical_device != VK_NULL_HANDLE);
 
+    vkGetPhysicalDeviceMemoryProperties(context->physical_device, &context->physical_device_memory_properties);
+    vkGetPhysicalDeviceProperties(context->physical_device, &context->physical_device_properties);
+
     {
         Scoped_Temprary_Memory_Arena temp_arena(arena);
 
@@ -884,7 +1285,9 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             queue_create_info_count = 2;
         }
 
+        // todo(amer): physical device can use this to check for features....
         VkPhysicalDeviceFeatures physical_device_features = {};
+        physical_device_features.samplerAnisotropy = VK_TRUE;
 
         const char *required_device_extensions[] =
         {
@@ -970,39 +1373,54 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                            arena,
                            &context->swapchain_support);
 
-    VkAttachmentDescription color_attachment = {};
-    color_attachment.format = context->swapchain_support.format;
-    color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    VkAttachmentDescription attachments[2] = {};
+
+    attachments[0].format = context->swapchain_support.format;
+    attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+    attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    attachments[1].format = VK_FORMAT_D32_SFLOAT_S8_UINT;
+    attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+    attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkAttachmentReference color_attachment_ref = {};
     color_attachment_ref.attachment = 0;
     color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+    VkAttachmentReference depth_stencil_attachment_ref = {};
+    depth_stencil_attachment_ref.attachment = 1;
+    depth_stencil_attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
     VkSubpassDescription subpass = {};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &color_attachment_ref;
+    subpass.pDepthStencilAttachment = &depth_stencil_attachment_ref;
 
     VkSubpassDependency dependency = {};
 
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
 
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dependency.srcAccessMask = 0;
 
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
     VkRenderPassCreateInfo render_pass_create_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-    render_pass_create_info.attachmentCount = 1;
-    render_pass_create_info.pAttachments = &color_attachment;
+    render_pass_create_info.attachmentCount = ArrayCount(attachments);
+    render_pass_create_info.pAttachments = attachments;
     render_pass_create_info.subpassCount = 1;
     render_pass_create_info.pSubpasses = &subpass;
     render_pass_create_info.dependencyCount = 1;
@@ -1023,7 +1441,6 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     bool swapchain_created = create_swapchain(context, width, height,
                                               min_image_count, present_mode, &context->swapchain);
     Assert(swapchain_created);
-    Assert(color_attachment.format == context->swapchain.image_format);
 
     {
         Scoped_Temprary_Memory_Arena temp_arena(arena);
@@ -1075,6 +1492,32 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         }
     }
 
+    VkCommandPoolCreateInfo graphics_command_pool_create_info
+        = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+
+    graphics_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    graphics_command_pool_create_info.queueFamilyIndex = context->graphics_queue_family_index;
+
+    CheckVkResult(vkCreateCommandPool(context->logical_device,
+                                      &graphics_command_pool_create_info,
+                                      nullptr, &context->graphics_command_pool));
+
+    VkCommandBufferAllocateInfo graphics_command_buffer_allocate_info
+        = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    graphics_command_buffer_allocate_info.commandPool = context->graphics_command_pool;
+    graphics_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    graphics_command_buffer_allocate_info.commandBufferCount = 3;
+    CheckVkResult(vkAllocateCommandBuffers(context->logical_device,
+                                           &graphics_command_buffer_allocate_info,
+                                           context->graphics_command_buffers));
+
+    create_buffer(&context->transfer_buffer, context, HE_MegaBytes(128),
+                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    bool loaded = load_static_mesh("models/DamagedHelmet.glb", &context->static_mesh, context, arena);
+    Assert(loaded);
+
     create_graphics_pipeline(context,
                              context->vertex_shader_module,
                              context->fragment_shader_module,
@@ -1088,13 +1531,16 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     }
 
-    VkDescriptorPoolSize pool_size = {};
-    pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    VkDescriptorPoolSize descriptor_pool_sizes[2] = {};
+    descriptor_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptor_pool_sizes[0].descriptorCount = U32(MAX_FRAMES_IN_FLIGHT);
+
+    descriptor_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptor_pool_sizes[1].descriptorCount = U32(MAX_FRAMES_IN_FLIGHT);
 
     VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-    descriptor_pool_create_info.poolSizeCount = 1;
-    descriptor_pool_create_info.pPoolSizes = &pool_size;
+    descriptor_pool_create_info.poolSizeCount = ArrayCount(descriptor_pool_sizes);
+    descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
     descriptor_pool_create_info.maxSets = MAX_FRAMES_IN_FLIGHT;
 
     CheckVkResult(vkCreateDescriptorPool(context->logical_device,
@@ -1102,6 +1548,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                          nullptr, &context->descriptor_pool));
 
     VkDescriptorSetLayout descriptor_set_layouts[MAX_FRAMES_IN_FLIGHT] = {};
+
     for (U32 frame_index = 0;
          frame_index < MAX_FRAMES_IN_FLIGHT;
          frame_index++)
@@ -1125,34 +1572,30 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         descriptor_buffer_info.offset = 0;
         descriptor_buffer_info.range = sizeof(Global_Uniform_Buffer);
 
-        VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        write_descriptor_set.dstSet = context->descriptor_sets[frame_index];
-        write_descriptor_set.dstBinding = 0;
-        write_descriptor_set.dstArrayElement = 0;
-        write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        write_descriptor_set.descriptorCount = 1;
-        write_descriptor_set.pBufferInfo = &descriptor_buffer_info;
+        VkDescriptorImageInfo descriptor_image_info = {};
+        descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        descriptor_image_info.imageView = context->static_mesh.image.view;
+        descriptor_image_info.sampler = context->static_mesh.sampler;
 
-        vkUpdateDescriptorSets(context->logical_device, 1, &write_descriptor_set, 0, nullptr);
+        VkWriteDescriptorSet write_descriptor_sets[2] = {};
+        write_descriptor_sets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_descriptor_sets[0].dstSet = context->descriptor_sets[frame_index];
+        write_descriptor_sets[0].dstBinding = 0;
+        write_descriptor_sets[0].dstArrayElement = 0;
+        write_descriptor_sets[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        write_descriptor_sets[0].descriptorCount = 1;
+        write_descriptor_sets[0].pBufferInfo = &descriptor_buffer_info;
+
+        write_descriptor_sets[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_descriptor_sets[1].dstSet = context->descriptor_sets[frame_index];
+        write_descriptor_sets[1].dstBinding = 1;
+        write_descriptor_sets[1].dstArrayElement = 0;
+        write_descriptor_sets[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_descriptor_sets[1].descriptorCount = 1;
+        write_descriptor_sets[1].pImageInfo = &descriptor_image_info;
+
+        vkUpdateDescriptorSets(context->logical_device, ArrayCount(write_descriptor_sets), write_descriptor_sets, 0, nullptr);
     }
-
-    VkCommandPoolCreateInfo graphics_command_pool_create_info
-        = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-    graphics_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    graphics_command_pool_create_info.queueFamilyIndex = context->graphics_queue_family_index;
-
-    CheckVkResult(vkCreateCommandPool(context->logical_device,
-                                      &graphics_command_pool_create_info,
-                                      nullptr, &context->graphics_command_pool));
-
-    VkCommandBufferAllocateInfo graphics_command_buffer_allocate_info
-        = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    graphics_command_buffer_allocate_info.commandPool = context->graphics_command_pool;
-    graphics_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    graphics_command_buffer_allocate_info.commandBufferCount = 3;
-    CheckVkResult(vkAllocateCommandBuffers(context->logical_device,
-                                           &graphics_command_buffer_allocate_info,
-                                           context->graphics_command_buffers));
 
     for (U32 sync_primitive_index = 0;
          sync_primitive_index < MAX_FRAMES_IN_FLIGHT;
@@ -1175,121 +1618,6 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                     &context->frame_in_flight_fences[sync_primitive_index]));
     }
 
-    create_buffer(&context->transfer_buffer, context, HE_MegaBytes(128),
-                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    Static_Mesh *static_mesh = &context->static_mesh;
-
-    Read_Entire_File_Result result =
-        platform_begin_read_entire_file("models/DamagedHelmet.glb");
-
-    U64 vertex_count = 0;
-    glm::vec3 *vertices = nullptr;
-
-    U32 index_count = 0;
-    U16 *indices = nullptr;
-
-    if (result.success)
-    {
-        U8 *buffer = AllocateArray(arena, U8, result.size);
-        platform_end_read_entire_file(&result, buffer);
-
-        cgltf_options options = {};
-        cgltf_data *data = nullptr;
-        if (cgltf_parse(&options, buffer, result.size, &data) == cgltf_result_success)
-        {
-            Assert(data->meshes_count >= 1);
-            cgltf_mesh *mesh = &data->meshes[0];
-            Assert(mesh->primitives_count >= 1);
-            cgltf_primitive *primitive = &mesh->primitives[0];
-            Assert(primitive->type == cgltf_primitive_type_triangles);
-            for (U32 i = 0; i < primitive->attributes_count; i++)
-            {
-                cgltf_attribute *attribute = &primitive->attributes[i];
-                Assert(attribute->type != cgltf_attribute_type_invalid);
-                switch (attribute->type)
-                {
-                    case cgltf_attribute_type_position:
-                    {
-                        Assert(attribute->data->type == cgltf_type_vec3);
-                        Assert(attribute->data->component_type == cgltf_component_type_r_32f);
-                        Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
-
-                        vertex_count = attribute->data->count;
-                        U64 stride = attribute->data->stride;
-                        Assert(stride == sizeof(glm::vec3));
-
-                        U64 buffer_offset = attribute->data->buffer_view->buffer->extras.start_offset;
-                        U8 *vertex_buffer = ((U8*)data->bin + buffer_offset) + attribute->data->buffer_view->offset;
-                        vertices = (glm::vec3 *)vertex_buffer;
-                    } break;
-
-                    case cgltf_attribute_type_normal:
-                    {
-                    } break;
-
-                    case cgltf_attribute_type_texcoord:
-                    {
-                    } break;
-                }
-            }
-
-            index_count = u64_to_u32(primitive->indices->count);
-            U64 buffer_offset = primitive->indices->buffer_view->buffer->extras.start_offset;
-            U8 *index_buffer = ((U8*)data->bin + buffer_offset) + primitive->indices->buffer_view->offset;
-            indices = (U16*)index_buffer;
-            cgltf_free(data);
-        }
-    }
-
-#if 1
-    U64 vertex_size = vertex_count * sizeof(Vertex);
-    create_buffer(&static_mesh->vertex_buffer, context,
-                  vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    copy_buffer(context, &context->transfer_buffer, &static_mesh->vertex_buffer, vertices, vertex_size);
-    static_mesh->vertex_count = u64_to_u32(vertex_count);
-
-    U64 index_size = index_count * sizeof(U16);
-    create_buffer(&static_mesh->index_buffer, context,
-                  index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
-                  VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    copy_buffer(context, &context->transfer_buffer, &static_mesh->index_buffer, indices, index_size);
-    static_mesh->index_count = u32_to_u16(index_count);
-
-#else
-    Vertex vertices[4] =
-    {
-        { { -0.5f,  0.5f, 0.0f } },
-        { {  0.5f,  0.5f, 0.0f } },
-        { {  0.5f, -0.5f, 0.0f } },
-        { { -0.5f, -0.5f, 0.0f } },
-    };
-    U64 vertex_size = sizeof(Vertex) * ArrayCount(vertices);
-
-    create_buffer(&static_mesh->vertex_buffer, context,
-                  vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    copy_buffer(context, &context->transfer_buffer, &static_mesh->vertex_buffer, vertices, vertex_size);
-    static_mesh->vertex_count = ArrayCount(vertices);
-
-    U32 indices[6] = { 1, 0, 3, 1, 3, 2 };
-    U64 index_size = sizeof(U32) * ArrayCount(indicies);
-
-    create_buffer(&static_mesh->index_buffer, context,
-                  index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
-                  VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    copy_buffer(context, &context->transfer_buffer, &static_mesh->index_buffer, indices, index_size);
-    static_mesh->index_count = ArrayCount(indicies);
-#endif
-
     context->current_frame_in_flight_index = 0;
     context->frames_in_flight = 2;
     Assert(context->frames_in_flight <= MAX_FRAMES_IN_FLIGHT);
@@ -1297,7 +1625,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 }
 
 internal_function void
-vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context)
+vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context, F32 delta_time)
 {
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
 
@@ -1355,16 +1683,17 @@ vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context)
     vkBeginCommandBuffer(command_buffer,
                          &command_buffer_begin_info);
 
-    VkClearValue clear_value = {};
-    clear_value.color = { 1.0f, 0.0f, 1.0f, 1.0f };
+    VkClearValue clear_values[2] = {};
+    clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+    clear_values[1].depthStencil = { 1.0f, 0 };
 
     VkRenderPassBeginInfo render_pass_begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
     render_pass_begin_info.renderPass = context->render_pass;
     render_pass_begin_info.framebuffer = context->swapchain.frame_buffers[image_index];
     render_pass_begin_info.renderArea.offset = { 0, 0 };
     render_pass_begin_info.renderArea.extent = { context->swapchain.width, context->swapchain.height };
-    render_pass_begin_info.clearValueCount = 1;
-    render_pass_begin_info.pClearValues = &clear_value;
+    render_pass_begin_info.clearValueCount = ArrayCount(clear_values);
+    render_pass_begin_info.pClearValues = clear_values;
 
     vkCmdBeginRenderPass(command_buffer,
                          &render_pass_begin_info,
@@ -1402,9 +1731,17 @@ vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context)
 
     F32 aspect_ratio = (F32)renderer_state->back_buffer_width / (F32)renderer_state->back_buffer_height;
 
+    F32 rotation_speed = 45.0f;
+    local_presist F32 rotation_angle = 0.0f;
+    rotation_angle += rotation_speed * delta_time;
+    if (rotation_angle >= 360.0f) rotation_angle -= 360.0f;
+
+    glm::vec3 euler = glm::vec3(glm::radians(90.0f), glm::radians(rotation_angle), 0.0f);
+    glm::quat rotation = glm::quat(euler);
+
     Global_Uniform_Buffer gub_data;
-    gub_data.model = glm::rotate(glm::mat4(1.0f), glm::radians(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    gub_data.view = glm::lookAt(glm::vec3(0.0f, 1.0f, 5.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    gub_data.model = glm::toMat4(rotation);
+    gub_data.view = glm::lookAt(glm::vec3(0.0f, 1.0f, -5.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     gub_data.projection = glm::perspective(glm::radians(45.0f), aspect_ratio, 0.1f, 1000.0f);
     gub_data.projection[1][1] *= -1;
 
@@ -1480,6 +1817,9 @@ void deinit_vulkan(Vulkan_Context *context)
 
     vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, nullptr);
 
+    vkDestroySampler(context->logical_device, context->static_mesh.sampler, nullptr);
+    destroy_image(&context->static_mesh.image, context);
+
     destroy_buffer(&context->transfer_buffer, context->logical_device);
     destroy_buffer(&context->static_mesh.vertex_buffer, context->logical_device);
     destroy_buffer(&context->static_mesh.index_buffer, context->logical_device);
@@ -1554,7 +1894,7 @@ void vulkan_renderer_on_resize(Renderer_State *renderer_state,
                        vulkan_context.swapchain.present_mode);
 }
 
-void vulkan_renderer_draw(Renderer_State *renderer_state)
+void vulkan_renderer_draw(Renderer_State *renderer_state, F32 delta_time)
 {
-    vulkan_draw(renderer_state, &vulkan_context);
+    vulkan_draw(renderer_state, &vulkan_context, delta_time);
 }
