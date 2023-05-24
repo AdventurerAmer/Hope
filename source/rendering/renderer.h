@@ -1,6 +1,11 @@
 #pragma once
 
 #include "core/defines.h"
+#include "camera.h"
+
+#if HE_OS_WINDOWS
+#define HE_RHI_VULKAN
+#endif
 
 enum RenderingAPI
 {
@@ -11,6 +16,9 @@ struct Renderer_State
 {
     U32 back_buffer_width;
     U32 back_buffer_height;
+
+    Camera camera;
+    FPS_Camera_Controller camera_controller;
 };
 
 struct Renderer

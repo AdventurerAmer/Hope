@@ -3,7 +3,7 @@
 #include "platform.h"
 #include "logging.h"
 #include "memory.h"
-#include "math.h"
+#include "input.h"
 
 #include "rendering/renderer.h"
 
@@ -87,6 +87,7 @@ struct Engine_Configuration
     Mem_Size transient_memory_size;
     WindowMode window_mode;
     bool show_cursor;
+    bool lock_cursor;
     U32 back_buffer_width;
     U32 back_buffer_height;
 };
@@ -100,7 +101,10 @@ struct Engine
     bool is_running;
     bool is_minimized;
     bool show_cursor;
+    bool lock_cursor;
     WindowMode window_mode;
+
+    Input input;
 
     Renderer_State renderer_state;
     Renderer renderer;

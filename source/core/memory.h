@@ -31,9 +31,9 @@ struct Memory_Arena
     Mem_Size size;
     Mem_Size offset;
 
-    // todo(amer): this data member is used for debugging purposes only and
-    // should be used accessed non-shipping builds only
+#ifndef HE_SHIPPING
     Temprary_Memory_Arena *current_temprary_owner;
+#endif
 };
 
 Memory_Arena
@@ -53,9 +53,9 @@ struct Temprary_Memory_Arena
     Memory_Arena *arena;
     Mem_Size offset;
 
-    // todo(amer): this data member is used for debugging purposes only and
-    // should be used accessed non-shipping builds only
+#ifndef HE_SHIPPING
     Temprary_Memory_Arena *parent;
+#endif
 };
 
 void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena,
@@ -100,7 +100,7 @@ allocate(Scoped_Temprary_Memory_Arena *scoped_temprary_memory_arena, Mem_Size si
 struct Free_List_Node
 {
     // note(amer): if we are going to have no more then 4 giga bytes of memory in the allocator
-    // could we use relative pointers to reduce the node size
+    // could we use relative pointers or u32 offsets to reduce the node size...
     Free_List_Node *next;
     Free_List_Node *prev;
     Mem_Size size;
@@ -119,7 +119,7 @@ init_free_list_allocator(Free_List_Allocator *free_list_allocator,
                          Memory_Arena *arena,
                          Mem_Size size);
 
-void *
+void*
 allocate(Free_List_Allocator *allocator,
          Mem_Size size,
          U16 alignment);

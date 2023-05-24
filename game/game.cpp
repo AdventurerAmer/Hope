@@ -1,6 +1,5 @@
 #include "core/defines.h"
 #include "core/engine.h"
-#include "core/input_codes.h"
 
 extern "C" bool
 init_game(Engine *engine)

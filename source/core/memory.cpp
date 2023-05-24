@@ -89,10 +89,10 @@ void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena,
     temprary_memory_arena->arena = arena;
     temprary_memory_arena->offset = arena->offset;
 
-    // todo(amer): this data member is used for debugging purposes only and
-    // should be used accessed non-shipping builds only
+#ifndef HE_SHIPPING
     temprary_memory_arena->parent = arena->current_temprary_owner;
     arena->current_temprary_owner = temprary_memory_arena;
+#endif
 }
 
 void
@@ -104,8 +104,10 @@ end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena)
     arena->offset = temprary_arena->offset;
     arena->current_temprary_owner = temprary_arena->parent;
 
+#ifndef HE_SHIPPING
     temprary_arena->arena = nullptr;
     temprary_arena->offset = 0;
+#endif
 }
 
 //
@@ -203,8 +205,6 @@ void* allocate(Free_List_Allocator *allocator,
                                                                                                 alignment);
         }
 
-        // todo(amer): after an allocation if we have a free space
-        // check if there is an free adjacent node and merge with it
         Mem_Size allocation_size = offset + size;
         if (node->size >= allocation_size)
         {
