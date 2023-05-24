@@ -32,14 +32,40 @@ void init_camera(Camera *camera, glm::vec3 position,
 
 void update_camera(Camera *camera);
 
+struct FPS_Camera_Controller_Input
+{
+    bool can_control;
+    bool forward;
+    bool backward;
+    bool left;
+    bool right;
+    bool up;
+    bool down;
+    bool move_fast;
+    S32 delta_x;
+    S32 delta_y;
+};
+
 struct FPS_Camera_Controller
 {
-    F32 rotation_speed;
     F32 pitch;
     F32 yaw;
+    F32 rotation_speed;
+    F32 sensitivity_x;
+    F32 sensitivity_y;
 
-    F32 movement_speed;
+    F32 base_movement_speed;
+    F32 max_movement_speed;
 };
 
 void init_fps_camera_controller(FPS_Camera_Controller *camera_controller,
-                                Camera *camera);
+                                F32 pitch, F32 yaw, F32 rotation_speed = 45.0f,
+                                F32 base_movement_speed = 15.0f,
+                                F32 max_movement_speed = 35.0f,
+                                F32 sensitivity_x = 1.0f,
+                                F32 sensitivity_y = 1.0f);
+
+void control_camera(FPS_Camera_Controller *camera_controller,
+                    Camera *camera,
+                    const FPS_Camera_Controller_Input input,
+                    F32 delta_time);

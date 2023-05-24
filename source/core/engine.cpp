@@ -79,12 +79,14 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 
     glm::quat camera_rotation = glm::quat({ 0.0f, 0.0f, 0.0f });
     Camera *camera = &engine->renderer_state.camera;
-    init_camera(camera, { 0.0f, 1.0f, 20.0f }, camera_rotation, aspect_ratio);
+    init_camera(camera, { 0.0f, 2.0f, 20.0f }, camera_rotation, aspect_ratio);
 
     FPS_Camera_Controller *camera_controller = &engine->renderer_state.camera_controller;
     camera_controller->rotation_speed = 45.0f;
-    camera_controller->movement_speed = 10.0f;
-    init_fps_camera_controller(camera_controller, camera);
+    camera_controller->base_movement_speed = 10.0f;
+    camera_controller->max_movement_speed = 20.0f;
+    init_fps_camera_controller(camera_controller, /*pitch=*/0.0f, /*yaw=*/0.0f,
+                               /*rotation_speed=*/45.0f);
 
     Platform_API *api = &engine->platform_api;
     api->allocate_memory = &platform_allocate_memory;
@@ -104,79 +106,29 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 
 void game_loop(Engine* engine, F32 delta_time)
 {
-    Input* input = &engine->input;
+    Input *input = &engine->input;
     Renderer_State* renderer_state = &engine->renderer_state;
 
-    if (input->button_states[HE_BUTTON_RIGHT] != InputState_Released)
+    Camera *camera = &renderer_state->camera;
+    FPS_Camera_Controller *camera_controller = &renderer_state->camera_controller;
+
+    FPS_Camera_Controller_Input camera_controller_input = {};
+    camera_controller_input.can_control = input->button_states[HE_BUTTON_RIGHT] != InputState_Released;
+    camera_controller_input.move_fast = input->key_states[HE_KEY_LEFT_SHIFT] != InputState_Released;
+    camera_controller_input.forward = input->key_states[HE_KEY_W] != InputState_Released;
+    camera_controller_input.backward = input->key_states[HE_KEY_S] != InputState_Released;
+    camera_controller_input.left = input->key_states[HE_KEY_A] != InputState_Released;
+    camera_controller_input.right = input->key_states[HE_KEY_D] != InputState_Released;
+    camera_controller_input.up = input->key_states[HE_KEY_E] != InputState_Released;
+    camera_controller_input.down = input->key_states[HE_KEY_Q] != InputState_Released;
+    camera_controller_input.delta_x = -input->mouse_delta_x;
+    camera_controller_input.delta_y = -input->mouse_delta_y;
+
+    if (camera_controller_input.can_control)
     {
         engine->lock_cursor = true;
         engine->show_cursor = false;
-
-        Camera* camera = &renderer_state->camera;
-        FPS_Camera_Controller* camera_controller = &renderer_state->camera_controller;
-        F32 x_sensitivity = 2.0f;
-        camera_controller->yaw += -input->mouse_delta_x * x_sensitivity * camera_controller->rotation_speed * delta_time;
-
-        while (camera_controller->yaw >= 360.0f)
-        {
-            camera_controller->yaw -= 360.0f;
-        }
-
-        while (camera_controller->yaw <= -360.0f)
-        {
-            camera_controller->yaw += 360.0f;
-        }
-
-        F32 y_sensitivity = 2.0f;
-        camera_controller->pitch += -input->mouse_delta_y * y_sensitivity * camera_controller->rotation_speed * delta_time;
-        camera_controller->pitch = glm::clamp(camera_controller->pitch, -89.0f, 89.0f);
-
-        glm::quat camera_rotation = glm::quat({ glm::radians(camera_controller->pitch), glm::radians(camera_controller->yaw), 0.0f });
-
-        glm::vec3 forward = glm::rotate(camera_rotation, glm::vec3(0.0f, 0.0f, -1.0f));
-        glm::vec3 right = glm::rotate(camera_rotation, glm::vec3(1.0f, 0.0f, 0.0f));
-        glm::vec3 up = glm::rotate(camera_rotation, glm::vec3(0.0f, 1.0f, 0.0f));
-
-        glm::vec3 move_dir(0.0f);
-
-        if (input->key_states[HE_KEY_W] != InputState_Released)
-        {
-            move_dir += forward;
-        }
-
-        if (input->key_states[HE_KEY_S] != InputState_Released)
-        {
-            move_dir -= forward;
-        }
-
-        if (input->key_states[HE_KEY_D] != InputState_Released)
-        {
-            move_dir += right;
-        }
-
-        if (input->key_states[HE_KEY_A] != InputState_Released)
-        {
-            move_dir -= right;
-        }
-
-        if (input->key_states[HE_KEY_E] != InputState_Released)
-        {
-            move_dir += up;
-        }
-
-        if (input->key_states[HE_KEY_Q] != InputState_Released)
-        {
-            move_dir -= up;
-        }
-
-        if (glm::length2(move_dir) > 0.5f)
-        {
-            move_dir = glm::normalize(move_dir);
-        }
-
-        camera->position += move_dir * camera_controller->movement_speed * delta_time;
-        camera->rotation = camera_rotation;
-        update_camera(camera);
+        control_camera(camera_controller, camera, camera_controller_input, delta_time);
     }
     else
     {

@@ -498,6 +498,30 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
                     bool was_down = (message.lParam & (1u << 30));
                     bool is_down = (message.lParam & (1u << 31)) == 0;
 
+                    if (key_code == VK_SHIFT)
+                    {
+                        if (GetKeyState(VK_LSHIFT) & 0x8000)
+                        {
+                            key_code = VK_LSHIFT;
+                        }
+                        else if (GetKeyState(VK_RSHIFT) & 0x8000)
+                        {
+                            key_code = VK_RSHIFT;
+                        }
+                    }
+
+                    if (key_code == VK_MENU)
+                    {
+                        if (GetKeyState(VK_LMENU) & 0x8000)
+                        {
+                            key_code = VK_LMENU;
+                        }
+                        else if (GetKeyState(VK_RMENU) & 0x8000)
+                        {
+                            key_code = VK_RMENU;
+                        }
+                    }
+
                     Event event = {};
                     event.type = EventType_Key;
                     event.key = key_code;

@@ -1078,6 +1078,9 @@ void vulkan_renderer_on_resize(Renderer_State *renderer_state,
                        width,
                        height,
                        vulkan_context.swapchain.present_mode);
+
+    // todo(amer): every renderer should call this and i don't live that
+    update_camera(&renderer_state->camera);
 }
 
 void vulkan_renderer_draw(Renderer_State *renderer_state, F32 delta_time)
