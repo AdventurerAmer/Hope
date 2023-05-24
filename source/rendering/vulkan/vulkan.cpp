@@ -478,10 +478,24 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             }
         }
 
+        context->transfer_queue_family_index = context->graphics_queue_family_index;
+
+        for (U32 queue_family_index = 0;
+             queue_family_index < queue_family_count;
+             queue_family_index++)
+        {
+            VkQueueFamilyProperties *queue_family = &queue_families[queue_family_index];
+            if ((queue_family->queueFlags & VK_QUEUE_TRANSFER_BIT) && !(queue_family->queueFlags & VK_QUEUE_GRAPHICS_BIT))
+            {
+                context->transfer_queue_family_index = queue_family_index;
+                break;
+            }
+        }
+
         F32 queue_priority = 1.0f;
         VkDeviceQueueCreateInfo *queue_create_infos = AllocateArray(&temp_arena,
-                                                                     VkDeviceQueueCreateInfo,
-                                                                     2);
+                                                                    VkDeviceQueueCreateInfo,
+                                                                    3);
 
         queue_create_infos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queue_create_infos[0].queueFamilyIndex = context->graphics_queue_family_index;
@@ -492,14 +506,23 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
         if (!found_a_queue_family_that_can_do_graphics_and_present)
         {
-            queue_create_infos[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queue_create_infos[1].queueFamilyIndex = context->present_queue_family_index;
-            queue_create_infos[1].queueCount = 1;
-            queue_create_infos[1].pQueuePriorities = &queue_priority;
-            queue_create_info_count = 2;
+            U32 queue_create_info_index = queue_create_info_count++;
+            queue_create_infos[queue_create_info_index].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_create_infos[queue_create_info_index].queueFamilyIndex = context->present_queue_family_index;
+            queue_create_infos[queue_create_info_index].queueCount = 1;
+            queue_create_infos[queue_create_info_index].pQueuePriorities = &queue_priority;
         }
 
-        // todo(amer): physical device can use this to check for features....
+        if ((context->transfer_queue_family_index != context->graphics_queue_family_index)
+            && (context->transfer_queue_family_index != context->present_queue_family_index))
+        {
+            U32 queue_create_info_index = queue_create_info_count++;
+            queue_create_infos[queue_create_info_index].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_create_infos[queue_create_info_index].queueFamilyIndex = context->transfer_queue_family_index;
+            queue_create_infos[queue_create_info_index].queueCount = 1;
+            queue_create_infos[queue_create_info_index].pQueuePriorities = &queue_priority;
+        }
+
         VkPhysicalDeviceFeatures physical_device_features = {};
         physical_device_features.samplerAnisotropy = VK_TRUE;
 
@@ -572,24 +595,36 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         vkGetDeviceQueue(context->logical_device,
                          context->present_queue_family_index,
                          0, &context->present_queue);
+
+        vkGetDeviceQueue(context->logical_device,
+                         context->transfer_queue_family_index,
+                         0, &context->transfer_queue);
     }
 
-    VkFormat formats[] =
+    VkFormat image_formats[] =
     {
         VK_FORMAT_B8G8R8A8_SRGB,
         VK_FORMAT_R8G8B8A8_SRGB
     };
 
+    VkFormat depth_stencil_formats[] =
+    {
+        VK_FORMAT_D32_SFLOAT_S8_UINT,
+        VK_FORMAT_D24_UNORM_S8_UINT
+    };
+
     init_swapchain_support(context,
-                           formats,
-                           ArrayCount(formats),
+                           image_formats,
+                           ArrayCount(image_formats),
+                           depth_stencil_formats,
+                           ArrayCount(depth_stencil_formats),
                            VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
                            arena,
                            &context->swapchain_support);
 
     VkAttachmentDescription attachments[2] = {};
 
-    attachments[0].format = context->swapchain_support.format;
+    attachments[0].format = context->swapchain_support.image_format;
     attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -598,7 +633,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-    attachments[1].format = VK_FORMAT_D32_SFLOAT_S8_UINT;
+    attachments[1].format = context->swapchain_support.depth_stencil_format;
     attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -670,12 +705,34 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     VkCommandBufferAllocateInfo graphics_command_buffer_allocate_info
         = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+
     graphics_command_buffer_allocate_info.commandPool = context->graphics_command_pool;
     graphics_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    graphics_command_buffer_allocate_info.commandBufferCount = 3;
+    graphics_command_buffer_allocate_info.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
     CheckVkResult(vkAllocateCommandBuffers(context->logical_device,
                                            &graphics_command_buffer_allocate_info,
                                            context->graphics_command_buffers));
+
+    VkCommandPoolCreateInfo transfer_command_pool_create_info
+        = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+
+    transfer_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    transfer_command_pool_create_info.queueFamilyIndex = context->transfer_queue_family_index;
+
+    CheckVkResult(vkCreateCommandPool(context->logical_device,
+                                      &transfer_command_pool_create_info,
+                                      nullptr, &context->transfer_command_pool));
+
+    VkCommandBufferAllocateInfo transfer_command_buffer_allocate_info
+        = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+
+    transfer_command_buffer_allocate_info.commandPool = context->transfer_command_pool;
+    transfer_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    transfer_command_buffer_allocate_info.commandBufferCount = 1;
+
+    CheckVkResult(vkAllocateCommandBuffers(context->logical_device,
+                                           &transfer_command_buffer_allocate_info,
+                                           &context->transfer_command_buffer));
 
     create_buffer(&context->transfer_buffer, context, HE_MegaBytes(128),
                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -1029,6 +1086,7 @@ void deinit_vulkan(Vulkan_Context *context)
     }
 
     vkDestroyCommandPool(context->logical_device, context->graphics_command_pool, nullptr);
+    vkDestroyCommandPool(context->logical_device, context->transfer_command_pool, nullptr);
 
     destroy_swapchain(context, &context->swapchain);
     destroy_graphics_pipeline(context->logical_device, &context->graphics_pipeline);
@@ -1079,7 +1137,7 @@ void vulkan_renderer_on_resize(Renderer_State *renderer_state,
                        height,
                        vulkan_context.swapchain.present_mode);
 
-    // todo(amer): every renderer should call this and i don't live that
+    // todo(amer): every renderer should call this and i don't like that
     update_camera(&renderer_state->camera);
 }
 

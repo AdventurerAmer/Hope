@@ -3,8 +3,10 @@
 
 bool
 init_swapchain_support(Vulkan_Context *context,
-                       VkFormat *formats,
-                       U32 format_count,
+                       VkFormat *image_formats,
+                       U32 image_format_count,
+                       VkFormat *depth_stencil_formats,
+                       U32 depth_stencil_format_count,
                        VkColorSpaceKHR color_space,
                        Memory_Arena *arena,
                        Vulkan_Swapchain_Support *swapchain_support)
@@ -43,25 +45,25 @@ init_swapchain_support(Vulkan_Context *context,
                                               &swapchain_support->present_mode_count,
                                               swapchain_support->present_modes);
 
-    VkFormat format = swapchain_support->surface_formats[0].format;
+    swapchain_support->image_format = swapchain_support->surface_formats[0].format;
 
     for (U32 format_index = 0;
-         format_index < format_count;
+         format_index < image_format_count;
          format_index++)
     {
-        VkFormat desired_format = formats[format_index];
+        VkFormat format = image_formats[format_index];
         bool found = false;
 
-        for (U32 surface_format_index = 0;
-             surface_format_index < swapchain_support->surface_format_count;
-             surface_format_index++)
+        for (U32 format_index = 0;
+             format_index < swapchain_support->surface_format_count;
+             format_index++)
         {
-            const VkSurfaceFormatKHR *surface_format = &swapchain_support->surface_formats[surface_format_index];
+            const VkSurfaceFormatKHR *surface_format = &swapchain_support->surface_formats[format_index];
 
-            if (surface_format->format == desired_format &&
+            if (surface_format->format == format &&
                 surface_format->colorSpace == color_space)
             {
-                format = desired_format;
+                swapchain_support->image_format = format;
                 found = true;
                 break;
             }
@@ -73,7 +75,22 @@ init_swapchain_support(Vulkan_Context *context,
         }
     }
 
-    swapchain_support->format = format;
+    for (U32 format_index = 0;
+         format_index < ArrayCount(depth_stencil_formats);
+         format_index++)
+    {
+        VkFormat format = depth_stencil_formats[format_index];
+
+        VkFormatProperties format_properties;
+        vkGetPhysicalDeviceFormatProperties(context->physical_device, format, &format_properties);
+
+        if (format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        {
+            swapchain_support->depth_stencil_format = format;
+            break;
+        }
+    }
+
     return true;
 }
 
@@ -106,7 +123,8 @@ create_swapchain(Vulkan_Context *context,
                    surface_capabilities.minImageExtent.height,
                    surface_capabilities.maxImageExtent.height);
 
-    swapchain->image_format = swapchain_support->format;
+    swapchain->image_format = swapchain_support->image_format;
+    swapchain->depth_stencil_format = swapchain_support->depth_stencil_format;
     swapchain->image_color_space = image_color_space;
     swapchain->width = width;
     swapchain->height = height;
@@ -186,9 +204,12 @@ create_swapchain(Vulkan_Context *context,
                                           &swapchain->image_count,
                                           nullptr));
 
-    swapchain->images = AllocateArray(context->allocator, VkImage, swapchain->image_count);
-    swapchain->image_views = AllocateArray(context->allocator, VkImageView, swapchain->image_count);
-    swapchain->frame_buffers = AllocateArray(context->allocator, VkFramebuffer, swapchain->image_count);
+    swapchain->images = AllocateArray(context->allocator,
+                                      VkImage, swapchain->image_count);
+    swapchain->image_views = AllocateArray(context->allocator,
+                                           VkImageView, swapchain->image_count);
+    swapchain->frame_buffers = AllocateArray(context->allocator,
+                                             VkFramebuffer, swapchain->image_count);
 
     CheckVkResult(vkGetSwapchainImagesKHR(context->logical_device,
                                           swapchain->handle,
@@ -199,7 +220,6 @@ create_swapchain(Vulkan_Context *context,
     {
         VkImageViewCreateInfo image_view_create_info =
             { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-
         image_view_create_info.image = swapchain->images[image_index];
         image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
         image_view_create_info.format = swapchain->image_format;
@@ -219,8 +239,8 @@ create_swapchain(Vulkan_Context *context,
                                         &swapchain->image_views[image_index]));
     }
 
-    // todo(amer): we should check if VK_FORMAT_D32_SFLOAT_S8_UINT is supported
-    create_image(&swapchain->depth_stencil_attachment, context, width, height, VK_FORMAT_D32_SFLOAT_S8_UINT,
+    create_image(&swapchain->depth_stencil_attachment,
+                 context, width, height, swapchain->depth_stencil_format,
                  VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                  VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);

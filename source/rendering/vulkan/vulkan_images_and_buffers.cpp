@@ -82,12 +82,11 @@ copy_buffer(Vulkan_Context *context, Vulkan_Buffer *src_buffer, Vulkan_Buffer *d
     Assert(size <= src_buffer->size && size <= dst_buffer->size);
 
     copy_memory(src_buffer->data, data, size);
-
-    // todo(amer): check if graphics queue families always does transfer
-    VkCommandBuffer command_buffer = context->graphics_command_buffers[0];
+    VkCommandBuffer command_buffer = context->transfer_command_buffer;
     vkResetCommandBuffer(command_buffer, 0);
 
-    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    VkCommandBufferBeginInfo command_buffer_begin_info =
+        { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     command_buffer_begin_info.flags = 0;
     command_buffer_begin_info.pInheritanceInfo = 0;
 
@@ -106,8 +105,8 @@ copy_buffer(Vulkan_Context *context, Vulkan_Buffer *src_buffer, Vulkan_Buffer *d
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &command_buffer;
 
-    vkQueueSubmit(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-    vkQueueWaitIdle(context->graphics_queue);
+    vkQueueSubmit(context->transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
+    vkQueueWaitIdle(context->transfer_queue);
 }
 
 void
@@ -140,8 +139,8 @@ transtion_image_to_layout(VkImage image,
     barrier.subresourceRange.baseArrayLayer = 0;
     barrier.subresourceRange.layerCount = 1;
 
-    VkPipelineStageFlags source_stage;
-    VkPipelineStageFlags destination_stage;
+    VkPipelineStageFlags source_stage = 0;
+    VkPipelineStageFlags destination_stage = 0;
 
     if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
         new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
@@ -241,7 +240,6 @@ copy_buffer_to_image(Vulkan_Context *context, Vulkan_Buffer *buffer, Vulkan_Imag
 
     copy_memory(buffer->data, data, size);
 
-    // todo(amer): check if graphics queue families always does transfer
     VkCommandBuffer command_buffer = context->graphics_command_buffers[0];
     vkResetCommandBuffer(command_buffer, 0);
 

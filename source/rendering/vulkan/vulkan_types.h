@@ -56,7 +56,8 @@ struct Vulkan_Swapchain_Support
     U32 present_mode_count;
     VkPresentModeKHR *present_modes;
 
-    VkFormat format;
+    VkFormat image_format;
+    VkFormat depth_stencil_format;
 };
 
 struct Vulkan_Swapchain
@@ -72,6 +73,8 @@ struct Vulkan_Swapchain
     VkImage *images;
     VkImageView *image_views;
     VkFramebuffer *frame_buffers;
+
+    VkFormat depth_stencil_format;
     Vulkan_Image depth_stencil_attachment;
 };
 
@@ -136,10 +139,12 @@ struct Vulkan_Context
 
     U32 graphics_queue_family_index;
     U32 present_queue_family_index;
+    U32 transfer_queue_family_index;
     VkDevice logical_device;
 
     VkQueue graphics_queue;
     VkQueue present_queue;
+    VkQueue transfer_queue;
 
     Vulkan_Swapchain_Support swapchain_support;
     Vulkan_Swapchain swapchain;
@@ -163,11 +168,15 @@ struct Vulkan_Context
 
     Free_List_Allocator *allocator;
 
+    VkCommandPool transfer_command_pool;
+    VkCommandBuffer transfer_command_buffer;
     Vulkan_Buffer transfer_buffer;
-    Static_Mesh static_mesh;
 
     U32 frames_in_flight;
     U32 current_frame_in_flight_index;
+
+    // todo(amer): to be removed...
+    Static_Mesh static_mesh;
 
 #if HE_VULKAN_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;

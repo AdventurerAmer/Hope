@@ -4,8 +4,10 @@
 
 bool
 init_swapchain_support(Vulkan_Context *context,
-                       VkFormat *formats,
-                       U32 format_count,
+                       VkFormat *image_formats,
+                       U32 image_format_count,
+                       VkFormat *depth_stencil_formats,
+                       U32 depth_stencil_format_count,
                        VkColorSpaceKHR color_space,
                        Memory_Arena *arena,
                        Vulkan_Swapchain_Support *swapchain_support);
