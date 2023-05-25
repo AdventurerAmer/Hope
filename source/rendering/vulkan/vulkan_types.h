@@ -40,6 +40,8 @@ struct Vulkan_Image
     VkImage handle;
     VkDeviceMemory memory;
     VkImageView view;
+    VkFormat format;
+    U32 mip_levels;
     void *data;
     U64 size;
 

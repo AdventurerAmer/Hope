@@ -1,5 +1,5 @@
 #include "vulkan_swapchain.h"
-#include "vulkan_images_and_buffers.h"
+#include "vulkan_image.h"
 
 bool
 init_swapchain_support(Vulkan_Context *context,
@@ -243,7 +243,7 @@ create_swapchain(Vulkan_Context *context,
                  context, width, height, swapchain->depth_stencil_format,
                  VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                  VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false);
 
     for (U32 image_index = 0; image_index < swapchain->image_count; image_index++)
     {

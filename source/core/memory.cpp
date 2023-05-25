@@ -254,7 +254,7 @@ void deallocate(Free_List_Allocator *allocator, void *memory)
 
     Free_List_Node *new_node = (Free_List_Node *)((U8 *)memory - header.offset);
     new_node->size = header.size;
-    new_node->next = new_node->prev = nullptr; // note(amer): is this nessessary
+    new_node->next = new_node->prev = nullptr; // note(amer): is this nessessary ?
 
     if (allocator->sentinal.next == &allocator->sentinal)
     {

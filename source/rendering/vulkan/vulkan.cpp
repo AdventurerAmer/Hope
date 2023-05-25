@@ -13,7 +13,8 @@
 #include "rendering/renderer.h"
 #include "core/engine.h"
 
-#include "vulkan_images_and_buffers.h"
+#include "vulkan_image.h"
+#include "vulkan_buffer.h"
 #include "vulkan_swapchain.h"
 #include "vulkan_shader.h"
 
@@ -33,6 +34,31 @@ vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
     DebugPrintf(Rendering, Trace, "%s\n", callback_data->pMessage);
     Assert(message_severity != VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT);
     return VK_FALSE;
+}
+
+S32
+find_memory_type_index(Vulkan_Context *context,
+                       VkMemoryRequirements memory_requirements,
+                       VkMemoryPropertyFlags memory_property_flags)
+{
+    S32 result = -1;
+
+    for (U32 memory_type_index = 0;
+        memory_type_index < context->physical_device_memory_properties.memoryTypeCount;
+        memory_type_index++)
+    {
+        if (((1 << memory_type_index) & memory_requirements.memoryTypeBits))
+        {
+            const VkMemoryType* memory_type =
+                &context->physical_device_memory_properties.memoryTypes[memory_type_index];
+            if ((memory_type->propertyFlags & memory_property_flags) == memory_property_flags)
+            {
+                result = (S32)memory_type_index;
+            }
+        }
+    }
+
+    return result;
 }
 
 internal_function VkPhysicalDevice
@@ -274,13 +300,14 @@ load_static_mesh(const char *path, Static_Mesh *static_mesh, Vulkan_Context *con
 
     Assert(pixels);
 
+    bool mipmapping = true;
     create_image(&static_mesh->image, context, texture_width, texture_height,
                  VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-                 VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
-                 VK_IMAGE_ASPECT_COLOR_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+                 VK_IMAGE_USAGE_TRANSFER_DST_BIT|
+                 VK_IMAGE_USAGE_SAMPLED_BIT,
+                 VK_IMAGE_ASPECT_COLOR_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapping);
 
-    copy_buffer_to_image(context, &context->transfer_buffer,
-                         &static_mesh->image, pixels,
+    copy_buffer_to_image(context, &static_mesh->image, pixels,
                          texture_width * texture_height * sizeof(U32));
 
     stbi_image_free(pixels);
@@ -300,7 +327,7 @@ load_static_mesh(const char *path, Static_Mesh *static_mesh, Vulkan_Context *con
     sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
     sampler_create_info.mipLodBias = 0.0f;
     sampler_create_info.minLod = 0.0f;
-    sampler_create_info.maxLod = 0.0f;
+    sampler_create_info.maxLod = (F32)static_mesh->image.mip_levels;
     CheckVkResult(vkCreateSampler(context->logical_device, &sampler_create_info, nullptr, &static_mesh->sampler));
 
     return true;

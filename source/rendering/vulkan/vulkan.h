@@ -2,6 +2,11 @@
 
 #include "vulkan_types.h"
 
+S32
+find_memory_type_index(Vulkan_Context *context,
+                       VkMemoryRequirements memory_requirements,
+                       VkMemoryPropertyFlags memory_property_flags);
+
 bool vulkan_renderer_init(struct Renderer_State *renderer_State,
                           struct Engine *engine,
                           struct Memory_Arena *arena);
