@@ -239,16 +239,27 @@ create_swapchain(Vulkan_Context *context,
                                         &swapchain->image_views[image_index]));
     }
 
+    bool mipmapping = false;
+
+    create_image(&swapchain->color_attachment, context,
+                 width, height, swapchain->image_format, VK_IMAGE_TILING_OPTIMAL,
+                 VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                 VK_IMAGE_ASPECT_COLOR_BIT,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                 mipmapping, context->msaa_samples);
+
     create_image(&swapchain->depth_stencil_attachment,
                  context, width, height, swapchain->depth_stencil_format,
                  VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                  VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false);
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapping,
+                 context->msaa_samples);
 
     for (U32 image_index = 0; image_index < swapchain->image_count; image_index++)
     {
-        VkImageView image_views[2] =
+        VkImageView image_views[] =
         {
+            swapchain->color_attachment.view,
             swapchain->image_views[image_index],
             swapchain->depth_stencil_attachment.view
         };
@@ -290,6 +301,7 @@ destroy_swapchain(Vulkan_Context *context, Vulkan_Swapchain *swapchain)
         swapchain->image_views[image_index] = VK_NULL_HANDLE;
     }
 
+    destroy_image(&swapchain->color_attachment, context);
     destroy_image(&swapchain->depth_stencil_attachment, context);
 
     deallocate(context->allocator, swapchain->images);

@@ -98,7 +98,7 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *ar
         VkPhysicalDeviceFeatures features = {};
         vkGetPhysicalDeviceFeatures(*current_physical_device, &features);
 
-        if (!features.samplerAnisotropy)
+        if (!features.samplerAnisotropy || !features.sampleRateShading)
         {
             continue;
         }
@@ -435,6 +435,43 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     vkGetPhysicalDeviceMemoryProperties(context->physical_device, &context->physical_device_memory_properties);
     vkGetPhysicalDeviceProperties(context->physical_device, &context->physical_device_properties);
 
+    VkSampleCountFlags counts = context->physical_device_properties.limits.framebufferColorSampleCounts &
+                                context->physical_device_properties.limits.framebufferDepthSampleCounts;
+
+    VkSampleCountFlagBits max_sample_count = VK_SAMPLE_COUNT_1_BIT;
+
+    if (counts & VK_SAMPLE_COUNT_64_BIT)
+    {
+        max_sample_count = VK_SAMPLE_COUNT_64_BIT;
+    }
+    else if (counts & VK_SAMPLE_COUNT_32_BIT)
+    {
+        max_sample_count = VK_SAMPLE_COUNT_32_BIT;
+    }
+    else if (counts & VK_SAMPLE_COUNT_16_BIT)
+    {
+        max_sample_count = VK_SAMPLE_COUNT_16_BIT;
+    }
+    else if (counts & VK_SAMPLE_COUNT_8_BIT)
+    {
+        max_sample_count = VK_SAMPLE_COUNT_8_BIT;
+    }
+    else if (counts & VK_SAMPLE_COUNT_4_BIT)
+    {
+        max_sample_count = VK_SAMPLE_COUNT_4_BIT;
+    }
+    else if (counts & VK_SAMPLE_COUNT_2_BIT)
+    {
+        max_sample_count = VK_SAMPLE_COUNT_2_BIT;
+    }
+
+    context->msaa_samples = VK_SAMPLE_COUNT_8_BIT;
+
+    if (context->msaa_samples > max_sample_count)
+    {
+        context->msaa_samples = max_sample_count;
+    }
+
     {
         Scoped_Temprary_Memory_Arena temp_arena(arena);
 
@@ -552,6 +589,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
         VkPhysicalDeviceFeatures physical_device_features = {};
         physical_device_features.samplerAnisotropy = VK_TRUE;
+        physical_device_features.sampleRateShading = VK_TRUE;
 
         const char *required_device_extensions[] =
         {
@@ -649,38 +687,54 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                            arena,
                            &context->swapchain_support);
 
-    VkAttachmentDescription attachments[2] = {};
+    VkAttachmentDescription attachments[3] = {};
 
     attachments[0].format = context->swapchain_support.image_format;
-    attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+    attachments[0].samples = context->msaa_samples;
     attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-    attachments[1].format = context->swapchain_support.depth_stencil_format;
+    attachments[1].format = context->swapchain_support.image_format;
     attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    attachments[1].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    attachments[2].format = context->swapchain_support.depth_stencil_format;
+    attachments[2].samples = context->msaa_samples;
+    attachments[2].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments[2].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachments[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments[2].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkAttachmentReference color_attachment_ref = {};
     color_attachment_ref.attachment = 0;
     color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+    VkAttachmentReference resolve_color_attachment_ref = {};
+    resolve_color_attachment_ref.attachment = 1;
+    resolve_color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
     VkAttachmentReference depth_stencil_attachment_ref = {};
-    depth_stencil_attachment_ref.attachment = 1;
+    depth_stencil_attachment_ref.attachment = 2;
     depth_stencil_attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkSubpassDescription subpass = {};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &color_attachment_ref;
+    subpass.pResolveAttachments = &resolve_color_attachment_ref;
+
     subpass.pDepthStencilAttachment = &depth_stencil_attachment_ref;
 
     VkSubpassDependency dependency = {};
@@ -688,17 +742,23 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
 
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|
+                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dependency.srcAccessMask = 0;
 
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|
+                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|
+                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-    VkRenderPassCreateInfo render_pass_create_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+    VkRenderPassCreateInfo render_pass_create_info =
+        { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
     render_pass_create_info.attachmentCount = ArrayCount(attachments);
     render_pass_create_info.pAttachments = attachments;
+
     render_pass_create_info.subpassCount = 1;
     render_pass_create_info.pSubpasses = &subpass;
+
     render_pass_create_info.dependencyCount = 1;
     render_pass_create_info.pDependencies = &dependency;
 
@@ -937,9 +997,10 @@ vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context, F32 delta_t
     vkBeginCommandBuffer(command_buffer,
                          &command_buffer_begin_info);
 
-    VkClearValue clear_values[2] = {};
+    VkClearValue clear_values[3] = {};
     clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-    clear_values[1].depthStencil = { 1.0f, 0 };
+    clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+    clear_values[2].depthStencil = { 1.0f, 0 };
 
     VkRenderPassBeginInfo render_pass_begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
     render_pass_begin_info.renderPass = context->render_pass;

@@ -64,7 +64,8 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
              VkImageTiling tiling, VkImageUsageFlags usage,
              VkImageAspectFlags aspect_flags,
              VkMemoryPropertyFlags properties,
-             bool mipmapping/*= false*/)
+             bool mipmapping/*= false*/,
+             VkSampleCountFlagBits samples/*= VK_SAMPLE_COUNT_1_BIT*/)
 {
 
     U32 mip_levels = 1;
@@ -87,7 +88,7 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_create_info.usage = usage;
     image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_create_info.samples = samples;
     image_create_info.flags = 0;
 
     CheckVkResult(vkCreateImage(context->logical_device, &image_create_info,
@@ -104,6 +105,7 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
 
     CheckVkResult(vkAllocateMemory(context->logical_device, &memory_allocate_info,
                                    nullptr, &image->memory));
+
     vkBindImageMemory(context->logical_device, image->handle, image->memory, 0);
     image->mip_levels = mip_levels;
     image->size = memory_requirements.size;

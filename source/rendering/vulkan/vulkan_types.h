@@ -77,6 +77,7 @@ struct Vulkan_Swapchain
     VkFramebuffer *frame_buffers;
 
     VkFormat depth_stencil_format;
+    Vulkan_Image color_attachment;
     Vulkan_Image depth_stencil_attachment;
 };
 
@@ -151,6 +152,7 @@ struct Vulkan_Context
     Vulkan_Swapchain_Support swapchain_support;
     Vulkan_Swapchain swapchain;
 
+    VkSampleCountFlagBits msaa_samples;
     VkRenderPass render_pass;
 
     Vulkan_Shader vertex_shader;

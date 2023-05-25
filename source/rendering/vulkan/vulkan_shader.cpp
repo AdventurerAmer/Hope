@@ -141,9 +141,9 @@ create_graphics_pipeline(Vulkan_Context *context,
 
     VkPipelineMultisampleStateCreateInfo multisampling_state_create_info =
         { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
-    multisampling_state_create_info.sampleShadingEnable = VK_FALSE;
-    multisampling_state_create_info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-    multisampling_state_create_info.minSampleShading = 1.0f;
+    multisampling_state_create_info.sampleShadingEnable = VK_TRUE;
+    multisampling_state_create_info.rasterizationSamples = context->msaa_samples;
+    multisampling_state_create_info.minSampleShading = 0.2f;
     multisampling_state_create_info.pSampleMask = nullptr;
     multisampling_state_create_info.alphaToCoverageEnable = VK_FALSE;
     multisampling_state_create_info.alphaToOneEnable = VK_FALSE;
