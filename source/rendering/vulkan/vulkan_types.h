@@ -93,16 +93,19 @@ struct Vulkan_Swapchain
 
 struct Vulkan_Graphics_Pipeline
 {
-    VkDescriptorSetLayout descriptor_set_layout;
     VkPipelineLayout layout;
     VkPipeline handle;
 };
 
 struct Vulkan_Global_Uniform_Buffer
 {
-    alignas(16) glm::mat4 model;
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 projection;
+};
+
+struct Vulkan_Mesh_Push_Constant
+{
+    glm::mat4 model;
 };
 
 struct Vulkan_Static_Mesh
@@ -140,7 +143,7 @@ struct Vulkan_Context
 
     Vulkan_Shader vertex_shader;
     Vulkan_Shader fragment_shader;
-    Vulkan_Graphics_Pipeline graphics_pipeline;
+    Vulkan_Graphics_Pipeline mesh_pipeline;
 
     VkCommandPool graphics_command_pool;
     VkCommandBuffer graphics_command_buffers[MAX_FRAMES_IN_FLIGHT];
@@ -149,10 +152,14 @@ struct Vulkan_Context
     VkFence frame_in_flight_fences[MAX_FRAMES_IN_FLIGHT];
 
     Vulkan_Buffer global_uniform_buffers[MAX_FRAMES_IN_FLIGHT];
-    Vulkan_Global_Uniform_Buffer global_uniform_buffer;
 
-    VkDescriptorPool descriptor_pool;
-    VkDescriptorSet descriptor_sets[MAX_FRAMES_IN_FLIGHT];
+    VkDescriptorPool per_frame_descriptor_pool;
+    VkDescriptorSetLayout per_frame_descriptor_set_layout;
+    VkDescriptorSet per_frame_descriptor_sets[MAX_FRAMES_IN_FLIGHT];
+
+    VkDescriptorPool per_material_descriptor_pool;
+    VkDescriptorSetLayout per_material_descriptor_set_layout;
+    VkDescriptorSet per_material_descriptor_sets[MAX_FRAMES_IN_FLIGHT];
 
     VkCommandPool transfer_command_pool;
     VkCommandBuffer transfer_command_buffer;

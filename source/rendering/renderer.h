@@ -42,11 +42,11 @@ struct Renderer
     void (*on_resize)(struct Renderer_State *renderer_state, U32 width, U32 height);
 
     void (*begin_frame)(struct Renderer_State *renderer_state, const Scene_Data *scene_data);
-    void (*submit_static_mesh)(struct Renderer_State *renderer_state, struct Static_Mesh *mesh);
+    void (*submit_static_mesh)(struct Renderer_State *renderer_state, struct Static_Mesh *mesh, U32 model_count, const glm::mat4 *models);
     void (*end_frame)(struct Renderer_State *renderer_state);
 
     bool (*create_texture)(Texture *texture, U32 width, U32 height,
-                           void *data, TextureFormat format);
+                           void *data, TextureFormat format, bool mipmaping);
 
     void (*destroy_texture)(Texture *texture);
 

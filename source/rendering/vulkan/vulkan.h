@@ -17,7 +17,7 @@ void vulkan_renderer_wait_for_gpu_to_finish_all_work(struct Renderer_State *rend
 void vulkan_renderer_on_resize(struct Renderer_State *renderer_state, U32 width, U32 height);
 
 bool vulkan_renderer_create_texture(Texture *texture, U32 width, U32 height,
-                                    void *data, TextureFormat format = TextureFormat_RGBA);
+                                    void *data, TextureFormat format, bool mipmapping);
 
 void vulkan_renderer_destroy_texture(Texture *texture);
 
@@ -25,8 +25,5 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices
 void vulkan_renderer_destroy_static_mesh(Static_Mesh *static_mesh);
 
 void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const struct Scene_Data *scene_data);
-void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state, struct Static_Mesh *static_mesh);
+void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state, struct Static_Mesh *static_mesh, U32 model_count, const glm::mat4 *models);
 void vulkan_renderer_end_frame(struct Renderer_State *renderer_state);
-
-// todo(amer): to be removed...
-void vulkan_renderer_draw(struct Renderer_State *renderer_state, F32 delta_time);

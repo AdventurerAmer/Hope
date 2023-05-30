@@ -170,33 +170,23 @@ create_graphics_pipeline(Vulkan_Context *context,
     color_blend_state_create_info.blendConstants[2] = 0.0f;
     color_blend_state_create_info.blendConstants[3] = 0.0f;
 
-    VkDescriptorSetLayoutBinding descriptor_layout_bindings[2] = {};
-    descriptor_layout_bindings[0].binding = 0;
-    descriptor_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    descriptor_layout_bindings[0].descriptorCount = 1;
-    descriptor_layout_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    VkPushConstantRange push_constant_range = {};
+    push_constant_range.offset = 0;
+    push_constant_range.size = sizeof(Vulkan_Mesh_Push_Constant);
+    push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
-    descriptor_layout_bindings[1].binding = 1;
-    descriptor_layout_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    descriptor_layout_bindings[1].descriptorCount = 1;
-    descriptor_layout_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info =
-        { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-    descriptor_set_layout_create_info.bindingCount = ArrayCount(descriptor_layout_bindings);
-    descriptor_set_layout_create_info.pBindings = descriptor_layout_bindings;
-
-    CheckVkResult(vkCreateDescriptorSetLayout(context->logical_device,
-                                              &descriptor_set_layout_create_info,
-                                              nullptr,
-                                              &context->graphics_pipeline.descriptor_set_layout));
+    VkDescriptorSetLayout descriptor_set_layouts[] =
+    {
+        context->per_frame_descriptor_set_layout,
+        context->per_material_descriptor_set_layout
+    };
 
     VkPipelineLayoutCreateInfo pipeline_layout_create_info =
         { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-    pipeline_layout_create_info.setLayoutCount = 1;
-    pipeline_layout_create_info.pSetLayouts = &context->graphics_pipeline.descriptor_set_layout;
-    pipeline_layout_create_info.pushConstantRangeCount = 0;
-    pipeline_layout_create_info.pPushConstantRanges = nullptr;
+    pipeline_layout_create_info.setLayoutCount = ArrayCount(descriptor_set_layouts);
+    pipeline_layout_create_info.pSetLayouts = descriptor_set_layouts;
+    pipeline_layout_create_info.pushConstantRangeCount = 1;
+    pipeline_layout_create_info.pPushConstantRanges = &push_constant_range;
 
     CheckVkResult(vkCreatePipelineLayout(context->logical_device,
                                          &pipeline_layout_create_info,
@@ -245,7 +235,6 @@ void destroy_graphics_pipeline(VkDevice logical_device, Vulkan_Graphics_Pipeline
     Assert(logical_device != VK_NULL_HANDLE);
     Assert(graphics_pipeline);
 
-    vkDestroyDescriptorSetLayout(logical_device, graphics_pipeline->descriptor_set_layout, nullptr);
     vkDestroyPipelineLayout(logical_device, graphics_pipeline->layout, nullptr);
     vkDestroyPipeline(logical_device, graphics_pipeline->handle, nullptr);
 }

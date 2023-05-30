@@ -88,7 +88,7 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     init_fps_camera_controller(camera_controller, /*pitch=*/0.0f, /*yaw=*/0.0f,
                                /*rotation_speed=*/45.0f);
 
-    bool loaded = load_static_mesh(&renderer_state->static_mesh, "models/DamagedHelmet.glb",
+    bool loaded = load_static_mesh(&renderer_state->static_mesh, "models/DamagedHelmet/DamagedHelmet.gltf",
                                    renderer, &engine->memory.transient_arena);
     Assert(loaded);
 
@@ -150,8 +150,20 @@ void game_loop(Engine* engine, F32 delta_time)
         scene_data.view = camera->view;
         scene_data.projection = camera->projection;
 
+        static F32 yaw = 0.0f;
+        static F32 pitch = 0.0f;
+
+        yaw += 45.0f * delta_time;
+        pitch += 90.0f * delta_time;
+
+        glm::mat4 models[] =
+        {
+            glm::translate(glm::mat4(1.0f), { 5.0f, 0.0f, 0.0f }) * glm::toMat4(glm::angleAxis(glm::radians(yaw), glm::vec3(0.0f, 1.0f, 0.0f))),
+            glm::translate(glm::mat4(1.0f), { -5.0f, 0.0f, 0.0f }) * glm::toMat4(glm::angleAxis(glm::radians(yaw), glm::vec3(1.0f, 0.0f, 0.0f))),
+        };
+
         renderer->begin_frame(renderer_state, &scene_data);
-        renderer->submit_static_mesh(renderer_state, &renderer_state->static_mesh);
+        renderer->submit_static_mesh(renderer_state, &renderer_state->static_mesh, ArrayCount(models), models);
         renderer->end_frame(renderer_state);
     }
 }
