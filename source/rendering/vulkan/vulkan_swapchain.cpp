@@ -76,7 +76,7 @@ init_swapchain_support(Vulkan_Context *context,
     }
 
     for (U32 format_index = 0;
-         format_index < ArrayCount(depth_stencil_formats);
+         format_index < depth_stencil_format_count;
          format_index++)
     {
         VkFormat format = depth_stencil_formats[format_index];

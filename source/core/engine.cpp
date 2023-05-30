@@ -88,6 +88,10 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     init_fps_camera_controller(camera_controller, /*pitch=*/0.0f, /*yaw=*/0.0f,
                                /*rotation_speed=*/45.0f);
 
+    bool loaded = load_static_mesh(&renderer_state->static_mesh, "models/DamagedHelmet.glb",
+                                   renderer, &engine->memory.transient_arena);
+    Assert(loaded);
+
     Platform_API *api = &engine->platform_api;
     api->allocate_memory = &platform_allocate_memory;
     api->deallocate_memory = &platform_deallocate_memory;
@@ -107,6 +111,7 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 void game_loop(Engine* engine, F32 delta_time)
 {
     Input *input = &engine->input;
+    Renderer *renderer = &engine->renderer;
     Renderer_State* renderer_state = &engine->renderer_state;
 
     Camera *camera = &renderer_state->camera;
@@ -141,7 +146,13 @@ void game_loop(Engine* engine, F32 delta_time)
 
     if (!engine->is_minimized)
     {
-        engine->renderer.draw(&engine->renderer_state, delta_time);
+        Scene_Data scene_data;
+        scene_data.view = camera->view;
+        scene_data.projection = camera->projection;
+
+        renderer->begin_frame(renderer_state, &scene_data);
+        renderer->submit_static_mesh(renderer_state, &renderer_state->static_mesh);
+        renderer->end_frame(renderer_state);
     }
 }
 
@@ -149,7 +160,11 @@ void shutdown(Engine *engine)
 {
     (void)engine;
 
-    engine->renderer.deinit(&engine->renderer_state);
+    Renderer *renderer = &engine->renderer;
+    Renderer_State *renderer_state = &engine->renderer_state;
+    renderer->wait_for_gpu_to_finish_all_work(renderer_state);
+    renderer->destroy_static_mesh(&renderer_state->static_mesh);
+    renderer->deinit(&engine->renderer_state);
 
 #ifndef HE_SHIPPING
     Logger *logger = &global_debug_state.main_logger;

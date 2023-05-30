@@ -1,9 +1,3 @@
-#define CGLTF_IMPLEMENTATION
-#include <cgltf.h>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb/stb_image.h>
-
 #include <string.h>
 
 #include "vulkan.h"
@@ -17,8 +11,6 @@
 #include "vulkan_buffer.h"
 #include "vulkan_swapchain.h"
 #include "vulkan_shader.h"
-
-#include "rendering/camera.h"
 
 static Vulkan_Context vulkan_context;
 
@@ -158,179 +150,6 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *ar
     }
 
     return physical_device;
-}
-
-internal_function bool
-load_static_mesh(const char *path, Static_Mesh *static_mesh, Vulkan_Context *context, Memory_Arena *arena)
-{
-    Scoped_Temprary_Memory_Arena temp_arena(arena);
-    Read_Entire_File_Result result =
-        platform_begin_read_entire_file(path);
-
-    U32 position_count = 0;
-    glm::vec3 *positions = nullptr;
-
-    U32 normal_count = 0;
-    glm::vec3 *normals = nullptr;
-
-    U32 uv_count = 0;
-    glm::vec2 *uvs = nullptr;
-
-    U32 index_count = 0;
-    U16 *indices = nullptr;
-
-    if (result.success)
-    {
-        U8 *buffer = AllocateArray(&temp_arena, U8, result.size);
-        platform_end_read_entire_file(&result, buffer);
-
-        cgltf_options options = {};
-        cgltf_data *data = nullptr;
-        if (cgltf_parse(&options, buffer, result.size, &data) == cgltf_result_success)
-        {
-            Assert(data->meshes_count >= 1);
-            cgltf_mesh *mesh = &data->meshes[0];
-            Assert(mesh->primitives_count >= 1);
-            cgltf_primitive *primitive = &mesh->primitives[0];
-            Assert(primitive->type == cgltf_primitive_type_triangles);
-            for (U32 i = 0; i < primitive->attributes_count; i++)
-            {
-                cgltf_attribute *attribute = &primitive->attributes[i];
-                Assert(attribute->type != cgltf_attribute_type_invalid);
-                switch (attribute->type)
-                {
-                    case cgltf_attribute_type_position:
-                    {
-                        Assert(attribute->data->type == cgltf_type_vec3);
-                        Assert(attribute->data->component_type == cgltf_component_type_r_32f);
-                        Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
-
-                        position_count = u64_to_u32(attribute->data->count);
-                        U64 stride = attribute->data->stride;
-                        Assert(stride == sizeof(glm::vec3));
-
-                        U64 buffer_offset = attribute->data->buffer_view->buffer->extras.start_offset;
-                        U8 *position_buffer = ((U8*)data->bin + buffer_offset) + attribute->data->buffer_view->offset;
-                        positions = (glm::vec3 *)position_buffer;
-                    } break;
-
-                    case cgltf_attribute_type_normal:
-                    {
-                        Assert(attribute->data->type == cgltf_type_vec3);
-                        Assert(attribute->data->component_type == cgltf_component_type_r_32f);
-                        Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
-
-                        normal_count = u64_to_u32(attribute->data->count);
-                        U64 stride = attribute->data->stride;
-                        Assert(stride == sizeof(glm::vec3));
-
-                        U64 buffer_offset = attribute->data->buffer_view->buffer->extras.start_offset;
-                        U8* normal_buffer = ((U8*)data->bin + buffer_offset) + attribute->data->buffer_view->offset;
-                        normals = (glm::vec3*)normal_buffer;
-                    } break;
-
-                    case cgltf_attribute_type_texcoord:
-                    {
-                        Assert(attribute->data->type == cgltf_type_vec2);
-                        Assert(attribute->data->component_type == cgltf_component_type_r_32f);
-                        Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
-
-                        uv_count = u64_to_u32(attribute->data->count);
-                        U64 stride = attribute->data->stride;
-                        Assert(stride == sizeof(glm::vec2));
-
-                        U64 buffer_offset = attribute->data->buffer_view->buffer->extras.start_offset;
-                        U8* uv_buffer = ((U8*)data->bin + buffer_offset) + attribute->data->buffer_view->offset;
-                        uvs = (glm::vec2*)uv_buffer;
-                    } break;
-                }
-            }
-
-            Assert(primitive->indices->type == cgltf_type_scalar);
-            Assert(primitive->indices->component_type == cgltf_component_type_r_16u);
-            Assert(primitive->indices->stride == sizeof(U16));
-            index_count = u64_to_u32(primitive->indices->count);
-            U64 buffer_offset = primitive->indices->buffer_view->buffer->extras.start_offset;
-            U8 *index_buffer =
-                ((U8*)data->bin + buffer_offset) + primitive->indices->buffer_view->offset;
-            indices = (U16*)index_buffer;
-            cgltf_free(data);
-        }
-    }
-
-    Assert(position_count == normal_count);
-    Assert(position_count == uv_count);
-
-    U32 vertex_count = position_count;
-    Vertex *vertices = AllocateArray(&temp_arena, Vertex, vertex_count);
-
-    for (U32 vertex_index = 0; vertex_index < vertex_count; vertex_index++)
-    {
-        Vertex *vertex = &vertices[vertex_index];
-        vertex->position = positions[vertex_index];
-        vertex->normal = normals[vertex_index];
-        vertex->uv = uvs[vertex_index];
-    }
-
-    U64 vertex_size = vertex_count * sizeof(Vertex);
-    create_buffer(&static_mesh->vertex_buffer, context, vertex_size,
-                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    copy_buffer(context, &context->transfer_buffer,
-                &static_mesh->vertex_buffer, vertices, vertex_size);
-    static_mesh->vertex_count = u64_to_u32(vertex_count);
-
-    U64 index_size = index_count * sizeof(U16);
-    create_buffer(&static_mesh->index_buffer, context,
-                  index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
-                  VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    copy_buffer(context, &context->transfer_buffer,
-                &static_mesh->index_buffer, indices, index_size);
-    static_mesh->index_count = u32_to_u16(index_count);
-
-    S32 texture_width;
-    S32 texture_height;
-    S32 texture_channels;
-    stbi_uc *pixels = stbi_load("models/Default_albedo.jpg",
-                                &texture_width, &texture_height,
-                                &texture_channels, STBI_rgb_alpha);
-
-    Assert(pixels);
-
-    bool mipmapping = true;
-    create_image(&static_mesh->image, context, texture_width, texture_height,
-                 VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-                 VK_IMAGE_USAGE_TRANSFER_DST_BIT|
-                 VK_IMAGE_USAGE_SAMPLED_BIT,
-                 VK_IMAGE_ASPECT_COLOR_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapping);
-
-    copy_buffer_to_image(context, &static_mesh->image, pixels,
-                         texture_width * texture_height * sizeof(U32));
-
-    stbi_image_free(pixels);
-
-    VkSamplerCreateInfo sampler_create_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
-    sampler_create_info.minFilter = VK_FILTER_LINEAR;
-    sampler_create_info.magFilter = VK_FILTER_LINEAR;
-    sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_create_info.anisotropyEnable = VK_TRUE;
-    sampler_create_info.maxAnisotropy = context->physical_device_properties.limits.maxSamplerAnisotropy;
-    sampler_create_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-    sampler_create_info.unnormalizedCoordinates = VK_FALSE;
-    sampler_create_info.compareEnable = VK_FALSE;
-    sampler_create_info.compareOp = VK_COMPARE_OP_ALWAYS;
-    sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    sampler_create_info.mipLodBias = 0.0f;
-    sampler_create_info.minLod = 0.0f;
-    sampler_create_info.maxLod = (F32)static_mesh->image.mip_levels;
-    CheckVkResult(vkCreateSampler(context->logical_device, &sampler_create_info, nullptr, &static_mesh->sampler));
-
-    return true;
 }
 
 internal_function bool
@@ -602,8 +421,8 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                              nullptr);
 
         VkExtensionProperties *extension_properties = AllocateArray(&temp_arena,
-                                                                     VkExtensionProperties,
-                                                                     extension_property_count);
+                                                                    VkExtensionProperties,
+                                                                    extension_property_count);
 
         vkEnumerateDeviceExtensionProperties(context->physical_device,
                                              nullptr, &extension_property_count,
@@ -825,9 +644,6 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-    bool loaded = load_static_mesh("models/DamagedHelmet.glb", &context->static_mesh, context, arena);
-    Assert(loaded);
-
     create_graphics_pipeline(context,
                              context->vertex_shader.handle ,
                              context->fragment_shader.handle,
@@ -837,7 +653,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
         Vulkan_Buffer *global_uniform_buffer = &context->global_uniform_buffers[frame_index];
-        create_buffer(global_uniform_buffer, context, sizeof(Global_Uniform_Buffer),
+        create_buffer(global_uniform_buffer, context, sizeof(Vulkan_Global_Uniform_Buffer),
                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     }
 
@@ -875,37 +691,6 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                            &descriptor_set_allocation_info,
                                            context->descriptor_sets));
 
-    for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        VkDescriptorBufferInfo descriptor_buffer_info = {};
-        descriptor_buffer_info.buffer = context->global_uniform_buffers[frame_index].handle;
-        descriptor_buffer_info.offset = 0;
-        descriptor_buffer_info.range = sizeof(Global_Uniform_Buffer);
-
-        VkDescriptorImageInfo descriptor_image_info = {};
-        descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        descriptor_image_info.imageView = context->static_mesh.image.view;
-        descriptor_image_info.sampler = context->static_mesh.sampler;
-
-        VkWriteDescriptorSet write_descriptor_sets[2] = {};
-        write_descriptor_sets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_descriptor_sets[0].dstSet = context->descriptor_sets[frame_index];
-        write_descriptor_sets[0].dstBinding = 0;
-        write_descriptor_sets[0].dstArrayElement = 0;
-        write_descriptor_sets[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        write_descriptor_sets[0].descriptorCount = 1;
-        write_descriptor_sets[0].pBufferInfo = &descriptor_buffer_info;
-
-        write_descriptor_sets[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_descriptor_sets[1].dstSet = context->descriptor_sets[frame_index];
-        write_descriptor_sets[1].dstBinding = 1;
-        write_descriptor_sets[1].dstArrayElement = 0;
-        write_descriptor_sets[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write_descriptor_sets[1].descriptorCount = 1;
-        write_descriptor_sets[1].pImageInfo = &descriptor_image_info;
-
-        vkUpdateDescriptorSets(context->logical_device, ArrayCount(write_descriptor_sets), write_descriptor_sets, 0, nullptr);
-    }
 
     VkSemaphoreCreateInfo semaphore_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     VkFenceCreateInfo fence_create_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
@@ -938,221 +723,13 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     return true;
 }
 
-internal_function void
-vulkan_draw(Renderer_State *renderer_state, Vulkan_Context *context, F32 delta_time)
-{
-    U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
-
-    vkWaitForFences(context->logical_device,
-                    1, &context->frame_in_flight_fences[current_frame_in_flight_index],
-                    VK_TRUE, UINT64_MAX);
-
-    if ((renderer_state->back_buffer_width != context->swapchain.width ||
-         renderer_state->back_buffer_height != context->swapchain.height) &&
-        renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
-    {
-        recreate_swapchain(context,
-                           &context->swapchain,
-                           renderer_state->back_buffer_width,
-                           renderer_state->back_buffer_height,
-                           context->swapchain.present_mode);
-        return;
-    }
-
-    U32 image_index = 0;
-    VkResult result = vkAcquireNextImageKHR(context->logical_device,
-                                            context->swapchain.handle,
-                                            UINT64_MAX,
-                                            context->image_available_semaphores[current_frame_in_flight_index],
-                                            VK_NULL_HANDLE,
-                                            &image_index);
-
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
-    {
-        if (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
-        {
-            recreate_swapchain(context,
-                               &context->swapchain,
-                               renderer_state->back_buffer_width,
-                               renderer_state->back_buffer_height,
-                               context->swapchain.present_mode);
-
-        }
-        return;
-    }
-    else
-    {
-        Assert(result == VK_SUCCESS);
-    }
-
-    vkResetFences(context->logical_device, 1, &context->frame_in_flight_fences[current_frame_in_flight_index]);
-
-    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
-    vkResetCommandBuffer(command_buffer, 0);
-
-    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    command_buffer_begin_info.flags = 0;
-    command_buffer_begin_info.pInheritanceInfo = 0;
-
-    vkBeginCommandBuffer(command_buffer,
-                         &command_buffer_begin_info);
-
-    VkClearValue clear_values[3] = {};
-    clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-    clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-    clear_values[2].depthStencil = { 1.0f, 0 };
-
-    VkRenderPassBeginInfo render_pass_begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-    render_pass_begin_info.renderPass = context->render_pass;
-    render_pass_begin_info.framebuffer = context->swapchain.frame_buffers[image_index];
-    render_pass_begin_info.renderArea.offset = { 0, 0 };
-    render_pass_begin_info.renderArea.extent = { context->swapchain.width, context->swapchain.height };
-    render_pass_begin_info.clearValueCount = ArrayCount(clear_values);
-    render_pass_begin_info.pClearValues = clear_values;
-
-    vkCmdBeginRenderPass(command_buffer,
-                         &render_pass_begin_info,
-                         VK_SUBPASS_CONTENTS_INLINE);
-
-    vkCmdBindPipeline(command_buffer,
-                      VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      context->graphics_pipeline.handle);
-
-    VkViewport viewport = {};
-    viewport.x = 0;
-    viewport.y = 0;
-    viewport.width = (F32)context->swapchain.width;
-    viewport.height = (F32)context->swapchain.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(command_buffer,
-                     0, 1, &viewport);
-
-    VkRect2D scissor = {};
-    scissor.offset.x = 0;
-    scissor.offset.y = 0;
-    scissor.extent.width = context->swapchain.width;
-    scissor.extent.height = context->swapchain.height;
-    vkCmdSetScissor(command_buffer,
-                    0, 1, &scissor);
-
-    VkBuffer vertex_buffers[] = { context->static_mesh.vertex_buffer.handle };
-    VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(command_buffer,
-                           0, 1, vertex_buffers, offsets);
-
-    vkCmdBindIndexBuffer(command_buffer,
-                         context->static_mesh.index_buffer.handle, 0, VK_INDEX_TYPE_UINT16);
-
-    Global_Uniform_Buffer gub_data;
-    F32 aspect_ratio = (F32)renderer_state->back_buffer_width / (F32)renderer_state->back_buffer_height;
-
-#if 0
-    F32 rotation_speed = 45.0f;
-    local_presist F32 rotation_angle = 0.0f;
-    rotation_angle += rotation_speed * delta_time;
-    if (rotation_angle >= 360.0f) rotation_angle -= 360.0f;
-
-    glm::vec3 euler = glm::vec3(glm::radians(90.0f), glm::radians(rotation_angle), 0.0f);
-    glm::quat rotation = glm::quat(euler);
-    
-    gub_data.model = glm::toMat4(rotation);
-#else
-    gub_data.model = glm::mat4(1.0f);
-#endif
-
-#if 0
-
-    gub_data.view = glm::lookAt(glm::vec3(0.0f, 1.0f, -5.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    gub_data.projection = glm::perspective(glm::radians(45.0f), aspect_ratio, 0.1f, 1000.0f);
-    gub_data.projection[1][1] *= -1;
-    
-#else
-
-    gub_data.view = renderer_state->camera.view;
-    gub_data.projection = renderer_state->camera.projection;
-    gub_data.projection[1][1] *= -1;
-
-#endif
-
-    Vulkan_Buffer *global_uniform_buffer = &context->global_uniform_buffers[current_frame_in_flight_index];
-    memcpy(global_uniform_buffer->data, &gub_data, sizeof(Global_Uniform_Buffer));
-
-    vkCmdBindDescriptorSets(command_buffer,
-                            VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            context->graphics_pipeline.layout,
-                            0, 1,
-                            &context->descriptor_sets[current_frame_in_flight_index],
-                            0, nullptr);
-
-    vkCmdDrawIndexed(command_buffer,
-                     context->static_mesh.index_count, 1, 0, 0, 0);
-
-    vkCmdEndRenderPass(command_buffer);
-    vkEndCommandBuffer(command_buffer);
-
-    VkPipelineStageFlags wait_stage =  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-
-    submit_info.pWaitDstStageMask = &wait_stage;
-
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &context->image_available_semaphores[current_frame_in_flight_index];
-
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &context->rendering_finished_semaphores[current_frame_in_flight_index];
-
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffer;
-
-    vkQueueSubmit(context->graphics_queue, 1, &submit_info, context->frame_in_flight_fences[current_frame_in_flight_index]);
-
-    VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-
-    present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores = &context->rendering_finished_semaphores[current_frame_in_flight_index];
-
-    present_info.swapchainCount = 1;
-    present_info.pSwapchains = &context->swapchain.handle;
-    present_info.pImageIndices = &image_index;
-
-    result = vkQueuePresentKHR(context->present_queue, &present_info);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
-    {
-        if (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
-        {
-            recreate_swapchain(context,
-                               &context->swapchain,
-                               renderer_state->back_buffer_width,
-                               renderer_state->back_buffer_height,
-                               context->swapchain.present_mode);
-        }
-    }
-    else
-    {
-        Assert(result == VK_SUCCESS);
-    }
-
-    context->current_frame_in_flight_index++;
-    if (context->current_frame_in_flight_index == context->frames_in_flight)
-    {
-        context->current_frame_in_flight_index = 0;
-    }
-}
-
 void deinit_vulkan(Vulkan_Context *context)
 {
     vkDeviceWaitIdle(context->logical_device);
 
     vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, nullptr);
 
-    vkDestroySampler(context->logical_device, context->static_mesh.sampler, nullptr);
-    destroy_image(&context->static_mesh.image, context);
-
     destroy_buffer(&context->transfer_buffer, context->logical_device);
-    destroy_buffer(&context->static_mesh.vertex_buffer, context->logical_device);
-    destroy_buffer(&context->static_mesh.index_buffer, context->logical_device);
 
     for (U32 frame_index = 0;
          frame_index < MAX_FRAMES_IN_FLIGHT;
@@ -1208,6 +785,11 @@ bool vulkan_renderer_init(Renderer_State *renderer_state,
     return init_vulkan(&vulkan_context, engine, arena);
 }
 
+void vulkan_renderer_wait_for_gpu_to_finish_all_work(struct Renderer_State *renderer_state)
+{
+    vkDeviceWaitIdle(vulkan_context.logical_device);
+}
+
 void vulkan_renderer_deinit(Renderer_State *renderer_state)
 {
     (void)renderer_state;
@@ -1224,12 +806,318 @@ void vulkan_renderer_on_resize(Renderer_State *renderer_state,
                        width,
                        height,
                        vulkan_context.swapchain.present_mode);
-
-    // todo(amer): every renderer should call this and i don't like that
-    update_camera(&renderer_state->camera);
 }
 
-void vulkan_renderer_draw(Renderer_State *renderer_state, F32 delta_time)
+void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Scene_Data *scene_data)
 {
-    vulkan_draw(renderer_state, &vulkan_context, delta_time);
+    Vulkan_Context *context = &vulkan_context;
+    context->global_uniform_buffer.model = glm::mat4(1.0f);
+    context->global_uniform_buffer.view = scene_data->view;
+    context->global_uniform_buffer.projection = scene_data->projection;
+
+    U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
+
+    vkWaitForFences(context->logical_device,
+                    1, &context->frame_in_flight_fences[current_frame_in_flight_index],
+                    VK_TRUE, UINT64_MAX);
+
+    if ((renderer_state->back_buffer_width != context->swapchain.width ||
+         renderer_state->back_buffer_height != context->swapchain.height) &&
+        renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
+    {
+        recreate_swapchain(context,
+                           &context->swapchain,
+                           renderer_state->back_buffer_width,
+                           renderer_state->back_buffer_height,
+                           context->swapchain.present_mode);
+        return;
+    }
+
+    VkResult result = vkAcquireNextImageKHR(context->logical_device,
+                                            context->swapchain.handle,
+                                            UINT64_MAX,
+                                            context->image_available_semaphores[current_frame_in_flight_index],
+                                            VK_NULL_HANDLE,
+                                            &context->current_swapchain_image_index);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+    {
+        if (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
+        {
+            recreate_swapchain(context,
+                               &context->swapchain,
+                               renderer_state->back_buffer_width,
+                               renderer_state->back_buffer_height,
+                               context->swapchain.present_mode);
+
+        }
+        return;
+    }
+    else
+    {
+        Assert(result == VK_SUCCESS);
+    }
+
+    vkResetFences(context->logical_device, 1, &context->frame_in_flight_fences[current_frame_in_flight_index]);
+
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
+    vkResetCommandBuffer(command_buffer, 0);
+
+    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    command_buffer_begin_info.flags = 0;
+    command_buffer_begin_info.pInheritanceInfo = 0;
+
+    vkBeginCommandBuffer(command_buffer,
+                         &command_buffer_begin_info);
+
+    VkClearValue clear_values[3] = {};
+    clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+    clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+    clear_values[2].depthStencil = { 1.0f, 0 };
+
+    VkRenderPassBeginInfo render_pass_begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+    render_pass_begin_info.renderPass = context->render_pass;
+    render_pass_begin_info.framebuffer = context->swapchain.frame_buffers[context->current_swapchain_image_index];
+    render_pass_begin_info.renderArea.offset = { 0, 0 };
+    render_pass_begin_info.renderArea.extent = { context->swapchain.width, context->swapchain.height };
+    render_pass_begin_info.clearValueCount = ArrayCount(clear_values);
+    render_pass_begin_info.pClearValues = clear_values;
+
+    vkCmdBeginRenderPass(command_buffer,
+                         &render_pass_begin_info,
+                         VK_SUBPASS_CONTENTS_INLINE);
+
+    vkCmdBindPipeline(command_buffer,
+                      VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      context->graphics_pipeline.handle);
+
+    VkViewport viewport = {};
+    viewport.x = 0;
+    viewport.y = 0;
+    viewport.width = (F32)context->swapchain.width;
+    viewport.height = (F32)context->swapchain.height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(command_buffer,
+                     0, 1, &viewport);
+
+    VkRect2D scissor = {};
+    scissor.offset.x = 0;
+    scissor.offset.y = 0;
+    scissor.extent.width = context->swapchain.width;
+    scissor.extent.height = context->swapchain.height;
+    vkCmdSetScissor(command_buffer,
+                    0, 1, &scissor);
+}
+
+void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state, struct Static_Mesh *static_mesh)
+{
+    Vulkan_Context *context = &vulkan_context;
+    U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
+
+    VkDescriptorBufferInfo descriptor_buffer_info = {};
+    descriptor_buffer_info.buffer = context->global_uniform_buffers[current_frame_in_flight_index].handle;
+    descriptor_buffer_info.offset = 0;
+    descriptor_buffer_info.range = sizeof(Vulkan_Global_Uniform_Buffer);
+
+    VkDescriptorImageInfo descriptor_image_info = {};
+    descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    descriptor_image_info.imageView = get_data(&static_mesh->albedo)->view;
+    descriptor_image_info.sampler = get_data(static_mesh)->albedo_sampler;
+
+    VkWriteDescriptorSet write_descriptor_sets[2] = {};
+    write_descriptor_sets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write_descriptor_sets[0].dstSet = context->descriptor_sets[current_frame_in_flight_index];
+    write_descriptor_sets[0].dstBinding = 0;
+    write_descriptor_sets[0].dstArrayElement = 0;
+    write_descriptor_sets[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    write_descriptor_sets[0].descriptorCount = 1;
+    write_descriptor_sets[0].pBufferInfo = &descriptor_buffer_info;
+
+    write_descriptor_sets[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write_descriptor_sets[1].dstSet = context->descriptor_sets[current_frame_in_flight_index];
+    write_descriptor_sets[1].dstBinding = 1;
+    write_descriptor_sets[1].dstArrayElement = 0;
+    write_descriptor_sets[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write_descriptor_sets[1].descriptorCount = 1;
+    write_descriptor_sets[1].pImageInfo = &descriptor_image_info;
+
+    vkUpdateDescriptorSets(context->logical_device, ArrayCount(write_descriptor_sets), write_descriptor_sets, 0, nullptr);
+
+    VkBuffer vertex_buffers[] = { get_data(static_mesh)->vertex_buffer.handle };
+    VkDeviceSize offsets[] = { 0 };
+    vkCmdBindVertexBuffers(command_buffer,
+                           0, 1, vertex_buffers, offsets);
+
+    vkCmdBindIndexBuffer(command_buffer,
+                         get_data(static_mesh)->index_buffer.handle, 0, VK_INDEX_TYPE_UINT16);
+
+    Vulkan_Global_Uniform_Buffer gub_data = {};
+    gub_data.model = glm::mat4(1.0f);
+    gub_data.view = renderer_state->camera.view;
+    gub_data.projection = renderer_state->camera.projection;
+    gub_data.projection[1][1] *= -1;
+
+    Vulkan_Buffer *global_uniform_buffer = &context->global_uniform_buffers[current_frame_in_flight_index];
+    memcpy(global_uniform_buffer->data, &gub_data, sizeof(Vulkan_Global_Uniform_Buffer));
+
+    vkCmdBindDescriptorSets(command_buffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            context->graphics_pipeline.layout,
+                            0, 1,
+                            &context->descriptor_sets[current_frame_in_flight_index],
+                            0, nullptr);
+
+    vkCmdDrawIndexed(command_buffer,
+                     static_mesh->index_count, 1, 0, 0, 0);
+}
+
+void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
+{
+    Vulkan_Context *context = &vulkan_context;
+    U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
+
+    vkCmdEndRenderPass(command_buffer);
+    vkEndCommandBuffer(command_buffer);
+
+    VkPipelineStageFlags wait_stage =  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+
+    submit_info.pWaitDstStageMask = &wait_stage;
+
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &context->image_available_semaphores[current_frame_in_flight_index];
+
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &context->rendering_finished_semaphores[current_frame_in_flight_index];
+
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffer;
+
+    vkQueueSubmit(context->graphics_queue, 1, &submit_info, context->frame_in_flight_fences[current_frame_in_flight_index]);
+
+    VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+
+    present_info.waitSemaphoreCount = 1;
+    present_info.pWaitSemaphores = &context->rendering_finished_semaphores[current_frame_in_flight_index];
+
+    present_info.swapchainCount = 1;
+    present_info.pSwapchains = &context->swapchain.handle;
+    present_info.pImageIndices = &context->current_swapchain_image_index;
+
+    VkResult result = vkQueuePresentKHR(context->present_queue, &present_info);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+    {
+        if (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
+        {
+            recreate_swapchain(context,
+                               &context->swapchain,
+                               renderer_state->back_buffer_width,
+                               renderer_state->back_buffer_height,
+                               context->swapchain.present_mode);
+        }
+    }
+    else
+    {
+        Assert(result == VK_SUCCESS);
+    }
+
+    context->current_frame_in_flight_index++;
+    if (context->current_frame_in_flight_index == context->frames_in_flight)
+    {
+        context->current_frame_in_flight_index = 0;
+    }
+}
+
+bool vulkan_renderer_create_texture(Texture *texture, U32 width, U32 height,
+                                    void *data, TextureFormat format)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Image *image = Allocate(context->allocator, Vulkan_Image); // todo(amer): memory allocation should be outside of vulkan
+
+    Assert(format == TextureFormat_RGBA); // todo(amer): only supporting RGBA for now.
+
+    bool mipmapping = true; // todo(amer): hardcoding...
+    create_image(image, context, width, height,
+                 VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+                 VK_IMAGE_USAGE_TRANSFER_DST_BIT|
+                 VK_IMAGE_USAGE_SAMPLED_BIT,
+                 VK_IMAGE_ASPECT_COLOR_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapping);
+
+    copy_buffer_to_image(context, image, width, height, data,
+                         (U64)width * (U64)height * sizeof(U32));
+
+    texture->width = width;
+    texture->height = height;
+    texture->rendering_api_specific_data = image;
+    return true;
+}
+
+void vulkan_renderer_destroy_texture(Texture *texture)
+{
+    Vulkan_Image *vulkan_image = get_data(texture);
+    destroy_image(vulkan_image, &vulkan_context);
+    deallocate(vulkan_context.allocator, vulkan_image); // todo(amer): memory allocation should be outside of vulkan
+}
+
+bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices,
+                                        U32 vertex_count, U16 *indices, U32 index_count)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Static_Mesh *vulkan_static_mesh = Allocate(context->allocator,
+                                                      Vulkan_Static_Mesh); // todo(amer): memory allocation should be outside of vulkan
+
+    U64 vertex_size = vertex_count * sizeof(Vertex);
+    create_buffer(&vulkan_static_mesh->vertex_buffer, context, vertex_size,
+                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    copy_buffer(context, &context->transfer_buffer,
+                &vulkan_static_mesh->vertex_buffer, vertices, vertex_size);
+    static_mesh->vertex_count = u64_to_u32(vertex_count);
+
+    U64 index_size = index_count * sizeof(U16);
+    create_buffer(&vulkan_static_mesh->index_buffer, context,
+                  index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
+                  VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    copy_buffer(context, &context->transfer_buffer,
+                &vulkan_static_mesh->index_buffer, indices, index_size);
+    static_mesh->index_count = index_count;
+
+    VkSamplerCreateInfo sampler_create_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+    sampler_create_info.minFilter = VK_FILTER_LINEAR;
+    sampler_create_info.magFilter = VK_FILTER_LINEAR;
+    sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_create_info.anisotropyEnable = VK_TRUE;
+    sampler_create_info.maxAnisotropy = context->physical_device_properties.limits.maxSamplerAnisotropy;
+    sampler_create_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    sampler_create_info.unnormalizedCoordinates = VK_FALSE;
+    sampler_create_info.compareEnable = VK_FALSE;
+    sampler_create_info.compareOp = VK_COMPARE_OP_ALWAYS;
+    sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sampler_create_info.mipLodBias = 0.0f;
+    sampler_create_info.minLod = 0.0f;
+    sampler_create_info.maxLod = (F32)(get_data(&static_mesh->albedo)->mip_levels);
+    CheckVkResult(vkCreateSampler(context->logical_device, &sampler_create_info, nullptr, &vulkan_static_mesh->albedo_sampler));
+
+    static_mesh->rendering_api_specific_data = vulkan_static_mesh;
+    return true;
+}
+
+void vulkan_renderer_destroy_static_mesh(Static_Mesh *static_mesh)
+{
+    vulkan_renderer_destroy_texture(&static_mesh->albedo);
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Static_Mesh *vulkan_static_mesh = get_data(static_mesh);
+    destroy_buffer(&vulkan_static_mesh->vertex_buffer, context->logical_device);
+    destroy_buffer(&vulkan_static_mesh->index_buffer, context->logical_device);
+    vkDestroySampler(context->logical_device, vulkan_static_mesh->albedo_sampler, nullptr);
+    deallocate(vulkan_context.allocator, vulkan_static_mesh); // todo(amer): memory allocation should be outside of vulkan
 }

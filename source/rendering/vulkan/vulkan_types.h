@@ -13,6 +13,7 @@
 
 #include "core/defines.h"
 #include "core/memory.h"
+#include "renderer_types.h"
 
 #define HE_VULKAN_DEBUGGING 1
 
@@ -44,10 +45,19 @@ struct Vulkan_Image
     U32 mip_levels;
     void *data;
     U64 size;
+};
 
-    // note(amer): this should be going to texture agnostic
-    U32 width;
-    U32 height;
+struct Vulkan_Buffer
+{
+    VkBuffer handle;
+    VkDeviceMemory memory;
+    void *data;
+    U64 size;
+};
+
+struct Vulkan_Shader
+{
+    VkShaderModule handle;
 };
 
 struct Vulkan_Swapchain_Support
@@ -88,46 +98,19 @@ struct Vulkan_Graphics_Pipeline
     VkPipeline handle;
 };
 
-struct Vulkan_Buffer
-{
-    VkBuffer handle;
-    VkDeviceMemory memory;
-    void *data;
-    U64 size;
-};
-
-struct Vulkan_Shader
-{
-    VkShaderModule handle;
-};
-
-// note(amer): to be moved to renderer types
-struct Vertex
-{
-    glm::vec3 position;
-    glm::vec3 normal;
-    glm::vec2 uv;
-};
-
-struct Global_Uniform_Buffer
+struct Vulkan_Global_Uniform_Buffer
 {
     alignas(16) glm::mat4 model;
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 projection;
 };
 
-struct Static_Mesh
+struct Vulkan_Static_Mesh
 {
     Vulkan_Buffer vertex_buffer;
-    U32 vertex_count;
-
     Vulkan_Buffer index_buffer;
-    U16 index_count;
-
-    VkSampler sampler;
-    Vulkan_Image image;
+    VkSampler albedo_sampler;
 };
-// =======================================
 
 #define MAX_FRAMES_IN_FLIGHT 3
 
@@ -166,11 +149,10 @@ struct Vulkan_Context
     VkFence frame_in_flight_fences[MAX_FRAMES_IN_FLIGHT];
 
     Vulkan_Buffer global_uniform_buffers[MAX_FRAMES_IN_FLIGHT];
+    Vulkan_Global_Uniform_Buffer global_uniform_buffer;
 
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet descriptor_sets[MAX_FRAMES_IN_FLIGHT];
-
-    Free_List_Allocator *allocator;
 
     VkCommandPool transfer_command_pool;
     VkCommandBuffer transfer_command_buffer;
@@ -178,11 +160,25 @@ struct Vulkan_Context
 
     U32 frames_in_flight;
     U32 current_frame_in_flight_index;
+    U32 current_swapchain_image_index;
 
-    // todo(amer): to be removed...
-    Static_Mesh static_mesh;
+    Free_List_Allocator *allocator;
 
 #if HE_VULKAN_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;
 #endif
 };
+
+inline Vulkan_Image*
+get_data(Texture *texture)
+{
+    Assert(texture->rendering_api_specific_data);
+    return (Vulkan_Image *)texture->rendering_api_specific_data;
+}
+
+inline Vulkan_Static_Mesh*
+get_data(Static_Mesh *static_mesh)
+{
+    Assert(static_mesh->rendering_api_specific_data);
+    return (Vulkan_Static_Mesh *)static_mesh->rendering_api_specific_data;
+}

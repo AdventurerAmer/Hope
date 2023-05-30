@@ -11,7 +11,7 @@ bool create_image(Vulkan_Image *image, Vulkan_Context *context,
                   VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
 
 void
-copy_buffer_to_image(Vulkan_Context *context, Vulkan_Image *image, void *data, U64 size);
+copy_buffer_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width, U32 height, void *data, U64 size);
 
 void
 destroy_image(Vulkan_Image *image, Vulkan_Context *context);

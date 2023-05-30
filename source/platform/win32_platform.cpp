@@ -215,13 +215,16 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
             win32_state->engine.renderer_state.back_buffer_width = client_width;
             win32_state->engine.renderer_state.back_buffer_height = client_height;
 
+            // todo(amer): resizing camera here for now...
+            win32_state->engine.renderer_state.camera.aspect_ratio = (F32)client_width / (F32)client_height;
+            update_camera(&win32_state->engine.renderer_state.camera);
+
             if (win32_state->engine.renderer.on_resize)
             {
                 win32_state->engine.renderer.on_resize(&win32_state->engine.renderer_state,
                                                        client_width,
                                                        client_height);
             }
-
             event.width = u32_to_u16(client_width);
             event.height = u32_to_u16(client_height);
             win32_state->engine.game_code.on_event(&win32_state->engine, event);

@@ -111,8 +111,6 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     image->size = memory_requirements.size;
     image->format = format;
     image->data = nullptr;
-    image->width = width;
-    image->height = height;
 
     VkImageViewCreateInfo image_view_create_info =
         { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
@@ -131,7 +129,7 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
 }
 
 void
-copy_buffer_to_image(Vulkan_Context *context, Vulkan_Image *image, void *data, U64 size)
+copy_buffer_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width, U32 height, void *data, U64 size)
 {
     Assert(context);
     Assert(data);
@@ -167,7 +165,7 @@ copy_buffer_to_image(Vulkan_Context *context, Vulkan_Image *image, void *data, U
     region.imageSubresource.layerCount = 1;
 
     region.imageOffset = { 0, 0, 0 };
-    region.imageExtent = { image->width, image->height, 1 };
+    region.imageExtent = { width, height, 1 };
 
     vkCmdCopyBufferToImage(command_buffer, context->transfer_buffer.handle,
                            image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
@@ -188,8 +186,8 @@ copy_buffer_to_image(Vulkan_Context *context, Vulkan_Image *image, void *data, U
         vkGetPhysicalDeviceFormatProperties(context->physical_device, image->format, &format_properties);
         Assert((format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT));
 
-        U32 mip_width = image->width;
-        U32 mip_height = image->height;
+        U32 mip_width = width;
+        U32 mip_height = height;
 
         for (U32 mip_index = 1; mip_index < image->mip_levels; mip_index++)
         {
