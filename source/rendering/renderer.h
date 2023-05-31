@@ -21,7 +21,8 @@ struct Renderer_State
     Camera camera;
     FPS_Camera_Controller camera_controller;
 
-    Static_Mesh static_mesh;
+    Static_Mesh static_mesh0;
+    Static_Mesh static_mesh1;
 };
 
 struct Scene_Data

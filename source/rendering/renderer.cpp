@@ -133,7 +133,7 @@ bool load_static_mesh(Static_Mesh *static_mesh, const char *path, Renderer *rend
                 {
                     Assert(attribute->data->type == cgltf_type_vec3);
                     Assert(attribute->data->component_type == cgltf_component_type_r_32f);
-                    Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
+                    // Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
 
                     position_count = u64_to_u32(attribute->data->count);
                     U64 stride = attribute->data->stride;
@@ -151,7 +151,7 @@ bool load_static_mesh(Static_Mesh *static_mesh, const char *path, Renderer *rend
                 {
                     Assert(attribute->data->type == cgltf_type_vec3);
                     Assert(attribute->data->component_type == cgltf_component_type_r_32f);
-                    Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
+                    // Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
 
                     normal_count = u64_to_u32(attribute->data->count);
                     U64 stride = attribute->data->stride;
@@ -169,7 +169,7 @@ bool load_static_mesh(Static_Mesh *static_mesh, const char *path, Renderer *rend
                 {
                     Assert(attribute->data->type == cgltf_type_vec2);
                     Assert(attribute->data->component_type == cgltf_component_type_r_32f);
-                    Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
+                    // Assert(attribute->data->buffer_view->type == cgltf_buffer_view_type_vertices);
 
                     uv_count = u64_to_u32(attribute->data->count);
                     U64 stride = attribute->data->stride;

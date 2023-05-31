@@ -15,6 +15,8 @@
 #include "core/memory.h"
 #include "renderer_types.h"
 
+#define MAX_FRAMES_IN_FLIGHT 3
+
 #define HE_VULKAN_DEBUGGING 1
 
 #ifdef HE_SHIPPING
@@ -112,10 +114,13 @@ struct Vulkan_Static_Mesh
 {
     Vulkan_Buffer vertex_buffer;
     Vulkan_Buffer index_buffer;
+
+    // todo(amer): move to material
     VkSampler albedo_sampler;
+    VkDescriptorPool material_descriptor_pool;
+    VkDescriptorSet material_descriptor_sets[MAX_FRAMES_IN_FLIGHT];
 };
 
-#define MAX_FRAMES_IN_FLIGHT 3
 
 struct Vulkan_Context
 {
@@ -153,13 +158,11 @@ struct Vulkan_Context
 
     Vulkan_Buffer global_uniform_buffers[MAX_FRAMES_IN_FLIGHT];
 
-    VkDescriptorPool per_frame_descriptor_pool;
     VkDescriptorSetLayout per_frame_descriptor_set_layout;
-    VkDescriptorSet per_frame_descriptor_sets[MAX_FRAMES_IN_FLIGHT];
-
-    VkDescriptorPool per_material_descriptor_pool;
     VkDescriptorSetLayout per_material_descriptor_set_layout;
-    VkDescriptorSet per_material_descriptor_sets[MAX_FRAMES_IN_FLIGHT];
+
+    VkDescriptorPool per_frame_descriptor_pool;
+    VkDescriptorSet per_frame_descriptor_sets[MAX_FRAMES_IN_FLIGHT];
 
     VkCommandPool transfer_command_pool;
     VkCommandBuffer transfer_command_buffer;

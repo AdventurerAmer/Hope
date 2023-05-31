@@ -88,8 +88,12 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     init_fps_camera_controller(camera_controller, /*pitch=*/0.0f, /*yaw=*/0.0f,
                                /*rotation_speed=*/45.0f);
 
-    bool loaded = load_static_mesh(&renderer_state->static_mesh, "models/DamagedHelmet/DamagedHelmet.gltf",
+    bool loaded = load_static_mesh(&renderer_state->static_mesh0, "models/DamagedHelmet/DamagedHelmet.gltf",
                                    renderer, &engine->memory.transient_arena);
+    Assert(loaded);
+
+    loaded = load_static_mesh(&renderer_state->static_mesh1, "models/Corset/Corset.gltf",
+                              renderer, &engine->memory.transient_arena);
     Assert(loaded);
 
     Platform_API *api = &engine->platform_api;
@@ -150,20 +154,41 @@ void game_loop(Engine* engine, F32 delta_time)
         scene_data.view = camera->view;
         scene_data.projection = camera->projection;
 
-        static F32 yaw = 0.0f;
-        static F32 pitch = 0.0f;
+        static F32 mesh0_yaw = 0.0f;
+        static F32 mesh0_pitch = 0.0f;
 
-        yaw += 45.0f * delta_time;
-        pitch += 90.0f * delta_time;
+        static F32 mesh1_yaw = 0.0f;
+        static F32 mesh1_pitch = 0.0f;
 
-        glm::mat4 models[] =
+        mesh0_yaw += 45.0f * delta_time;
+        mesh0_pitch += 90.0f * delta_time;
+
+        mesh1_yaw += 30.0f * delta_time;
+        mesh1_pitch += 180.0f * delta_time;
+
+        glm::mat4 mesh0_models[] =
         {
-            glm::translate(glm::mat4(1.0f), { 5.0f, 0.0f, 0.0f }) * glm::toMat4(glm::angleAxis(glm::radians(yaw), glm::vec3(0.0f, 1.0f, 0.0f))),
-            glm::translate(glm::mat4(1.0f), { -5.0f, 0.0f, 0.0f }) * glm::toMat4(glm::angleAxis(glm::radians(yaw), glm::vec3(1.0f, 0.0f, 0.0f))),
+            glm::translate(glm::mat4(1.0f), { 5.0f, 0.0f, 0.0f }) *
+            glm::toMat4(glm::angleAxis(glm::radians(mesh0_yaw), glm::vec3(0.0f, 1.0f, 0.0f))),
+
+            glm::translate(glm::mat4(1.0f), { -5.0f, 0.0f, 0.0f }) *
+            glm::toMat4(glm::angleAxis(glm::radians(mesh0_pitch), glm::vec3(1.0f, 0.0f, 0.0f))),
+        };
+
+        glm::mat4 mesh1_models[] =
+        {
+            glm::translate(glm::mat4(1.0f), { 0.0f, 5.0f, 0.0f }) *
+            glm::toMat4(glm::angleAxis(glm::radians(mesh1_pitch), glm::vec3(1.0f, 0.0f, 0.0f))) *
+            glm::scale(glm::mat4(1.0f), { 50.0f, 50.0f, 50.0f}),
+
+            glm::translate(glm::mat4(1.0f), { 0.0f, -5.0f, 0.0f }) *
+            glm::toMat4(glm::angleAxis(glm::radians(mesh1_yaw), glm::vec3(0.0f, 1.0f, 0.0f))) *
+            glm::scale(glm::mat4(1.0f), { 50.0f, 50.0f, 50.0f}),
         };
 
         renderer->begin_frame(renderer_state, &scene_data);
-        renderer->submit_static_mesh(renderer_state, &renderer_state->static_mesh, ArrayCount(models), models);
+        renderer->submit_static_mesh(renderer_state, &renderer_state->static_mesh0, ArrayCount(mesh0_models), mesh0_models);
+        renderer->submit_static_mesh(renderer_state, &renderer_state->static_mesh1, ArrayCount(mesh1_models), mesh1_models);
         renderer->end_frame(renderer_state);
     }
 }
@@ -175,7 +200,8 @@ void shutdown(Engine *engine)
     Renderer *renderer = &engine->renderer;
     Renderer_State *renderer_state = &engine->renderer_state;
     renderer->wait_for_gpu_to_finish_all_work(renderer_state);
-    renderer->destroy_static_mesh(&renderer_state->static_mesh);
+    renderer->destroy_static_mesh(&renderer_state->static_mesh0);
+    renderer->destroy_static_mesh(&renderer_state->static_mesh1);
     renderer->deinit(&engine->renderer_state);
 
 #ifndef HE_SHIPPING
