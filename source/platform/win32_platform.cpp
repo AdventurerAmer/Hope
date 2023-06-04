@@ -399,17 +399,19 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
 
     // todo(amer): engine configuration should be outside win32_main
     Engine_Configuration configuration = {};
-    configuration.permanent_memory_size = HE_MegaBytes(64);
-    configuration.transient_memory_size = HE_MegaBytes(256);
+    configuration.permanent_memory_size = HE_MegaBytes(256);
+    configuration.transient_memory_size = HE_MegaBytes(512);
     configuration.show_cursor = true;
     configuration.lock_cursor = false;
     configuration.window_mode = WindowMode_Windowed;
     configuration.back_buffer_width = 1280;
     configuration.back_buffer_height = 720;
 
-    Win32_State *win32_state = (Win32_State *)VirtualAlloc(0,
+    /*Win32_State *win32_state = (Win32_State *)VirtualAlloc(0,
                                                            sizeof(win32_state),
-                                                           MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+                                                           MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);*/
+    Win32_State _win32_state = {};
+    Win32_State* win32_state = &_win32_state;
     win32_state->instance = instance;
     win32_state->cursor = LoadCursor(NULL, IDC_ARROW);
 

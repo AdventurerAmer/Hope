@@ -1,5 +1,5 @@
 #include "vulkan_image.h"
-#include "vulkan.h"
+#include "vulkan_renderer.h"
 
 internal_function void
 transtion_image_to_layout(Vulkan_Image *image,

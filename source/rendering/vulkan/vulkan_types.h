@@ -110,17 +110,18 @@ struct Vulkan_Mesh_Push_Constant
     glm::mat4 model;
 };
 
+struct Vulkan_Material
+{
+    VkDescriptorPool descriptor_pool;
+    VkDescriptorSet descriptor_sets[MAX_FRAMES_IN_FLIGHT];
+    VkSampler albedo_sampler;
+};
+
 struct Vulkan_Static_Mesh
 {
     Vulkan_Buffer vertex_buffer;
     Vulkan_Buffer index_buffer;
-
-    // todo(amer): move to material
-    VkSampler albedo_sampler;
-    VkDescriptorPool material_descriptor_pool;
-    VkDescriptorSet material_descriptor_sets[MAX_FRAMES_IN_FLIGHT];
 };
-
 
 struct Vulkan_Context
 {
@@ -191,4 +192,11 @@ get_data(Static_Mesh *static_mesh)
 {
     Assert(static_mesh->rendering_api_specific_data);
     return (Vulkan_Static_Mesh *)static_mesh->rendering_api_specific_data;
+}
+
+inline Vulkan_Material*
+get_data(Material *materail)
+{
+    Assert(materail->rendering_api_specific_data);
+    return (Vulkan_Material *)materail->rendering_api_specific_data;
 }

@@ -10,6 +10,7 @@
 #include <glm/ext/matrix_transform.hpp> // glm::translate, glm::rotate, glm::scale
 #include <glm/ext/matrix_clip_space.hpp> // glm::perspective
 #include <glm/ext/scalar_constants.hpp> // glm::pi
+#include <glm/gtc/type_ptr.hpp>
 
 struct Vertex
 {
@@ -23,17 +24,48 @@ enum TextureFormat
     TextureFormat_RGBA
 };
 
+#define MAX_TEXTURE_NAME 256
+
 struct Texture
 {
-    void *rendering_api_specific_data;
+    char name[MAX_TEXTURE_NAME];
+    U32 name_length;
+
     U32 width;
     U32 height;
+
+    void *rendering_api_specific_data;
 };
+
+#define MAX_MATERIAL_NAME 256
+
+struct Material
+{
+    char name[MAX_MATERIAL_NAME];
+    U32 name_length;
+
+    Texture *albedo;
+
+    void *rendering_api_specific_data;
+};
+
+#define MAX_MESH_NAME 256
 
 struct Static_Mesh
 {
-    void *rendering_api_specific_data;
-    U32 vertex_count;
+    U16 vertex_count;
     U32 index_count;
-    Texture albedo;
+    Material *material;
+
+    void *rendering_api_specific_data;
+};
+
+struct Model
+{
+    char name[MAX_MESH_NAME];
+    U32 name_length;
+
+    U32 static_mesh_count;
+    Static_Mesh *static_meshes;
+    glm::mat4 *parent_transforms;
 };

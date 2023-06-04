@@ -79,7 +79,7 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 
     glm::quat camera_rotation = glm::quat({ 0.0f, 0.0f, 0.0f });
     Camera *camera = &engine->renderer_state.camera;
-    init_camera(camera, { 0.0f, 2.0f, 20.0f }, camera_rotation, aspect_ratio);
+    init_camera(camera, { 0.0f, 0.0f, 20.0f }, camera_rotation, aspect_ratio);
 
     FPS_Camera_Controller *camera_controller = &engine->renderer_state.camera_controller;
     camera_controller->rotation_speed = 45.0f;
@@ -88,12 +88,16 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     init_fps_camera_controller(camera_controller, /*pitch=*/0.0f, /*yaw=*/0.0f,
                                /*rotation_speed=*/45.0f);
 
-    bool loaded = load_static_mesh(&renderer_state->static_mesh0, "models/DamagedHelmet/DamagedHelmet.gltf",
-                                   renderer, &engine->memory.transient_arena);
+    bool loaded = load_model(&renderer_state->model0, "models/DamagedHelmet/DamagedHelmet.gltf",
+                             renderer, renderer_state, &engine->memory.transient_arena);
     Assert(loaded);
 
-    loaded = load_static_mesh(&renderer_state->static_mesh1, "models/Corset/Corset.gltf",
-                              renderer, &engine->memory.transient_arena);
+    loaded = load_model(&renderer_state->model1, "models/Corset/Corset.gltf",
+                        renderer, renderer_state, &engine->memory.transient_arena);
+    Assert(loaded);
+
+    loaded = load_model(&renderer_state->model2, "models/OneHandedDemonicSword/One_Handed_Demonic_Sword.glb",
+                        renderer, renderer_state, &engine->memory.transient_arena);
     Assert(loaded);
 
     Platform_API *api = &engine->platform_api;
@@ -162,33 +166,35 @@ void game_loop(Engine* engine, F32 delta_time)
 
         mesh0_yaw += 45.0f * delta_time;
         mesh0_pitch += 90.0f * delta_time;
-
         mesh1_yaw += 30.0f * delta_time;
-        mesh1_pitch += 180.0f * delta_time;
-
+        
         glm::mat4 mesh0_models[] =
         {
-            glm::translate(glm::mat4(1.0f), { 5.0f, 0.0f, 0.0f }) *
-            glm::toMat4(glm::angleAxis(glm::radians(mesh0_yaw), glm::vec3(0.0f, 1.0f, 0.0f))),
-
             glm::translate(glm::mat4(1.0f), { -5.0f, 0.0f, 0.0f }) *
             glm::toMat4(glm::angleAxis(glm::radians(mesh0_pitch), glm::vec3(1.0f, 0.0f, 0.0f))),
         };
 
         glm::mat4 mesh1_models[] =
         {
-            glm::translate(glm::mat4(1.0f), { 0.0f, 5.0f, 0.0f }) *
-            glm::toMat4(glm::angleAxis(glm::radians(mesh1_pitch), glm::vec3(1.0f, 0.0f, 0.0f))) *
-            glm::scale(glm::mat4(1.0f), { 50.0f, 50.0f, 50.0f}),
-
             glm::translate(glm::mat4(1.0f), { 0.0f, -5.0f, 0.0f }) *
             glm::toMat4(glm::angleAxis(glm::radians(mesh1_yaw), glm::vec3(0.0f, 1.0f, 0.0f))) *
             glm::scale(glm::mat4(1.0f), { 50.0f, 50.0f, 50.0f}),
         };
 
+        glm::mat4 mesh2_models[] =
+        {
+            glm::translate(glm::mat4(1.0f), { 5.0f, 0.0f, 0.0f }) *
+            glm::toMat4(glm::quat(glm::radians(glm::vec3(90.0f, mesh0_yaw, 0.0f)))),
+        };
+
         renderer->begin_frame(renderer_state, &scene_data);
-        renderer->submit_static_mesh(renderer_state, &renderer_state->static_mesh0, ArrayCount(mesh0_models), mesh0_models);
-        renderer->submit_static_mesh(renderer_state, &renderer_state->static_mesh1, ArrayCount(mesh1_models), mesh1_models);
+        renderer->submit_static_mesh(renderer_state, &renderer_state->model0.static_meshes[0], ArrayCount(mesh0_models), mesh0_models);
+
+        renderer->submit_static_mesh(renderer_state, &renderer_state->model1.static_meshes[0], ArrayCount(mesh1_models), mesh1_models);
+
+        renderer->submit_static_mesh(renderer_state, &renderer_state->model2.static_meshes[0], ArrayCount(mesh2_models), mesh2_models);
+        renderer->submit_static_mesh(renderer_state, &renderer_state->model2.static_meshes[1], ArrayCount(mesh2_models), mesh2_models);
+        
         renderer->end_frame(renderer_state);
     }
 }
@@ -200,8 +206,25 @@ void shutdown(Engine *engine)
     Renderer *renderer = &engine->renderer;
     Renderer_State *renderer_state = &engine->renderer_state;
     renderer->wait_for_gpu_to_finish_all_work(renderer_state);
-    renderer->destroy_static_mesh(&renderer_state->static_mesh0);
-    renderer->destroy_static_mesh(&renderer_state->static_mesh1);
+
+    for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
+    {
+        Texture *texture = &renderer_state->textures[texture_index];
+        renderer->destroy_texture(texture);
+    }
+
+    for (U32 material_index = 0; material_index < renderer_state->material_count; material_index++)
+    {
+        Material *material = &renderer_state->materials[material_index];
+        renderer->destroy_material(material);
+    }
+
+    for (U32 static_mesh_index = 0; static_mesh_index < renderer_state->static_mesh_count; static_mesh_index++)
+    {
+        Static_Mesh *static_mesh = &renderer_state->static_meshes[static_mesh_index];
+        renderer->destroy_static_mesh(static_mesh);
+    }
+
     renderer->deinit(&engine->renderer_state);
 
 #ifndef HE_SHIPPING
