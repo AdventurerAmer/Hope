@@ -981,7 +981,8 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
                     0, 1, &scissor);
 }
 
-void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state, struct Static_Mesh *static_mesh, U32 model_count, const glm::mat4 *models)
+void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
+                                        const struct Static_Mesh *static_mesh, const glm::mat4 transform)
 {
     Vulkan_Context *context = &vulkan_context;
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
@@ -1002,16 +1003,14 @@ void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state, s
     vkCmdBindIndexBuffer(command_buffer,
                          get_data(static_mesh)->index_buffer.handle, 0, VK_INDEX_TYPE_UINT16);
 
-    for (U32 model_index = 0; model_index < model_count; model_index++)
-    {
-        Vulkan_Mesh_Push_Constant mesh_push_constant = {};
-        mesh_push_constant.model = models[model_index];
-        vkCmdPushConstants(command_buffer, context->mesh_pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT,
-            0, sizeof(Vulkan_Mesh_Push_Constant), &mesh_push_constant);
 
-        vkCmdDrawIndexed(command_buffer,
-            static_mesh->index_count, 1, 0, 0, 0);
-    }
+    Vulkan_Mesh_Push_Constant mesh_push_constant = {};
+    mesh_push_constant.model = transform;
+    vkCmdPushConstants(command_buffer, context->mesh_pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT,
+        0, sizeof(Vulkan_Mesh_Push_Constant), &mesh_push_constant);
+
+    vkCmdDrawIndexed(command_buffer,
+        static_mesh->index_count, 1, 0, 0, 0);
 }
 
 void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
@@ -1102,7 +1101,6 @@ void vulkan_renderer_destroy_texture(Texture *texture)
     deallocate(vulkan_context.allocator, vulkan_image); // todo(amer): memory allocation should be outside of vulkan
 }
 
-
 bool vulkan_renderer_create_material(Material *material, Texture *albedo)
 {
     Vulkan_Context *context = &vulkan_context;
@@ -1177,6 +1175,7 @@ bool vulkan_renderer_create_material(Material *material, Texture *albedo)
         vkUpdateDescriptorSets(context->logical_device, 1, &write_descriptor_set, 0, nullptr);
     }
 
+    material->albedo = albedo;
     material->rendering_api_specific_data = vulkan_material;
     return true;
 }

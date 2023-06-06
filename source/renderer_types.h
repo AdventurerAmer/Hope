@@ -41,11 +41,9 @@ struct Texture
 
 struct Material
 {
-    char name[MAX_MATERIAL_NAME];
-    U32 name_length;
+    U64 hash;
 
     Texture *albedo;
-
     void *rendering_api_specific_data;
 };
 
@@ -60,12 +58,15 @@ struct Static_Mesh
     void *rendering_api_specific_data;
 };
 
-struct Model
+struct Scene_Node
 {
-    char name[MAX_MESH_NAME];
-    U32 name_length;
+    Scene_Node *parent;
+    Scene_Node *first_child;
+    Scene_Node *last_child;
+    Scene_Node *next_sibling;
 
     U32 static_mesh_count;
     Static_Mesh *static_meshes;
-    glm::mat4 *parent_transforms;
+
+    glm::mat4 transform;
 };

@@ -53,32 +53,42 @@ bool request_renderer(RenderingAPI rendering_api,
     return result;
 }
 
+Scene_Node*
+add_child_scene_node(Renderer_State *renderer_state,
+                     Scene_Node *parent)
+{
+    Assert(renderer_state->scene_node_count < MAX_SCENE_NODE_COUNT);
+    Assert(parent);
+
+    Scene_Node *node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
+    node->parent = parent;
+
+    if (parent->last_child)
+    {
+        parent->last_child->next_sibling = node;
+        parent->last_child = node;
+    }
+    else
+    {
+        parent->first_child = parent->last_child = node;
+    }
+
+    return node;
+}
+
 // note(amer): https://github.com/deccer/CMake-Glfw-OpenGL-Template/blob/main/src/Project/ProjectApplication.cpp
 // thanks to this giga chad for the example
-
-bool load_model(Model *model, const char *path, Renderer *renderer,
-                Renderer_State *renderer_state, Memory_Arena *arena)
+Scene_Node *load_model(const char *path, Renderer *renderer,
+                       Renderer_State *renderer_state, Memory_Arena *arena)
 {
     Scoped_Temprary_Memory_Arena temp_arena(arena);
 
     Read_Entire_File_Result result =
         platform_begin_read_entire_file(path);
 
-    U32 position_count = 0;
-    glm::vec3 *positions = nullptr;
-
-    U32 normal_count = 0;
-    glm::vec3 *normals = nullptr;
-
-    U32 uv_count = 0;
-    glm::vec2 *uvs = nullptr;
-
-    U32 index_count = 0;
-    U16 *indices = nullptr;
-
     if (!result.success)
     {
-        return false;
+        return nullptr;
     }
 
     U8 *buffer = AllocateArray(&temp_arena, U8, result.size);
@@ -98,36 +108,31 @@ bool load_model(Model *model, const char *path, Renderer *renderer,
 
     cgltf_options options = {};
     cgltf_data *model_data = nullptr;
+
     if (cgltf_parse(&options, buffer, result.size, &model_data) != cgltf_result_success)
     {
-        return false;
+        return nullptr;
     }
 
     if (cgltf_load_buffers(&options, model_data, path) != cgltf_result_success)
     {
-        return false;
+        return nullptr;
     }
-
-    Assert(model_data->materials_count >= 1);
 
     for (U32 material_index = 0; material_index < model_data->materials_count; material_index++)
     {
         cgltf_material *material = &model_data->materials[material_index];
-        U32 material_name_length = u64_to_u32(strlen(material->name));
-
-        if (find_material(renderer_state, material->name, material_name_length) != -1)
-        {
-            continue;
-        }
-
-        Material *renderer_material = &renderer_state->materials[renderer_state->material_count++];
-        strcpy(renderer_material->name, material->name);
-        renderer_material->name_length = material_name_length;
+        U64 material_hash = (U64)material;
 
         if (material->has_pbr_metallic_roughness && material->pbr_metallic_roughness.base_color_texture.texture)
         {
+            Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
+            Material *renderer_material = &renderer_state->materials[renderer_state->material_count++];
+            renderer_material->hash = material_hash;
+
             const cgltf_image *image = material->pbr_metallic_roughness.base_color_texture.texture->image;
 
+            Texture *albedo = nullptr;
             char albdeo_texture_path[MAX_TEXTURE_NAME];
 
             if (material->pbr_metallic_roughness.base_color_texture.texture->image->uri)
@@ -177,7 +182,8 @@ bool load_model(Model *model, const char *path, Renderer *renderer,
             S32 albedo_texture_index = find_texture(renderer_state, albdeo_texture_path, albdeo_texture_path_length);
             if (albedo_texture_index == -1)
             {
-                Texture *albedo = &renderer_state->textures[renderer_state->texture_count++];
+                Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
+                albedo = &renderer_state->textures[renderer_state->texture_count++];
                 strcpy(albedo->name, albdeo_texture_path);
                 albedo->name_length = albdeo_texture_path_length;
 
@@ -193,7 +199,7 @@ bool load_model(Model *model, const char *path, Renderer *renderer,
                     U8 *data_ptr = (U8*)view->buffer->data;
                     U8 *image_data = data_ptr + view->offset;
 
-                    albedo_pixels = stbi_load_from_memory(image_data, view->size,
+                    albedo_pixels = stbi_load_from_memory(image_data, u64_to_u32(view->size),
                                                           &albedo_texture_width, &albedo_texture_height,
                                                           &albedo_texture_channels, STBI_rgb_alpha);
                 }
@@ -213,45 +219,70 @@ bool load_model(Model *model, const char *path, Renderer *renderer,
                 Assert(created);
 
                 stbi_image_free(albedo_pixels);
-                renderer_material->albedo = albedo;
-                renderer->create_material(renderer_material, albedo);
             }
             else
             {
-                renderer_material->albedo = &renderer_state->textures[albedo_texture_index];
+                albedo = &renderer_state->textures[albedo_texture_index];
             }
+
+            renderer->create_material(renderer_material, albedo);
         }
     }
 
-    U32 static_mesh_count = 0;
-    Static_Mesh *static_meshes = &renderer_state->static_meshes[renderer_state->static_mesh_count];
-    glm::mat4 *parent_transforms = &renderer_state->parent_transforms[renderer_state->static_mesh_count];
+    U32 position_count = 0;
+    glm::vec3 *positions = nullptr;
+
+    U32 normal_count = 0;
+    glm::vec3 *normals = nullptr;
+
+    U32 uv_count = 0;
+    glm::vec2 *uvs = nullptr;
+
+    U32 index_count = 0;
+    U16 *indices = nullptr;
+
+    Scene_Node *root_scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
+    root_scene_node->parent = nullptr;
+    root_scene_node->transform = glm::mat4(1.0f);
+
+    struct Scene_Node_Bundle
+    {
+        cgltf_node *cgltf_node;
+        Scene_Node *node;
+    };
 
     for (U32 node_index = 0; node_index < model_data->nodes_count; node_index++)
     {
-        std::queue<cgltf_node*> nodes;
-        nodes.push(&model_data->nodes[node_index]);
+        std::queue<Scene_Node_Bundle> nodes;
+        nodes.push({ &model_data->nodes[node_index], add_child_scene_node(renderer_state, root_scene_node) });
         while (!nodes.empty())
         {
-            cgltf_node *node = nodes.front();
+            Scene_Node_Bundle &node_bundle = nodes.front();
+            cgltf_node *node = node_bundle.cgltf_node;
+            Scene_Node *scene_node = node_bundle.node;
             nodes.pop();
+
+            cgltf_node_transform_world(node, glm::value_ptr(scene_node->transform));
 
             if (node->mesh)
             {
+                U32 static_mesh_count = 0;
+                Static_Mesh *static_meshes = &renderer_state->static_meshes[renderer_state->static_mesh_count];
+                Assert(node->mesh->primitives_count + renderer_state->static_mesh_count < MAX_STATIC_MESH_COUNT);
+                renderer_state->static_mesh_count += u64_to_u32(node->mesh->primitives_count);
+
                 for (U32 primitive_index = 0; primitive_index < node->mesh->primitives_count; primitive_index++)
                 {
                     cgltf_primitive *primitive = &node->mesh->primitives[primitive_index];
                     Assert(primitive->material);
-                    cgltf_material* material = primitive->material;
+                    cgltf_material *material = primitive->material;
 
-                    S32 material_index = find_material(renderer_state, material->name, u64_to_u32(strlen(material->name)));
+                    U64 material_hash = (U64)material;
+                    S32 material_index = find_material(renderer_state, material_hash);
                     Assert(material_index != -1);
 
                     U32 static_mesh_index = static_mesh_count++;
                     Static_Mesh *static_mesh = &static_meshes[static_mesh_index];
-                    glm::mat4 *parent_transform = &parent_transforms[static_mesh_index];
-
-                    cgltf_node_transform_world(node, glm::value_ptr(*parent_transform));
 
                     static_mesh->material = &renderer_state->materials[material_index];
 
@@ -331,23 +362,40 @@ bool load_model(Model *model, const char *path, Renderer *renderer,
                                                                 indices, index_count);
                     Assert(created);
                 }
+
+                scene_node->static_mesh_count = static_mesh_count;
+                scene_node->static_meshes = static_meshes;
             }
 
-            for (U32 child_node_index = 0; child_node_index < node->children_count; child_node_index++)
+            for (U32 child_node_index = 0;
+                 child_node_index < node->children_count;
+                 child_node_index++)
             {
-                nodes.push(node->children[child_node_index]);
+                nodes.push({ node->children[child_node_index], add_child_scene_node(renderer_state, scene_node) });
             }
         }
     }
 
-    Assert(static_mesh_count);
-    model->static_meshes = static_meshes;
-    model->parent_transforms = parent_transforms;
-    model->static_mesh_count = static_mesh_count;
-    renderer_state->static_mesh_count += static_mesh_count;
-
     cgltf_free(model_data);
-    return true;
+    return root_scene_node;
+}
+
+void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene_Node *scene_node, glm::mat4 parent_transform)
+{
+    glm::mat4 transform = parent_transform * scene_node->transform;
+
+    for (U32 static_mesh_index = 0;
+         static_mesh_index < scene_node->static_mesh_count;
+         static_mesh_index++)
+    {
+        Static_Mesh *static_mesh = &scene_node->static_meshes[static_mesh_index];
+        renderer->submit_static_mesh(renderer_state, static_mesh, transform);
+    }
+
+    for (Scene_Node *node = scene_node->first_child; node; node = node->next_sibling)
+    {
+        render_scene_node(renderer, renderer_state, node, transform);
+    }
 }
 
 S32 find_texture(Renderer_State *renderer_state, char *name, U32 length)
@@ -363,12 +411,12 @@ S32 find_texture(Renderer_State *renderer_state, char *name, U32 length)
     return -1;
 }
 
-S32 find_material(Renderer_State *renderer_state, char *name, U32 length)
+S32 find_material(Renderer_State *renderer_state, U64 hash)
 {
     for (U32 material_index = 0; material_index < renderer_state->material_count; material_index++)
     {
         Material *material = &renderer_state->materials[material_index];
-        if (material->name_length == length && strncmp(material->name, name, length) == 0)
+        if (material->hash == hash)
         {
             return material_index;
         }

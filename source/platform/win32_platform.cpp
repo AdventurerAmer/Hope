@@ -282,6 +282,10 @@ win32_load_game_code(Win32_Dynamic_Library *win32_dynamic_library,
         {
             game_code->init_game = init_game_proc;
         }
+        else
+        {
+            game_code->init_game = init_game_stub;
+        }
 
         On_Event_Proc on_event_proc =
             (On_Event_Proc)GetProcAddress(win32_dynamic_library->handle, "on_event");
@@ -290,6 +294,10 @@ win32_load_game_code(Win32_Dynamic_Library *win32_dynamic_library,
         {
             game_code->on_event = on_event_proc;
         }
+        else
+        {
+            game_code->on_event = on_event_stub;
+        }
 
         On_Update_Proc on_update_proc =
             (On_Update_Proc)GetProcAddress(win32_dynamic_library->handle, "on_update");
@@ -297,6 +305,10 @@ win32_load_game_code(Win32_Dynamic_Library *win32_dynamic_library,
         if (on_update_proc)
         {
             game_code->on_update = on_update_proc;
+        }
+        else
+        {
+            game_code->on_update = on_update_stub;
         }
 
         result = init_game_proc && on_event_proc && on_update_proc;
@@ -407,11 +419,10 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
     configuration.back_buffer_width = 1280;
     configuration.back_buffer_height = 720;
 
-    /*Win32_State *win32_state = (Win32_State *)VirtualAlloc(0,
-                                                           sizeof(win32_state),
-                                                           MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);*/
-    Win32_State _win32_state = {};
-    Win32_State* win32_state = &_win32_state;
+    Win32_State *win32_state = (Win32_State *)VirtualAlloc(0,
+                                                           sizeof(Win32_State),
+                                                           MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    
     win32_state->instance = instance;
     win32_state->cursor = LoadCursor(NULL, IDC_ARROW);
 
@@ -431,7 +442,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
     window_class.hInstance = instance;
     window_class.lpszClassName = HE_WINDOW_CLASS_NAME;
     window_class.hCursor = win32_state->cursor;
-    // todo(amer): in the future we should be load icons from disk
+    // todo(amer): in the future we should be load icons from disk.
     window_class.hIcon = NULL;
 
     if (RegisterClassA(&window_class) == 0)
@@ -449,6 +460,12 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
         win32_report_last_error_and_exit("failed to create a window");
     }
 
+    S32 screen_width = GetSystemMetrics(SM_CXSCREEN);
+    S32 screen_height = GetSystemMetrics(SM_CYSCREEN);
+    S32 center_x = (screen_width / 2) - (win32_state->window_width / 2);
+    S32 center_y = (screen_height / 2) - (win32_state->window_height / 2);
+    MoveWindow(win32_state->window, center_x, center_y,
+               win32_state->window_width, win32_state->window_height, FALSE);
     ShowWindow(win32_state->window, SW_SHOW);
 
     Engine *engine = &win32_state->engine;
@@ -644,7 +661,6 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
         input->mouse_y = (U16)cursor.y;
         input->mouse_delta_x = (S32)input->mouse_x - (S32)input->prev_mouse_x;
         input->mouse_delta_y = (S32)input->mouse_y - (S32)input->prev_mouse_y;
-        
 
         if (engine->lock_cursor)
         {
@@ -799,6 +815,7 @@ void platform_report_error_and_exit(const char *message, ...)
     Assert(written >= 0);
 
     MessageBoxA(NULL, string_buffer, "Error", MB_OK);
+    ExitProcess(-1);
 
     va_end(arg_list);
 }

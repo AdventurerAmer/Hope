@@ -200,3 +200,24 @@ get_data(Material *materail)
     Assert(materail->rendering_api_specific_data);
     return (Vulkan_Material *)materail->rendering_api_specific_data;
 }
+
+inline Vulkan_Image*
+get_data(const Texture *texture)
+{
+    Assert(texture->rendering_api_specific_data);
+    return (Vulkan_Image *)texture->rendering_api_specific_data;
+}
+
+inline Vulkan_Static_Mesh*
+get_data(const Static_Mesh *static_mesh)
+{
+    Assert(static_mesh->rendering_api_specific_data);
+    return (Vulkan_Static_Mesh *)static_mesh->rendering_api_specific_data;
+}
+
+inline Vulkan_Material*
+get_data(const Material *materail)
+{
+    Assert(materail->rendering_api_specific_data);
+    return (Vulkan_Material *)materail->rendering_api_specific_data;
+}

@@ -82,23 +82,16 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     init_camera(camera, { 0.0f, 0.0f, 20.0f }, camera_rotation, aspect_ratio);
 
     FPS_Camera_Controller *camera_controller = &engine->renderer_state.camera_controller;
-    camera_controller->rotation_speed = 45.0f;
-    camera_controller->base_movement_speed = 10.0f;
-    camera_controller->max_movement_speed = 20.0f;
+    F32 rotation_speed = 45.0f;
+    F32 base_movement_speed = 20.0f;
+    F32 max_movement_speed = 40.0f;
     init_fps_camera_controller(camera_controller, /*pitch=*/0.0f, /*yaw=*/0.0f,
-                               /*rotation_speed=*/45.0f);
+                               rotation_speed,
+                               base_movement_speed,
+                               max_movement_speed);
 
-    bool loaded = load_model(&renderer_state->model0, "models/DamagedHelmet/DamagedHelmet.gltf",
-                             renderer, renderer_state, &engine->memory.transient_arena);
-    Assert(loaded);
-
-    loaded = load_model(&renderer_state->model1, "models/Corset/Corset.gltf",
-                        renderer, renderer_state, &engine->memory.transient_arena);
-    Assert(loaded);
-
-    loaded = load_model(&renderer_state->model2, "models/OneHandedDemonicSword/One_Handed_Demonic_Sword.glb",
-                        renderer, renderer_state, &engine->memory.transient_arena);
-    Assert(loaded);
+    renderer_state->sponza = load_model("models/Sponza/Sponza.gltf", renderer, renderer_state,
+                                        &engine->memory.transient_arena);
 
     Platform_API *api = &engine->platform_api;
     api->allocate_memory = &platform_allocate_memory;
@@ -158,43 +151,8 @@ void game_loop(Engine* engine, F32 delta_time)
         scene_data.view = camera->view;
         scene_data.projection = camera->projection;
 
-        static F32 mesh0_yaw = 0.0f;
-        static F32 mesh0_pitch = 0.0f;
-
-        static F32 mesh1_yaw = 0.0f;
-        static F32 mesh1_pitch = 0.0f;
-
-        mesh0_yaw += 45.0f * delta_time;
-        mesh0_pitch += 90.0f * delta_time;
-        mesh1_yaw += 30.0f * delta_time;
-        
-        glm::mat4 mesh0_models[] =
-        {
-            glm::translate(glm::mat4(1.0f), { -5.0f, 0.0f, 0.0f }) *
-            glm::toMat4(glm::angleAxis(glm::radians(mesh0_pitch), glm::vec3(1.0f, 0.0f, 0.0f))),
-        };
-
-        glm::mat4 mesh1_models[] =
-        {
-            glm::translate(glm::mat4(1.0f), { 0.0f, -5.0f, 0.0f }) *
-            glm::toMat4(glm::angleAxis(glm::radians(mesh1_yaw), glm::vec3(0.0f, 1.0f, 0.0f))) *
-            glm::scale(glm::mat4(1.0f), { 50.0f, 50.0f, 50.0f}),
-        };
-
-        glm::mat4 mesh2_models[] =
-        {
-            glm::translate(glm::mat4(1.0f), { 5.0f, 0.0f, 0.0f }) *
-            glm::toMat4(glm::quat(glm::radians(glm::vec3(90.0f, mesh0_yaw, 0.0f)))),
-        };
-
         renderer->begin_frame(renderer_state, &scene_data);
-        renderer->submit_static_mesh(renderer_state, &renderer_state->model0.static_meshes[0], ArrayCount(mesh0_models), mesh0_models);
-
-        renderer->submit_static_mesh(renderer_state, &renderer_state->model1.static_meshes[0], ArrayCount(mesh1_models), mesh1_models);
-
-        renderer->submit_static_mesh(renderer_state, &renderer_state->model2.static_meshes[0], ArrayCount(mesh2_models), mesh2_models);
-        renderer->submit_static_mesh(renderer_state, &renderer_state->model2.static_meshes[1], ArrayCount(mesh2_models), mesh2_models);
-        
+        render_scene_node(renderer, renderer_state, renderer_state->sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
         renderer->end_frame(renderer_state);
     }
 }

@@ -13,9 +13,10 @@ enum RenderingAPI
     RenderingAPI_Vulkan
 };
 
-#define MAX_TEXTURE_COUNT 256
-#define MAX_MATERIAL_COUNT 256
-#define MAX_STATIC_MESH_COUNT 256
+#define MAX_TEXTURE_COUNT 4096
+#define MAX_MATERIAL_COUNT 4096
+#define MAX_STATIC_MESH_COUNT 4096
+#define MAX_SCENE_NODE_COUNT 4096
 
 struct Renderer_State
 {
@@ -25,17 +26,19 @@ struct Renderer_State
     Camera camera;
     FPS_Camera_Controller camera_controller;
 
-    Model model0;
-    Model model1;
-    Model model2;
-
     U32 texture_count;
     Texture textures[MAX_TEXTURE_COUNT];
+
     U32 material_count;
     Material materials[MAX_MATERIAL_COUNT];
+
     U32 static_mesh_count;
     Static_Mesh static_meshes[MAX_STATIC_MESH_COUNT];
-    glm::mat4 parent_transforms[MAX_STATIC_MESH_COUNT];
+
+    U32 scene_node_count;
+    Scene_Node scene_nodes[MAX_SCENE_NODE_COUNT];
+
+    Scene_Node *sponza;
 };
 
 struct Scene_Data
@@ -56,7 +59,7 @@ struct Renderer
     void (*on_resize)(struct Renderer_State *renderer_state, U32 width, U32 height);
 
     void (*begin_frame)(struct Renderer_State *renderer_state, const Scene_Data *scene_data);
-    void (*submit_static_mesh)(struct Renderer_State *renderer_state, struct Static_Mesh *mesh, U32 model_count, const glm::mat4 *models);
+    void (*submit_static_mesh)(struct Renderer_State *renderer_state, const struct Static_Mesh *mesh, const glm::mat4 transfom);
     void (*end_frame)(struct Renderer_State *renderer_state);
 
     bool (*create_texture)(Texture *texture, U32 width, U32 height,
@@ -73,9 +76,15 @@ struct Renderer
 
 bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);
 
-bool load_model(Model *model, const char *path,
-                Renderer *renderer, Renderer_State* renderer_state,
-                Memory_Arena *arena);
+Scene_Node *add_child_scene_node(Renderer_State *renderer_state,
+                                 Scene_Node *parent);
+
+Scene_Node*
+load_model(const char *path, Renderer *renderer,
+           Renderer_State *renderer_state,
+           Memory_Arena *arena);
+
+void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene_Node *scene_node, glm::mat4 transform);
 
 S32 find_texture(Renderer_State *renderer_state, char *name, U32 length);
-S32 find_material(Renderer_State *renderer_state, char *name, U32 length);
+S32 find_material(Renderer_State *renderer_state, U64 hash);
