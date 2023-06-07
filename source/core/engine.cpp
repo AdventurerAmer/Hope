@@ -79,7 +79,7 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 
     glm::quat camera_rotation = glm::quat({ 0.0f, 0.0f, 0.0f });
     Camera *camera = &engine->renderer_state.camera;
-    init_camera(camera, { 0.0f, 0.0f, 20.0f }, camera_rotation, aspect_ratio);
+    init_camera(camera, { 0.0f, 2.0f, 5.0f }, camera_rotation, aspect_ratio);
 
     FPS_Camera_Controller *camera_controller = &engine->renderer_state.camera_controller;
     F32 rotation_speed = 45.0f;
@@ -92,9 +92,11 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 
     renderer_state->sponza = load_model("models/Sponza/Sponza.gltf", renderer, renderer_state,
                                         &engine->memory.transient_arena);
+    Assert(renderer_state->sponza);
 
     renderer_state->flight_helmet = load_model("models/FlightHelmet/FlightHelmet.gltf", renderer, renderer_state,
                                                &engine->memory.transient_arena);
+    Assert(renderer_state->flight_helmet);
 
     Platform_API *api = &engine->platform_api;
     api->allocate_memory = &platform_allocate_memory;
@@ -156,7 +158,7 @@ void game_loop(Engine* engine, F32 delta_time)
 
         renderer->begin_frame(renderer_state, &scene_data);
         render_scene_node(renderer, renderer_state, renderer_state->sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
-        render_scene_node(renderer, renderer_state, renderer_state->flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
+        render_scene_node(renderer, renderer_state, renderer_state->flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)));
         renderer->end_frame(renderer_state);
     }
 }

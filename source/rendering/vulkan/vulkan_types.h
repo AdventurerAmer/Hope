@@ -118,8 +118,8 @@ struct Vulkan_Material
 
 struct Vulkan_Static_Mesh
 {
-    Vulkan_Buffer vertex_buffer;
-    Vulkan_Buffer index_buffer;
+    S32 first_vertex;
+    U32 first_index;
 };
 
 #define MAX_OBJECT_DATA_COUNT 8192
@@ -159,7 +159,6 @@ struct Vulkan_Context
     VkFence frame_in_flight_fences[MAX_FRAMES_IN_FLIGHT];
 
     Vulkan_Buffer global_uniform_buffers[MAX_FRAMES_IN_FLIGHT];
-
     Vulkan_Buffer object_storage_buffers[MAX_FRAMES_IN_FLIGHT];
     Vulkan_Object_Data *object_data_base;
     U32 object_data_count;
@@ -173,6 +172,12 @@ struct Vulkan_Context
     VkCommandPool transfer_command_pool;
     VkCommandBuffer transfer_command_buffer;
     Vulkan_Buffer transfer_buffer;
+
+    Vulkan_Buffer vertex_buffer;
+    U64 vertex_offset;
+
+    Vulkan_Buffer index_buffer;
+    U64 index_offset;
 
     U32 frames_in_flight;
     U32 current_frame_in_flight_index;

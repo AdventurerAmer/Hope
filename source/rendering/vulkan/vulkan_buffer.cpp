@@ -43,16 +43,16 @@ create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
 }
 
 void
-copy_buffer(Vulkan_Context *context, Vulkan_Buffer *src_buffer, Vulkan_Buffer *dst_buffer, void *data, U64 size)
+copy_data_to_buffer(Vulkan_Context *context, Vulkan_Buffer *buffer,
+                    U64 offset, void *data, U64 size)
 {
     Assert(context);
-    Assert(src_buffer);
-    Assert(dst_buffer);
+    Assert(buffer);
     Assert(data);
     Assert(size);
-    Assert(size <= src_buffer->size && size <= dst_buffer->size);
+    Assert(size <= context->transfer_buffer.size && offset + size <= buffer->size);
 
-    copy_memory(src_buffer->data, data, size);
+    copy_memory(context->transfer_buffer.data, data, size);
     VkCommandBuffer command_buffer = context->transfer_command_buffer;
     vkResetCommandBuffer(command_buffer, 0);
 
@@ -66,10 +66,10 @@ copy_buffer(Vulkan_Context *context, Vulkan_Buffer *src_buffer, Vulkan_Buffer *d
 
     VkBufferCopy copy_region = {};
     copy_region.srcOffset = 0;
-    copy_region.dstOffset = 0;
+    copy_region.dstOffset = offset;
     copy_region.size = size;
 
-    vkCmdCopyBuffer(command_buffer, src_buffer->handle, dst_buffer->handle, 1, &copy_region);
+    vkCmdCopyBuffer(command_buffer, context->transfer_buffer.handle, buffer->handle, 1, &copy_region);
     vkEndCommandBuffer(command_buffer);
 
     VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };

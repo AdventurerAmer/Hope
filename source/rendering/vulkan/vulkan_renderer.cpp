@@ -41,11 +41,13 @@ find_memory_type_index(Vulkan_Context *context,
     {
         if (((1 << memory_type_index) & memory_requirements.memoryTypeBits))
         {
-            const VkMemoryType* memory_type =
+            // todo(amer): we should track how much memory we allocated from heaps so allocations don't fail
+            const VkMemoryType *memory_type =
                 &context->physical_device_memory_properties.memoryTypes[memory_type_index];
             if ((memory_type->propertyFlags & memory_property_flags) == memory_property_flags)
             {
                 result = (S32)memory_type_index;
+                break;
             }
         }
     }
@@ -641,20 +643,26 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                            &transfer_command_buffer_allocate_info,
                                            &context->transfer_command_buffer));
 
+    U64 vertex_size = HE_MegaBytes(512);
+    create_buffer(&context->vertex_buffer, context, vertex_size,
+                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    U64 index_size = HE_MegaBytes(128);
+    create_buffer(&context->index_buffer, context, index_size,
+                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
     create_buffer(&context->transfer_buffer, context, HE_MegaBytes(128),
                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
 
     for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
         Vulkan_Buffer *global_uniform_buffer = &context->global_uniform_buffers[frame_index];
         create_buffer(global_uniform_buffer, context, sizeof(Vulkan_Global_Uniform_Buffer),
                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    }
 
-    for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
         Vulkan_Buffer *object_storage_buffer = &context->object_storage_buffers[frame_index];
         create_buffer(object_storage_buffer, context, sizeof(Vulkan_Object_Data) * MAX_OBJECT_DATA_COUNT,
                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -821,6 +829,8 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDestroyDescriptorSetLayout(context->logical_device, context->per_material_descriptor_set_layout, nullptr);
 
     destroy_buffer(&context->transfer_buffer, context->logical_device);
+    destroy_buffer(&context->vertex_buffer, context->logical_device);
+    destroy_buffer(&context->index_buffer, context->logical_device);
 
     for (U32 frame_index = 0;
          frame_index < MAX_FRAMES_IN_FLIGHT;
@@ -1016,6 +1026,14 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     scissor.extent.height = context->swapchain.height;
     vkCmdSetScissor(command_buffer,
                     0, 1, &scissor);
+
+    VkBuffer vertex_buffers[] = { context->vertex_buffer.handle };
+    VkDeviceSize offsets[] = { 0 };
+    vkCmdBindVertexBuffers(command_buffer,
+                           0, ArrayCount(vertex_buffers), vertex_buffers, offsets);
+
+    vkCmdBindIndexBuffer(command_buffer,
+                         context->index_buffer.handle, 0, VK_INDEX_TYPE_UINT16);
 }
 
 void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
@@ -1036,17 +1054,15 @@ void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
                             &get_data(static_mesh->material)->descriptor_sets[current_frame_in_flight_index],
                             0, nullptr);
 
-    VkBuffer vertex_buffers[] = { get_data(static_mesh)->vertex_buffer.handle };
-    VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(command_buffer,
-                           0, 1, vertex_buffers, offsets);
-
-    vkCmdBindIndexBuffer(command_buffer,
-                         get_data(static_mesh)->index_buffer.handle, 0, VK_INDEX_TYPE_UINT16);
+    Vulkan_Static_Mesh *vulkan_static_mesh = get_data(static_mesh);
 
     U32 instance_count = 1;
     U32 start_instance = object_data_index;
-    vkCmdDrawIndexed(command_buffer, static_mesh->index_count, instance_count, 0, 0, start_instance);
+    U32 first_index = vulkan_static_mesh->first_index;
+    S32 first_vertex = vulkan_static_mesh->first_vertex;
+
+    vkCmdDrawIndexed(command_buffer, static_mesh->index_count, instance_count,
+                     first_index, first_vertex, start_instance);
 }
 
 void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
@@ -1215,28 +1231,27 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices
                                         U16 vertex_count, U16 *indices, U32 index_count)
 {
     Vulkan_Context *context = &vulkan_context;
+
+    U64 vertex_size = vertex_count * sizeof(Vertex);
+    U64 index_size = index_count * sizeof(U16);
+
+    Assert(context->vertex_offset + vertex_size <= context->vertex_buffer.size);
+    Assert(context->index_offset + index_size <= context->index_buffer.size);
+
     Vulkan_Static_Mesh *vulkan_static_mesh = Allocate(context->allocator,
                                                       Vulkan_Static_Mesh); // todo(amer): memory allocation should be outside of vulkan
 
-    U64 vertex_size = vertex_count * sizeof(Vertex);
-    create_buffer(&vulkan_static_mesh->vertex_buffer, context, vertex_size,
-                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    copy_data_to_buffer(context, &context->vertex_buffer, context->vertex_offset, vertices, vertex_size);
+    copy_data_to_buffer(context, &context->index_buffer, context->index_offset, indices, index_size);
 
-    copy_buffer(context, &context->transfer_buffer,
-                &vulkan_static_mesh->vertex_buffer, vertices, vertex_size);
-    static_mesh->vertex_count = u64_to_u32(vertex_count);
+    vulkan_static_mesh->first_vertex = (S32)u64_to_u32(context->vertex_offset / sizeof(Vertex));
+    vulkan_static_mesh->first_index = u64_to_u32(context->index_offset / sizeof(U16));
 
-    U64 index_size = index_count * sizeof(U16);
-    create_buffer(&vulkan_static_mesh->index_buffer, context,
-                  index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
-                  VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    context->vertex_offset += vertex_size;
+    context->index_offset += index_size;
 
-    copy_buffer(context, &context->transfer_buffer,
-                &vulkan_static_mesh->index_buffer, indices, index_size);
     static_mesh->index_count = index_count;
-
+    static_mesh->vertex_count = vertex_count;
     static_mesh->rendering_api_specific_data = vulkan_static_mesh;
     return true;
 }
@@ -1245,7 +1260,5 @@ void vulkan_renderer_destroy_static_mesh(Static_Mesh *static_mesh)
 {
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Static_Mesh *vulkan_static_mesh = get_data(static_mesh);
-    destroy_buffer(&vulkan_static_mesh->vertex_buffer, context->logical_device);
-    destroy_buffer(&vulkan_static_mesh->index_buffer, context->logical_device);
     deallocate(vulkan_context.allocator, vulkan_static_mesh); // todo(amer): memory allocation should be outside of vulkan
 }
