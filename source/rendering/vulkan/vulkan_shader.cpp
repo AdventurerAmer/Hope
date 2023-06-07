@@ -170,11 +170,6 @@ create_graphics_pipeline(Vulkan_Context *context,
     color_blend_state_create_info.blendConstants[2] = 0.0f;
     color_blend_state_create_info.blendConstants[3] = 0.0f;
 
-    VkPushConstantRange push_constant_range = {};
-    push_constant_range.offset = 0;
-    push_constant_range.size = sizeof(Vulkan_Mesh_Push_Constant);
-    push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
     VkDescriptorSetLayout descriptor_set_layouts[] =
     {
         context->per_frame_descriptor_set_layout,
@@ -185,8 +180,8 @@ create_graphics_pipeline(Vulkan_Context *context,
         { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
     pipeline_layout_create_info.setLayoutCount = ArrayCount(descriptor_set_layouts);
     pipeline_layout_create_info.pSetLayouts = descriptor_set_layouts;
-    pipeline_layout_create_info.pushConstantRangeCount = 1;
-    pipeline_layout_create_info.pPushConstantRanges = &push_constant_range;
+    pipeline_layout_create_info.pushConstantRangeCount = 0;
+    pipeline_layout_create_info.pPushConstantRanges = nullptr;
 
     CheckVkResult(vkCreatePipelineLayout(context->logical_device,
                                          &pipeline_layout_create_info,

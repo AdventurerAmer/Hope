@@ -39,6 +39,7 @@ struct Renderer_State
     Scene_Node scene_nodes[MAX_SCENE_NODE_COUNT];
 
     Scene_Node *sponza;
+    Scene_Node *flight_helmet;
 };
 
 struct Scene_Data

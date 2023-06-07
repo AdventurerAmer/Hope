@@ -53,8 +53,8 @@ struct Static_Mesh
 {
     U16 vertex_count;
     U32 index_count;
-    Material *material;
 
+    Material *material;
     void *rendering_api_specific_data;
 };
 

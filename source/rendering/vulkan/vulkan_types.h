@@ -105,14 +105,13 @@ struct Vulkan_Global_Uniform_Buffer
     alignas(16) glm::mat4 projection;
 };
 
-struct Vulkan_Mesh_Push_Constant
+struct Vulkan_Object_Data
 {
     glm::mat4 model;
 };
 
 struct Vulkan_Material
 {
-    VkDescriptorPool descriptor_pool;
     VkDescriptorSet descriptor_sets[MAX_FRAMES_IN_FLIGHT];
     VkSampler albedo_sampler;
 };
@@ -122,6 +121,8 @@ struct Vulkan_Static_Mesh
     Vulkan_Buffer vertex_buffer;
     Vulkan_Buffer index_buffer;
 };
+
+#define MAX_OBJECT_DATA_COUNT 8192
 
 struct Vulkan_Context
 {
@@ -159,10 +160,14 @@ struct Vulkan_Context
 
     Vulkan_Buffer global_uniform_buffers[MAX_FRAMES_IN_FLIGHT];
 
+    Vulkan_Buffer object_storage_buffers[MAX_FRAMES_IN_FLIGHT];
+    Vulkan_Object_Data *object_data_base;
+    U32 object_data_count;
+
     VkDescriptorSetLayout per_frame_descriptor_set_layout;
     VkDescriptorSetLayout per_material_descriptor_set_layout;
 
-    VkDescriptorPool per_frame_descriptor_pool;
+    VkDescriptorPool descriptor_pool;
     VkDescriptorSet per_frame_descriptor_sets[MAX_FRAMES_IN_FLIGHT];
 
     VkCommandPool transfer_command_pool;

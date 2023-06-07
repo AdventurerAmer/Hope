@@ -93,6 +93,9 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     renderer_state->sponza = load_model("models/Sponza/Sponza.gltf", renderer, renderer_state,
                                         &engine->memory.transient_arena);
 
+    renderer_state->flight_helmet = load_model("models/FlightHelmet/FlightHelmet.gltf", renderer, renderer_state,
+                                               &engine->memory.transient_arena);
+
     Platform_API *api = &engine->platform_api;
     api->allocate_memory = &platform_allocate_memory;
     api->deallocate_memory = &platform_deallocate_memory;
@@ -153,6 +156,7 @@ void game_loop(Engine* engine, F32 delta_time)
 
         renderer->begin_frame(renderer_state, &scene_data);
         render_scene_node(renderer, renderer_state, renderer_state->sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
+        render_scene_node(renderer, renderer_state, renderer_state->flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
         renderer->end_frame(renderer_state);
     }
 }
