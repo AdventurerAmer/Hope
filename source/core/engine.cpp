@@ -72,6 +72,13 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
         return false;
     }
     Renderer_State *renderer_state = &engine->renderer_state;
+    bool renderer_state_inited = init_renderer_state(renderer_state,
+                                                     &engine->memory.transient_arena);
+    if (!renderer_state_inited)
+    {
+        return false;
+    }
+
     renderer_state->back_buffer_width = configuration.back_buffer_width;
     renderer_state->back_buffer_height = configuration.back_buffer_height;
 
@@ -171,21 +178,22 @@ void shutdown(Engine *engine)
     Renderer_State *renderer_state = &engine->renderer_state;
     renderer->wait_for_gpu_to_finish_all_work(renderer_state);
 
+    // todo(amer): maybe we want a iterator version of this...
     for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
     {
-        Texture *texture = &renderer_state->textures[texture_index];
+        Texture *texture = (Texture*)(renderer_state->textures + texture_index * renderer_state->texture_bundle_size);
         renderer->destroy_texture(texture);
     }
 
     for (U32 material_index = 0; material_index < renderer_state->material_count; material_index++)
     {
-        Material *material = &renderer_state->materials[material_index];
+        Material *material = (Material *)(renderer_state->materials + material_index * renderer_state->material_bundle_size);
         renderer->destroy_material(material);
     }
 
     for (U32 static_mesh_index = 0; static_mesh_index < renderer_state->static_mesh_count; static_mesh_index++)
     {
-        Static_Mesh *static_mesh = &renderer_state->static_meshes[static_mesh_index];
+        Static_Mesh *static_mesh = (Static_Mesh *)(renderer_state->static_meshes + static_mesh_index * renderer_state->static_mesh_bundle_size);
         renderer->destroy_static_mesh(static_mesh);
     }
 

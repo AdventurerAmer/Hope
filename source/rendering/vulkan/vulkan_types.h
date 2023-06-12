@@ -49,6 +49,12 @@ struct Vulkan_Image
     U64 size;
 };
 
+struct Vulkan_Texture_Bundle
+{
+    Texture texture;
+    Vulkan_Image vulkan_image;
+};
+
 struct Vulkan_Buffer
 {
     VkBuffer handle;
@@ -116,10 +122,22 @@ struct Vulkan_Material
     VkSampler albedo_sampler;
 };
 
+struct Vulkan_Material_Bundle
+{
+    Material material;
+    Vulkan_Material vulkan_material;
+};
+
 struct Vulkan_Static_Mesh
 {
     S32 first_vertex;
     U32 first_index;
+};
+
+struct Vulkan_Static_Mesh_Bundle
+{
+    Static_Mesh static_mesh;
+    Vulkan_Static_Mesh vulkan_static_mesh;
 };
 
 #define MAX_OBJECT_DATA_COUNT 8192
@@ -190,44 +208,24 @@ struct Vulkan_Context
 #endif
 };
 
-inline Vulkan_Image*
-get_data(Texture *texture)
-{
-    Assert(texture->rendering_api_specific_data);
-    return (Vulkan_Image *)texture->rendering_api_specific_data;
-}
-
-inline Vulkan_Static_Mesh*
-get_data(Static_Mesh *static_mesh)
-{
-    Assert(static_mesh->rendering_api_specific_data);
-    return (Vulkan_Static_Mesh *)static_mesh->rendering_api_specific_data;
-}
-
-inline Vulkan_Material*
-get_data(Material *materail)
-{
-    Assert(materail->rendering_api_specific_data);
-    return (Vulkan_Material *)materail->rendering_api_specific_data;
-}
-
+// todo(amer): force inline.
 inline Vulkan_Image*
 get_data(const Texture *texture)
 {
-    Assert(texture->rendering_api_specific_data);
-    return (Vulkan_Image *)texture->rendering_api_specific_data;
+    Vulkan_Texture_Bundle *bundle = (Vulkan_Texture_Bundle *)texture;
+    return &bundle->vulkan_image;
+}
+
+inline Vulkan_Material*
+get_data(const Material *material)
+{
+    Vulkan_Material_Bundle *bundle = (Vulkan_Material_Bundle *)material;
+    return &bundle->vulkan_material;
 }
 
 inline Vulkan_Static_Mesh*
 get_data(const Static_Mesh *static_mesh)
 {
-    Assert(static_mesh->rendering_api_specific_data);
-    return (Vulkan_Static_Mesh *)static_mesh->rendering_api_specific_data;
-}
-
-inline Vulkan_Material*
-get_data(const Material *materail)
-{
-    Assert(materail->rendering_api_specific_data);
-    return (Vulkan_Material *)materail->rendering_api_specific_data;
+    Vulkan_Static_Mesh_Bundle *bundle = (Vulkan_Static_Mesh_Bundle *)static_mesh;
+    return &bundle->vulkan_static_mesh;
 }

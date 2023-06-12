@@ -53,6 +53,19 @@ bool request_renderer(RenderingAPI rendering_api,
     return result;
 }
 
+bool init_renderer_state(Renderer_State *renderer_state, struct Memory_Arena *arena)
+{
+    // note(amer): right now we are getting sizes should we even care about alignment ?
+    Assert(renderer_state->texture_bundle_size);
+    Assert(renderer_state->material_bundle_size);
+    Assert(renderer_state->static_mesh_bundle_size);
+    renderer_state->textures      = AllocateArray(arena, U8, renderer_state->texture_bundle_size * MAX_TEXTURE_COUNT);
+    renderer_state->materials     = AllocateArray(arena, U8, renderer_state->material_bundle_size * MAX_MATERIAL_COUNT);
+    renderer_state->static_meshes = AllocateArray(arena, U8, renderer_state->static_mesh_bundle_size * MAX_STATIC_MESH_COUNT);
+    renderer_state->scene_nodes   = AllocateArray(arena, Scene_Node, MAX_SCENE_NODE_COUNT);
+    return true;
+}
+
 Scene_Node*
 add_child_scene_node(Renderer_State *renderer_state,
                      Scene_Node *parent)
@@ -127,7 +140,13 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
         if (material->has_pbr_metallic_roughness && material->pbr_metallic_roughness.base_color_texture.texture)
         {
             Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
-            Material *renderer_material = &renderer_state->materials[renderer_state->material_count++];
+            Material *renderer_material = allocate_material(renderer_state);
+            if (material->name)
+            {
+                renderer_material->name_length = u64_to_u32(strlen(material->name));
+                Assert(renderer_material->name_length <= (MAX_MATERIAL_NAME - 1));
+                strncpy(renderer_material->name, material->name, renderer_material->name_length);
+            }
             renderer_material->hash = material_hash;
 
             const cgltf_image *image = material->pbr_metallic_roughness.base_color_texture.texture->image;
@@ -148,6 +167,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
 
                 char *name = material->pbr_metallic_roughness.base_color_texture.texture->image->name;
                 U32 name_length = u64_to_u32(strlen(name));
+                Assert(name_length <= (MAX_TEXTURE_NAME - 1));
 
                 S32 last_dot_index = -1;
                 for (U32 char_index = 0; char_index < name_length; char_index++)
@@ -183,7 +203,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
             if (albedo_texture_index == -1)
             {
                 Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
-                albedo = &renderer_state->textures[renderer_state->texture_count++];
+                albedo = allocate_texture(renderer_state);
                 strcpy(albedo->name, albdeo_texture_path);
                 albedo->name_length = albdeo_texture_path_length;
 
@@ -222,7 +242,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
             }
             else
             {
-                albedo = &renderer_state->textures[albedo_texture_index];
+                albedo = get_texture(renderer_state, albedo_texture_index);
             }
 
             renderer->create_material(renderer_material, albedo);
@@ -266,10 +286,8 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
 
             if (node->mesh)
             {
-                U32 static_mesh_count = 0;
-                Static_Mesh *static_meshes = &renderer_state->static_meshes[renderer_state->static_mesh_count];
-                Assert(node->mesh->primitives_count + renderer_state->static_mesh_count < MAX_STATIC_MESH_COUNT);
-                renderer_state->static_mesh_count += u64_to_u32(node->mesh->primitives_count);
+                scene_node->start_mesh_index = renderer_state->static_mesh_count;
+                scene_node->static_mesh_count += u64_to_u32(node->mesh->primitives_count);
 
                 for (U32 primitive_index = 0; primitive_index < node->mesh->primitives_count; primitive_index++)
                 {
@@ -281,10 +299,8 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                     S32 material_index = find_material(renderer_state, material_hash);
                     Assert(material_index != -1);
 
-                    U32 static_mesh_index = static_mesh_count++;
-                    Static_Mesh *static_mesh = &static_meshes[static_mesh_index];
-
-                    static_mesh->material = &renderer_state->materials[material_index];
+                    Static_Mesh *static_mesh = allocate_static_mesh(renderer_state);
+                    static_mesh->material = get_material(renderer_state, material_index);
 
                     Assert(primitive->type == cgltf_primitive_type_triangles);
 
@@ -362,9 +378,6 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                                                                 indices, index_count);
                     Assert(created);
                 }
-
-                scene_node->static_mesh_count = static_mesh_count;
-                scene_node->static_meshes = static_meshes;
             }
 
             for (U32 child_node_index = 0;
@@ -388,7 +401,7 @@ void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene
          static_mesh_index < scene_node->static_mesh_count;
          static_mesh_index++)
     {
-        Static_Mesh *static_mesh = &scene_node->static_meshes[static_mesh_index];
+        Static_Mesh *static_mesh = get_static_mesh(renderer_state, scene_node->start_mesh_index + static_mesh_index);
         renderer->submit_static_mesh(renderer_state, static_mesh, transform);
     }
 
@@ -398,11 +411,51 @@ void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene
     }
 }
 
+
+Texture *allocate_texture(Renderer_State *renderer_state)
+{
+    Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
+    U32 texture_index = renderer_state->texture_count++;
+    return get_texture(renderer_state, texture_index);
+}
+
+Material *allocate_material(Renderer_State *renderer_state)
+{
+    Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
+    U32 material_index = renderer_state->material_count++;
+    return get_material(renderer_state, material_index);
+}
+
+Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state)
+{
+    Assert(renderer_state->static_mesh_count < MAX_STATIC_MESH_COUNT);
+    U32 static_mesh_index = renderer_state->static_mesh_count++;
+    return get_static_mesh(renderer_state, static_mesh_index);
+}
+
+Texture *get_texture(Renderer_State *renderer_state, U32 index)
+{
+    Assert(index < MAX_TEXTURE_COUNT);
+    return (Texture*)(renderer_state->textures + index * renderer_state->texture_bundle_size);
+}
+
+Material *get_material(Renderer_State *renderer_state, U32 index)
+{
+    Assert(index < MAX_MATERIAL_COUNT);
+    return (Material*)(renderer_state->materials + index * renderer_state->material_bundle_size);
+}
+
+Static_Mesh *get_static_mesh(Renderer_State *renderer_state, U32 index)
+{
+    Assert(index < MAX_STATIC_MESH_COUNT);
+    return (Static_Mesh*)(renderer_state->static_meshes + index * renderer_state->static_mesh_bundle_size);
+}
+
 S32 find_texture(Renderer_State *renderer_state, char *name, U32 length)
 {
     for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
     {
-        Texture *texture = &renderer_state->textures[texture_index];
+        Texture* texture = get_texture(renderer_state, texture_index);
         if (texture->name_length == length && strncmp(texture->name, name, length) == 0)
         {
             return texture_index;
@@ -415,7 +468,7 @@ S32 find_material(Renderer_State *renderer_state, U64 hash)
 {
     for (U32 material_index = 0; material_index < renderer_state->material_count; material_index++)
     {
-        Material *material = &renderer_state->materials[material_index];
+        Material *material = get_material(renderer_state, material_index);
         if (material->hash == hash)
         {
             return material_index;

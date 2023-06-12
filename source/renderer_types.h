@@ -33,18 +33,17 @@ struct Texture
 
     U32 width;
     U32 height;
-
-    void *rendering_api_specific_data;
 };
 
 #define MAX_MATERIAL_NAME 256
 
 struct Material
 {
-    U64 hash;
+    char name[MAX_MATERIAL_NAME];
+    U32 name_length;
 
+    U64 hash; // todo(amer): temprary
     Texture *albedo;
-    void *rendering_api_specific_data;
 };
 
 #define MAX_MESH_NAME 256
@@ -55,7 +54,6 @@ struct Static_Mesh
     U32 index_count;
 
     Material *material;
-    void *rendering_api_specific_data;
 };
 
 struct Scene_Node
@@ -65,8 +63,8 @@ struct Scene_Node
     Scene_Node *last_child;
     Scene_Node *next_sibling;
 
+    U32 start_mesh_index;
     U32 static_mesh_count;
-    Static_Mesh *static_meshes;
 
     glm::mat4 transform;
 };

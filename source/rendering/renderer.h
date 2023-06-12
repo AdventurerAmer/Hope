@@ -26,21 +26,26 @@ struct Renderer_State
     Camera camera;
     FPS_Camera_Controller camera_controller;
 
+    U64 texture_bundle_size;
     U32 texture_count;
-    Texture textures[MAX_TEXTURE_COUNT];
+    U8 *textures;
 
+    U64 material_bundle_size;
     U32 material_count;
-    Material materials[MAX_MATERIAL_COUNT];
+    U8 *materials;
 
+    U64 static_mesh_bundle_size;
     U32 static_mesh_count;
-    Static_Mesh static_meshes[MAX_STATIC_MESH_COUNT];
+    U8 *static_meshes;
 
     U32 scene_node_count;
-    Scene_Node scene_nodes[MAX_SCENE_NODE_COUNT];
+    Scene_Node *scene_nodes;
 
     Scene_Node *sponza;
     Scene_Node *flight_helmet;
 };
+
+bool init_renderer_state(Renderer_State *renderer_state, struct Memory_Arena *arena);
 
 struct Scene_Data
 {
@@ -86,6 +91,14 @@ load_model(const char *path, Renderer *renderer,
            Memory_Arena *arena);
 
 void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene_Node *scene_node, glm::mat4 transform);
+
+Texture *allocate_texture(Renderer_State *renderer_state);
+Material *allocate_material(Renderer_State *renderer_state);
+Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state);
+
+Texture *get_texture(Renderer_State *renderer_state, U32 index);
+Material *get_material(Renderer_State *renderer_state, U32 index);
+Static_Mesh *get_static_mesh(Renderer_State *renderer_state, U32 index);
 
 S32 find_texture(Renderer_State *renderer_state, char *name, U32 length);
 S32 find_material(Renderer_State *renderer_state, U64 hash);

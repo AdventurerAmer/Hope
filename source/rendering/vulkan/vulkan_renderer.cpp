@@ -157,7 +157,6 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *ar
 internal_function bool
 init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 {
-
     context->allocator = &engine->memory.free_list_allocator;
 
     const char *required_instance_extensions[] =
@@ -879,13 +878,14 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDestroyInstance(context->instance, nullptr);
 }
 
-// todo(amer): we probably want to move this to it's own file
-// but having vulkan_context here is nice
 bool vulkan_renderer_init(Renderer_State *renderer_state,
                           Engine *engine,
                           Memory_Arena *arena)
 {
     (void)renderer_state;
+    renderer_state->texture_bundle_size = sizeof(Vulkan_Texture_Bundle);
+    renderer_state->material_bundle_size = sizeof(Vulkan_Material_Bundle);
+    renderer_state->static_mesh_bundle_size = sizeof(Vulkan_Static_Mesh_Bundle);
     return init_vulkan(&vulkan_context, engine, arena);
 }
 
@@ -1128,7 +1128,7 @@ bool vulkan_renderer_create_texture(Texture *texture, U32 width, U32 height,
                                     void *data, TextureFormat format, bool mipmapping)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Image *image = Allocate(context->allocator, Vulkan_Image); // todo(amer): memory allocation should be outside of vulkan
+    Vulkan_Image* image = get_data(texture);
 
     Assert(format == TextureFormat_RGBA); // todo(amer): only supporting RGBA for now.
     create_image(image, context, width, height,
@@ -1142,7 +1142,6 @@ bool vulkan_renderer_create_texture(Texture *texture, U32 width, U32 height,
 
     texture->width = width;
     texture->height = height;
-    texture->rendering_api_specific_data = image;
     return true;
 }
 
@@ -1150,13 +1149,12 @@ void vulkan_renderer_destroy_texture(Texture *texture)
 {
     Vulkan_Image *vulkan_image = get_data(texture);
     destroy_image(vulkan_image, &vulkan_context);
-    deallocate(vulkan_context.allocator, vulkan_image); // todo(amer): memory allocation should be outside of vulkan
 }
 
 bool vulkan_renderer_create_material(Material *material, Texture *albedo)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Material *vulkan_material = Allocate(context->allocator, Vulkan_Material); // todo(amer): memory allocation should be outside of vulkan
+    Vulkan_Material* vulkan_material = get_data(material);
 
     VkSamplerCreateInfo sampler_create_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
     sampler_create_info.minFilter = VK_FILTER_LINEAR;
@@ -1215,7 +1213,6 @@ bool vulkan_renderer_create_material(Material *material, Texture *albedo)
     }
 
     material->albedo = albedo;
-    material->rendering_api_specific_data = vulkan_material;
     return true;
 }
 
@@ -1224,7 +1221,6 @@ void vulkan_renderer_destroy_material(Material *material)
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Material *vulkan_material = get_data(material);
     vkDestroySampler(context->logical_device, vulkan_material->albedo_sampler, nullptr);
-    deallocate(vulkan_context.allocator, vulkan_material); // todo(amer): memory allocation should be outside of vulkan
 }
 
 bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices,
@@ -1237,9 +1233,10 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices
 
     Assert(context->vertex_offset + vertex_size <= context->vertex_buffer.size);
     Assert(context->index_offset + index_size <= context->index_buffer.size);
+    static_mesh->index_count = index_count;
+    static_mesh->vertex_count = vertex_count;
 
-    Vulkan_Static_Mesh *vulkan_static_mesh = Allocate(context->allocator,
-                                                      Vulkan_Static_Mesh); // todo(amer): memory allocation should be outside of vulkan
+    Vulkan_Static_Mesh *vulkan_static_mesh = get_data(static_mesh);
 
     copy_data_to_buffer(context, &context->vertex_buffer, context->vertex_offset, vertices, vertex_size);
     copy_data_to_buffer(context, &context->index_buffer, context->index_offset, indices, index_size);
@@ -1249,10 +1246,6 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices
 
     context->vertex_offset += vertex_size;
     context->index_offset += index_size;
-
-    static_mesh->index_count = index_count;
-    static_mesh->vertex_count = vertex_count;
-    static_mesh->rendering_api_specific_data = vulkan_static_mesh;
     return true;
 }
 
@@ -1260,5 +1253,4 @@ void vulkan_renderer_destroy_static_mesh(Static_Mesh *static_mesh)
 {
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Static_Mesh *vulkan_static_mesh = get_data(static_mesh);
-    deallocate(vulkan_context.allocator, vulkan_static_mesh); // todo(amer): memory allocation should be outside of vulkan
 }
