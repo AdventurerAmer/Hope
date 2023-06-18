@@ -47,6 +47,8 @@ struct Vulkan_Image
     U32 mip_levels;
     void *data;
     U64 size;
+
+    VkSampler sampler;
 };
 
 struct Vulkan_Texture_Bundle
@@ -114,11 +116,20 @@ struct Vulkan_Global_Uniform_Buffer
 struct Vulkan_Object_Data
 {
     glm::mat4 model;
+
+// todo(amer): use material id in the future...
+#if NEW_MATERIAL_SYSTEM
+    U32 albedo_texture_index;
+#endif
 };
+
+#define NEW_MATERIAL_SYSTEM 1
 
 struct Vulkan_Material
 {
+#if NEW_MATERIAL_SYSTEM
     VkDescriptorSet descriptor_sets[MAX_FRAMES_IN_FLIGHT];
+#endif
     VkSampler albedo_sampler;
 };
 
@@ -177,12 +188,15 @@ struct Vulkan_Context
     VkFence frame_in_flight_fences[MAX_FRAMES_IN_FLIGHT];
 
     Vulkan_Buffer global_uniform_buffers[MAX_FRAMES_IN_FLIGHT];
+
     Vulkan_Buffer object_storage_buffers[MAX_FRAMES_IN_FLIGHT];
     Vulkan_Object_Data *object_data_base;
     U32 object_data_count;
 
+    VkDescriptorSet texture_array_descriptor_sets[MAX_FRAMES_IN_FLIGHT];
+
     VkDescriptorSetLayout per_frame_descriptor_set_layout;
-    VkDescriptorSetLayout per_material_descriptor_set_layout;
+    VkDescriptorSetLayout texture_array_descriptor_set_layout;
 
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet per_frame_descriptor_sets[MAX_FRAMES_IN_FLIGHT];

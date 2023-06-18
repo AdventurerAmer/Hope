@@ -146,7 +146,8 @@ void game_loop(Engine* engine, F32 delta_time)
     {
         engine->lock_cursor = true;
         engine->show_cursor = false;
-        control_camera(camera_controller, camera, camera_controller_input, delta_time);
+        control_camera(camera_controller, camera,
+                       camera_controller_input, delta_time);
     }
     else
     {

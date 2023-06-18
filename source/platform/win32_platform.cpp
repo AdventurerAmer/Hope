@@ -111,7 +111,7 @@ void platform_toggle_fullscreen(Engine *engine)
                          monitor_info.rcMonitor.top,
                          monitor_info.rcMonitor.right - monitor_info.rcMonitor.left,
                          monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top,
-                         SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+                         SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
 
             win32_state->engine.window_mode = WindowMode_Fullscreen;
         }

@@ -173,7 +173,7 @@ create_graphics_pipeline(Vulkan_Context *context,
     VkDescriptorSetLayout descriptor_set_layouts[] =
     {
         context->per_frame_descriptor_set_layout,
-        context->per_material_descriptor_set_layout
+        context->texture_array_descriptor_set_layout
     };
 
     VkPipelineLayoutCreateInfo pipeline_layout_create_info =

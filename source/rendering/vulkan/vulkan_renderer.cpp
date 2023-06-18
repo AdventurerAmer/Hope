@@ -89,10 +89,18 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *ar
         VkPhysicalDeviceProperties properties = {};
         vkGetPhysicalDeviceProperties(*current_physical_device, &properties);
 
-        VkPhysicalDeviceFeatures features = {};
-        vkGetPhysicalDeviceFeatures(*current_physical_device, &features);
+        VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features =
+            { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
 
-        if (!features.samplerAnisotropy || !features.sampleRateShading)
+        VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+        features2.pNext = &descriptor_indexing_features;
+        vkGetPhysicalDeviceFeatures2(*current_physical_device, &features2);
+
+        if (!features2.features.samplerAnisotropy ||
+            !features2.features.sampleRateShading ||
+            !descriptor_indexing_features.runtimeDescriptorArray ||
+            !descriptor_indexing_features.descriptorBindingPartiallyBound ||
+            !descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind)
         {
             continue;
         }
@@ -171,7 +179,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         "VK_KHR_surface",
     };
 
-    U32 required_api_version = VK_API_VERSION_1_0;
+    U32 required_api_version = VK_API_VERSION_1_1;
     U32 driver_api_version = 0;
 
     // vkEnumerateInstanceVersion requires at least vulkan 1.1
@@ -408,13 +416,23 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             queue_create_infos[queue_create_info_index].pQueuePriorities = &queue_priority;
         }
 
-        VkPhysicalDeviceFeatures physical_device_features = {};
-        physical_device_features.samplerAnisotropy = VK_TRUE;
-        physical_device_features.sampleRateShading = VK_TRUE;
+        VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features =
+            { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
+
+        descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
+        descriptor_indexing_features.descriptorBindingPartiallyBound = VK_TRUE;
+        descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+
+        VkPhysicalDeviceFeatures2 physical_device_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+        physical_device_features2.features.samplerAnisotropy = VK_TRUE;
+        physical_device_features2.features.sampleRateShading = VK_TRUE;
+        physical_device_features2.pNext = &descriptor_indexing_features;
 
         const char *required_device_extensions[] =
         {
             "VK_KHR_swapchain",
+            "VK_KHR_push_descriptor",
+            "VK_EXT_descriptor_indexing"
         };
 
         U32 extension_property_count = 0;
@@ -466,7 +484,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         VkDeviceCreateInfo device_create_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
         device_create_info.pQueueCreateInfos = queue_create_infos;
         device_create_info.queueCreateInfoCount = queue_create_info_count;
-        device_create_info.pEnabledFeatures = &physical_device_features;
+        device_create_info.pNext = &physical_device_features2;
         device_create_info.ppEnabledExtensionNames = required_device_extensions;
         device_create_info.enabledExtensionCount = ArrayCount(required_device_extensions);
 
@@ -670,13 +688,14 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     VkDescriptorPoolSize descriptor_pool_sizes[] = {
         { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 16 },
         { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16 },
-        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_MATERIAL_COUNT * U32(MAX_FRAMES_IN_FLIGHT) }
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_MATERIAL_COUNT }
     };
 
     VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     descriptor_pool_create_info.poolSizeCount = ArrayCount(descriptor_pool_sizes);
     descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
-    descriptor_pool_create_info.maxSets = 1024 * U32(MAX_FRAMES_IN_FLIGHT);
+    descriptor_pool_create_info.maxSets = 1024 * ArrayCount(descriptor_pool_sizes);
 
     CheckVkResult(vkCreateDescriptorPool(context->logical_device,
                                          &descriptor_pool_create_info,
@@ -763,24 +782,54 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             vkUpdateDescriptorSets(context->logical_device, ArrayCount(write_descriptor_sets), write_descriptor_sets, 0, nullptr);
         }
     }
+    {
+        VkDescriptorSetLayoutBinding texture_array_descriptor_set_layout_bindings[1] = {};
+        texture_array_descriptor_set_layout_bindings[0].binding = 0;
+        texture_array_descriptor_set_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        texture_array_descriptor_set_layout_bindings[0].descriptorCount = MAX_MATERIAL_COUNT;
+        texture_array_descriptor_set_layout_bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    VkDescriptorSetLayoutBinding per_material_descriptor_set_layout_bindings[1] = {};
-    per_material_descriptor_set_layout_bindings[0].binding = 0;
-    per_material_descriptor_set_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    per_material_descriptor_set_layout_bindings[0].descriptorCount = 1;
-    per_material_descriptor_set_layout_bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        VkDescriptorSetLayoutCreateInfo texture_array_descriptor_set_layout_create_info =
+            { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
 
-    VkDescriptorSetLayoutCreateInfo per_material_descriptor_set_layout_create_info =
-        { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        texture_array_descriptor_set_layout_create_info.bindingCount = ArrayCount(texture_array_descriptor_set_layout_bindings);
+        texture_array_descriptor_set_layout_create_info.pBindings = texture_array_descriptor_set_layout_bindings;
+        texture_array_descriptor_set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
 
-    per_material_descriptor_set_layout_create_info.bindingCount = ArrayCount(per_material_descriptor_set_layout_bindings);
-    per_material_descriptor_set_layout_create_info.pBindings = per_material_descriptor_set_layout_bindings;
+        VkDescriptorBindingFlags bindless_flags[1] =
+        {
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT|VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT
+        };
 
-    CheckVkResult(vkCreateDescriptorSetLayout(context->logical_device,
-                                              &per_material_descriptor_set_layout_create_info,
-                                              nullptr,
-                                              &context->per_material_descriptor_set_layout));
+        VkDescriptorSetLayoutBindingFlagsCreateInfoEXT extended_layout_create_info =
+         { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT };
+         extended_layout_create_info.bindingCount = ArrayCount(texture_array_descriptor_set_layout_bindings);
+         extended_layout_create_info.pBindingFlags = bindless_flags;
 
+        texture_array_descriptor_set_layout_create_info.pNext = &extended_layout_create_info;
+        CheckVkResult(vkCreateDescriptorSetLayout(context->logical_device,
+                                                  &texture_array_descriptor_set_layout_create_info,
+                                                  nullptr,
+                                                  &context->texture_array_descriptor_set_layout));
+
+        VkDescriptorSetLayout textures_array_descriptor_set_layouts[MAX_FRAMES_IN_FLIGHT] = {};
+
+        for (U32 frame_index = 0;
+             frame_index < MAX_FRAMES_IN_FLIGHT;
+             frame_index++)
+        {
+            textures_array_descriptor_set_layouts[frame_index] = context->texture_array_descriptor_set_layout;
+        }
+
+        VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        descriptor_set_allocation_info.descriptorPool = context->descriptor_pool;
+        descriptor_set_allocation_info.descriptorSetCount = U32(MAX_FRAMES_IN_FLIGHT);
+        descriptor_set_allocation_info.pSetLayouts = textures_array_descriptor_set_layouts;
+
+        CheckVkResult(vkAllocateDescriptorSets(context->logical_device,
+                                               &descriptor_set_allocation_info,
+                                               context->texture_array_descriptor_sets));
+    }
     create_graphics_pipeline(context,
                              context->vertex_shader.handle,
                              context->fragment_shader.handle,
@@ -823,9 +872,8 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDeviceWaitIdle(context->logical_device);
 
     vkDestroyDescriptorSetLayout(context->logical_device, context->per_frame_descriptor_set_layout, nullptr);
+    vkDestroyDescriptorSetLayout(context->logical_device, context->texture_array_descriptor_set_layout, nullptr);
     vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, nullptr);
-
-    vkDestroyDescriptorSetLayout(context->logical_device, context->per_material_descriptor_set_layout, nullptr);
 
     destroy_buffer(&context->transfer_buffer, context->logical_device);
     destroy_buffer(&context->vertex_buffer, context->logical_device);
@@ -1002,11 +1050,41 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
                       VK_PIPELINE_BIND_POINT_GRAPHICS,
                       context->mesh_pipeline.handle);
 
+    VkDescriptorImageInfo descriptor_image_infos[MAX_TEXTURE_COUNT] = {};
+
+    for (U32 texture_index = 0;
+         texture_index < renderer_state->texture_count;
+         texture_index++)
+    {
+        Texture *texture = get_texture(renderer_state, texture_index);
+        Vulkan_Image *vulkan_image = get_data(texture);
+
+        descriptor_image_infos[texture_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        descriptor_image_infos[texture_index].imageView = vulkan_image->view;
+        descriptor_image_infos[texture_index].sampler = vulkan_image->sampler;
+    }
+
+    VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    write_descriptor_set.dstSet = context->texture_array_descriptor_sets[current_frame_in_flight_index];
+    write_descriptor_set.dstBinding = 0;
+    write_descriptor_set.dstArrayElement = 0;
+    write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write_descriptor_set.descriptorCount = renderer_state->texture_count;
+    write_descriptor_set.pImageInfo = descriptor_image_infos;
+
+    vkUpdateDescriptorSets(context->logical_device, 1, &write_descriptor_set, 0, nullptr);
+
+    VkDescriptorSet descriptor_sets[] =
+    {
+        context->per_frame_descriptor_sets[current_frame_in_flight_index],
+        context->texture_array_descriptor_sets[current_frame_in_flight_index]
+    };
+
     vkCmdBindDescriptorSets(command_buffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
                             context->mesh_pipeline.layout,
-                            0, 1,
-                            &context->per_frame_descriptor_sets[current_frame_in_flight_index],
+                            0, ArrayCount(descriptor_sets),
+                            descriptor_sets,
                             0, nullptr);
 
     VkViewport viewport = {};
@@ -1046,13 +1124,6 @@ void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
 
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
     VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
-
-    vkCmdBindDescriptorSets(command_buffer,
-                            VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            context->mesh_pipeline.layout,
-                            1, 1,
-                            &get_data(static_mesh->material)->descriptor_sets[current_frame_in_flight_index],
-                            0, nullptr);
 
     Vulkan_Static_Mesh *vulkan_static_mesh = get_data(static_mesh);
 
@@ -1154,7 +1225,7 @@ void vulkan_renderer_destroy_texture(Texture *texture)
 bool vulkan_renderer_create_material(Material *material, Texture *albedo)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Material* vulkan_material = get_data(material);
+    Vulkan_Material *vulkan_material = get_data(material);
 
     VkSamplerCreateInfo sampler_create_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
     sampler_create_info.minFilter = VK_FILTER_LINEAR;
@@ -1174,6 +1245,8 @@ bool vulkan_renderer_create_material(Material *material, Texture *albedo)
     sampler_create_info.maxLod = (F32)(get_data(albedo)->mip_levels);
     CheckVkResult(vkCreateSampler(context->logical_device, &sampler_create_info, nullptr, &vulkan_material->albedo_sampler));
 
+#if NEW_MATERIAL_SYSTEM
+#else
     VkDescriptorSetLayout material_descriptor_set_layouts[MAX_FRAMES_IN_FLIGHT] = {};
 
     for (U32 frame_index = 0;
@@ -1211,6 +1284,7 @@ bool vulkan_renderer_create_material(Material *material, Texture *albedo)
 
         vkUpdateDescriptorSets(context->logical_device, 1, &write_descriptor_set, 0, nullptr);
     }
+#endif
 
     material->albedo = albedo;
     return true;

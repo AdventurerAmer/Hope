@@ -62,6 +62,7 @@ bool init_renderer_state(Renderer_State *renderer_state, struct Memory_Arena *ar
     renderer_state->textures      = AllocateArray(arena, U8, renderer_state->texture_bundle_size * MAX_TEXTURE_COUNT);
     renderer_state->materials     = AllocateArray(arena, U8, renderer_state->material_bundle_size * MAX_MATERIAL_COUNT);
     renderer_state->static_meshes = AllocateArray(arena, U8, renderer_state->static_mesh_bundle_size * MAX_STATIC_MESH_COUNT);
+
     renderer_state->scene_nodes   = AllocateArray(arena, Scene_Node, MAX_SCENE_NODE_COUNT);
     return true;
 }
@@ -178,6 +179,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                         break;
                     }
                 }
+
                 // todo(amer): string utils
                 char *extension = name + last_dot_index;
                 if (strcmp(extension, ".png") != 0 &&
@@ -199,7 +201,9 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
 
             U32 albdeo_texture_path_length = u64_to_u32(strlen(albdeo_texture_path));
 
-            S32 albedo_texture_index = find_texture(renderer_state, albdeo_texture_path, albdeo_texture_path_length);
+            S32 albedo_texture_index = find_texture(renderer_state,
+                                                    albdeo_texture_path,
+                                                    albdeo_texture_path_length);
             if (albedo_texture_index == -1)
             {
                 Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
@@ -350,7 +354,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                         }
                     }
 
-                    // we only support u16 indices for now.
+                    // note(amer): we only support u16 indices for now.
                     Assert(primitive->indices->type == cgltf_type_scalar);
                     Assert(primitive->indices->component_type == cgltf_component_type_r_16u);
                     Assert(primitive->indices->stride == sizeof(U16));
@@ -431,6 +435,33 @@ Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state)
     Assert(renderer_state->static_mesh_count < MAX_STATIC_MESH_COUNT);
     U32 static_mesh_index = renderer_state->static_mesh_count++;
     return get_static_mesh(renderer_state, static_mesh_index);
+}
+
+U32 index_of(Renderer_State *renderer_state, Texture *texture)
+{
+    U64 offset = (U8 *)texture - renderer_state->textures;
+    Assert(offset);
+    U32 index = u64_to_u32(offset / renderer_state->texture_bundle_size);
+    Assert(index < MAX_TEXTURE_COUNT);
+    return index;
+}
+
+U32 index_of(Renderer_State *renderer_state, Material *material)
+{
+    U64 offset = (U8 *)material - renderer_state->materials;
+    Assert(offset);
+    U32 index = u64_to_u32(offset / renderer_state->material_bundle_size);
+    Assert(index < MAX_MATERIAL_COUNT);
+    return index;
+}
+
+U32 index_of(Renderer_State *renderer_state, Static_Mesh *static_mesh)
+{
+    U64 offset = (U8 *)static_mesh - renderer_state->static_meshes;
+    Assert(offset);
+    U32 index = u64_to_u32(offset / renderer_state->static_mesh_bundle_size);
+    Assert(index < MAX_STATIC_MESH_COUNT);
+    return index;
 }
 
 Texture *get_texture(Renderer_State *renderer_state, U32 index)

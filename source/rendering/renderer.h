@@ -100,5 +100,9 @@ Texture *get_texture(Renderer_State *renderer_state, U32 index);
 Material *get_material(Renderer_State *renderer_state, U32 index);
 Static_Mesh *get_static_mesh(Renderer_State *renderer_state, U32 index);
 
+U32 index_of(Renderer_State *renderer_state, Texture *texture);
+U32 index_of(Renderer_State *renderer_state, Material *material);
+U32 index_of(Renderer_State *renderer_state, Static_Mesh *static_mesh);
+
 S32 find_texture(Renderer_State *renderer_state, char *name, U32 length);
 S32 find_material(Renderer_State *renderer_state, U64 hash);
