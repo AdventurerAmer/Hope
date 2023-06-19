@@ -113,24 +113,21 @@ struct Vulkan_Global_Uniform_Buffer
     alignas(16) glm::mat4 projection;
 };
 
-#define NEW_MATERIAL_SYSTEM 1
-
 struct Vulkan_Object_Data
 {
     alignas(16) glm::mat4 model;
+    alignas(4) U32 material_index;
+};
 
-// todo(amer): use material id in the future...
-#if NEW_MATERIAL_SYSTEM
+struct Vulkan_Material_Data
+{
+    alignas(16) glm::mat4 model;
     U32 albedo_texture_index;
-#endif
 };
 
 struct Vulkan_Material
 {
-#if NEW_MATERIAL_SYSTEM
-    VkDescriptorSet descriptor_sets[MAX_FRAMES_IN_FLIGHT];
-#endif
-    VkSampler albedo_sampler;
+    Vulkan_Material_Data data;
 };
 
 struct Vulkan_Material_Bundle
@@ -192,6 +189,8 @@ struct Vulkan_Context
     Vulkan_Buffer object_storage_buffers[MAX_FRAMES_IN_FLIGHT];
     Vulkan_Object_Data *object_data_base;
     U32 object_data_count;
+
+    Vulkan_Buffer material_storage_buffers[MAX_FRAMES_IN_FLIGHT];
 
     VkDescriptorSet texture_array_descriptor_sets[MAX_FRAMES_IN_FLIGHT];
 

@@ -249,7 +249,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                 albedo = get_texture(renderer_state, albedo_texture_index);
             }
 
-            renderer->create_material(renderer_material, albedo);
+            renderer->create_material(renderer_material, albedo, index_of(renderer_state, albedo));
         }
     }
 

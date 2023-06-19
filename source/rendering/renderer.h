@@ -76,7 +76,7 @@ struct Renderer
     bool (*create_static_mesh)(Static_Mesh *static_mesh, void *vertices, U16 vertex_count, U16 *indices, U32 index_count);
     void (*destroy_static_mesh)(Static_Mesh *static_mesh);
 
-    bool (*create_material)(Material *material, Texture *albedo);
+    bool (*create_material)(Material *material, Texture *albedo, U32 albedo_texture_index);
     void (*destroy_material)(Material *material);
 };
 
