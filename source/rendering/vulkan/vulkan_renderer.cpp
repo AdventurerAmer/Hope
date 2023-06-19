@@ -422,6 +422,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
         descriptor_indexing_features.descriptorBindingPartiallyBound = VK_TRUE;
         descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+        descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
 
         VkPhysicalDeviceFeatures2 physical_device_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
         physical_device_features2.features.samplerAnisotropy = VK_TRUE;
@@ -1120,8 +1121,9 @@ void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
     Vulkan_Context *context = &vulkan_context;
     Assert(context->object_data_count < MAX_OBJECT_DATA_COUNT);
     U32 object_data_index = context->object_data_count++;
-    context->object_data_base[object_data_index].model = transform;
-
+    Vulkan_Object_Data *object_data = &context->object_data_base[object_data_index];
+    object_data->model = transform;
+    object_data->albedo_texture_index = index_of(renderer_state, static_mesh->material->albedo);
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
     VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
 

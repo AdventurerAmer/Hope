@@ -440,7 +440,7 @@ Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state)
 U32 index_of(Renderer_State *renderer_state, Texture *texture)
 {
     U64 offset = (U8 *)texture - renderer_state->textures;
-    Assert(offset);
+    Assert(offset >= 0);
     U32 index = u64_to_u32(offset / renderer_state->texture_bundle_size);
     Assert(index < MAX_TEXTURE_COUNT);
     return index;
@@ -449,7 +449,7 @@ U32 index_of(Renderer_State *renderer_state, Texture *texture)
 U32 index_of(Renderer_State *renderer_state, Material *material)
 {
     U64 offset = (U8 *)material - renderer_state->materials;
-    Assert(offset);
+    Assert(offset >= 0);
     U32 index = u64_to_u32(offset / renderer_state->material_bundle_size);
     Assert(index < MAX_MATERIAL_COUNT);
     return index;
@@ -458,7 +458,7 @@ U32 index_of(Renderer_State *renderer_state, Material *material)
 U32 index_of(Renderer_State *renderer_state, Static_Mesh *static_mesh)
 {
     U64 offset = (U8 *)static_mesh - renderer_state->static_meshes;
-    Assert(offset);
+    Assert(offset >= 0);
     U32 index = u64_to_u32(offset / renderer_state->static_mesh_bundle_size);
     Assert(index < MAX_STATIC_MESH_COUNT);
     return index;

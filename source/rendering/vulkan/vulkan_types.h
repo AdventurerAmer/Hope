@@ -113,17 +113,17 @@ struct Vulkan_Global_Uniform_Buffer
     alignas(16) glm::mat4 projection;
 };
 
+#define NEW_MATERIAL_SYSTEM 1
+
 struct Vulkan_Object_Data
 {
-    glm::mat4 model;
+    alignas(16) glm::mat4 model;
 
 // todo(amer): use material id in the future...
 #if NEW_MATERIAL_SYSTEM
     U32 albedo_texture_index;
 #endif
 };
-
-#define NEW_MATERIAL_SYSTEM 1
 
 struct Vulkan_Material
 {
