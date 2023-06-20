@@ -9,7 +9,7 @@ layout(location = 0) out vec4 out_color;
 
 struct Material_Data
 {
-    mat4 model;
+    mat4 model; // temprary for alignment....
     uint albedo_texture_index;
 };
 
@@ -23,5 +23,5 @@ layout(set = 1, binding = 0) uniform sampler2D textures[];
 void main()
 {
     const Material_Data material = material_buffer.materials[nonuniformEXT( in_material_index )];
-    out_color = texture( textures[nonuniformEXT( material.albedo_texture_index )], in_uv );
+    out_color = texture( textures[material.albedo_texture_index], in_uv );
 }

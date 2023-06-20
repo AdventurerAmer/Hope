@@ -11,8 +11,7 @@ destroy_shader(Vulkan_Shader *shader, VkDevice logical_device);
 
 bool
 create_graphics_pipeline(Vulkan_Context *context,
-                         VkShaderModule vertex_shader,
-                         VkShaderModule fragment_shader,
+                         const std::initializer_list<const Vulkan_Shader *> &shaders,
                          VkRenderPass render_pass,
                          Vulkan_Graphics_Pipeline *pipeline);
 

@@ -614,10 +614,10 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                               min_image_count, present_mode, &context->swapchain);
     Assert(swapchain_created);
 
-    bool shader_loaded = load_shader(&context->vertex_shader, "shaders/mesh.vert.spv", context, arena);
+    bool shader_loaded = load_shader(&context->mesh_vertex_shader, "shaders/mesh.vert.spv", context, arena);
     Assert(shader_loaded);
 
-    shader_loaded = load_shader(&context->fragment_shader, "shaders/mesh.frag.spv", context, arena);
+    shader_loaded = load_shader(&context->mesh_fragment_shader, "shaders/mesh.frag.spv", context, arena);
     Assert(shader_loaded);
 
     VkCommandPoolCreateInfo graphics_command_pool_create_info
@@ -859,8 +859,8 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     }
 
     create_graphics_pipeline(context,
-                             context->vertex_shader.handle,
-                             context->fragment_shader.handle,
+                             { &context->mesh_vertex_shader,
+                               &context->mesh_fragment_shader },
                              context->render_pass,
                              &context->mesh_pipeline);
 
@@ -936,8 +936,8 @@ void deinit_vulkan(Vulkan_Context *context)
 
     vkDestroyRenderPass(context->logical_device, context->render_pass, nullptr);
 
-    destroy_shader(&context->vertex_shader, context->logical_device);
-    destroy_shader(&context->fragment_shader, context->logical_device);
+    destroy_shader(&context->mesh_vertex_shader, context->logical_device);
+    destroy_shader(&context->mesh_fragment_shader, context->logical_device);
 
     vkDestroySurfaceKHR(context->instance, context->surface, nullptr);
     vkDestroyDevice(context->logical_device, nullptr);

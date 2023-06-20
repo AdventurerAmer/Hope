@@ -68,6 +68,7 @@ struct Vulkan_Buffer
 struct Vulkan_Shader
 {
     VkShaderModule handle;
+    VkShaderStageFlagBits stage;
 };
 
 struct Vulkan_Swapchain_Support
@@ -174,8 +175,8 @@ struct Vulkan_Context
     VkSampleCountFlagBits msaa_samples;
     VkRenderPass render_pass;
 
-    Vulkan_Shader vertex_shader;
-    Vulkan_Shader fragment_shader;
+    Vulkan_Shader mesh_vertex_shader;
+    Vulkan_Shader mesh_fragment_shader;
     Vulkan_Graphics_Pipeline mesh_pipeline;
 
     VkCommandPool graphics_command_pool;

@@ -1,5 +1,24 @@
+#include <spirv-headers/spirv.h>
+#include <map> // todo(amer): to be removed...
+
 #include "vulkan_shader.h"
 #include "core/platform.h"
+#include "core/debugging.h"
+
+#include <initializer_list>
+
+struct Shader_Entity
+{
+    SpvOp op;
+    SpvStorageClass storage_class;
+
+    S32 type_id;
+    U32 count;
+    U32 size;
+
+    U32 binding;
+    U32 set;
+};
 
 bool
 load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Memory_Arena *arena)
@@ -9,25 +28,112 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
     Read_Entire_File_Result result =
         platform_begin_read_entire_file(path);
 
-    if (result.success)
+    if (!result.success)
     {
-        U8 *data = AllocateArray(&temp_arena, U8, result.size);
-        if (platform_end_read_entire_file(&result, data))
-        {
-            VkShaderModuleCreateInfo shader_create_info =
-                { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-            shader_create_info.codeSize = result.size;
-            shader_create_info.pCode = (U32 *)data;
-
-            CheckVkResult(vkCreateShaderModule(context->logical_device,
-                                               &shader_create_info,
-                                               nullptr,
-                                               &shader->handle));
-            return true;
-        }
+        return false;
     }
 
-    return false;
+    U8 *data = AllocateArray(&temp_arena, U8, result.size);
+    if (!platform_end_read_entire_file(&result, data))
+    {
+        return false;
+    }
+
+    Assert(result.size % 4 == 0);
+
+    U32 *words = (U32 *)data;
+    U32 word_count = u64_to_u32(result.size / 4);
+
+    // note(amer): we can infer the endianness out of the magic number
+    U32 magic_number = words[0];
+    Assert(magic_number == 0x07230203);
+
+    std::map< U32, Shader_Entity > entities;
+
+    for (U32 word_index = 5; word_index < word_count;)
+    {
+        SpvOp op_code = SpvOp(words[word_index] & 0xff);
+        U16 count = U16(words[word_index] >> 16);
+
+        switch (op_code)
+        {
+            case SpvOpEntryPoint:
+            {
+                SpvExecutionModel model = (SpvExecutionModel)words[word_index + 1];
+                switch (model)
+                {
+                    case SpvExecutionModelVertex:
+                    {
+                        shader->stage = VK_SHADER_STAGE_VERTEX_BIT;
+                    } break;
+
+                    case SpvExecutionModelFragment:
+                    {
+                        shader->stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+                    } break;
+                }
+            } break;
+
+            case SpvOpTypeSampledImage:
+            {
+                U32 id = words[word_index + 1];
+                Shader_Entity &entity = entities[id];
+                entity.op = SpvOpTypeSampledImage;
+            } break;
+
+            case SpvOpTypeVector:
+            {
+                U32 id = words[word_index + 1];
+                Shader_Entity &entity = entities[id];
+                entity.type_id = data[word_index + 2];
+                entity.count = data[word_index + 3];
+            } break;
+
+            case SpvOpVariable:
+            {
+                U32 id = data[word_index + 2];
+                Shader_Entity &entity = entities[id];
+                entity.op = op_code;
+                entity.type_id = data[word_index + 1];
+                entity.storage_class = (SpvStorageClass)data[word_index + 3];
+            } break;
+
+            case SpvOpDecorate:
+            {
+                U32 id = words[word_index + 1];
+                Shader_Entity &entity = entities[id];
+
+                SpvDecoration decoration = (SpvDecoration)words[word_index + 2];
+
+                switch (decoration)
+                {
+                    case SpvDecorationBinding:
+                    {
+                        entity.binding = words[word_index + 3];
+                    } break;
+
+                    case SpvDecorationDescriptorSet:
+                    {
+                        entity.set = words[word_index + 3];
+                    } break;
+                }
+
+            } break;
+        }
+
+        word_index += count;
+    }
+
+    VkShaderModuleCreateInfo shader_create_info =
+        { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+    shader_create_info.codeSize = result.size;
+    shader_create_info.pCode = (U32 *)data;
+
+    CheckVkResult(vkCreateShaderModule(context->logical_device,
+                                       &shader_create_info,
+                                       nullptr,
+                                       &shader->handle));
+    return true;
 }
 
 void destroy_shader(Vulkan_Shader *shader, VkDevice logical_device)
@@ -37,8 +143,7 @@ void destroy_shader(Vulkan_Shader *shader, VkDevice logical_device)
 
 bool
 create_graphics_pipeline(Vulkan_Context *context,
-                         VkShaderModule vertex_shader,
-                         VkShaderModule fragment_shader,
+                         const std::initializer_list<const Vulkan_Shader *> &shaders,
                          VkRenderPass render_pass,
                          Vulkan_Graphics_Pipeline *pipeline)
 {
@@ -72,23 +177,19 @@ create_graphics_pipeline(Vulkan_Context *context,
     vertex_input_state_create_info.vertexAttributeDescriptionCount = ArrayCount(vertex_input_attribute_descriptions);
     vertex_input_state_create_info.pVertexAttributeDescriptions = vertex_input_attribute_descriptions;
 
-    VkPipelineShaderStageCreateInfo vertex_shader_stage_info
-        = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
-    vertex_shader_stage_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
-    vertex_shader_stage_info.module = vertex_shader;
-    vertex_shader_stage_info.pName = "main";
+    VkPipelineShaderStageCreateInfo shader_stage_create_infos[16] = {};
+    U32 shader_count = u64_to_u32(shaders.size());
+    Assert(shader_count <= 16);
 
-    VkPipelineShaderStageCreateInfo fragment_shader_stage_info
-        = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
-    fragment_shader_stage_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    fragment_shader_stage_info.module = fragment_shader;
-    fragment_shader_stage_info.pName = "main";
-
-    VkPipelineShaderStageCreateInfo shader_stages[] =
+    U32 shader_index = 0;
+    for (const Vulkan_Shader *shader : shaders)
     {
-        vertex_shader_stage_info,
-        fragment_shader_stage_info
-    };
+        VkPipelineShaderStageCreateInfo& pipeline_stage_create_info = shader_stage_create_infos[shader_index++];
+        pipeline_stage_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        pipeline_stage_create_info.stage = shader->stage;
+        pipeline_stage_create_info.module = shader->handle;
+        pipeline_stage_create_info.pName = "main";
+    }
 
     VkDynamicState dynamic_states[] =
     {
@@ -202,8 +303,8 @@ create_graphics_pipeline(Vulkan_Context *context,
 
     VkGraphicsPipelineCreateInfo graphics_pipeline_create_info =
         { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-    graphics_pipeline_create_info.stageCount = 2;
-    graphics_pipeline_create_info.pStages = shader_stages;
+    graphics_pipeline_create_info.stageCount = shader_count;
+    graphics_pipeline_create_info.pStages = shader_stage_create_infos;
     graphics_pipeline_create_info.pVertexInputState = &vertex_input_state_create_info;
     graphics_pipeline_create_info.pInputAssemblyState = &input_assembly_state_create_info;
     graphics_pipeline_create_info.pViewportState = &viewport_state_create_info;

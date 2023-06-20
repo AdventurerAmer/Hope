@@ -21,7 +21,7 @@ rem game
 cl %CommonFlags% %CommonDefines% %DebugConfig% /Fegame ../game/game.cpp /LD /link /PDB:game_%TimeStamp%.pdb %CommonLinkFlags% %ExportedGameFunctions%
 
 rem todo(amer): temprary just compiling shaders here for now...
-"../tools/glslc.exe" ../data/shaders/mesh.vert -o ../data/shaders/mesh.vert.spv
-"../tools/glslc.exe" ../data/shaders/mesh.frag -o ../data/shaders/mesh.frag.spv
+"../tools/glslangValidator.exe" -V ../data/shaders/mesh.vert -o ../data/shaders/mesh.vert.spv
+"../tools/glslangValidator.exe" -V ../data/shaders/mesh.frag -o ../data/shaders/mesh.frag.spv
 
 popd
