@@ -693,14 +693,14 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     VkDescriptorPoolSize descriptor_pool_sizes[] = {
         { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 16 },
         { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16 },
-        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_TEXTURE_COUNT }
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT }
     };
 
     VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
     descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     descriptor_pool_create_info.poolSizeCount = ArrayCount(descriptor_pool_sizes);
     descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
-    descriptor_pool_create_info.maxSets = (16 + 16 + MAX_TEXTURE_COUNT) * ArrayCount(descriptor_pool_sizes);
+    descriptor_pool_create_info.maxSets = (16 + 16 + MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT) * ArrayCount(descriptor_pool_sizes);
 
     CheckVkResult(vkCreateDescriptorPool(context->logical_device,
                                          &descriptor_pool_create_info,
@@ -813,7 +813,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         VkDescriptorSetLayoutBinding texture_array_descriptor_set_layout_bindings[1] = {};
         texture_array_descriptor_set_layout_bindings[0].binding = 0;
         texture_array_descriptor_set_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        texture_array_descriptor_set_layout_bindings[0].descriptorCount = MAX_MATERIAL_COUNT;
+        texture_array_descriptor_set_layout_bindings[0].descriptorCount = MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
         texture_array_descriptor_set_layout_bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
         VkDescriptorSetLayoutCreateInfo texture_array_descriptor_set_layout_create_info =
@@ -825,7 +825,8 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
         VkDescriptorBindingFlags bindless_flags[1] =
         {
-            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT|VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT|
+            VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT
         };
 
         VkDescriptorSetLayoutBindingFlagsCreateInfoEXT extended_layout_create_info =

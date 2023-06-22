@@ -33,15 +33,15 @@ workspace "Hope"
 
     filter {}
 
-project "Engine"
 
+project "Engine"
     kind "WindowedApp"
     location "source"
     language "C++"
     cppdialect "C++17"
     staticruntime "on"
 
-    files { "source/**.h", "source/**.hpp", "source/**.cpp" }
+    files { "source/**.h", "source/**.hpp", "source/**.cpp", "data/shaders/**.vert", "data/shaders/**.frag" }
 
     includedirs { "source", "third_party/include" }
     libdirs { "third_party/lib" }

@@ -13,11 +13,11 @@
 
 #include "core/defines.h"
 #include "core/memory.h"
-#include "renderer_types.h"
-
-#define MAX_FRAMES_IN_FLIGHT 3
+#include "rendering/renderer_types.h"
 
 #define HE_VULKAN_DEBUGGING 1
+#define MAX_FRAMES_IN_FLIGHT 3
+#define MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
 
 #ifdef HE_SHIPPING
 #undef HE_VULKAN_DEBUGGING
@@ -65,10 +65,18 @@ struct Vulkan_Buffer
     U64 size;
 };
 
+struct Descriptor_Set
+{
+    U32 binding_count;
+    VkDescriptorSetLayoutBinding *bindings;
+};
+
 struct Vulkan_Shader
 {
     VkShaderModule handle;
     VkShaderStageFlagBits stage;
+
+    Descriptor_Set sets[4];
 };
 
 struct Vulkan_Swapchain_Support
