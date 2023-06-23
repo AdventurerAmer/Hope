@@ -416,13 +416,30 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             queue_create_infos[queue_create_info_index].pQueuePriorities = &queue_priority;
         }
 
+        // todo(amer): should really get this from the physical_device
         VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features =
             { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
 
-        descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
-        descriptor_indexing_features.descriptorBindingPartiallyBound = VK_TRUE;
-        descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+        descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing = VK_TRUE;
+        descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing = VK_TRUE;
+        descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing = VK_TRUE;
+        descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing = VK_TRUE;
         descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+        descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
+        descriptor_indexing_features.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
+        descriptor_indexing_features.shaderInputAttachmentArrayNonUniformIndexing = VK_TRUE;
+        descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing = VK_TRUE;
+        descriptor_indexing_features.shaderStorageTexelBufferArrayNonUniformIndexing = VK_TRUE;
+        descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+        descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+        descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
+        descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+        descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind = VK_TRUE;
+        descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
+        descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
+        descriptor_indexing_features.descriptorBindingPartiallyBound = VK_TRUE;
+        descriptor_indexing_features.descriptorBindingVariableDescriptorCount = VK_TRUE;
+        descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
 
         VkPhysicalDeviceFeatures2 physical_device_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
         physical_device_features2.features.samplerAnisotropy = VK_TRUE;
@@ -620,6 +637,12 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     shader_loaded = load_shader(&context->mesh_fragment_shader, "shaders/mesh.frag.spv", context, arena);
     Assert(shader_loaded);
 
+    create_graphics_pipeline(context,
+                             { &context->mesh_vertex_shader,
+                               &context->mesh_fragment_shader },
+                             context->render_pass,
+                             &context->mesh_pipeline);
+
     VkCommandPoolCreateInfo graphics_command_pool_create_info
         = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
 
@@ -741,7 +764,8 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
              frame_index < MAX_FRAMES_IN_FLIGHT;
              frame_index++)
         {
-            per_frame_descriptor_set_layouts[frame_index] = context->per_frame_descriptor_set_layout;
+            // per_frame_descriptor_set_layouts[frame_index] = context->per_frame_descriptor_set_layout;
+            per_frame_descriptor_set_layouts[frame_index] = context->mesh_pipeline.descriptor_set_layouts[0];
         }
 
         VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -835,6 +859,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
          extended_layout_create_info.pBindingFlags = bindless_flags;
 
         texture_array_descriptor_set_layout_create_info.pNext = &extended_layout_create_info;
+
         CheckVkResult(vkCreateDescriptorSetLayout(context->logical_device,
                                                   &texture_array_descriptor_set_layout_create_info,
                                                   nullptr,
@@ -846,7 +871,8 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
              frame_index < MAX_FRAMES_IN_FLIGHT;
              frame_index++)
         {
-            textures_array_descriptor_set_layouts[frame_index] = context->texture_array_descriptor_set_layout;
+            // textures_array_descriptor_set_layouts[frame_index] = context->texture_array_descriptor_set_layout;
+            textures_array_descriptor_set_layouts[frame_index] = context->mesh_pipeline.descriptor_set_layouts[1];
         }
 
         VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -858,12 +884,6 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                                &descriptor_set_allocation_info,
                                                context->texture_array_descriptor_sets));
     }
-
-    create_graphics_pipeline(context,
-                             { &context->mesh_vertex_shader,
-                               &context->mesh_fragment_shader },
-                             context->render_pass,
-                             &context->mesh_pipeline);
 
     VkSemaphoreCreateInfo semaphore_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     VkFenceCreateInfo fence_create_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };

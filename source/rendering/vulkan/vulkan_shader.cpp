@@ -570,6 +570,8 @@ bool create_graphics_pipeline(Vulkan_Context *context,
     U32 shader_count = u64_to_u32(shaders.size());
     Assert(shader_count <= 16);
 
+    std::map< U32, std::map< U32, VkDescriptorSetLayoutBinding > > sets;
+
     U32 shader_index = 0;
     for (const Vulkan_Shader *shader : shaders)
     {
@@ -578,6 +580,63 @@ bool create_graphics_pipeline(Vulkan_Context *context,
         pipeline_stage_create_info.stage  = shader->stage;
         pipeline_stage_create_info.module = shader->handle;
         pipeline_stage_create_info.pName  = "main";
+
+        for (U32 set_index = 0; set_index < 4; set_index++)
+        {
+            const Descriptor_Set *set = &shader->sets[set_index];
+            for (U32 binding_index = 0;
+                 binding_index < set->binding_count;
+                 binding_index++)
+            {
+                U32 binding = set->bindings[binding_index].binding;
+                VkDescriptorSetLayoutBinding &set_layout_binding = sets[set_index][binding];
+                set_layout_binding.binding = set->bindings[binding_index].binding;
+                set_layout_binding.descriptorCount = set->bindings[binding_index].descriptorCount;
+                set_layout_binding.descriptorType = set->bindings[binding_index].descriptorType;
+                set_layout_binding.stageFlags |= set->bindings[binding_index].stageFlags;
+            }
+        }
+    }
+
+    pipeline->descriptor_set_layout_count = u64_to_u32(sets.size());
+
+    for (const auto& set : sets)
+    {
+        const auto& [set_index, bindings] = set;
+
+        std::vector< VkDescriptorSetLayoutBinding > layout_bindings;
+        layout_bindings.reserve(bindings.size());
+
+        std::vector< VkDescriptorBindingFlags > layout_bindings_flags;
+        layout_bindings_flags.reserve(bindings.size());
+
+        for (const auto& _ : bindings)
+        {
+            const auto& [binding_index, binding] = _;
+            layout_bindings.emplace_back(binding);
+            layout_bindings_flags.emplace_back(VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT|
+                                               VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT);
+        }
+
+        const U32 binding_count = u64_to_u32(bindings.size());
+
+        VkDescriptorSetLayoutBindingFlagsCreateInfoEXT extended_descriptor_set_layout_create_info =
+        { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT };
+        extended_descriptor_set_layout_create_info.bindingCount = binding_count;
+        extended_descriptor_set_layout_create_info.pBindingFlags = layout_bindings_flags.data();
+
+        VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info =
+            { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+
+        descriptor_set_layout_create_info.bindingCount = binding_count;
+        descriptor_set_layout_create_info.pBindings = layout_bindings.data();
+        descriptor_set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        descriptor_set_layout_create_info.pNext = &extended_descriptor_set_layout_create_info;
+
+        CheckVkResult(vkCreateDescriptorSetLayout(context->logical_device,
+                                                  &descriptor_set_layout_create_info,
+                                                  nullptr,
+                                                  &pipeline->descriptor_set_layouts[set_index]));
     }
 
     VkDynamicState dynamic_states[] =
@@ -662,14 +721,16 @@ bool create_graphics_pipeline(Vulkan_Context *context,
 
     VkDescriptorSetLayout descriptor_set_layouts[] =
     {
-        context->per_frame_descriptor_set_layout,
-        context->texture_array_descriptor_set_layout
+        pipeline->descriptor_set_layouts[0],
+        pipeline->descriptor_set_layouts[1]
+        // context->per_frame_descriptor_set_layout,
+        // context->texture_array_descriptor_set_layout
     };
 
     VkPipelineLayoutCreateInfo pipeline_layout_create_info =
         { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
     pipeline_layout_create_info.setLayoutCount = ArrayCount(descriptor_set_layouts);
-    pipeline_layout_create_info.pSetLayouts = descriptor_set_layouts;
+        pipeline_layout_create_info.pSetLayouts = descriptor_set_layouts;
     pipeline_layout_create_info.pushConstantRangeCount = 0;
     pipeline_layout_create_info.pPushConstantRanges = nullptr;
 
@@ -719,6 +780,16 @@ void destroy_graphics_pipeline(VkDevice logical_device, Vulkan_Graphics_Pipeline
 {
     Assert(logical_device != VK_NULL_HANDLE);
     Assert(graphics_pipeline);
+
+    for (U32 set_index = 0; set_index < 4; set_index++)
+    {
+        if (graphics_pipeline->descriptor_set_layouts[set_index])
+        {
+            vkDestroyDescriptorSetLayout(logical_device,
+                                         graphics_pipeline->descriptor_set_layouts[set_index],
+                                         nullptr);
+        }
+    }
 
     vkDestroyPipelineLayout(logical_device, graphics_pipeline->layout, nullptr);
     vkDestroyPipeline(logical_device, graphics_pipeline->handle, nullptr);
