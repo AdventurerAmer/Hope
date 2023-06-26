@@ -18,6 +18,7 @@
 #define HE_VULKAN_DEBUGGING 1
 #define MAX_FRAMES_IN_FLIGHT 3
 #define MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
+#define MAX_DESCRIPTOR_SET_COUNT 4
 
 #ifdef HE_SHIPPING
 #undef HE_VULKAN_DEBUGGING
@@ -65,24 +66,67 @@ struct Vulkan_Buffer
     U64 size;
 };
 
-struct Descriptor_Set
+struct Vulkan_Descriptor_Set
 {
     U32 binding_count;
     VkDescriptorSetLayoutBinding *bindings;
 };
 
+struct Vulkan_Shader_Input_Variable
+{
+    const char *name;
+    U32 location;
+    ShaderDataType type;
+};
+
+struct Vulkan_Shader_Output_Variable
+{
+    const char *name;
+    U32 location;
+    ShaderDataType type;
+};
+
+struct Vulkan_Shader_Struct;
+
+struct Vulkan_Shader_Struct_Member
+{
+    const char *name;
+    U32 offset;
+    ShaderDataType type;
+
+    U32 member_count;
+    Vulkan_Shader_Struct_Member *members;
+};
+
+struct Vulkan_Shader_Struct
+{
+    const char *name;
+    U32 member_count;
+    Vulkan_Shader_Struct_Member *members;
+};
+
 struct Vulkan_Shader
 {
     VkShaderModule handle;
+
     VkShaderStageFlagBits stage;
 
-    Descriptor_Set sets[4];
+    Vulkan_Descriptor_Set sets[MAX_DESCRIPTOR_SET_COUNT];
+
+    U32 input_count;
+    Vulkan_Shader_Input_Variable *inputs;
+
+    U32 output_count;
+    Vulkan_Shader_Output_Variable *outputs;
+
+    U32 struct_count;
+    Vulkan_Shader_Struct *structs;
 };
 
 struct Vulkan_Graphics_Pipeline
 {
     U32 descriptor_set_layout_count;
-    VkDescriptorSetLayout descriptor_set_layouts[4];
+    VkDescriptorSetLayout descriptor_set_layouts[MAX_DESCRIPTOR_SET_COUNT];
 
     VkPipelineLayout layout;
     VkPipeline handle;
@@ -161,6 +205,7 @@ struct Vulkan_Static_Mesh_Bundle
 };
 
 #define MAX_OBJECT_DATA_COUNT 8192
+#define MAX_DESCRIPTOR_SET_COUNT 4
 
 struct Vulkan_Context
 {
@@ -196,7 +241,7 @@ struct Vulkan_Context
     VkSemaphore rendering_finished_semaphores[MAX_FRAMES_IN_FLIGHT];
     VkFence frame_in_flight_fences[MAX_FRAMES_IN_FLIGHT];
 
-    Vulkan_Buffer global_uniform_buffers[MAX_FRAMES_IN_FLIGHT];
+    Vulkan_Buffer globals_uniform_buffers[MAX_FRAMES_IN_FLIGHT];
 
     Vulkan_Buffer object_storage_buffers[MAX_FRAMES_IN_FLIGHT];
     Vulkan_Object_Data *object_data_base;
@@ -204,13 +249,8 @@ struct Vulkan_Context
 
     Vulkan_Buffer material_storage_buffers[MAX_FRAMES_IN_FLIGHT];
 
-    VkDescriptorSet texture_array_descriptor_sets[MAX_FRAMES_IN_FLIGHT];
-
-    VkDescriptorSetLayout per_frame_descriptor_set_layout;
-    VkDescriptorSetLayout texture_array_descriptor_set_layout;
-
     VkDescriptorPool descriptor_pool;
-    VkDescriptorSet per_frame_descriptor_sets[MAX_FRAMES_IN_FLIGHT];
+    VkDescriptorSet descriptor_sets[MAX_DESCRIPTOR_SET_COUNT][MAX_FRAMES_IN_FLIGHT];
 
     VkCommandPool transfer_command_pool;
     VkCommandBuffer transfer_command_buffer;

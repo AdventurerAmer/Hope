@@ -2,15 +2,44 @@
 
 #include "core/defines.h"
 
-#include <glm/vec3.hpp> // glm::vec3
-#include <glm/vec4.hpp> // glm::vec4
-#include <glm/mat4x4.hpp> // glm::mat4
-#include <glm/gtc/quaternion.hpp> // quaternion
-#include <glm/gtx/quaternion.hpp> // quaternion
-#include <glm/ext/matrix_transform.hpp> // glm::translate, glm::rotate, glm::scale
-#include <glm/ext/matrix_clip_space.hpp> // glm::perspective
-#include <glm/ext/scalar_constants.hpp> // glm::pi
+#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
+#include <glm/mat4x4.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/ext/matrix_transform.hpp>
+#include <glm/ext/matrix_clip_space.hpp>
+#include <glm/ext/scalar_constants.hpp>
 #include <glm/gtc/type_ptr.hpp>
+
+enum ShaderDataType
+{
+    ShaderDataType_Bool,
+
+    ShaderDataType_S8,
+    ShaderDataType_S16,
+    ShaderDataType_S32,
+    ShaderDataType_S64,
+
+    ShaderDataType_U8,
+    ShaderDataType_U16,
+    ShaderDataType_U32,
+    ShaderDataType_U64,
+
+    ShaderDataType_F16,
+    ShaderDataType_F32,
+    ShaderDataType_F64,
+
+    ShaderDataType_Vector2f,
+    ShaderDataType_Vector3f,
+    ShaderDataType_Vector4f,
+
+    ShaderDataType_Matrix3f,
+    ShaderDataType_Matrix4f,
+
+    ShaderDataType_Struct,
+    ShaderDataType_Array,
+};
 
 struct Vertex
 {

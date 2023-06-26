@@ -700,7 +700,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
-        Vulkan_Buffer *global_uniform_buffer = &context->global_uniform_buffers[frame_index];
+        Vulkan_Buffer *global_uniform_buffer = &context->globals_uniform_buffers[frame_index];
         create_buffer(global_uniform_buffer, context, sizeof(Vulkan_Global_Uniform_Buffer),
                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
@@ -729,70 +729,42 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                          &descriptor_pool_create_info,
                                          nullptr, &context->descriptor_pool));
 
-    // Per Frame Descriptor Sets
+    // level 0 sets
     {
-        VkDescriptorSetLayoutBinding per_frame_descriptor_set_layout_bindings[3] = {};
-        per_frame_descriptor_set_layout_bindings[0].binding = 0;
-        per_frame_descriptor_set_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        per_frame_descriptor_set_layout_bindings[0].descriptorCount = 1;
-        per_frame_descriptor_set_layout_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
-        per_frame_descriptor_set_layout_bindings[1].binding = 1;
-        per_frame_descriptor_set_layout_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        per_frame_descriptor_set_layout_bindings[1].descriptorCount = 1;
-        per_frame_descriptor_set_layout_bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
-        per_frame_descriptor_set_layout_bindings[2].binding = 2;
-        per_frame_descriptor_set_layout_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        per_frame_descriptor_set_layout_bindings[2].descriptorCount = 1;
-        per_frame_descriptor_set_layout_bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-        VkDescriptorSetLayoutCreateInfo per_frame_descriptor_set_layout_create_info =
-            { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-
-        per_frame_descriptor_set_layout_create_info.bindingCount = ArrayCount(per_frame_descriptor_set_layout_bindings);
-        per_frame_descriptor_set_layout_create_info.pBindings = per_frame_descriptor_set_layout_bindings;
-
-        CheckVkResult(vkCreateDescriptorSetLayout(context->logical_device,
-                                                  &per_frame_descriptor_set_layout_create_info,
-                                                  nullptr,
-                                                  &context->per_frame_descriptor_set_layout));
-
-        VkDescriptorSetLayout per_frame_descriptor_set_layouts[MAX_FRAMES_IN_FLIGHT] = {};
+        VkDescriptorSetLayout level0_descriptor_set_layouts[MAX_FRAMES_IN_FLIGHT] = {};
 
         for (U32 frame_index = 0;
              frame_index < MAX_FRAMES_IN_FLIGHT;
              frame_index++)
         {
-            // per_frame_descriptor_set_layouts[frame_index] = context->per_frame_descriptor_set_layout;
-            per_frame_descriptor_set_layouts[frame_index] = context->mesh_pipeline.descriptor_set_layouts[0];
+            level0_descriptor_set_layouts[frame_index] = context->mesh_pipeline.descriptor_set_layouts[0];
         }
 
         VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
         descriptor_set_allocation_info.descriptorPool = context->descriptor_pool;
         descriptor_set_allocation_info.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-        descriptor_set_allocation_info.pSetLayouts = per_frame_descriptor_set_layouts;
+        descriptor_set_allocation_info.pSetLayouts = level0_descriptor_set_layouts;
 
         CheckVkResult(vkAllocateDescriptorSets(context->logical_device,
                                                &descriptor_set_allocation_info,
-                                               context->per_frame_descriptor_sets));
+                                               context->descriptor_sets[0]));
 
         for (U32 frame_index = 0;
              frame_index < MAX_FRAMES_IN_FLIGHT;
              frame_index++)
         {
-            VkDescriptorBufferInfo global_uniform_buffer_descriptor_info = {};
-            global_uniform_buffer_descriptor_info.buffer = context->global_uniform_buffers[frame_index].handle;
-            global_uniform_buffer_descriptor_info.offset = 0;
-            global_uniform_buffer_descriptor_info.range = sizeof(Vulkan_Global_Uniform_Buffer);
+            VkDescriptorBufferInfo globals_uniform_buffer_descriptor_info = {};
+            globals_uniform_buffer_descriptor_info.buffer = context->globals_uniform_buffers[frame_index].handle;
+            globals_uniform_buffer_descriptor_info.offset = 0;
+            globals_uniform_buffer_descriptor_info.range = sizeof(Vulkan_Global_Uniform_Buffer);
 
-            VkWriteDescriptorSet global_uniform_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            global_uniform_buffer_write_descriptor_set.dstSet = context->per_frame_descriptor_sets[frame_index];
-            global_uniform_buffer_write_descriptor_set.dstBinding = 0;
-            global_uniform_buffer_write_descriptor_set.dstArrayElement = 0;
-            global_uniform_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            global_uniform_buffer_write_descriptor_set.descriptorCount = 1;
-            global_uniform_buffer_write_descriptor_set.pBufferInfo = &global_uniform_buffer_descriptor_info;
+            VkWriteDescriptorSet globals_uniform_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            globals_uniform_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
+            globals_uniform_buffer_write_descriptor_set.dstBinding = 0;
+            globals_uniform_buffer_write_descriptor_set.dstArrayElement = 0;
+            globals_uniform_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            globals_uniform_buffer_write_descriptor_set.descriptorCount = 1;
+            globals_uniform_buffer_write_descriptor_set.pBufferInfo = &globals_uniform_buffer_descriptor_info;
 
             VkDescriptorBufferInfo object_data_storage_buffer_descriptor_info = {};
             object_data_storage_buffer_descriptor_info.buffer = context->object_storage_buffers[frame_index].handle;
@@ -800,7 +772,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             object_data_storage_buffer_descriptor_info.range = sizeof(Vulkan_Object_Data) * MAX_OBJECT_DATA_COUNT;
 
             VkWriteDescriptorSet object_data_storage_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            object_data_storage_buffer_write_descriptor_set.dstSet = context->per_frame_descriptor_sets[frame_index];
+            object_data_storage_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
             object_data_storage_buffer_write_descriptor_set.dstBinding = 1;
             object_data_storage_buffer_write_descriptor_set.dstArrayElement = 0;
             object_data_storage_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -813,7 +785,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             material_storage_buffer_descriptor_info.range = sizeof(Vulkan_Material_Data) * MAX_MATERIAL_COUNT;
 
             VkWriteDescriptorSet material_storage_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            material_storage_buffer_write_descriptor_set.dstSet = context->per_frame_descriptor_sets[frame_index];
+            material_storage_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
             material_storage_buffer_write_descriptor_set.dstBinding = 2;
             material_storage_buffer_write_descriptor_set.dstArrayElement = 0;
             material_storage_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -822,7 +794,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
             VkWriteDescriptorSet write_descriptor_sets[] =
             {
-                global_uniform_buffer_write_descriptor_set,
+                globals_uniform_buffer_write_descriptor_set,
                 object_data_storage_buffer_write_descriptor_set,
                 material_storage_buffer_write_descriptor_set
             };
@@ -834,55 +806,23 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     }
 
     {
-        VkDescriptorSetLayoutBinding texture_array_descriptor_set_layout_bindings[1] = {};
-        texture_array_descriptor_set_layout_bindings[0].binding = 0;
-        texture_array_descriptor_set_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        texture_array_descriptor_set_layout_bindings[0].descriptorCount = MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
-        texture_array_descriptor_set_layout_bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-        VkDescriptorSetLayoutCreateInfo texture_array_descriptor_set_layout_create_info =
-            { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-
-        texture_array_descriptor_set_layout_create_info.bindingCount = ArrayCount(texture_array_descriptor_set_layout_bindings);
-        texture_array_descriptor_set_layout_create_info.pBindings = texture_array_descriptor_set_layout_bindings;
-        texture_array_descriptor_set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-
-        VkDescriptorBindingFlags bindless_flags[1] =
-        {
-            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT|
-            VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT
-        };
-
-        VkDescriptorSetLayoutBindingFlagsCreateInfoEXT extended_layout_create_info =
-         { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT };
-         extended_layout_create_info.bindingCount = ArrayCount(texture_array_descriptor_set_layout_bindings);
-         extended_layout_create_info.pBindingFlags = bindless_flags;
-
-        texture_array_descriptor_set_layout_create_info.pNext = &extended_layout_create_info;
-
-        CheckVkResult(vkCreateDescriptorSetLayout(context->logical_device,
-                                                  &texture_array_descriptor_set_layout_create_info,
-                                                  nullptr,
-                                                  &context->texture_array_descriptor_set_layout));
-
-        VkDescriptorSetLayout textures_array_descriptor_set_layouts[MAX_FRAMES_IN_FLIGHT] = {};
+        VkDescriptorSetLayout level1_descriptor_set_layouts[MAX_FRAMES_IN_FLIGHT] = {};
 
         for (U32 frame_index = 0;
              frame_index < MAX_FRAMES_IN_FLIGHT;
              frame_index++)
         {
-            // textures_array_descriptor_set_layouts[frame_index] = context->texture_array_descriptor_set_layout;
-            textures_array_descriptor_set_layouts[frame_index] = context->mesh_pipeline.descriptor_set_layouts[1];
+            level1_descriptor_set_layouts[frame_index] = context->mesh_pipeline.descriptor_set_layouts[1];
         }
 
         VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
         descriptor_set_allocation_info.descriptorPool = context->descriptor_pool;
         descriptor_set_allocation_info.descriptorSetCount = U32(MAX_FRAMES_IN_FLIGHT);
-        descriptor_set_allocation_info.pSetLayouts = textures_array_descriptor_set_layouts;
+        descriptor_set_allocation_info.pSetLayouts = level1_descriptor_set_layouts;
 
         CheckVkResult(vkAllocateDescriptorSets(context->logical_device,
                                                &descriptor_set_allocation_info,
-                                               context->texture_array_descriptor_sets));
+                                               context->descriptor_sets[1]));
     }
 
     VkSemaphoreCreateInfo semaphore_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
@@ -919,9 +859,6 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 void deinit_vulkan(Vulkan_Context *context)
 {
     vkDeviceWaitIdle(context->logical_device);
-
-    vkDestroyDescriptorSetLayout(context->logical_device, context->per_frame_descriptor_set_layout, nullptr);
-    vkDestroyDescriptorSetLayout(context->logical_device, context->texture_array_descriptor_set_layout, nullptr);
     vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, nullptr);
 
     destroy_buffer(&context->transfer_buffer, context->logical_device);
@@ -932,7 +869,7 @@ void deinit_vulkan(Vulkan_Context *context)
          frame_index < MAX_FRAMES_IN_FLIGHT;
          frame_index++)
     {
-        destroy_buffer(&context->global_uniform_buffers[frame_index], context->logical_device);
+        destroy_buffer(&context->globals_uniform_buffers[frame_index], context->logical_device);
         destroy_buffer(&context->object_storage_buffers[frame_index], context->logical_device);
         destroy_buffer(&context->material_storage_buffers[frame_index], context->logical_device);
 
@@ -1024,7 +961,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     global_uniform_buffer_data.projection = scene_data->projection;
     global_uniform_buffer_data.projection[1][1] *= -1;
 
-    Vulkan_Buffer *global_uniform_buffer = &context->global_uniform_buffers[current_frame_in_flight_index];
+    Vulkan_Buffer *global_uniform_buffer = &context->globals_uniform_buffers[current_frame_in_flight_index];
     memcpy(global_uniform_buffer->data, &global_uniform_buffer_data, sizeof(Vulkan_Global_Uniform_Buffer));
 
     Vulkan_Buffer *material_storage_buffer = &context->material_storage_buffers[current_frame_in_flight_index];
@@ -1127,7 +1064,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     }
 
     VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    write_descriptor_set.dstSet = context->texture_array_descriptor_sets[current_frame_in_flight_index];
+    write_descriptor_set.dstSet = context->descriptor_sets[1][current_frame_in_flight_index];
     write_descriptor_set.dstBinding = 0;
     write_descriptor_set.dstArrayElement = 0;
     write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -1138,8 +1075,8 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
 
     VkDescriptorSet descriptor_sets[] =
     {
-        context->per_frame_descriptor_sets[current_frame_in_flight_index],
-        context->texture_array_descriptor_sets[current_frame_in_flight_index]
+        context->descriptor_sets[0][current_frame_in_flight_index],
+        context->descriptor_sets[1][current_frame_in_flight_index]
     };
 
     vkCmdBindDescriptorSets(command_buffer,
