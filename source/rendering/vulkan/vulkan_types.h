@@ -75,34 +75,40 @@ struct Vulkan_Descriptor_Set
 struct Vulkan_Shader_Input_Variable
 {
     const char *name;
-    U32 location;
+    U32 name_length;
     ShaderDataType type;
+    U32 location;
 };
 
 struct Vulkan_Shader_Output_Variable
 {
     const char *name;
+    U32 name_length;
+    ShaderDataType type;
     U32 location;
-    ShaderDataType type;
 };
 
-struct Vulkan_Shader_Struct;
-
-struct Vulkan_Shader_Struct_Member
+struct Shader_Struct_Member
 {
     const char *name;
+    U32 name_length;
+
+    ShaderDataType data_type;
     U32 offset;
-    ShaderDataType type;
 
-    U32 member_count;
-    Vulkan_Shader_Struct_Member *members;
+    bool is_array;
+    S32 array_element_count = -1;
+
+    S32 struct_index = -1;
 };
 
-struct Vulkan_Shader_Struct
+struct Shader_Struct
 {
     const char *name;
+    U32 name_length;
+
     U32 member_count;
-    Vulkan_Shader_Struct_Member *members;
+    Shader_Struct_Member *members;
 };
 
 struct Vulkan_Shader
@@ -120,7 +126,7 @@ struct Vulkan_Shader
     Vulkan_Shader_Output_Variable *outputs;
 
     U32 struct_count;
-    Vulkan_Shader_Struct *structs;
+    Shader_Struct *structs;
 };
 
 struct Vulkan_Graphics_Pipeline

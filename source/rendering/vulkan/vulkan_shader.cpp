@@ -20,19 +20,9 @@ enum ShaderEntityType
 {
     ShaderEntityType_Unkown,
 
-    ShaderEntityType_S8,
-    ShaderEntityType_S16,
-    ShaderEntityType_S32,
-    ShaderEntityType_S64,
-
-    ShaderEntityType_U8,
-    ShaderEntityType_U16,
-    ShaderEntityType_U32,
-    ShaderEntityType_U64,
-
-    ShaderEntityType_F16,
-    ShaderEntityType_F32,
-    ShaderEntityType_F64,
+    ShaderEntityType_Bool,
+    ShaderEntityType_Int,
+    ShaderEntityType_Float,
 
     ShaderEntityType_Vector,
     ShaderEntityType_Matrix,
@@ -40,36 +30,43 @@ enum ShaderEntityType
     ShaderEntityType_Pointer,
 
     ShaderEntityType_Struct,
+    ShaderEntityType_StructMember,
 
     ShaderEntityType_Array,
-    ShaderEntityType_RuntimeArray,
 
     ShaderEntityType_SampledImage
 };
 
-struct Shader_Struct_Member
+struct SPIRV_Struct_Member
 {
-    const char *name;
+    char *name;
     U32 name_length;
 
     S32 offset = -1;
     S32 id_of_type = -1;
 };
 
+struct SPIRV_Shader_Struct
+{
+    char *name;
+    U32 name_length;
+
+    std::vector< Shader_Struct_Member > members;
+};
+
 struct Shader_Entity
 {
-    const char *name;
+    char *name;
     U32 name_length;
 
     ShaderEntityKind kind = ShaderEntityKind_Unkown;
-
     ShaderEntityType type = ShaderEntityType_Unkown;
     S32 id_of_type = -1;
 
     SpvStorageClass storage_class = SpvStorageClassMax;
     SpvDecoration decoration = SpvDecorationMax;
 
-    std::vector< Shader_Struct_Member > members;
+    std::vector< SPIRV_Struct_Member > members;
 
     S32 component_count = -1;
     S32 element_count = -1;
@@ -80,11 +77,14 @@ struct Shader_Entity
 
     S32 binding = -1;
     S32 set = -1;
+
+    ShaderDataType data_type;
 };
 
 void parse_int(Shader_Entity &entity, const U32 *instruction)
 {
     entity.kind = ShaderEntityKind_Type;
+    entity.type = ShaderEntityType_Int;
 
     U32 width = instruction[2];
     U32 signedness = instruction[3];
@@ -95,22 +95,22 @@ void parse_int(Shader_Entity &entity, const U32 *instruction)
         {
             case 8:
             {
-                entity.type = ShaderEntityType_U8;
+                entity.data_type = ShaderDataType_U8;
             } break;
 
             case 16:
             {
-                entity.type = ShaderEntityType_U16;
+                entity.data_type = ShaderDataType_U16;
             } break;
 
             case 32:
             {
-                entity.type = ShaderEntityType_U32;
+                entity.data_type = ShaderDataType_U32;
             } break;
 
             case 64:
             {
-                entity.type = ShaderEntityType_U64;
+                entity.data_type = ShaderDataType_U64;
             } break;
 
             default:
@@ -125,22 +125,22 @@ void parse_int(Shader_Entity &entity, const U32 *instruction)
         {
             case 8:
             {
-                entity.type = ShaderEntityType_S8;
+                entity.data_type = ShaderDataType_S8;
             } break;
 
             case 16:
             {
-                entity.type = ShaderEntityType_S16;
+                entity.data_type = ShaderDataType_S16;
             } break;
 
             case 32:
             {
-                entity.type = ShaderEntityType_S32;
+                entity.data_type = ShaderDataType_S32;
             } break;
 
             case 64:
             {
-                entity.type = ShaderEntityType_S64;
+                entity.data_type = ShaderDataType_S64;
             } break;
 
             default:
@@ -154,22 +154,24 @@ void parse_int(Shader_Entity &entity, const U32 *instruction)
 void parse_float(Shader_Entity& entity, const U32* instruction)
 {
     entity.kind = ShaderEntityKind_Type;
+    entity.type = ShaderEntityType_Float;
+
     U32 width = instruction[2];
     switch (width)
     {
         case 16:
         {
-            entity.type = ShaderEntityType_F16;
+            entity.data_type = ShaderDataType_F16;
         } break;
 
         case 32:
         {
-            entity.type = ShaderEntityType_F32;
+            entity.data_type = ShaderDataType_F32;
         } break;
 
         case 64:
         {
-            entity.type = ShaderEntityType_F64;
+            entity.data_type = ShaderDataType_F64;
         } break;
 
         default:
@@ -217,6 +219,56 @@ void set_descriptor_type(VkDescriptorSetLayoutBinding &binding, const Shader_Ent
             binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         } break;
     }
+}
+
+U32 parse_struct(const Shader_Entity &entity,
+                 std::vector< SPIRV_Shader_Struct > &structs,
+                 std::vector< Shader_Entity > &ids)
+{
+    for (U32 struct_index = 0; struct_index < structs.size(); struct_index++)
+    {
+        if (strncmp(entity.name, structs[struct_index].name, entity.name_length) == 0)
+        {
+            return struct_index;
+        }
+    }
+
+    SPIRV_Shader_Struct struct_;
+    struct_.name = entity.name;
+    struct_.name_length = entity.name_length;
+
+    U32 member_count = u64_to_u32(entity.members.size());
+    struct_.members.resize(member_count);
+
+    for (U32 member_index = 0; member_index < member_count; member_index++)
+    {
+        const SPIRV_Struct_Member &spirv_struct_member = entity.members[member_index];
+        Shader_Struct_Member &member = struct_.members[member_index];
+        member.name = spirv_struct_member.name;
+        member.name_length = spirv_struct_member.name_length;
+        member.offset = spirv_struct_member.offset;
+
+        Shader_Entity &spirv_struct_member_type = ids[spirv_struct_member.id_of_type];
+        member.data_type = spirv_struct_member_type.data_type;
+        
+        if (spirv_struct_member_type.type == ShaderEntityType_Array)
+        {
+            member.is_array = true;
+            member.array_element_count = spirv_struct_member_type.element_count;
+            if (spirv_struct_member_type.data_type == ShaderDataType_Struct)
+            {
+                const Shader_Entity &array_type = ids[spirv_struct_member_type.id_of_type];
+                member.struct_index = parse_struct(array_type, structs, ids);
+            }
+        }
+        else if (spirv_struct_member_type.type == ShaderEntityType_Struct)
+        {
+            member.struct_index = parse_struct(spirv_struct_member_type, structs, ids);
+        }
+    }
+
+    structs.push_back(struct_);
+    return u64_to_u32(structs.size() - 1);
 }
 
 bool
@@ -269,8 +321,10 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                 // note(amer): not proper utf8 paring here keep the shaders in english please.
                 // english mother fucker english do you speak it!!!!!.
                 const char *name = (const char*)(instruction + 2);
-                entity.name = name;
-                entity.name_length = u64_to_u32(strlen(name));
+                U32 name_length = u64_to_u32(strlen(name));
+                entity.name = (char *)malloc(name_length + 1); // @Leak
+                memcpy(entity.name, name, name_length + 1);
+                entity.name_length = name_length;
             } break;
 
             case SpvOpMemberName:
@@ -281,11 +335,14 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                 U32 member_index = instruction[2];
                 if (member_index >= entity.members.size())
                 {
-                    entity.members.push_back(Shader_Struct_Member {});
+                    entity.members.push_back(SPIRV_Struct_Member {});
                 }
-                Shader_Struct_Member &member = entity.members[member_index];
-                member.name = (const char*)(instruction + 3);
-                member.name_length = u64_to_u32(strlen(member.name));
+                SPIRV_Struct_Member &member = entity.members[member_index];
+                const char *name = (const char*)(instruction + 2);
+                U32 name_length = u64_to_u32(strlen(name));
+                member.name = (char *)malloc(name_length + 1); // @Leak
+                memcpy(member.name, name, name_length + 1);
+                member.name_length = name_length;
             } break;
 
             case SpvOpEntryPoint:
@@ -344,10 +401,10 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
 
                 if (member_index >= struct_entity.members.size())
                 {
-                    struct_entity.members.push_back(Shader_Struct_Member {});
+                    struct_entity.members.push_back(SPIRV_Struct_Member{});
                 }
 
-                Shader_Struct_Member &member = struct_entity.members[member_index];
+                SPIRV_Struct_Member &member = struct_entity.members[member_index];
                 U32 decoration = instruction[3];
 
                 switch (decoration)
@@ -383,6 +440,15 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                 entity.storage_class = SpvStorageClass(instruction[3]);
             } break;
 
+            case SpvOpTypeBool:
+            {
+                U32 id = instruction[1];
+                Shader_Entity &entity = ids[id];
+                entity.kind = ShaderEntityKind_Type;
+                entity.type = ShaderEntityType_Bool;
+                entity.data_type = ShaderDataType_Bool;
+            } break;
+
             case SpvOpTypeInt:
             {
                 Assert(count <= 4);
@@ -408,6 +474,22 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                 entity.type = ShaderEntityType_Vector;
                 entity.id_of_type = instruction[2];
                 entity.component_count = instruction[3];
+                const Shader_Entity& type_entity = ids[entity.id_of_type];
+                if (type_entity.type == ShaderEntityType_Float)
+                {
+                    if (entity.component_count == 2)
+                    {
+                        entity.data_type = ShaderDataType_Vector2f;
+                    }
+                    else if (entity.component_count == 3)
+                    {
+                        entity.data_type = ShaderDataType_Vector3f;
+                    }
+                    else if (entity.component_count == 4)
+                    {
+                        entity.data_type = ShaderDataType_Vector4f;
+                    }
+                }
             } break;
 
             case SpvOpTypeMatrix:
@@ -419,6 +501,15 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                 entity.type = ShaderEntityType_Matrix;
                 entity.id_of_type = instruction[2];
                 entity.component_count = instruction[3];
+                const Shader_Entity &vector_type_entity = ids[ids[entity.id_of_type].id_of_type];
+                if (entity.component_count == 3)
+                {
+                    entity.data_type = ShaderDataType_Matrix3f;
+                }
+                else if (entity.component_count == 4)
+                {
+                    entity.data_type = ShaderDataType_Matrix4f;
+                }
             } break;
 
             case SpvOpTypePointer:
@@ -447,6 +538,7 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                 Shader_Entity &entity = ids[id];
                 entity.kind = ShaderEntityKind_Type;
                 entity.type = ShaderEntityType_Struct;
+                entity.data_type = ShaderDataType_Struct;
                 U32 member_count = count - 2;
                 const U32 *member_instruction = &instruction[2];
                 for (U32 member_index = 0; member_index < member_count; member_index++)
@@ -462,6 +554,8 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                 entity.kind = ShaderEntityKind_Type;
                 entity.type = ShaderEntityType_Array;
                 entity.id_of_type = instruction[2];
+                const Shader_Entity &type_entity = ids[entity.id_of_type];
+                entity.data_type = type_entity.data_type;
                 U32 length_id = instruction[3];
                 Shader_Entity &length = ids[length_id];
                 entity.element_count = u64_to_u32(length.value);
@@ -472,8 +566,11 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                 U32 id = instruction[1];
                 Shader_Entity &entity = ids[id];
                 entity.kind = ShaderEntityKind_Type;
-                entity.type = ShaderEntityType_RuntimeArray;
+                entity.type = ShaderEntityType_Array;
                 entity.id_of_type = instruction[2];
+                const Shader_Entity &type_entity = ids[entity.id_of_type];
+                entity.data_type = type_entity.data_type;
+                entity.element_count = MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
             } break;
 
             case SpvOpTypeSampledImage:
@@ -493,6 +590,7 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
     std::vector< VkDescriptorSetLayoutBinding > sets[MAX_DESCRIPTOR_SET_COUNT];
     std::vector< Vulkan_Shader_Input_Variable > inputs;
     std::vector< Vulkan_Shader_Output_Variable > outputs;
+    std::vector< SPIRV_Shader_Struct > structs;
 
     for (const Shader_Entity &entity : ids)
     {
@@ -509,7 +607,6 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                     set.push_back(VkDescriptorSetLayoutBinding {});
                     VkDescriptorSetLayoutBinding &descriptor_set_layout_binding = set.back();
 
-                    descriptor_set_layout_binding.descriptorCount = 1;
                     descriptor_set_layout_binding.binding = entity.binding;
                     descriptor_set_layout_binding.stageFlags = shader->stage;
 
@@ -521,15 +618,11 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                         const Shader_Entity &element_type = ids[uniform.id_of_type];
                         set_descriptor_type(descriptor_set_layout_binding, element_type);
                     }
-                    else if (uniform.type == ShaderEntityType_RuntimeArray)
+                    else if (uniform.type == ShaderEntityType_Struct)
                     {
-                        descriptor_set_layout_binding.descriptorCount = MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
-                        const Shader_Entity& element_type = ids[uniform.id_of_type];
-                        set_descriptor_type(descriptor_set_layout_binding, element_type);
-                    }
-                    else
-                    {
+                        descriptor_set_layout_binding.descriptorCount = 1;
                         set_descriptor_type(descriptor_set_layout_binding, uniform);
+                        parse_struct(uniform, structs, ids);
                     }
                 } break;
 
@@ -539,10 +632,10 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                     if (entity.location != -1)
                     {
                         Vulkan_Shader_Input_Variable input = {};
-                        char *name = (char *)malloc(entity.name_length + 1); // @Leak
-                        memcpy(name, entity.name, entity.name_length + 1);
-                        input.name = name;
+                        input.name = entity.name;
+                        input.name_length = entity.name_length;
                         input.location = entity.location;
+                        input.type = entity.data_type;
                         inputs.push_back(input);
                     }
                 } break;
@@ -553,10 +646,10 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                     if (entity.location != -1)
                     {
                         Vulkan_Shader_Output_Variable output = {};
-                        char* name = (char*)malloc(entity.name_length + 1); // @Leak
-                        memcpy(name, entity.name, entity.name_length + 1);
-                        output.name = name;
+                        output.name = entity.name;
+                        output.name_length = entity.name_length;
                         output.location = entity.location;
+                        output.type = entity.data_type;
                         outputs.push_back(output);
                     }
                 }
@@ -606,6 +699,25 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
 
     shader->output_count = output_count;
     shader->outputs = output_variables;
+
+    U32 struct_count = u64_to_u32(structs.size());
+    Shader_Struct *shader_structs = AllocateArray(arena, Shader_Struct, struct_count);
+
+    for (U32 struct_index = 0; struct_index < struct_count; struct_index++)
+    {
+        const SPIRV_Shader_Struct &spirv_struct = structs[struct_index];
+        Shader_Struct *shader_struct = &shader_structs[struct_index];
+        shader_struct->name = spirv_struct.name;
+        shader_struct->name_length = spirv_struct.name_length;
+
+        U32 member_count = u64_to_u32(spirv_struct.members.size());
+        shader_struct->member_count = member_count;
+        shader_struct->members = AllocateArray(arena, Shader_Struct_Member, member_count);
+        memcpy(shader_struct->members, spirv_struct.members.data(), sizeof(Shader_Struct_Member) * member_count);
+    }
+
+    shader->struct_count = struct_count;
+    shader->structs = shader_structs;
 
     return true;
 }

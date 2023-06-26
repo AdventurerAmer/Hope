@@ -1106,6 +1106,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
 
     VkBuffer vertex_buffers[] = { context->vertex_buffer.handle };
     VkDeviceSize offsets[] = { 0 };
+
     vkCmdBindVertexBuffers(command_buffer,
                            0, ArrayCount(vertex_buffers), vertex_buffers, offsets);
 
