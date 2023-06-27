@@ -169,7 +169,7 @@ struct Vulkan_Swapchain
     Vulkan_Image depth_stencil_attachment;
 };
 
-struct Vulkan_Global_Uniform_Buffer
+struct Vulkan_Globals_Uniform_Buffer
 {
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 projection;
@@ -178,7 +178,7 @@ struct Vulkan_Global_Uniform_Buffer
 struct Vulkan_Object_Data
 {
     alignas(16) glm::mat4 model;
-    alignas(4) U32 material_index;
+    alignas(4)  U32 material_index;
 };
 
 struct Vulkan_Material_Data
@@ -212,6 +212,7 @@ struct Vulkan_Static_Mesh_Bundle
 
 #define MAX_OBJECT_DATA_COUNT 8192
 #define MAX_DESCRIPTOR_SET_COUNT 4
+#define PIPELINE_CACHE_FILENAME "shaders/pipeline.cache"
 
 struct Vulkan_Context
 {
@@ -237,6 +238,7 @@ struct Vulkan_Context
     VkSampleCountFlagBits msaa_samples;
     VkRenderPass render_pass;
 
+    VkPipelineCache pipeline_cache;
     Vulkan_Shader mesh_vertex_shader;
     Vulkan_Shader mesh_fragment_shader;
     Vulkan_Graphics_Pipeline mesh_pipeline;

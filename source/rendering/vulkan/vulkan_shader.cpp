@@ -978,7 +978,7 @@ bool create_graphics_pipeline(Vulkan_Context *context,
     graphics_pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
     graphics_pipeline_create_info.basePipelineIndex = -1;
 
-    CheckVkResult(vkCreateGraphicsPipelines(context->logical_device, VK_NULL_HANDLE,
+    CheckVkResult(vkCreateGraphicsPipelines(context->logical_device, context->pipeline_cache,
                                             1, &graphics_pipeline_create_info,
                                             nullptr, &pipeline->handle));
 

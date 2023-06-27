@@ -631,6 +631,37 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                               min_image_count, present_mode, &context->swapchain);
     Assert(swapchain_created);
 
+    {
+        Scoped_Temprary_Memory_Arena temp_arena(arena);
+
+        U64 pipeline_cache_size = 0;
+        U8 *pipeline_cache_data = nullptr;
+
+        Read_Entire_File_Result result = platform_begin_read_entire_file(PIPELINE_CACHE_FILENAME);
+        if (result.success)
+        {
+            U8 *data = AllocateArray(&temp_arena, U8, result.size);
+            if (platform_end_read_entire_file(&result, data))
+            {
+
+                VkPipelineCacheHeaderVersionOne *pipeline_cache_header = (VkPipelineCacheHeaderVersionOne *)data;
+                if (pipeline_cache_header->deviceID == context->physical_device_properties.deviceID &&
+                    pipeline_cache_header->vendorID == context->physical_device_properties.vendorID)
+                {
+                    pipeline_cache_data = data;
+                    pipeline_cache_size = result.size;
+                }
+            }
+        }
+
+        VkPipelineCacheCreateInfo pipeline_cache_create_info
+            = { VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
+        pipeline_cache_create_info.initialDataSize = pipeline_cache_size;
+        pipeline_cache_create_info.pInitialData = pipeline_cache_data;
+        CheckVkResult(vkCreatePipelineCache(context->logical_device, &pipeline_cache_create_info,
+                                            nullptr, &context->pipeline_cache));
+    }
+
     bool shader_loaded = load_shader(&context->mesh_vertex_shader, "shaders/mesh.vert.spv", context, arena);
     Assert(shader_loaded);
 
@@ -701,7 +732,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
         Vulkan_Buffer *global_uniform_buffer = &context->globals_uniform_buffers[frame_index];
-        create_buffer(global_uniform_buffer, context, sizeof(Vulkan_Global_Uniform_Buffer),
+        create_buffer(global_uniform_buffer, context, sizeof(Vulkan_Globals_Uniform_Buffer),
                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
         Vulkan_Buffer *object_storage_buffer = &context->object_storage_buffers[frame_index];
@@ -756,7 +787,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             VkDescriptorBufferInfo globals_uniform_buffer_descriptor_info = {};
             globals_uniform_buffer_descriptor_info.buffer = context->globals_uniform_buffers[frame_index].handle;
             globals_uniform_buffer_descriptor_info.offset = 0;
-            globals_uniform_buffer_descriptor_info.range = sizeof(Vulkan_Global_Uniform_Buffer);
+            globals_uniform_buffer_descriptor_info.range = sizeof(Vulkan_Globals_Uniform_Buffer);
 
             VkWriteDescriptorSet globals_uniform_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             globals_uniform_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
@@ -890,6 +921,32 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDestroyCommandPool(context->logical_device, context->transfer_command_pool, nullptr);
 
     destroy_swapchain(context, &context->swapchain);
+
+    U64 pipeline_cache_size = 0;
+    vkGetPipelineCacheData(context->logical_device,
+                           context->pipeline_cache,
+                           &pipeline_cache_size,
+                           nullptr);
+
+
+    if (pipeline_cache_size)
+    {
+        U8 *pipeline_cache_data = AllocateArray(context->allocator, U8, pipeline_cache_size);
+        vkGetPipelineCacheData(context->logical_device,
+                           context->pipeline_cache,
+                           &pipeline_cache_size,
+                           pipeline_cache_data);
+
+        // todo(amer): platform_write_entire_file
+        Platform_File_Handle pipeline_cache_file = platform_open_file(PIPELINE_CACHE_FILENAME,
+                                                                      FileOperation_Write);
+        Assert(platform_is_file_handle_valid(pipeline_cache_file));
+        bool written = platform_write_data_to_file(pipeline_cache_file, 0, pipeline_cache_data, pipeline_cache_size);
+        Assert(written);
+        platform_close_file(pipeline_cache_file);
+    }
+
+    vkDestroyPipelineCache(context->logical_device, context->pipeline_cache, nullptr);
     destroy_graphics_pipeline(context->logical_device, &context->mesh_pipeline);
 
     vkDestroyRenderPass(context->logical_device, context->render_pass, nullptr);
@@ -956,13 +1013,13 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
                     1, &context->frame_in_flight_fences[current_frame_in_flight_index],
                     VK_TRUE, UINT64_MAX);
 
-    Vulkan_Global_Uniform_Buffer global_uniform_buffer_data = {};
+    Vulkan_Globals_Uniform_Buffer global_uniform_buffer_data = {};
     global_uniform_buffer_data.view = scene_data->view;
     global_uniform_buffer_data.projection = scene_data->projection;
     global_uniform_buffer_data.projection[1][1] *= -1;
 
     Vulkan_Buffer *global_uniform_buffer = &context->globals_uniform_buffers[current_frame_in_flight_index];
-    memcpy(global_uniform_buffer->data, &global_uniform_buffer_data, sizeof(Vulkan_Global_Uniform_Buffer));
+    memcpy(global_uniform_buffer->data, &global_uniform_buffer_data, sizeof(Vulkan_Globals_Uniform_Buffer));
 
     Vulkan_Buffer *material_storage_buffer = &context->material_storage_buffers[current_frame_in_flight_index];
     Vulkan_Material_Data *material_data_base = (Vulkan_Material_Data *)material_storage_buffer->data;
