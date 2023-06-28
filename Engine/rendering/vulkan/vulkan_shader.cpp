@@ -744,7 +744,7 @@ combine_stage_flags_or_add_binding_if_not_found(std::vector<VkDescriptorSetLayou
 }
 
 bool create_graphics_pipeline(Vulkan_Context *context,
-                              const std::initializer_list<const Vulkan_Shader *> &shaders,
+                              const std::initializer_list< const Vulkan_Shader * > &shaders,
                               VkRenderPass render_pass,
                               Vulkan_Graphics_Pipeline *pipeline)
 {

@@ -11,7 +11,7 @@ workspace "Hope"
     floatingpoint "Fast"
     exceptionhandling "Off"
     rtti "Off"
-    characterset "MBCS" -- Multi-byte Character Set
+    characterset "MBCS" --Multi-byte Character Set
 
     filter "configurations:Debug"
         defines "HE_DEBUG"
@@ -33,21 +33,55 @@ workspace "Hope"
 
     filter {}
 
-
-project "Engine"
-    kind "WindowedApp"
-    location "source"
+project "AssetProcessor"
+    kind "ConsoleApp"
+    location "AssetProcessor"
     language "C++"
     cppdialect "C++17"
     staticruntime "on"
 
-    files { "source/**.h", "source/**.hpp", "source/**.cpp", "data/shaders/**.vert", "data/shaders/**.frag" }
+    files { "AssetProcessor/**.h", "AssetProcessor/**.hpp", "AssetProcessor/**.cpp", "Data/**.vert", "Data/**.frag", "Data/**.glsl" }
+    includedirs { "Engine", "ThirdParty/include" }
 
-    includedirs { "source", "third_party/include" }
-    libdirs { "third_party/lib" }
+    debugdir "Data"
+    targetdir "bin/%{prj.name}"
+    objdir "bin/intermediates/%{prj.name}"
+
+project "Engine"
+
+    dependson { "AssetProcessor" }
+
+    kind "WindowedApp"
+    location "Engine"
+    language "C++"
+    cppdialect "C++17"
+    staticruntime "on"
+
+    files { "Engine/**.h", "Engine/**.hpp", "Engine/**.cpp" }
+
+    includedirs { "Engine", "ThirdParty/include" }
+    libdirs { "ThirdParty/lib" }
 
     links { "vulkan-1" }
 
-    debugdir "data"
+    debugdir "Data"
     targetdir "bin/%{prj.name}"
+    objdir "bin/intermediates/%{prj.name}"
+
+    prebuildcommands { "\"../bin/AssetProcessor/AssetProcessor.exe\" ../Data" }
+
+project "TestGame"
+    kind "SharedLib"
+    location "TestGame"
+    language "C++"
+    cppdialect "C++17"
+    staticruntime "on"
+
+    defines { "HE_EXPORT" }
+    files { "TestGame/**.h", "TestGame/**.hpp", "TestGame/**.cpp" }
+
+    includedirs { "Engine", "ThirdParty/include" }
+
+    debugdir "Data"
+    targetdir "bin"
     objdir "bin/intermediates/%{prj.name}"

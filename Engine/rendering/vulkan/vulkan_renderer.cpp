@@ -662,10 +662,14 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                             nullptr, &context->pipeline_cache));
     }
 
-    bool shader_loaded = load_shader(&context->mesh_vertex_shader, "shaders/mesh.vert.spv", context, arena);
+    bool shader_loaded = load_shader(&context->mesh_vertex_shader,
+                                     "shaders/bin/mesh.vert.spv",
+                                     context, arena);
     Assert(shader_loaded);
 
-    shader_loaded = load_shader(&context->mesh_fragment_shader, "shaders/mesh.frag.spv", context, arena);
+    shader_loaded = load_shader(&context->mesh_fragment_shader,
+                                "shaders/bin/mesh.frag.spv",
+                                context, arena);
     Assert(shader_loaded);
 
     create_graphics_pipeline(context,

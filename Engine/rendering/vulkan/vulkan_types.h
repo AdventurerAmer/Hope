@@ -212,7 +212,7 @@ struct Vulkan_Static_Mesh_Bundle
 
 #define MAX_OBJECT_DATA_COUNT 8192
 #define MAX_DESCRIPTOR_SET_COUNT 4
-#define PIPELINE_CACHE_FILENAME "shaders/pipeline.cache"
+#define PIPELINE_CACHE_FILENAME "shaders/bin/pipeline.cache"
 
 struct Vulkan_Context
 {

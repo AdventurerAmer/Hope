@@ -1,15 +1,16 @@
 #include "core/defines.h"
 #include "core/engine.h"
 
-extern "C" bool
+extern "C" HE_API bool
 init_game(Engine *engine)
 {
 	Platform_API *platform = &engine->platform_api;
     (void)platform;
+
     return true;
 }
 
-extern "C" void
+extern "C" HE_API void
 on_event(Engine *engine, Event event)
 {
 	Platform_API *platform = &engine->platform_api;
@@ -33,7 +34,7 @@ on_event(Engine *engine, Event event)
 	}
 }
 
-extern "C" void
+extern "C" HE_API void
 on_update(Engine *engine, F32 delta_time)
 {
 	(void)engine;

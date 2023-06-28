@@ -37,6 +37,8 @@ enum ShaderDataType
     ShaderDataType_Matrix3f,
     ShaderDataType_Matrix4f,
 
+    ShaderDataType_CombinedImageSampler,
+
     ShaderDataType_Struct,
     ShaderDataType_Array,
 };
@@ -81,7 +83,6 @@ struct Static_Mesh
 {
     U16 vertex_count;
     U32 index_count;
-
     Material *material;
 };
 

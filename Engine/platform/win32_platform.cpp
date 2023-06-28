@@ -427,11 +427,13 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
     win32_state->cursor = LoadCursor(NULL, IDC_ARROW);
 
     Win32_Dynamic_Library win32_dynamic_library = {};
-    win32_dynamic_library.filename = "../bin/game.dll";
-    win32_dynamic_library.temp_filename = "../bin/game_temp.dll";
+    win32_dynamic_library.filename = "../bin/TestGame.dll";
+    win32_dynamic_library.temp_filename = "../bin/TempTestGame.dll";
     win32_dynamic_library.last_write_time = win32_get_file_last_write_time(win32_dynamic_library.filename);
 
-    win32_load_game_code(&win32_dynamic_library, &win32_state->engine.game_code);
+    bool loaded = win32_load_game_code(&win32_dynamic_library, &win32_state->engine.game_code);
+    Assert(loaded);
+
     win32_set_window_client_size(win32_state,
                                  configuration.back_buffer_width,
                                  configuration.back_buffer_height);
