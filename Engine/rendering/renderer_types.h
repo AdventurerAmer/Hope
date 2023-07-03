@@ -43,6 +43,53 @@ enum ShaderDataType
     ShaderDataType_Array,
 };
 
+#define USING_STD_LAYOUT_140 1
+#ifdef USING_STD_LAYOUT_140
+
+typedef glm::vec2 __vec2;
+typedef glm::vec4 __vec3;
+typedef glm::vec4 __vec4;
+typedef glm::mat4 __mat3;
+typedef glm::mat4 __mat4;
+
+#define uint U32
+#define vec2 alignas(8) __vec2
+#define vec3 alignas(16) __vec3
+#define vec4 alignas(16) __vec4
+#define mat3 alignas(16) __mat3
+#define mat4 alignas(16) __mat4
+#define struct struct alignas(16)
+
+#include "../Data/shaders/common.glsl"
+
+struct Vulkan_Globals_Uniform_Buffer
+{
+    mat4 view;
+    mat4 projection;
+};
+
+struct Vulkan_Object_Data
+{
+    mat4 model;
+    uint material_index;
+};
+
+struct Vulkan_Material_Data
+{
+    uint albedo_texture_index;
+    uint normal_texture_index;
+};
+
+#undef uint
+#undef vec2
+#undef vec3
+#undef vec4
+#undef mat3
+#undef mat4
+#undef struct
+
+#endif
+
 struct Vertex
 {
     glm::vec3 position;

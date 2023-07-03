@@ -71,8 +71,6 @@ bool load_asset_cache(std::unordered_map< std::string, Asset_File_Info > &asset_
     fread(asset_cache_buffer.data(), asset_cache_file_size, 1, asset_cache_file);
     fclose(asset_cache_file);
 
-    fprintf(stderr, "loading asset cache...\n");
-
     uint32_t offset = 0;
 
     Asset_Cache_File_Header header;
@@ -130,7 +128,7 @@ bool save_asset_cache(const std::unordered_map< std::string, Asset_File_Info > &
         push(asset_cache_buffer, offset, &info);
     }
 
-    FILE* asset_cache_file = fopen(filepath.c_str(), "wb");
+    FILE *asset_cache_file = fopen(filepath.c_str(), "wb");
     if (!asset_cache_file)
     {
         fprintf(stderr, "can't create asset cache file: %s\n", filepath.c_str());
@@ -144,11 +142,12 @@ bool save_asset_cache(const std::unordered_map< std::string, Asset_File_Info > &
 
 int main(int argc, char **args)
 {
-    if (argc <= 1)
+    if (argc < 3)
     {
-        fprintf(stderr, "Error: missing argument [asset directory]\n");
+        fprintf(stderr, "Error: missing arguments [asset directory] [output directory]\n");
         return -1;
     }
+
     const char *asset_path = args[1];
     if (!fs::exists(fs::path(asset_path)))
     {
@@ -156,9 +155,20 @@ int main(int argc, char **args)
         return -1;
     }
 
+    const char *output_path = args[2];
+    if (!fs::exists(fs::path(asset_path)))
+    {
+        fprintf(stderr, "Error: output directory: %s doesn't exist\n", output_path);
+        return -1;
+    }
+
+    bool force = true;
+
     std::unordered_map< std::string, Asset_File_Info > asset_cache;
 
     std::string asset_cache_filepath = std::string(asset_path) + "/" + ASSET_CHACHE_FILE_NAME;
+
+    fprintf(stderr, "loading asset cache...\n");
     load_asset_cache(asset_cache, asset_cache_filepath);
 
     fprintf(stderr, "cooking assets...\n");
@@ -181,15 +191,16 @@ int main(int argc, char **args)
                 
                 struct stat s;
                 stat(filename.c_str(), &s);
-                if (s.st_mtime != asset_file_info.last_write_time)
+                if (s.st_mtime != asset_file_info.last_write_time || force)
                 {
                     asset_file_info.last_write_time = s.st_mtime;
-                    std::string command = "glslangValidator -V " + filename + " -o " + "../Data/shaders/bin/" + name + ".spv";
+                    std::string command = "glslangValidator -V " + filename + " -o " + output_path + "/" + name + ".spv";
                     system(command.c_str());
                 }
             }
         }
     }
 
+    fprintf(stderr, "saving asset cache...\n");
     save_asset_cache(asset_cache, asset_cache_filepath);
 }

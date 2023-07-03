@@ -57,7 +57,7 @@ project "Engine"
     cppdialect "C++17"
     staticruntime "on"
 
-    files { "Engine/**.h", "Engine/**.hpp", "Engine/**.cpp" }
+    files { "Engine/**.h", "Engine/**.hpp", "Engine/**.cpp", "Data/**.vert", "Data/**.frag", "Data/**.glsl" }
 
     includedirs { "Engine", "ThirdParty/include" }
     libdirs { "ThirdParty/lib" }
@@ -67,8 +67,6 @@ project "Engine"
     debugdir "Data"
     targetdir "bin/%{prj.name}"
     objdir "bin/intermediates/%{prj.name}"
-
-    prebuildcommands { "\"../bin/AssetProcessor/AssetProcessor.exe\" ../Data" }
 
 project "TestGame"
     kind "SharedLib"

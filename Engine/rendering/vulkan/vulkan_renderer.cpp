@@ -55,8 +55,109 @@ find_memory_type_index(Vulkan_Context *context,
     return result;
 }
 
+internal_function bool
+is_physical_device_supports_all_features(VkPhysicalDevice physical_device,
+                                         VkPhysicalDeviceFeatures2 features2,
+                                         VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features)
+{
+    VkPhysicalDeviceDescriptorIndexingFeatures supported_descriptor_indexing_features =
+            { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
+
+    VkPhysicalDeviceFeatures2 supported_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+    supported_features2.pNext = &supported_descriptor_indexing_features;
+    vkGetPhysicalDeviceFeatures2(physical_device, &supported_features2);
+
+    if (features2.features.robustBufferAccess && !supported_features2.features.robustBufferAccess ||
+        features2.features.fullDrawIndexUint32 && !supported_features2.features.fullDrawIndexUint32 ||
+        features2.features.imageCubeArray && !supported_features2.features.imageCubeArray ||
+        features2.features.independentBlend && !supported_features2.features.independentBlend ||
+        features2.features.geometryShader && !supported_features2.features.geometryShader ||
+        features2.features.tessellationShader && !supported_features2.features.tessellationShader ||
+        features2.features.sampleRateShading && !supported_features2.features.sampleRateShading ||
+        features2.features.dualSrcBlend && !supported_features2.features.dualSrcBlend ||
+        features2.features.logicOp && !supported_features2.features.logicOp ||
+        features2.features.multiDrawIndirect && !supported_features2.features.multiDrawIndirect ||
+        features2.features.drawIndirectFirstInstance && !supported_features2.features.drawIndirectFirstInstance ||
+        features2.features.depthClamp && !supported_features2.features.depthClamp ||
+        features2.features.depthBiasClamp && !supported_features2.features.depthBiasClamp ||
+        features2.features.fillModeNonSolid && !supported_features2.features.fillModeNonSolid ||
+        features2.features.depthBounds && !supported_features2.features.depthBounds ||
+        features2.features.wideLines && !supported_features2.features.wideLines ||
+        features2.features.largePoints && !supported_features2.features.largePoints ||
+        features2.features.alphaToOne && !supported_features2.features.alphaToOne ||
+        features2.features.multiViewport && !supported_features2.features.multiViewport ||
+        features2.features.samplerAnisotropy && !supported_features2.features.samplerAnisotropy ||
+        features2.features.textureCompressionETC2 && !supported_features2.features.textureCompressionETC2 ||
+        features2.features.textureCompressionASTC_LDR && !supported_features2.features.textureCompressionASTC_LDR ||
+        features2.features.textureCompressionBC && !supported_features2.features.textureCompressionBC ||
+        features2.features.occlusionQueryPrecise && !supported_features2.features.occlusionQueryPrecise ||
+        features2.features.pipelineStatisticsQuery && !supported_features2.features.pipelineStatisticsQuery ||
+        features2.features.vertexPipelineStoresAndAtomics && !supported_features2.features.vertexPipelineStoresAndAtomics ||
+        features2.features.fragmentStoresAndAtomics && !supported_features2.features.fragmentStoresAndAtomics ||
+        features2.features.shaderTessellationAndGeometryPointSize && !supported_features2.features.shaderTessellationAndGeometryPointSize ||
+        features2.features.shaderImageGatherExtended && !supported_features2.features.shaderImageGatherExtended ||
+        features2.features.shaderStorageImageExtendedFormats && !supported_features2.features.shaderStorageImageExtendedFormats ||
+        features2.features.shaderStorageImageMultisample && !supported_features2.features.shaderStorageImageMultisample ||
+        features2.features.shaderStorageImageReadWithoutFormat && !supported_features2.features.shaderStorageImageReadWithoutFormat ||
+        features2.features.shaderStorageImageWriteWithoutFormat && !supported_features2.features.shaderStorageImageWriteWithoutFormat ||
+        features2.features.shaderUniformBufferArrayDynamicIndexing && !supported_features2.features.shaderUniformBufferArrayDynamicIndexing ||
+        features2.features.shaderSampledImageArrayDynamicIndexing && !supported_features2.features.shaderSampledImageArrayDynamicIndexing ||
+        features2.features.shaderStorageBufferArrayDynamicIndexing && !supported_features2.features.shaderStorageBufferArrayDynamicIndexing ||
+        features2.features.shaderStorageImageArrayDynamicIndexing && !supported_features2.features.shaderStorageImageArrayDynamicIndexing ||
+        features2.features.shaderClipDistance && !supported_features2.features.shaderClipDistance ||
+        features2.features.shaderCullDistance && !supported_features2.features.shaderCullDistance ||
+        features2.features.shaderFloat64 && !supported_features2.features.shaderFloat64 ||
+        features2.features.shaderInt64 && !supported_features2.features.shaderInt64 ||
+        features2.features.shaderInt16 && !supported_features2.features.shaderInt16 ||
+        features2.features.shaderResourceResidency && !supported_features2.features.shaderResourceResidency ||
+        features2.features.shaderResourceMinLod && !supported_features2.features.shaderResourceMinLod ||
+        features2.features.sparseBinding && !supported_features2.features.sparseBinding ||
+        features2.features.sparseResidencyBuffer && !supported_features2.features.sparseResidencyBuffer ||
+        features2.features.sparseResidencyImage2D && !supported_features2.features.sparseResidencyImage2D ||
+        features2.features.sparseResidencyImage3D && !supported_features2.features.sparseResidencyImage3D ||
+        features2.features.sparseResidency2Samples && !supported_features2.features.sparseResidency2Samples ||
+        features2.features.sparseResidency4Samples && !supported_features2.features.sparseResidency4Samples ||
+        features2.features.sparseResidency8Samples && !supported_features2.features.sparseResidency8Samples ||
+        features2.features.sparseResidency16Samples && !supported_features2.features.sparseResidency16Samples ||
+        features2.features.sparseResidencyAliased && !supported_features2.features.sparseResidencyAliased ||
+        features2.features.variableMultisampleRate && !supported_features2.features.variableMultisampleRate ||
+        features2.features.inheritedQueries && !supported_features2.features.inheritedQueries)
+    {
+        return false;
+    }
+
+    if (descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing && !supported_descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing ||
+        descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing && !supported_descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing ||
+        descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing && !supported_descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing ||
+        descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing ||
+        descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing ||
+        descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing ||
+        descriptor_indexing_features.shaderStorageImageArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderStorageImageArrayNonUniformIndexing ||
+        descriptor_indexing_features.shaderInputAttachmentArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderInputAttachmentArrayNonUniformIndexing ||
+        descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing ||
+        descriptor_indexing_features.shaderStorageTexelBufferArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderStorageTexelBufferArrayNonUniformIndexing ||
+        descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind && !supported_descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind ||
+        descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind && !supported_descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind ||
+        descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind && !supported_descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind ||
+        descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind && !supported_descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind ||
+        descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind && !supported_descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind ||
+        descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind && !supported_descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind ||
+        descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending && !supported_descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending ||
+        descriptor_indexing_features.descriptorBindingPartiallyBound && !supported_descriptor_indexing_features.descriptorBindingPartiallyBound ||
+        descriptor_indexing_features.descriptorBindingVariableDescriptorCount && !supported_descriptor_indexing_features.descriptorBindingVariableDescriptorCount ||
+        descriptor_indexing_features.runtimeDescriptorArray && !supported_descriptor_indexing_features.runtimeDescriptorArray)
+    {
+        return false;
+    }
+
+    return true;
+}
+
 internal_function VkPhysicalDevice
-pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *arena)
+pick_physical_device(VkInstance instance, VkSurfaceKHR surface,
+                     VkPhysicalDeviceFeatures2 features,
+                     VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features,
+                     Memory_Arena *arena)
 {
     Scoped_Temprary_Memory_Arena temp_arena(arena);
 
@@ -86,24 +187,13 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *ar
     {
         VkPhysicalDevice *current_physical_device = &physical_devices[physical_device_index];
 
-        VkPhysicalDeviceProperties properties = {};
-        vkGetPhysicalDeviceProperties(*current_physical_device, &properties);
-
-        VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features =
-            { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
-
-        VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-        features2.pNext = &descriptor_indexing_features;
-        vkGetPhysicalDeviceFeatures2(*current_physical_device, &features2);
-
-        if (!features2.features.samplerAnisotropy ||
-            !features2.features.sampleRateShading ||
-            !descriptor_indexing_features.runtimeDescriptorArray ||
-            !descriptor_indexing_features.descriptorBindingPartiallyBound ||
-            !descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind)
+        if (!is_physical_device_supports_all_features(*current_physical_device, features, descriptor_indexing_features))
         {
             continue;
         }
+
+        VkPhysicalDeviceProperties properties = {};
+        vkGetPhysicalDeviceProperties(*current_physical_device, &properties);
 
         U32 queue_family_count = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(*current_physical_device,
@@ -258,7 +348,40 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                                                     context->instance);
     Assert(context->surface);
 
-    context->physical_device = pick_physical_device(context->instance, context->surface, arena);
+    VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features =
+        { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
+
+    descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing = VK_TRUE;
+    descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing = VK_TRUE;
+    descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing = VK_TRUE;
+    descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing = VK_TRUE;
+    descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
+    descriptor_indexing_features.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
+    descriptor_indexing_features.shaderInputAttachmentArrayNonUniformIndexing = VK_TRUE;
+    descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing = VK_TRUE;
+    descriptor_indexing_features.shaderStorageTexelBufferArrayNonUniformIndexing = VK_TRUE;
+    descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+    descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+    descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
+    descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+    descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind = VK_TRUE;
+    descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
+    descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
+    descriptor_indexing_features.descriptorBindingPartiallyBound = VK_TRUE;
+    descriptor_indexing_features.descriptorBindingVariableDescriptorCount = VK_TRUE;
+    descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
+
+    VkPhysicalDeviceFeatures2 physical_device_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+    physical_device_features2.features.samplerAnisotropy = VK_TRUE;
+    physical_device_features2.features.sampleRateShading = VK_TRUE;
+    physical_device_features2.pNext = &descriptor_indexing_features;
+
+    context->physical_device = pick_physical_device(context->instance,
+                                                    context->surface,
+                                                    physical_device_features2,
+                                                    descriptor_indexing_features,
+                                                    arena);
     Assert(context->physical_device != VK_NULL_HANDLE);
 
     vkGetPhysicalDeviceMemoryProperties(context->physical_device, &context->physical_device_memory_properties);
@@ -415,36 +538,6 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             queue_create_infos[queue_create_info_index].queueCount = 1;
             queue_create_infos[queue_create_info_index].pQueuePriorities = &queue_priority;
         }
-
-        // todo(amer): should really get this from the physical_device
-        VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features =
-            { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
-
-        descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing = VK_TRUE;
-        descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing = VK_TRUE;
-        descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing = VK_TRUE;
-        descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing = VK_TRUE;
-        descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
-        descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
-        descriptor_indexing_features.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
-        descriptor_indexing_features.shaderInputAttachmentArrayNonUniformIndexing = VK_TRUE;
-        descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing = VK_TRUE;
-        descriptor_indexing_features.shaderStorageTexelBufferArrayNonUniformIndexing = VK_TRUE;
-        descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
-        descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
-        descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
-        descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
-        descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind = VK_TRUE;
-        descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
-        descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
-        descriptor_indexing_features.descriptorBindingPartiallyBound = VK_TRUE;
-        descriptor_indexing_features.descriptorBindingVariableDescriptorCount = VK_TRUE;
-        descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
-
-        VkPhysicalDeviceFeatures2 physical_device_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-        physical_device_features2.features.samplerAnisotropy = VK_TRUE;
-        physical_device_features2.features.sampleRateShading = VK_TRUE;
-        physical_device_features2.pNext = &descriptor_indexing_features;
 
         const char *required_device_extensions[] =
         {
@@ -1001,11 +1094,15 @@ void vulkan_renderer_on_resize(Renderer_State *renderer_state,
                                U32 height)
 {
     (void)renderer_state;
-    recreate_swapchain(&vulkan_context,
-                       &vulkan_context.swapchain,
-                       width,
-                       height,
-                       vulkan_context.swapchain.present_mode);
+
+    if (width != 0 && height != 0)
+    {
+        recreate_swapchain(&vulkan_context,
+                           &vulkan_context.swapchain,
+                           width,
+                           height,
+                           vulkan_context.swapchain.present_mode);
+    }
 }
 
 void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Scene_Data *scene_data)
@@ -1268,7 +1365,8 @@ bool vulkan_renderer_create_texture(Texture *texture, U32 width, U32 height,
                  VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
                  VK_IMAGE_USAGE_TRANSFER_DST_BIT|
                  VK_IMAGE_USAGE_SAMPLED_BIT,
-                 VK_IMAGE_ASPECT_COLOR_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapping);
+                 VK_IMAGE_ASPECT_COLOR_BIT,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapping);
 
     copy_buffer_to_image(context, image, width, height, data,
                          (U64)width * (U64)height * sizeof(U32));

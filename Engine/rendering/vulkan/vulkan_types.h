@@ -169,23 +169,23 @@ struct Vulkan_Swapchain
     Vulkan_Image depth_stencil_attachment;
 };
 
-struct Vulkan_Globals_Uniform_Buffer
-{
-    alignas(16) glm::mat4 view;
-    alignas(16) glm::mat4 projection;
-};
+// struct Vulkan_Globals_Uniform_Buffer
+// {
+//     glm::mat4 view;
+//     alignas(16) glm::mat4 projection;
+// };
 
-struct Vulkan_Object_Data
-{
-    alignas(16) glm::mat4 model;
-    alignas(4)  U32 material_index;
-};
+// struct Vulkan_Object_Data
+// {
+//     glm::mat4 model;
+//     alignas(16) U32 material_index;
+// };
 
-struct Vulkan_Material_Data
-{
-    alignas(16) glm::mat4 model;
-    U32 albedo_texture_index;
-};
+// struct Vulkan_Material_Data
+// {
+//     U32 albedo_texture_index;
+//     U32 normal_texture_index;
+// };
 
 struct Vulkan_Material
 {
@@ -210,7 +210,7 @@ struct Vulkan_Static_Mesh_Bundle
     Vulkan_Static_Mesh vulkan_static_mesh;
 };
 
-#define MAX_OBJECT_DATA_COUNT 8192
+#define MAX_OBJECT_DATA_COUNT UINT16_MAX
 #define MAX_DESCRIPTOR_SET_COUNT 4
 #define PIPELINE_CACHE_FILENAME "shaders/bin/pipeline.cache"
 

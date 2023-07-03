@@ -11,13 +11,13 @@ layout (location = 2) in vec2 in_uv;
 layout (location = 0) out vec2 out_uv;
 layout (location = 1) out flat uint out_material_index;
 
-layout (set = 0, binding = 0) uniform u_Globals
+layout (std140, set = 0, binding = 0) uniform u_Globals
 {
     mat4 view;
     mat4 projection;
 } globals;
 
-layout (set = 0, binding = 1) readonly buffer u_Object_Buffer
+layout (std140, set = 0, binding = 1) readonly buffer u_Object_Buffer
 {
     Object_Data objects[];
 };

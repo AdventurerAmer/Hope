@@ -1,10 +1,3 @@
-struct Vertex
-{
-    vec3 position;
-    vec3 normal;
-    vec2 uv;
-};
-
 struct Globals
 {
     mat4 view;
@@ -19,6 +12,6 @@ struct Object_Data
 
 struct Material_Data
 {
-    mat4 model; // temprary for alignment....
     uint albedo_texture_index;
+    uint normal_texture_index;
 };
