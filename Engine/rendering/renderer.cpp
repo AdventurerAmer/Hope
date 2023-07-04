@@ -90,6 +90,112 @@ add_child_scene_node(Renderer_State *renderer_state,
     return node;
 }
 
+internal_function Texture *
+cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32 model_path_without_file_name_length,
+                   Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena)
+{
+    const cgltf_image *image = texture_view->texture->image;
+
+    Texture *texture = nullptr;
+    char texture_path[MAX_TEXTURE_NAME];
+
+    if (texture_view->texture->image->uri)
+    {
+        char *uri = texture_view->texture->image->uri;
+        sprintf(texture_path, "%.*s/%s",
+                u64_to_u32(model_path_without_file_name_length),
+                model_path, uri);
+    }
+    else
+    {
+        const char *extension_to_append = "";
+
+        char *name = texture_view->texture->image->name;
+        U32 name_length = u64_to_u32(strlen(name));
+        Assert(name_length <= (MAX_TEXTURE_NAME - 1));
+
+        S32 last_dot_index = -1;
+        for (U32 char_index = 0; char_index < name_length; char_index++)
+        {
+            if (name[name_length - char_index - 1] == '.')
+            {
+                last_dot_index = char_index;
+                break;
+            }
+        }
+
+        // todo(amer): string utils
+        char *extension = name + last_dot_index;
+        if (strcmp(extension, ".png") != 0 &&
+            strcmp(extension, ".jpg") != 0)
+        {
+            if (strcmp(image->mime_type, "image/png") == 0)
+            {
+                extension_to_append = ".png";
+            }
+            else if (strcmp(image->mime_type, "image/jpg") == 0)
+            {
+                extension_to_append = ".jpg";
+            }
+        }
+        sprintf(texture_path, "%.*s/%.*s%s",
+                u64_to_u32(model_path_without_file_name_length), model_path,
+                name_length, name, extension_to_append);
+    }
+
+    U32 texture_path_length = u64_to_u32(strlen(texture_path));
+
+    S32 texture_index = find_texture(renderer_state,
+                                            texture_path,
+                                            texture_path_length);
+    if (texture_index == -1)
+    {
+        Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
+        texture = allocate_texture(renderer_state);
+        strcpy(texture->name, texture_path);
+        texture->name_length = texture_path_length;
+
+        S32 texture_width;
+        S32 texture_height;
+        S32 texture_channels;
+
+        stbi_uc *pixels = nullptr;
+
+        if (!fs::exists(fs::path(texture_path)))
+        {
+            const auto *view = image->buffer_view;
+            U8 *data_ptr = (U8*)view->buffer->data;
+            U8 *image_data = data_ptr + view->offset;
+
+            pixels = stbi_load_from_memory(image_data, u64_to_u32(view->size),
+                                           &texture_width, &texture_height,
+                                           &texture_channels, STBI_rgb_alpha);
+        }
+        else
+        {
+            pixels = stbi_load(texture_path,
+                                      &texture_width, &texture_height,
+                                      &texture_channels, STBI_rgb_alpha);
+        }
+
+        Assert(pixels);
+        bool mipmapping = true;
+        bool created = renderer->create_texture(texture,
+                                                texture_width,
+                                                texture_height,
+                                                pixels, TextureFormat_RGBA, mipmapping);
+        Assert(created);
+
+        stbi_image_free(pixels);
+    }
+    else
+    {
+        texture = get_texture(renderer_state, texture_index);
+    }
+
+    return texture;
+}
+
 // note(amer): https://github.com/deccer/CMake-Glfw-OpenGL-Template/blob/main/src/Project/ProjectApplication.cpp
 // thanks to this giga chad for the example
 Scene_Node *load_model(const char *path, Renderer *renderer,
@@ -138,119 +244,49 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
         cgltf_material *material = &model_data->materials[material_index];
         U64 material_hash = (U64)material;
 
-        if (material->has_pbr_metallic_roughness && material->pbr_metallic_roughness.base_color_texture.texture)
+        Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
+        Material* renderer_material = allocate_material(renderer_state);
+
+        if (material->name)
         {
-            Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
-            Material *renderer_material = allocate_material(renderer_state);
-            if (material->name)
-            {
-                renderer_material->name_length = u64_to_u32(strlen(material->name));
-                Assert(renderer_material->name_length <= (MAX_MATERIAL_NAME - 1));
-                strncpy(renderer_material->name, material->name, renderer_material->name_length);
-            }
-            renderer_material->hash = material_hash;
-
-            const cgltf_image *image = material->pbr_metallic_roughness.base_color_texture.texture->image;
-
-            Texture *albedo = nullptr;
-            char albdeo_texture_path[MAX_TEXTURE_NAME];
-
-            if (material->pbr_metallic_roughness.base_color_texture.texture->image->uri)
-            {
-                char *uri = material->pbr_metallic_roughness.base_color_texture.texture->image->uri;
-                sprintf(albdeo_texture_path, "%.*s/%s",
-                        u64_to_u32(path_without_file_name_length),
-                        path, uri);
-            }
-            else
-            {
-                const char *extension_to_append = "";
-
-                char *name = material->pbr_metallic_roughness.base_color_texture.texture->image->name;
-                U32 name_length = u64_to_u32(strlen(name));
-                Assert(name_length <= (MAX_TEXTURE_NAME - 1));
-
-                S32 last_dot_index = -1;
-                for (U32 char_index = 0; char_index < name_length; char_index++)
-                {
-                    if (name[name_length - char_index - 1] == '.')
-                    {
-                        last_dot_index = char_index;
-                        break;
-                    }
-                }
-
-                // todo(amer): string utils
-                char *extension = name + last_dot_index;
-                if (strcmp(extension, ".png") != 0 &&
-                    strcmp(extension, ".jpg") != 0)
-                {
-                    if (strcmp(image->mime_type, "image/png") == 0)
-                    {
-                        extension_to_append = ".png";
-                    }
-                    else if (strcmp(image->mime_type, "image/jpg") == 0)
-                    {
-                        extension_to_append = ".jpg";
-                    }
-                }
-                sprintf(albdeo_texture_path, "%.*s/%.*s%s",
-                        u64_to_u32(path_without_file_name_length), path,
-                        name_length, name, extension_to_append);
-            }
-
-            U32 albdeo_texture_path_length = u64_to_u32(strlen(albdeo_texture_path));
-
-            S32 albedo_texture_index = find_texture(renderer_state,
-                                                    albdeo_texture_path,
-                                                    albdeo_texture_path_length);
-            if (albedo_texture_index == -1)
-            {
-                Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
-                albedo = allocate_texture(renderer_state);
-                strcpy(albedo->name, albdeo_texture_path);
-                albedo->name_length = albdeo_texture_path_length;
-
-                S32 albedo_texture_width;
-                S32 albedo_texture_height;
-                S32 albedo_texture_channels;
-
-                stbi_uc *albedo_pixels = nullptr;
-
-                if (!fs::exists(fs::path(albdeo_texture_path)))
-                {
-                    const auto *view = image->buffer_view;
-                    U8 *data_ptr = (U8*)view->buffer->data;
-                    U8 *image_data = data_ptr + view->offset;
-
-                    albedo_pixels = stbi_load_from_memory(image_data, u64_to_u32(view->size),
-                                                          &albedo_texture_width, &albedo_texture_height,
-                                                          &albedo_texture_channels, STBI_rgb_alpha);
-                }
-                else
-                {
-                    albedo_pixels = stbi_load(albdeo_texture_path,
-                                              &albedo_texture_width, &albedo_texture_height,
-                                              &albedo_texture_channels, STBI_rgb_alpha);
-                }
-
-                Assert(albedo_pixels);
-                bool mipmapping = true;
-                bool created = renderer->create_texture(albedo,
-                                                        albedo_texture_width,
-                                                        albedo_texture_height,
-                                                        albedo_pixels, TextureFormat_RGBA, mipmapping);
-                Assert(created);
-
-                stbi_image_free(albedo_pixels);
-            }
-            else
-            {
-                albedo = get_texture(renderer_state, albedo_texture_index);
-            }
-
-            renderer->create_material(renderer_material, albedo, index_of(renderer_state, albedo));
+            renderer_material->name_length = u64_to_u32(strlen(material->name));
+            Assert(renderer_material->name_length <= (MAX_MATERIAL_NAME - 1));
+            strncpy(renderer_material->name, material->name, renderer_material->name_length);
         }
+        renderer_material->hash = material_hash;
+
+        Texture *albedo = nullptr;
+        Texture *normal = nullptr;
+
+        if (material->has_pbr_metallic_roughness)
+        {
+            if (material->pbr_metallic_roughness.base_color_texture.texture)
+            {
+                albedo = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture,
+                                            path,
+                                            u64_to_u32(path_without_file_name_length),
+                                            renderer,
+                                            renderer_state,
+                                            arena);
+            }
+        }
+
+        if (material->normal_texture.texture)
+        {
+            normal = cgltf_load_texture(&material->normal_texture,
+                                        path,
+                                        u64_to_u32(path_without_file_name_length),
+                                        renderer,
+                                        renderer_state,
+                                        arena);
+        }
+        else
+        {
+            // todo(amer): default normal texture doing this for now.
+            normal = albedo;
+        }
+
+        renderer->create_material(renderer_material, index_of(renderer_state, albedo), index_of(renderer_state, normal));
     }
 
     U32 position_count = 0;

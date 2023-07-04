@@ -51,6 +51,9 @@ struct Scene_Data
 {
     glm::mat4 view;
     glm::mat4 projection;
+
+    glm::vec3 directional_light_direction;
+    glm::vec4 directional_light_color;
 };
 
 struct Renderer
@@ -76,7 +79,7 @@ struct Renderer
     bool (*create_static_mesh)(Static_Mesh *static_mesh, void *vertices, U16 vertex_count, U16 *indices, U32 index_count);
     void (*destroy_static_mesh)(Static_Mesh *static_mesh);
 
-    bool (*create_material)(Material *material, Texture *albedo, U32 albedo_texture_index);
+    bool (*create_material)(Material *material, U32 albedo_texture_index, U32 normal_texture_index);
     void (*destroy_material)(Material *material);
 };
 

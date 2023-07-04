@@ -2,6 +2,9 @@ struct Globals
 {
     mat4 view;
     mat4 projection;
+
+    vec3 directional_light_direction;
+    vec4 directional_light_color;
 };
 
 struct Object_Data

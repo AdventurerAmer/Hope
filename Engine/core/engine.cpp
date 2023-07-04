@@ -158,14 +158,19 @@ void game_loop(Engine* engine, F32 delta_time)
     Game_Code *game_code = &engine->game_code;
     game_code->on_update(engine, delta_time);
 
+    glm::vec3 directional_light_direction = { 0.0f, -1.0f, 0.0f };
+    glm::vec4 directional_light_color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
     if (!engine->is_minimized)
     {
         Scene_Data scene_data;
         scene_data.view = camera->view;
         scene_data.projection = camera->projection;
+        scene_data.directional_light_direction = directional_light_direction;
+        scene_data.directional_light_color = directional_light_color;
 
         renderer->begin_frame(renderer_state, &scene_data);
-        render_scene_node(renderer, renderer_state, renderer_state->sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
+        render_scene_node(renderer,renderer_state, renderer_state->sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
         render_scene_node(renderer, renderer_state, renderer_state->flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)));
         renderer->end_frame(renderer_state);
     }

@@ -189,7 +189,7 @@ struct Vulkan_Swapchain
 
 struct Vulkan_Material
 {
-    Vulkan_Material_Data data;
+    Material_Data data;
 };
 
 struct Vulkan_Material_Bundle
@@ -252,7 +252,7 @@ struct Vulkan_Context
     Vulkan_Buffer globals_uniform_buffers[MAX_FRAMES_IN_FLIGHT];
 
     Vulkan_Buffer object_storage_buffers[MAX_FRAMES_IN_FLIGHT];
-    Vulkan_Object_Data *object_data_base;
+    Object_Data *object_data_base;
     U32 object_data_count;
 
     Vulkan_Buffer material_storage_buffers[MAX_FRAMES_IN_FLIGHT];

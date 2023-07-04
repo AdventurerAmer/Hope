@@ -13,9 +13,8 @@ layout (location = 1) out flat uint out_material_index;
 
 layout (std140, set = 0, binding = 0) uniform u_Globals
 {
-    mat4 view;
-    mat4 projection;
-} globals;
+    Globals globals;
+};
 
 layout (std140, set = 0, binding = 1) readonly buffer u_Object_Buffer
 {

@@ -829,15 +829,15 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
         Vulkan_Buffer *global_uniform_buffer = &context->globals_uniform_buffers[frame_index];
-        create_buffer(global_uniform_buffer, context, sizeof(Vulkan_Globals_Uniform_Buffer),
+        create_buffer(global_uniform_buffer, context, sizeof(Globals),
                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
         Vulkan_Buffer *object_storage_buffer = &context->object_storage_buffers[frame_index];
-        create_buffer(object_storage_buffer, context, sizeof(Vulkan_Object_Data) * MAX_OBJECT_DATA_COUNT,
+        create_buffer(object_storage_buffer, context, sizeof(Object_Data) * MAX_OBJECT_DATA_COUNT,
                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
         Vulkan_Buffer *material_storage_buffer = &context->material_storage_buffers[frame_index];
-        create_buffer(material_storage_buffer, context, sizeof(Vulkan_Material_Data) * MAX_MATERIAL_COUNT,
+        create_buffer(material_storage_buffer, context, sizeof(Material_Data) * MAX_MATERIAL_COUNT,
                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     }
 
@@ -884,7 +884,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             VkDescriptorBufferInfo globals_uniform_buffer_descriptor_info = {};
             globals_uniform_buffer_descriptor_info.buffer = context->globals_uniform_buffers[frame_index].handle;
             globals_uniform_buffer_descriptor_info.offset = 0;
-            globals_uniform_buffer_descriptor_info.range = sizeof(Vulkan_Globals_Uniform_Buffer);
+            globals_uniform_buffer_descriptor_info.range = sizeof(Globals);
 
             VkWriteDescriptorSet globals_uniform_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             globals_uniform_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
@@ -897,7 +897,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             VkDescriptorBufferInfo object_data_storage_buffer_descriptor_info = {};
             object_data_storage_buffer_descriptor_info.buffer = context->object_storage_buffers[frame_index].handle;
             object_data_storage_buffer_descriptor_info.offset = 0;
-            object_data_storage_buffer_descriptor_info.range = sizeof(Vulkan_Object_Data) * MAX_OBJECT_DATA_COUNT;
+            object_data_storage_buffer_descriptor_info.range = sizeof(Object_Data) * MAX_OBJECT_DATA_COUNT;
 
             VkWriteDescriptorSet object_data_storage_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             object_data_storage_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
@@ -910,7 +910,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             VkDescriptorBufferInfo material_storage_buffer_descriptor_info = {};
             material_storage_buffer_descriptor_info.buffer = context->material_storage_buffers[frame_index].handle;
             material_storage_buffer_descriptor_info.offset = 0;
-            material_storage_buffer_descriptor_info.range = sizeof(Vulkan_Material_Data) * MAX_MATERIAL_COUNT;
+            material_storage_buffer_descriptor_info.range = sizeof(Material_Data) * MAX_MATERIAL_COUNT;
 
             VkWriteDescriptorSet material_storage_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             material_storage_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
@@ -1114,16 +1114,18 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
                     1, &context->frame_in_flight_fences[current_frame_in_flight_index],
                     VK_TRUE, UINT64_MAX);
 
-    Vulkan_Globals_Uniform_Buffer global_uniform_buffer_data = {};
-    global_uniform_buffer_data.view = scene_data->view;
-    global_uniform_buffer_data.projection = scene_data->projection;
-    global_uniform_buffer_data.projection[1][1] *= -1;
+    Globals globals = {};
+    globals.view = scene_data->view;
+    globals.projection = scene_data->projection;
+    globals.projection[1][1] *= -1;
+    globals.directional_light_direction = glm::vec4(scene_data->directional_light_direction, 0.0f);
+    globals.directional_light_color = scene_data->directional_light_color;
 
     Vulkan_Buffer *global_uniform_buffer = &context->globals_uniform_buffers[current_frame_in_flight_index];
-    memcpy(global_uniform_buffer->data, &global_uniform_buffer_data, sizeof(Vulkan_Globals_Uniform_Buffer));
+    memcpy(global_uniform_buffer->data, &globals, sizeof(Globals));
 
     Vulkan_Buffer *material_storage_buffer = &context->material_storage_buffers[current_frame_in_flight_index];
-    Vulkan_Material_Data *material_data_base = (Vulkan_Material_Data *)material_storage_buffer->data;
+    Material_Data *material_data_base = (Material_Data *)material_storage_buffer->data;
 
     for (U32 material_index = 0;
          material_index < renderer_state->material_count;
@@ -1134,7 +1136,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
         material_data_base[material_index] = vulkan_material->data;
     }
 
-    context->object_data_base = (Vulkan_Object_Data *)context->object_storage_buffers[current_frame_in_flight_index].data;
+    context->object_data_base = (Object_Data *)context->object_storage_buffers[current_frame_in_flight_index].data;
     context->object_data_count = 0;
 
     if ((renderer_state->back_buffer_width != context->swapchain.width ||
@@ -1278,7 +1280,7 @@ void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
     Vulkan_Context *context = &vulkan_context;
     Assert(context->object_data_count < MAX_OBJECT_DATA_COUNT);
     U32 object_data_index = context->object_data_count++;
-    Vulkan_Object_Data *object_data = &context->object_data_base[object_data_index];
+    Object_Data *object_data = &context->object_data_base[object_data_index];
     object_data->model = transform;
     object_data->material_index = index_of(renderer_state, static_mesh->material);
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
@@ -1382,12 +1384,12 @@ void vulkan_renderer_destroy_texture(Texture *texture)
     destroy_image(vulkan_image, &vulkan_context);
 }
 
-bool vulkan_renderer_create_material(Material *material, Texture *albedo, U32 albedo_texture_index)
+bool vulkan_renderer_create_material(Material *material, U32 albedo_texture_index, U32 normal_texture_index)
 {
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Material *vulkan_material = get_data(material);
     vulkan_material->data.albedo_texture_index = albedo_texture_index;
-    material->albedo = albedo;
+    vulkan_material->data.normal_texture_index = normal_texture_index;
     return true;
 }
 

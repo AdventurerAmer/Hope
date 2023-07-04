@@ -46,44 +46,54 @@ enum ShaderDataType
 #define USING_STD_LAYOUT_140 1
 #ifdef USING_STD_LAYOUT_140
 
-typedef glm::vec2 __vec2;
-typedef glm::vec4 __vec3;
-typedef glm::vec4 __vec4;
-typedef glm::mat4 __mat3;
-typedef glm::mat4 __mat4;
+typedef glm::ivec2 _ivec2;
+typedef glm::ivec4 _ivec3;
+typedef glm::ivec4 _ivec4;
 
+typedef glm::uvec2 _uvec2;
+typedef glm::uvec4 _uvec3;
+typedef glm::uvec4 _uvec4;
+
+typedef glm::vec2 _vec2;
+typedef glm::vec4 _vec3;
+typedef glm::vec4 _vec4;
+typedef glm::mat4 _mat3;
+typedef glm::mat4 _mat4;
+
+#define int S32
 #define uint U32
-#define vec2 alignas(8) __vec2
-#define vec3 alignas(16) __vec3
-#define vec4 alignas(16) __vec4
-#define mat3 alignas(16) __mat3
-#define mat4 alignas(16) __mat4
+
+#define ivec2 alignas(8) _ivec2
+#define ivec3 alignas(16) _ivec3
+#define ivec4 alignas(16) _ivec4
+
+#define uvec2 alignas(8) _uvec2
+#define uvec3 alignas(16) _uvec3
+#define uvec4 alignas(16) _uvec4
+
+#define vec2 alignas(8) _vec2
+#define vec3 alignas(16) _vec3
+#define vec4 alignas(16) _vec4
+
+#define mat3 alignas(16) _mat3
+#define mat4 alignas(16) _mat4
 #define struct struct alignas(16)
 
+#endif
+
+// todo(amer): don't depend on common.glsl in this path
 #include "../Data/shaders/common.glsl"
 
-struct Vulkan_Globals_Uniform_Buffer
-{
-    mat4 view;
-    mat4 projection;
-};
+#ifdef USING_STD_LAYOUT_140
 
-struct Vulkan_Object_Data
-{
-    mat4 model;
-    uint material_index;
-};
-
-struct Vulkan_Material_Data
-{
-    uint albedo_texture_index;
-    uint normal_texture_index;
-};
-
+#undef int
 #undef uint
 #undef vec2
 #undef vec3
 #undef vec4
+#undef ivec2
+#undef ivec3
+#undef ivec4
 #undef mat3
 #undef mat4
 #undef struct
@@ -122,6 +132,7 @@ struct Material
 
     U64 hash; // todo(amer): temprary
     Texture *albedo;
+    Texture *normal;
 };
 
 #define MAX_MESH_NAME 256
