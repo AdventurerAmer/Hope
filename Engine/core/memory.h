@@ -17,7 +17,7 @@
 (Type *)allocate((AllocatorPointer), sizeof(Type) * (Count), alignof(Type))
 
 void zero_memory(void *memory, Mem_Size size);
-void copy_memory(void *dst, void *src, Mem_Size size);
+void copy_memory(void *dst, const void *src, Mem_Size size);
 
 //
 // Memory Arena

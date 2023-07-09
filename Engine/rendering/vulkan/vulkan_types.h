@@ -169,24 +169,6 @@ struct Vulkan_Swapchain
     Vulkan_Image depth_stencil_attachment;
 };
 
-// struct Vulkan_Globals_Uniform_Buffer
-// {
-//     glm::mat4 view;
-//     alignas(16) glm::mat4 projection;
-// };
-
-// struct Vulkan_Object_Data
-// {
-//     glm::mat4 model;
-//     alignas(16) U32 material_index;
-// };
-
-// struct Vulkan_Material_Data
-// {
-//     U32 albedo_texture_index;
-//     U32 normal_texture_index;
-// };
-
 struct Vulkan_Material
 {
     Material_Data data;
@@ -261,8 +243,8 @@ struct Vulkan_Context
     VkDescriptorSet descriptor_sets[MAX_DESCRIPTOR_SET_COUNT][MAX_FRAMES_IN_FLIGHT];
 
     VkCommandPool transfer_command_pool;
-    VkCommandBuffer transfer_command_buffer;
     Vulkan_Buffer transfer_buffer;
+    Memory_Arena transfer_arena;
 
     Vulkan_Buffer vertex_buffer;
     U64 vertex_offset;

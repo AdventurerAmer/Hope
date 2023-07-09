@@ -796,23 +796,11 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     transfer_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     transfer_command_pool_create_info.queueFamilyIndex = context->transfer_queue_family_index;
-
     CheckVkResult(vkCreateCommandPool(context->logical_device,
                                       &transfer_command_pool_create_info,
                                       nullptr, &context->transfer_command_pool));
 
-    VkCommandBufferAllocateInfo transfer_command_buffer_allocate_info
-        = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-
-    transfer_command_buffer_allocate_info.commandPool = context->transfer_command_pool;
-    transfer_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    transfer_command_buffer_allocate_info.commandBufferCount = 1;
-
-    CheckVkResult(vkAllocateCommandBuffers(context->logical_device,
-                                           &transfer_command_buffer_allocate_info,
-                                           &context->transfer_command_buffer));
-
-    U64 vertex_size = HE_MegaBytes(512);
+    U64 vertex_size = HE_MegaBytes(256);
     create_buffer(&context->vertex_buffer, context, vertex_size,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -822,9 +810,12 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    create_buffer(&context->transfer_buffer, context, HE_MegaBytes(128),
+    create_buffer(&context->transfer_buffer, context, HE_MegaBytes(512),
                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    context->transfer_arena = create_memory_arena(context->transfer_buffer.data,
+                                                  context->transfer_buffer.size);
 
     for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
@@ -1370,8 +1361,8 @@ bool vulkan_renderer_create_texture(Texture *texture, U32 width, U32 height,
                  VK_IMAGE_ASPECT_COLOR_BIT,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapping);
 
-    copy_buffer_to_image(context, image, width, height, data,
-                         (U64)width * (U64)height * sizeof(U32));
+    copy_data_to_image(context, image, width, height, data,
+                       (U64)width * (U64)height * sizeof(U32));
 
     texture->width = width;
     texture->height = height;

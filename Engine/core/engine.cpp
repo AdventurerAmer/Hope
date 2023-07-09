@@ -118,6 +118,7 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 
     Game_Code *game_code = &engine->game_code;
     bool game_initialized = game_code->init_game(engine);
+    renderer->wait_for_gpu_to_finish_all_work(renderer_state);
     return game_initialized;
 }
 

@@ -8,7 +8,7 @@ void zero_memory(void *memory, Mem_Size size)
     memset(memory, 0, size);
 }
 
-void copy_memory(void *dst, void *src, Mem_Size size)
+void copy_memory(void *dst, const void *src, Mem_Size size)
 {
     Assert(dst);
     Assert(src);
