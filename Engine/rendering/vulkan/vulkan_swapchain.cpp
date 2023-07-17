@@ -20,8 +20,8 @@ init_swapchain_support(Vulkan_Context *context,
     Assert(swapchain_support->surface_format_count);
 
     swapchain_support->surface_formats = AllocateArray(arena,
-                                                        VkSurfaceFormatKHR,
-                                                        swapchain_support->surface_format_count);
+                                                       VkSurfaceFormatKHR,
+                                                       swapchain_support->surface_format_count);
 
     vkGetPhysicalDeviceSurfaceFormatsKHR(context->physical_device,
                                          context->surface,
@@ -37,8 +37,8 @@ init_swapchain_support(Vulkan_Context *context,
     Assert(swapchain_support->present_mode_count);
 
     swapchain_support->present_modes = AllocateArray(arena,
-                                                      VkPresentModeKHR,
-                                                      swapchain_support->present_mode_count);
+                                                     VkPresentModeKHR,
+                                                     swapchain_support->present_mode_count);
 
     vkGetPhysicalDeviceSurfacePresentModesKHR(context->physical_device,
                                               context->surface,

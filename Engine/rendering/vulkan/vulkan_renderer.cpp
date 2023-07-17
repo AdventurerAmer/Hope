@@ -1351,7 +1351,7 @@ bool vulkan_renderer_create_texture(Texture *texture, U32 width, U32 height,
                                     void *data, TextureFormat format, bool mipmapping)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Image* image = get_data(texture);
+    Vulkan_Image *image = get_data(texture);
 
     Assert(format == TextureFormat_RGBA); // todo(amer): only supporting RGBA for now.
     create_image(image, context, width, height,
@@ -1361,8 +1361,13 @@ bool vulkan_renderer_create_texture(Texture *texture, U32 width, U32 height,
                  VK_IMAGE_ASPECT_COLOR_BIT,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapping);
 
-    copy_data_to_image(context, image, width, height, data,
-                       (U64)width * (U64)height * sizeof(U32));
+    // todo(amer): only supporting RGBA for now.
+    U64 size = (U64)width * (U64)height * sizeof(U32);
+    U8 *transfered_data = (U8 *)allocate(&context->transfer_arena, size, alignof(U32));
+    U64 transfered_data_offset = transfered_data - context->transfer_arena.base;
+    copy_memory(transfered_data, data, size);
+    copy_data_to_image_from_buffer(context, image, width, height, &context->transfer_buffer, 
+                                   transfered_data_offset, size);
 
     texture->width = width;
     texture->height = height;
@@ -1405,8 +1410,16 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices
 
     Vulkan_Static_Mesh *vulkan_static_mesh = get_data(static_mesh);
 
-    copy_data_to_buffer(context, &context->vertex_buffer, context->vertex_offset, vertices, vertex_size);
-    copy_data_to_buffer(context, &context->index_buffer, context->index_offset, indices, index_size);
+    U8 *transfered_vertices = AllocateArray(&context->transfer_arena, U8, vertex_size);
+    U64 transfered_vertices_offset = transfered_vertices - context->transfer_arena.base;
+    memcpy(transfered_vertices, vertices, vertex_size);
+
+    U8 *transfered_indicies = AllocateArray(&context->transfer_arena, U8, index_size);
+    U64 transfered_indicies_offset = transfered_indicies - context->transfer_arena.base;
+    memcpy(transfered_indicies, indices, index_size);
+
+    copy_data_to_buffer_from_buffer(context, &context->vertex_buffer, context->vertex_offset, &context->transfer_buffer, transfered_vertices_offset, vertex_size);
+    copy_data_to_buffer_from_buffer(context, &context->index_buffer, context->index_offset, &context->transfer_buffer, transfered_indicies_offset, index_size);
 
     vulkan_static_mesh->first_vertex = (S32)u64_to_u32(context->vertex_offset / sizeof(Vertex));
     vulkan_static_mesh->first_index = u64_to_u32(context->index_offset / sizeof(U16));

@@ -153,16 +153,19 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
 #define CPU_SIDE_MIPMAPS 0
 
 void
-copy_data_to_image(Vulkan_Context *context,
-                   Vulkan_Image *image,
-                   U32 width, U32 height,
-                   void *data, U64 size)
+copy_data_to_image_from_buffer(Vulkan_Context *context,
+                               Vulkan_Image *image,
+                               U32 width, U32 height,
+                               Vulkan_Buffer *buffer,
+                               U64 offset, U64 size)
 {
     Assert(context);
-    Assert(data);
+    Assert(image);
+    Assert(width);
+    Assert(height);
+    Assert(buffer);
     Assert(size);
-    Assert(size <= context->transfer_buffer.size && size <= image->size);
-
+    
 #if CPU_SIDE_MIPMAPS
 
     VkCommandBufferAllocateInfo transfer_command_buffer_allocate_info =
@@ -189,18 +192,44 @@ copy_data_to_image(Vulkan_Context *context,
                               VK_IMAGE_LAYOUT_UNDEFINED,
                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
+    VkBufferImageCopy region = {};
+    region.bufferOffset = offset;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+
+    region.imageOffset = { 0, 0, 0 };
+    region.imageExtent = { width, height, 1 };
+
+    vkCmdCopyBufferToImage(tranfer_command_buffer,
+                           buffer->handle,
+                           image->handle,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &region);
+
     U32 current_width = width;
     U32 current_height = height;
-    const U8 *src = (U8 *)data;
+    const U8 *src = (U8*)context->transfer_buffer.data + offset;
+    U64 src_offset = offset;
 
-    for (U32 mip_level = 0; mip_level < image->mip_levels; mip_level++)
+    for (U32 mip_level = 1; mip_level < image->mip_levels; mip_level++)
     {
-        U32 current_mip_size = current_width * current_height * sizeof(U32);
-        U8 *transfer_buffer_data = (U8 *)allocate(&context->transfer_arena, current_mip_size, alignof(U32));
-        copy_memory(transfer_buffer_data, src, size);
+        U32 new_width = current_width > 1 ? current_width / 2 : 1;
+        U32 new_height = current_height > 1 ? current_height / 2 : 1;
+        U64 new_mip_size = new_width * new_height * sizeof(U32);
+
+        U8 *dst = (U8 *)allocate(&context->transfer_arena, new_mip_size, alignof(U32));
+        U64 dst_offset = dst - context->transfer_arena.base;
+        stbir_resize_uint8_generic((U8*)src, current_width, current_height, 0,
+                                    dst, new_width, new_height, 0, 4, 0, 0,
+                                    STBIR_EDGE_ZERO, STBIR_FILTER_BOX, STBIR_COLORSPACE_SRGB, 0);
 
         VkBufferImageCopy region = {};
-        region.bufferOffset = transfer_buffer_data - context->transfer_arena.base;
+        region.bufferOffset = dst_offset;
         region.bufferRowLength = 0;
         region.bufferImageHeight = 0;
 
@@ -210,7 +239,7 @@ copy_data_to_image(Vulkan_Context *context,
         region.imageSubresource.layerCount = 1;
 
         region.imageOffset = { 0, 0, 0 };
-        region.imageExtent = { current_width, current_height, 1 };
+        region.imageExtent = { new_width, new_height, 1 };
 
         vkCmdCopyBufferToImage(tranfer_command_buffer,
                                context->transfer_buffer.handle,
@@ -218,20 +247,10 @@ copy_data_to_image(Vulkan_Context *context,
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                1, &region);
 
-        if (mip_level != image->mip_levels - 1)
-        {
-            U32 new_width = current_width / 2;
-            U32 new_height = current_height / 2;
-
-            U8 *dst = transfer_buffer_data;
-            stbir_resize_uint8_generic((U8*)src, current_width, current_height, 0,
-                                       dst, new_width, new_height, 0, 4, 0, 0,
-                                       STBIR_EDGE_ZERO, STBIR_FILTER_BOX, STBIR_COLORSPACE_SRGB, 0);
-
-            current_width = new_width;
-            current_height = new_height;
-            src = dst;
-        }
+        current_width = new_width;
+        current_height = new_height;
+        src = dst;
+        src_offset = dst_offset;
     }
 
     VkImageMemoryBarrier post_transfer_image_memory_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
@@ -303,6 +322,7 @@ copy_data_to_image(Vulkan_Context *context,
     vkQueueSubmit(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
 
 #else
+
     VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     command_buffer_allocate_info.commandPool = context->graphics_command_pool;
     command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -325,11 +345,8 @@ copy_data_to_image(Vulkan_Context *context,
                               VK_IMAGE_LAYOUT_UNDEFINED,
                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    U8 *transfer_buffer_data = (U8 *)allocate(&context->transfer_arena, size, alignof(U32));
-    copy_memory(transfer_buffer_data, data, size);
-
     VkBufferImageCopy region = {};
-    region.bufferOffset = transfer_buffer_data - context->transfer_arena.base;
+    region.bufferOffset = offset;
     region.bufferRowLength = 0;
     region.bufferImageHeight = 0;
 

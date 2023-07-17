@@ -97,9 +97,9 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
                                base_movement_speed,
                                max_movement_speed);
 
-    renderer_state->sponza = load_model("models/Sponza/Sponza.gltf", renderer, renderer_state,
+    /*renderer_state->sponza = load_model("models/Sponza/Sponza.gltf", renderer, renderer_state,
                                         &engine->memory.transient_arena);
-    Assert(renderer_state->sponza);
+    Assert(renderer_state->sponza);*/
 
     renderer_state->flight_helmet = load_model("models/FlightHelmet/FlightHelmet.gltf", renderer, renderer_state,
                                                &engine->memory.transient_arena);
@@ -171,7 +171,7 @@ void game_loop(Engine* engine, F32 delta_time)
         scene_data.directional_light_color = directional_light_color;
 
         renderer->begin_frame(renderer_state, &scene_data);
-        render_scene_node(renderer,renderer_state, renderer_state->sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
+        // render_scene_node(renderer,renderer_state, renderer_state->sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
         render_scene_node(renderer, renderer_state, renderer_state->flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)));
         renderer->end_frame(renderer_state);
     }

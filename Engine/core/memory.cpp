@@ -72,7 +72,6 @@ allocate(Memory_Arena *arena,
     Assert(arena->offset + size + padding <= arena->size);
     result = cursor + padding;
     arena->offset += padding + size;
-    zero_memory(result, padding + size);
     return result;
 }
 

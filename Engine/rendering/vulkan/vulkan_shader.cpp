@@ -827,7 +827,7 @@ bool create_graphics_pipeline(Vulkan_Context *context,
     vertex_input_binding_description.stride = sizeof(Vertex);
     vertex_input_binding_description.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    VkVertexInputAttributeDescription vertex_input_attribute_descriptions[3] = {};
+    VkVertexInputAttributeDescription vertex_input_attribute_descriptions[5] = {};
     vertex_input_attribute_descriptions[0].binding  = 0;
     vertex_input_attribute_descriptions[0].location = 0;
     vertex_input_attribute_descriptions[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
@@ -840,8 +840,18 @@ bool create_graphics_pipeline(Vulkan_Context *context,
 
     vertex_input_attribute_descriptions[2].binding  = 0;
     vertex_input_attribute_descriptions[2].location = 2;
-    vertex_input_attribute_descriptions[2].format   = VK_FORMAT_R32G32_SFLOAT;
-    vertex_input_attribute_descriptions[2].offset   = offsetof(Vertex, uv);
+    vertex_input_attribute_descriptions[2].format   = VK_FORMAT_R32G32B32_SFLOAT;
+    vertex_input_attribute_descriptions[2].offset   = offsetof(Vertex, tangent);
+
+    vertex_input_attribute_descriptions[3].binding  = 0;
+    vertex_input_attribute_descriptions[3].location = 3;
+    vertex_input_attribute_descriptions[3].format   = VK_FORMAT_R32G32B32_SFLOAT;
+    vertex_input_attribute_descriptions[3].offset   = offsetof(Vertex, bi_tangent);
+
+    vertex_input_attribute_descriptions[4].binding  = 0;
+    vertex_input_attribute_descriptions[4].location = 4;
+    vertex_input_attribute_descriptions[4].format   = VK_FORMAT_R32G32_SFLOAT;
+    vertex_input_attribute_descriptions[4].offset   = offsetof(Vertex, uv);
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info =
         { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };

@@ -62,7 +62,6 @@ bool init_renderer_state(Renderer_State *renderer_state, struct Memory_Arena *ar
     renderer_state->textures      = AllocateArray(arena, U8, renderer_state->texture_bundle_size * MAX_TEXTURE_COUNT);
     renderer_state->materials     = AllocateArray(arena, U8, renderer_state->material_bundle_size * MAX_MATERIAL_COUNT);
     renderer_state->static_meshes = AllocateArray(arena, U8, renderer_state->static_mesh_bundle_size * MAX_STATIC_MESH_COUNT);
-
     renderer_state->scene_nodes   = AllocateArray(arena, Scene_Node, MAX_SCENE_NODE_COUNT);
     return true;
 }
@@ -90,7 +89,7 @@ add_child_scene_node(Renderer_State *renderer_state,
     return node;
 }
 
-internal_function Texture *
+internal_function Texture*
 cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32 model_path_without_file_name_length,
                    Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena)
 {
@@ -174,8 +173,8 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
         else
         {
             pixels = stbi_load(texture_path,
-                                      &texture_width, &texture_height,
-                                      &texture_channels, STBI_rgb_alpha);
+                               &texture_width, &texture_height,
+                               &texture_channels, STBI_rgb_alpha);
         }
 
         Assert(pixels);
@@ -295,6 +294,9 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
     U32 normal_count = 0;
     glm::vec3 *normals = nullptr;
 
+    U32 tangent_count = 0;
+    glm::vec4 *tangents = nullptr;
+
     U32 uv_count = 0;
     glm::vec2 *uvs = nullptr;
 
@@ -377,6 +379,16 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                                 normals = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
                             } break;
 
+                            case cgltf_attribute_type_tangent:
+                            {
+                                Assert(attribute->data->type == cgltf_type_vec4);
+                                Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                                tangent_count = u64_to_u32(attribute->data->count);
+                                U64 stride = attribute->data->stride;
+                                Assert(stride == sizeof(glm::vec4));
+                                tangents = (glm::vec4*)(data_ptr + view->offset + accessor->offset);
+                            } break;
+
                             case cgltf_attribute_type_texcoord:
                             {
                                 Assert(attribute->data->type == cgltf_type_vec2);
@@ -389,6 +401,11 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                             } break;
                         }
                     }
+                    
+                    Assert(tangents);
+                    Assert(position_count == normal_count);
+                    Assert(position_count == uv_count);
+                    Assert(position_count == tangent_count);
 
                     // note(amer): we only support u16 indices for now.
                     Assert(primitive->indices->type == cgltf_type_scalar);
@@ -400,17 +417,18 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                     const auto *view = accessor->buffer_view;
                     U8 *data_ptr = (U8*)view->buffer->data;
                     indices = (U16*)(data_ptr + view->offset + accessor->offset);
-                    Assert(position_count == normal_count);
-                    Assert(position_count == uv_count);
 
                     U32 vertex_count = position_count;
-                    Vertex* vertices = AllocateArray(&temp_arena, Vertex, vertex_count);
+                    Vertex *vertices = AllocateArray(&temp_arena, Vertex, vertex_count);
 
                     for (U32 vertex_index = 0; vertex_index < vertex_count; vertex_index++)
                     {
-                        Vertex* vertex = &vertices[vertex_index];
+                        const glm::vec4 &tanget = tangents[vertex_index];
+                        Vertex *vertex = &vertices[vertex_index];
                         vertex->position = positions[vertex_index];
                         vertex->normal = normals[vertex_index];
+                        vertex->tangent = tanget;
+                        vertex->bi_tangent = glm::cross(vertex->normal, vertex->tangent) * tanget.w;
                         vertex->uv = uvs[vertex_index];
                     }
 
