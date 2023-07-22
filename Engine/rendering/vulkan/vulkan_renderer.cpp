@@ -12,6 +12,9 @@
 #include "vulkan_swapchain.h"
 #include "vulkan_shader.h"
 
+#include "ImGui/backends/imgui_impl_vulkan.cpp"
+#include "ImGui/backends/imgui_impl_win32.h"
+
 static Vulkan_Context vulkan_context;
 
 internal_function VKAPI_ATTR VkBool32 VKAPI_CALL
@@ -252,9 +255,86 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface,
     return physical_device;
 }
 
+
+internal_function int Platform_CreateVkSurface(ImGuiViewport *vp, ImU64 vk_inst, const void* vk_allocators, ImU64* out_vk_surface)
+{
+    *out_vk_surface = *(ImU64*)platform_create_vulkan_surface(vulkan_context.engine, (VkInstance)vk_inst);
+    return 0;
+}
+
+internal_function bool
+init_imgui(Vulkan_Context *context)
+{
+    VkDescriptorPoolSize pool_sizes[] =
+    {
+        { VK_DESCRIPTOR_TYPE_SAMPLER, 1024 },
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024 },
+        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1024 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1024 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1024 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1024 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1024 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1024 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1024 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1024 },
+        { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1024 }
+    };
+
+    VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    descriptor_pool_create_info.maxSets = 1024;
+    descriptor_pool_create_info.poolSizeCount = ArrayCount(pool_sizes);
+    descriptor_pool_create_info.pPoolSizes = pool_sizes;
+
+    CheckVkResult(vkCreateDescriptorPool(context->logical_device,
+                                         &descriptor_pool_create_info,
+                                         nullptr,
+                                         &context->imgui_descriptor_pool));
+
+    ImGuiPlatformIO &platform_io = ImGui::GetPlatformIO();
+    platform_io.Platform_CreateVkSurface = Platform_CreateVkSurface;
+
+    ImGui_ImplVulkan_InitInfo init_info = {};
+    init_info.Instance = context->instance;
+    init_info.PhysicalDevice = context->physical_device;
+    init_info.Device = context->logical_device;
+    init_info.Queue = context->graphics_queue;
+    init_info.QueueFamily = context->graphics_queue_family_index;
+    init_info.DescriptorPool = context->imgui_descriptor_pool;
+    init_info.MinImageCount = context->swapchain.image_count;
+    init_info.ImageCount = context->swapchain.image_count;
+    init_info.MSAASamples = context->msaa_samples;
+    init_info.PipelineCache = context->pipeline_cache;
+    ImGui_ImplVulkan_Init(&init_info, context->render_pass);
+
+    VkCommandBuffer &command_buffer = context->graphics_command_buffers[0];
+    vkResetCommandBuffer(command_buffer, 0);
+
+    VkCommandBufferBeginInfo command_buffer_begin_info =
+        { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    command_buffer_begin_info.flags = 0;
+    command_buffer_begin_info.pInheritanceInfo = 0;
+
+    vkBeginCommandBuffer(command_buffer,
+                         &command_buffer_begin_info);
+    ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
+    vkEndCommandBuffer(command_buffer);
+
+    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffer;
+
+    vkQueueSubmit(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+    vkQueueWaitIdle(context->graphics_queue);
+    ImGui_ImplVulkan_DestroyFontUploadObjects();
+
+    return true;
+}
+
 internal_function bool
 init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 {
+    context->engine = engine;
     context->allocator = &engine->memory.free_list_allocator;
 
     const char *required_instance_extensions[] =
@@ -715,7 +795,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     CheckVkResult(vkCreateRenderPass(context->logical_device,
                                      &render_pass_create_info,
                                      nullptr, &context->render_pass));
-    
+
     U32 width = 1280;
     U32 height = 720;
     VkPresentModeKHR present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
@@ -972,6 +1052,8 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     context->current_frame_in_flight_index = 0;
     context->frames_in_flight = 2;
     Assert(context->frames_in_flight <= MAX_FRAMES_IN_FLIGHT);
+
+    init_imgui(context);
     return true;
 }
 
@@ -979,6 +1061,12 @@ void deinit_vulkan(Vulkan_Context *context)
 {
     vkDeviceWaitIdle(context->logical_device);
     vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, nullptr);
+
+    vkDestroyDescriptorPool(context->logical_device, context->imgui_descriptor_pool, nullptr);
+
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
 
     destroy_buffer(&context->transfer_buffer, context->logical_device);
     destroy_buffer(&context->vertex_buffer, context->logical_device);
@@ -1098,6 +1186,12 @@ void vulkan_renderer_on_resize(Renderer_State *renderer_state,
 
 void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Scene_Data *scene_data)
 {
+    static bool open = true;
+    if (open)
+    {
+        ImGui::ShowDemoWindow(&open);
+    }
+
     Vulkan_Context *context = &vulkan_context;
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
 
@@ -1292,8 +1386,10 @@ void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
 {
     Vulkan_Context *context = &vulkan_context;
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
-    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
-
+    VkCommandBuffer &command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
+    
+    ImGui::Render();
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffer);
     vkCmdEndRenderPass(command_buffer);
     vkEndCommandBuffer(command_buffer);
 
@@ -1313,6 +1409,13 @@ void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
     submit_info.pCommandBuffers = &command_buffer;
 
     vkQueueSubmit(context->graphics_queue, 1, &submit_info, context->frame_in_flight_fences[current_frame_in_flight_index]);
+
+    ImGuiIO &io = ImGui::GetIO();
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    {
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
+    }
 
     VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 

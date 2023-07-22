@@ -82,14 +82,6 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     renderer_state->back_buffer_width = configuration.back_buffer_width;
     renderer_state->back_buffer_height = configuration.back_buffer_height;
 
-    /*renderer_state->sponza = load_model("models/Sponza/Sponza.gltf", renderer, renderer_state,
-                                        &engine->memory.transient_arena);
-    Assert(renderer_state->sponza);*/
-
-    renderer_state->flight_helmet = load_model("models/FlightHelmet/FlightHelmet.gltf", renderer, renderer_state,
-                                               &engine->memory.transient_arena);
-    Assert(renderer_state->flight_helmet);
-
     Platform_API *api = &engine->platform_api;
     api->allocate_memory = &platform_allocate_memory;
     api->deallocate_memory = &platform_deallocate_memory;

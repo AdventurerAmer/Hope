@@ -5,6 +5,8 @@ struct Game_State
 {
 	Camera camera;
 	FPS_Camera_Controller camera_controller;
+	Scene_Node *sponza;
+	Scene_Node *flight_helmet;
 };
 
 static Game_State game_state;
@@ -35,13 +37,13 @@ init_game(Engine *engine)
                                            base_movement_speed,
                                            max_movement_speed, sensitivity_x, sensitivity_y);
 
-	/*renderer_state->sponza = load_model("models/Sponza/Sponza.gltf", renderer, renderer_state,
-                                        &engine->memory.transient_arena);
-    Assert(renderer_state->sponza);*/
+	/*game_state.sponza = engine->api.load_model("models/Sponza/Sponza.gltf", renderer, renderer_state,
+                                                 &engine->memory.transient_arena);
+    Assert(game_state.sponza);*/
 
-    renderer_state->flight_helmet = engine->api.load_model("models/FlightHelmet/FlightHelmet.gltf", renderer, renderer_state,
-                                                           &engine->memory.transient_arena);
-    Assert(renderer_state->flight_helmet);
+    game_state.flight_helmet = engine->api.load_model("models/FlightHelmet/FlightHelmet.gltf", renderer, renderer_state,
+                                                      &engine->memory.transient_arena);
+    Assert(game_state.flight_helmet);
 
     return true;
 }
@@ -121,8 +123,8 @@ on_update(Engine *engine, F32 delta_time)
         scene_data.directional_light_color = directional_light_color;
 
         renderer->begin_frame(renderer_state, &scene_data);
-        // render_scene_node(renderer,renderer_state, renderer_state->sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
-        engine->api.render_scene_node(renderer, renderer_state, renderer_state->flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)));
+        // engine->api.render_scene_node(renderer,renderer_state, engine->api.sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
+        engine->api.render_scene_node(renderer, renderer_state, game_state.flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)));
         renderer->end_frame(renderer_state);
     }
 }

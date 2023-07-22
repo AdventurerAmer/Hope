@@ -47,9 +47,11 @@ project "AssetProcessor"
     targetdir "bin/%{prj.name}"
     objdir "bin/intermediates/%{prj.name}"
 
+include "ThirdParty/ImGui"
+
 project "Engine"
 
-    dependson { "AssetProcessor" }
+    dependson { "AssetProcessor", "ImGui" }
 
     kind "WindowedApp"
     location "Engine"
@@ -59,10 +61,10 @@ project "Engine"
 
     files { "Engine/**.h", "Engine/**.hpp", "Engine/**.cpp", "Data/**.vert", "Data/**.frag", "Data/**.glsl" }
 
-    includedirs { "Engine", "ThirdParty/include" }
+    includedirs { "Engine", "ThirdParty", "ThirdParty/ImGui", "ThirdParty/include" }
     libdirs { "ThirdParty/lib" }
 
-    links { "vulkan-1" }
+    links { "vulkan-1", "ImGui" }
 
     debugdir "Data"
     targetdir "bin/%{prj.name}"

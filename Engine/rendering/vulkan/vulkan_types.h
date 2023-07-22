@@ -196,8 +196,12 @@ struct Vulkan_Static_Mesh_Bundle
 #define MAX_DESCRIPTOR_SET_COUNT 4
 #define PIPELINE_CACHE_FILENAME "shaders/bin/pipeline.cache"
 
+struct Engine;
+
 struct Vulkan_Context
 {
+    Engine *engine;
+
     VkInstance instance;
 
     VkSurfaceKHR surface;
@@ -257,6 +261,8 @@ struct Vulkan_Context
     U32 current_swapchain_image_index;
 
     Free_List_Allocator *allocator;
+
+    VkDescriptorPool imgui_descriptor_pool;
 
 #if HE_VULKAN_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;

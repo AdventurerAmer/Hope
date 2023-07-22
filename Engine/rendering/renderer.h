@@ -40,9 +40,6 @@ struct Renderer_State
 
     U32 scene_node_count;
     Scene_Node *scene_nodes;
-
-    Scene_Node *sponza;
-    Scene_Node *flight_helmet;
 };
 
 bool init_renderer_state(Renderer_State *renderer_state, struct Memory_Arena *arena);

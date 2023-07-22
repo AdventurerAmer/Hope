@@ -20,6 +20,9 @@
 
 #include "core/debugging.h"
 
+#include "ImGui/backends/imgui_impl_vulkan.h"
+#include "ImGui/backends/imgui_impl_win32.cpp"
+
 // todo(amer): move to static config...
 #ifndef HE_APP_NAME
 #define HE_APP_NAME "Hope"
@@ -473,6 +476,27 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
                win32_state->window_width, win32_state->window_height, FALSE);
     ShowWindow(win32_state->window, SW_SHOW);
 
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;   // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;    // Enable Gamepad Controls
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;       // Enable Docking
+    // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;     // Enable Multi-Viewport / Platform Windows
+
+    // Setup Dear ImGui style
+    ImGui::StyleColorsDark();
+    //ImGui::StyleColorsClassic();
+
+    // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
+    ImGuiStyle& style = ImGui::GetStyle();
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    {
+        style.WindowRounding = 0.0f;
+        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
+    ImGui_ImplWin32_Init(win32_state->window);
+
     Engine *engine = &win32_state->engine;
     Game_Code *game_code = &engine->game_code;
 
@@ -514,6 +538,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
         MSG message = {};
         while (PeekMessageA(&message, win32_state->window, 0, 0, PM_REMOVE))
         {
+            ImGui_ImplWin32_WndProcHandler(win32_state->window, message.message, message.wParam, message.lParam);
             switch (message.message)
             {
                 case WM_SYSKEYDOWN:
@@ -653,6 +678,10 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
                 } break;
             }
         }
+
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
 
         Input *input = &engine->input;
 
