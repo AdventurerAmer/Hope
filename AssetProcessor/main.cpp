@@ -194,7 +194,7 @@ int main(int argc, char **args)
                 if (s.st_mtime != asset_file_info.last_write_time || force)
                 {
                     asset_file_info.last_write_time = s.st_mtime;
-                    std::string command = "glslangValidator -V " + filename + " -o " + output_path + "/" + name + ".spv";
+                    std::string command = "glslangValidator -V --auto-map-locations " + filename + " -o " + output_path + "/" + name + ".spv";
                     system(command.c_str());
                 }
             }

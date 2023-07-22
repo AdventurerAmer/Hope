@@ -92,6 +92,32 @@ struct Engine_Configuration
     U32 back_buffer_height;
 };
 
+struct Engine_API
+{
+    void (*init_camera)(Camera *camera, glm::vec3 position,
+                        glm::quat rotation, F32 aspect_ratio,
+                        F32 field_of_view, F32 near_clip, F32 far_clip);
+
+    void (*init_fps_camera_controller)(FPS_Camera_Controller *camera_controller,
+                                       F32 pitch, F32 yaw, F32 rotation_speed,
+                                       F32 base_movement_speed,
+                                       F32 max_movement_speed,
+                                       F32 sensitivity_x,
+                                       F32 sensitivity_y);
+
+    void (*control_camera)(FPS_Camera_Controller *camera_controller,
+                           Camera *camera,
+                           const FPS_Camera_Controller_Input input,
+                           F32 delta_time);
+
+    Scene_Node* (*load_model)(const char *path, Renderer *renderer,
+                              Renderer_State *renderer_state,
+                              Memory_Arena *arena);
+
+    void (*render_scene_node)(Renderer *renderer, Renderer_State *renderer_state,
+                           Scene_Node *scene_node, glm::mat4 transform);
+};
+
 struct Engine
 {
     Platform_API platform_api;
@@ -112,6 +138,8 @@ struct Engine
         note(amer): this is a platform specific pointer to Win32_State on windows
     */
     void *platform_state;
+
+    Engine_API api;
 };
 
 bool startup(Engine *engine, const Engine_Configuration &configuration, void *platform_state);

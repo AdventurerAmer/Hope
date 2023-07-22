@@ -1,11 +1,47 @@
 #include "core/defines.h"
 #include "core/engine.h"
 
+struct Game_State
+{
+	Camera camera;
+	FPS_Camera_Controller camera_controller;
+};
+
+static Game_State game_state;
+
 extern "C" HE_API bool
 init_game(Engine *engine)
 {
-	Platform_API *platform = &engine->platform_api;
-    (void)platform;
+	Renderer *renderer = &engine->renderer;
+	Renderer_State *renderer_state = &engine->renderer_state;
+
+    F32 aspect_ratio = (F32)renderer_state->back_buffer_width / (F32)renderer_state->back_buffer_height;
+    glm::quat camera_rotation = glm::quat({ 0.0f, 0.0f, 0.0f });
+    Camera *camera = &game_state.camera;
+	F32 fov = 45.0f;
+	F32 near = 0.1f;
+	F32 far = 1000.0f;
+	engine->api.init_camera(camera, { 0.0f, 2.0f, 5.0f }, camera_rotation, aspect_ratio, fov, near, far);
+
+    FPS_Camera_Controller *camera_controller = &game_state.camera_controller;
+    F32 rotation_speed = 45.0f;
+    F32 base_movement_speed = 20.0f;
+    F32 max_movement_speed = 40.0f;
+	F32 sensitivity_x = 1.0f;
+	F32 sensitivity_y = 1.0f;
+
+	engine->api.init_fps_camera_controller(camera_controller, /*pitch=*/0.0f, /*yaw=*/0.0f,
+                                           rotation_speed,
+                                           base_movement_speed,
+                                           max_movement_speed, sensitivity_x, sensitivity_y);
+
+	/*renderer_state->sponza = load_model("models/Sponza/Sponza.gltf", renderer, renderer_state,
+                                        &engine->memory.transient_arena);
+    Assert(renderer_state->sponza);*/
+
+    renderer_state->flight_helmet = engine->api.load_model("models/FlightHelmet/FlightHelmet.gltf", renderer, renderer_state,
+                                                           &engine->memory.transient_arena);
+    Assert(renderer_state->flight_helmet);
 
     return true;
 }
@@ -37,8 +73,56 @@ on_event(Engine *engine, Event event)
 extern "C" HE_API void
 on_update(Engine *engine, F32 delta_time)
 {
-	(void)engine;
 	(void)delta_time;
-	Platform_API *platform = &engine->platform_api;
-	(void)platform;
+
+	Input *input = &engine->input;
+    Renderer *renderer = &engine->renderer;
+    Renderer_State* renderer_state = &engine->renderer_state;
+
+    Camera *camera = &game_state.camera;
+    FPS_Camera_Controller *camera_controller = &game_state.camera_controller;
+
+    FPS_Camera_Controller_Input camera_controller_input = {};
+    camera_controller_input.can_control = input->button_states[HE_BUTTON_RIGHT] != InputState_Released;
+    camera_controller_input.move_fast = input->key_states[HE_KEY_LEFT_SHIFT] != InputState_Released;
+    camera_controller_input.forward = input->key_states[HE_KEY_W] != InputState_Released;
+    camera_controller_input.backward = input->key_states[HE_KEY_S] != InputState_Released;
+    camera_controller_input.left = input->key_states[HE_KEY_A] != InputState_Released;
+    camera_controller_input.right = input->key_states[HE_KEY_D] != InputState_Released;
+    camera_controller_input.up = input->key_states[HE_KEY_E] != InputState_Released;
+    camera_controller_input.down = input->key_states[HE_KEY_Q] != InputState_Released;
+    camera_controller_input.delta_x = -input->mouse_delta_x;
+    camera_controller_input.delta_y = -input->mouse_delta_y;
+
+    if (camera_controller_input.can_control)
+    {
+        engine->lock_cursor = true;
+        engine->show_cursor = false;
+        engine->api.control_camera(camera_controller,
+                                   camera,
+                                   camera_controller_input,
+                                   delta_time);
+    }
+    else
+    {
+        engine->lock_cursor = false;
+        engine->show_cursor = true;
+    }
+
+    glm::vec3 directional_light_direction = { 0.0f, -1.0f, 0.0f };
+    glm::vec4 directional_light_color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    if (!engine->is_minimized)
+    {
+        Scene_Data scene_data;
+        scene_data.view = camera->view;
+        scene_data.projection = camera->projection;
+        scene_data.directional_light_direction = directional_light_direction;
+        scene_data.directional_light_color = directional_light_color;
+
+        renderer->begin_frame(renderer_state, &scene_data);
+        // render_scene_node(renderer,renderer_state, renderer_state->sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
+        engine->api.render_scene_node(renderer, renderer_state, renderer_state->flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)));
+        renderer->end_frame(renderer_state);
+    }
 }
