@@ -41,6 +41,7 @@ bool request_renderer(RenderingAPI rendering_api,
             renderer->begin_frame = &vulkan_renderer_begin_frame;
             renderer->submit_static_mesh = &vulkan_renderer_submit_static_mesh;
             renderer->end_frame = &vulkan_renderer_end_frame;
+            renderer->imgui_new_frame = &vulkan_renderer_imgui_new_frame;
         } break;
 #endif
 
@@ -53,12 +54,15 @@ bool request_renderer(RenderingAPI rendering_api,
     return result;
 }
 
-bool init_renderer_state(Renderer_State *renderer_state, struct Memory_Arena *arena)
+bool init_renderer_state(Engine *engine,
+                         Renderer_State *renderer_state,
+                         struct Memory_Arena *arena)
 {
     // note(amer): right now we are getting sizes should we even care about alignment ?
     Assert(renderer_state->texture_bundle_size);
     Assert(renderer_state->material_bundle_size);
     Assert(renderer_state->static_mesh_bundle_size);
+    renderer_state->engine        = engine;
     renderer_state->textures      = AllocateArray(arena, U8, renderer_state->texture_bundle_size * MAX_TEXTURE_COUNT);
     renderer_state->materials     = AllocateArray(arena, U8, renderer_state->material_bundle_size * MAX_MATERIAL_COUNT);
     renderer_state->static_meshes = AllocateArray(arena, U8, renderer_state->static_mesh_bundle_size * MAX_STATIC_MESH_COUNT);

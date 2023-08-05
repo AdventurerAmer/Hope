@@ -13,7 +13,6 @@
 #include "vulkan_shader.h"
 
 #include "ImGui/backends/imgui_impl_vulkan.cpp"
-#include "ImGui/backends/imgui_impl_win32.h"
 
 static Vulkan_Context vulkan_context;
 
@@ -255,13 +254,6 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface,
     return physical_device;
 }
 
-
-internal_function int Platform_CreateVkSurface(ImGuiViewport *vp, ImU64 vk_inst, const void* vk_allocators, ImU64* out_vk_surface)
-{
-    *out_vk_surface = *(ImU64*)platform_create_vulkan_surface(vulkan_context.engine, (VkInstance)vk_inst);
-    return 0;
-}
-
 internal_function bool
 init_imgui(Vulkan_Context *context)
 {
@@ -290,9 +282,6 @@ init_imgui(Vulkan_Context *context)
                                          &descriptor_pool_create_info,
                                          nullptr,
                                          &context->imgui_descriptor_pool));
-
-    ImGuiPlatformIO &platform_io = ImGui::GetPlatformIO();
-    platform_io.Platform_CreateVkSurface = Platform_CreateVkSurface;
 
     ImGui_ImplVulkan_InitInfo init_info = {};
     init_info.Instance = context->instance;
@@ -497,7 +486,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         max_sample_count = VK_SAMPLE_COUNT_2_BIT;
     }
 
-    context->msaa_samples = VK_SAMPLE_COUNT_8_BIT;
+    context->msaa_samples = VK_SAMPLE_COUNT_4_BIT;
 
     if (context->msaa_samples > max_sample_count)
     {
@@ -717,34 +706,55 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                            arena,
                            &context->swapchain_support);
 
-    VkAttachmentDescription attachments[3] = {};
+    VkAttachmentDescription attachments_msaa[3] = {};
+
+    attachments_msaa[0].format = context->swapchain_support.image_format;
+    attachments_msaa[0].samples = context->msaa_samples;
+    attachments_msaa[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments_msaa[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachments_msaa[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachments_msaa[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments_msaa[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments_msaa[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    attachments_msaa[1].format = context->swapchain_support.image_format;
+    attachments_msaa[1].samples = VK_SAMPLE_COUNT_1_BIT;
+    attachments_msaa[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments_msaa[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachments_msaa[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachments_msaa[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments_msaa[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments_msaa[1].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    attachments_msaa[2].format = context->swapchain_support.depth_stencil_format;
+    attachments_msaa[2].samples = context->msaa_samples;
+    attachments_msaa[2].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments_msaa[2].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments_msaa[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachments_msaa[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments_msaa[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments_msaa[2].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentDescription attachments[2] = {};
 
     attachments[0].format = context->swapchain_support.image_format;
-    attachments[0].samples = context->msaa_samples;
+    attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-    attachments[1].format = context->swapchain_support.image_format;
-    attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+    attachments[1].format = context->swapchain_support.depth_stencil_format;
+    attachments[1].samples = context->msaa_samples;
     attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[1].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-    attachments[2].format = context->swapchain_support.depth_stencil_format;
-    attachments[2].samples = context->msaa_samples;
-    attachments[2].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[2].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[2].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkAttachmentReference color_attachment_ref = {};
     color_attachment_ref.attachment = 0;
@@ -763,12 +773,19 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &color_attachment_ref;
-    subpass.pResolveAttachments = &resolve_color_attachment_ref;
+
+    if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
+    {
+        subpass.pResolveAttachments = &resolve_color_attachment_ref;
+    }
+    else
+    {
+        depth_stencil_attachment_ref.attachment = 1;
+    }
 
     subpass.pDepthStencilAttachment = &depth_stencil_attachment_ref;
 
     VkSubpassDependency dependency = {};
-
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
 
@@ -783,8 +800,16 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     VkRenderPassCreateInfo render_pass_create_info =
         { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-    render_pass_create_info.attachmentCount = ArrayCount(attachments);
-    render_pass_create_info.pAttachments = attachments;
+    if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
+    {
+        render_pass_create_info.attachmentCount = ArrayCount(attachments_msaa);
+        render_pass_create_info.pAttachments = attachments_msaa;
+    }
+    else
+    {
+        render_pass_create_info.attachmentCount = ArrayCount(attachments);
+        render_pass_create_info.pAttachments = attachments;
+    }
 
     render_pass_create_info.subpassCount = 1;
     render_pass_create_info.pSubpasses = &subpass;
@@ -1065,8 +1090,6 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDestroyDescriptorPool(context->logical_device, context->imgui_descriptor_pool, nullptr);
 
     ImGui_ImplVulkan_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
 
     destroy_buffer(&context->transfer_buffer, context->logical_device);
     destroy_buffer(&context->vertex_buffer, context->logical_device);
@@ -1184,13 +1207,20 @@ void vulkan_renderer_on_resize(Renderer_State *renderer_state,
     }
 }
 
+void vulkan_renderer_imgui_new_frame()
+{
+    ImGui_ImplVulkan_NewFrame();
+}
+
 void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Scene_Data *scene_data)
 {
-    static bool open = true;
-    if (open)
-    {
-        ImGui::ShowDemoWindow(&open);
-    }
+    ImGui::Begin("Graphics");
+    static glm::vec3 light_direction = { 0.0f, -1.0f, 0.0f };
+    ImGui::Text("Directional Light");
+    ImGui::Text("Direction");
+    ImGui::SameLine();
+    ImGui::DragFloat3("##Directional Light Direction", &light_direction.x, 0.01, -1.0f, 1.0f);
+    ImGui::End();
 
     Vulkan_Context *context = &vulkan_context;
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
@@ -1203,7 +1233,8 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     globals.view = scene_data->view;
     globals.projection = scene_data->projection;
     globals.projection[1][1] *= -1;
-    globals.directional_light_direction = glm::vec4(scene_data->directional_light_direction, 0.0f);
+    // globals.directional_light_direction = glm::vec4(scene_data->directional_light_direction, 0.0f);
+    globals.directional_light_direction = glm::vec4(glm::normalize(light_direction), 0.0f);
     globals.directional_light_color = scene_data->directional_light_color;
 
     Vulkan_Buffer *global_uniform_buffer = &context->globals_uniform_buffers[current_frame_in_flight_index];
@@ -1387,9 +1418,23 @@ void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
     Vulkan_Context *context = &vulkan_context;
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
     VkCommandBuffer &command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
+
+    ImGuiIO &io = ImGui::GetIO();
+    io.DisplaySize = ImVec2((F32)(renderer_state->back_buffer_width),
+                            (F32)(renderer_state->back_buffer_height));
     
+    if (renderer_state->engine->imgui_docking)
+    {
+        ImGui::End();
+    }
+
     ImGui::Render();
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffer);
+
+    if (renderer_state->engine->show_imgui)
+    {
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffer);
+    }
+
     vkCmdEndRenderPass(command_buffer);
     vkEndCommandBuffer(command_buffer);
 
@@ -1410,7 +1455,7 @@ void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
 
     vkQueueSubmit(context->graphics_queue, 1, &submit_info, context->frame_in_flight_fences[current_frame_in_flight_index]);
 
-    ImGuiIO &io = ImGui::GetIO();
+
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
     {
         ImGui::UpdatePlatformWindows();

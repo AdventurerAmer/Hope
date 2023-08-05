@@ -151,33 +151,27 @@ void parse_int(Shader_Entity &entity, const U32 *instruction)
     }
 }
 
-void parse_float(Shader_Entity& entity, const U32* instruction)
+void parse_float(Shader_Entity &entity, const U32* instruction)
 {
     entity.kind = ShaderEntityKind_Type;
     entity.type = ShaderEntityType_Float;
 
     U32 width = instruction[2];
-    switch (width)
+    if (width == 16)
     {
-        case 16:
-        {
-            entity.data_type = ShaderDataType_F16;
-        } break;
-
-        case 32:
-        {
-            entity.data_type = ShaderDataType_F32;
-        } break;
-
-        case 64:
-        {
-            entity.data_type = ShaderDataType_F64;
-        } break;
-
-        default:
-        {
-            Assert(!"invalid width");
-        } break;
+        entity.data_type = ShaderDataType_F16;
+    }
+    else if (width == 32)
+    {
+        entity.data_type = ShaderDataType_F32;
+    }
+    else if (width == 64)
+    {
+        entity.data_type = ShaderDataType_F64;
+    }
+    else
+    {
+        Assert(!"invalid width");
     }
 }
 
@@ -912,12 +906,13 @@ bool create_graphics_pipeline(Vulkan_Context *context,
 
     VkPipelineMultisampleStateCreateInfo multisampling_state_create_info =
         { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
-    multisampling_state_create_info.sampleShadingEnable = VK_TRUE;
+
     multisampling_state_create_info.rasterizationSamples = context->msaa_samples;
-    multisampling_state_create_info.minSampleShading = 0.2f;
-    multisampling_state_create_info.pSampleMask = nullptr;
     multisampling_state_create_info.alphaToCoverageEnable = VK_FALSE;
     multisampling_state_create_info.alphaToOneEnable = VK_FALSE;
+    multisampling_state_create_info.sampleShadingEnable = VK_TRUE;
+    multisampling_state_create_info.minSampleShading = 0.2f;
+    multisampling_state_create_info.pSampleMask = nullptr;
 
     VkPipelineColorBlendAttachmentState color_blend_attachment_state = {};
     color_blend_attachment_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT|

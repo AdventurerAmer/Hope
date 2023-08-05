@@ -134,6 +134,10 @@ struct Engine
 
     Renderer_State renderer_state;
     Renderer renderer;
+
+    bool show_imgui;
+    bool imgui_docking;
+
     /*
         note(amer): this is a platform specific pointer to Win32_State on windows
     */

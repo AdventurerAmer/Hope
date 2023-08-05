@@ -20,6 +20,8 @@ enum RenderingAPI
 
 struct Renderer_State
 {
+    struct Engine *engine;
+
     U32 back_buffer_width;
     U32 back_buffer_height;
 
@@ -42,7 +44,9 @@ struct Renderer_State
     Scene_Node *scene_nodes;
 };
 
-bool init_renderer_state(Renderer_State *renderer_state, struct Memory_Arena *arena);
+bool init_renderer_state(struct Engine *engine,
+                         Renderer_State *renderer_state,
+                         struct Memory_Arena *arena);
 
 struct Scene_Data
 {
@@ -78,6 +82,8 @@ struct Renderer
 
     bool (*create_material)(Material *material, U32 albedo_texture_index, U32 normal_texture_index);
     void (*destroy_material)(Material *material);
+
+    void (*imgui_new_frame)();
 };
 
 bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);

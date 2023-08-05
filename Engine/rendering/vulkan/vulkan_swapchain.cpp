@@ -241,12 +241,16 @@ create_swapchain(Vulkan_Context *context,
 
     bool mipmapping = false;
 
-    create_image(&swapchain->color_attachment, context,
-                 width, height, swapchain->image_format, VK_IMAGE_TILING_OPTIMAL,
-                 VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                 VK_IMAGE_ASPECT_COLOR_BIT,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                 mipmapping, context->msaa_samples);
+    if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
+    {
+        create_image(&swapchain->color_attachment, context,
+                     width, height, swapchain->image_format, VK_IMAGE_TILING_OPTIMAL,
+                     VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                     VK_IMAGE_ASPECT_COLOR_BIT,
+                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                     mipmapping, context->msaa_samples);
+
+    }
 
     create_image(&swapchain->depth_stencil_attachment,
                  context, width, height, swapchain->depth_stencil_format,
@@ -257,17 +261,33 @@ create_swapchain(Vulkan_Context *context,
 
     for (U32 image_index = 0; image_index < swapchain->image_count; image_index++)
     {
-        VkImageView image_views[] =
+        VkImageView image_views_msaa[] =
         {
             swapchain->color_attachment.view,
             swapchain->image_views[image_index],
             swapchain->depth_stencil_attachment.view
         };
 
+        VkImageView image_views[] =
+        {
+            swapchain->image_views[image_index],
+            swapchain->depth_stencil_attachment.view
+        };
+
         VkFramebufferCreateInfo frame_buffer_create_info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
         frame_buffer_create_info.renderPass = context->render_pass;
-        frame_buffer_create_info.attachmentCount = ArrayCount(image_views);
-        frame_buffer_create_info.pAttachments = image_views;
+
+        if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
+        {
+            frame_buffer_create_info.attachmentCount = ArrayCount(image_views_msaa);
+            frame_buffer_create_info.pAttachments = image_views_msaa;
+        }
+        else
+        {
+            frame_buffer_create_info.attachmentCount = ArrayCount(image_views);
+            frame_buffer_create_info.pAttachments = image_views;
+        }
+
         frame_buffer_create_info.width = swapchain->width;
         frame_buffer_create_info.height = swapchain->height;
         frame_buffer_create_info.layers = 1;

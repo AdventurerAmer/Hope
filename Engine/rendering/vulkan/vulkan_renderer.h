@@ -31,3 +31,5 @@ void vulkan_renderer_destroy_static_mesh(Static_Mesh *static_mesh);
 void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const struct Scene_Data *scene_data);
 void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state, const struct Static_Mesh *static_mesh, const glm::mat4 transform);
 void vulkan_renderer_end_frame(struct Renderer_State *renderer_state);
+
+void vulkan_renderer_imgui_new_frame();

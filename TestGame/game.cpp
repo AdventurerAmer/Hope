@@ -67,6 +67,10 @@ on_event(Engine *engine, Event event)
 				{
 					platform->toggle_fullscreen(engine);
                 }
+                else if (event.key == HE_KEY_F10)
+                {
+                    engine->show_imgui = !engine->show_imgui;
+                }
 			}
 		} break;
 	}

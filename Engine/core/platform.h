@@ -82,8 +82,12 @@ bool platform_end_read_entire_file(Read_Entire_File_Result *read_entire_file_res
 
 void platform_toggle_fullscreen(struct Engine *engine);
 
-void* platform_create_vulkan_surface(struct Engine *engine, void *instance);
+void* platform_create_vulkan_surface(struct Engine *engine, void *instance, const void *allocator_callbacks = nullptr);
 
 void platform_report_error_and_exit(const char *message, ...);
+
+void platform_init_imgui(struct Engine *engine);
+void platform_imgui_new_frame();
+void platform_shutdown_imgui();
 
 void platform_debug_printf(const char *message, ...);

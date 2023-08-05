@@ -20,7 +20,6 @@
 
 #include "core/debugging.h"
 
-#include "ImGui/backends/imgui_impl_vulkan.h"
 #include "ImGui/backends/imgui_impl_win32.cpp"
 
 // todo(amer): move to static config...
@@ -132,16 +131,16 @@ void platform_toggle_fullscreen(Engine *engine)
 }
 
 
-void* platform_create_vulkan_surface(Engine *engine, void *instance)
+void* platform_create_vulkan_surface(Engine *engine, void *instance, const void *allocator_callbacks)
 {
     Win32_State *win32_state = (Win32_State *)engine->platform_state;
 
     VkWin32SurfaceCreateInfoKHR surface_create_info = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
-    surface_create_info.hwnd = win32_state->window;
     surface_create_info.hinstance = win32_state->instance;
+    surface_create_info.hwnd = win32_state->window;
 
     VkSurfaceKHR surface = 0;
-    VkResult result = vkCreateWin32SurfaceKHR((VkInstance)instance, &surface_create_info, nullptr, &surface);
+    VkResult result = vkCreateWin32SurfaceKHR((VkInstance)instance, &surface_create_info, (VkAllocationCallbacks *)allocator_callbacks, &surface);
     Assert(result == VK_SUCCESS);
     return surface;
 }
@@ -243,6 +242,39 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
     }
 
     return result;
+}
+
+internal_function int Platform_CreateVkSurface(ImGuiViewport *vp, ImU64 vk_inst, const void* vk_allocators, ImU64* out_vk_surface)
+{
+    ImGui_ImplWin32_ViewportData *viewport_data = (ImGui_ImplWin32_ViewportData *)vp->PlatformUserData;
+
+    VkWin32SurfaceCreateInfoKHR surface_create_info = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
+    surface_create_info.hinstance = GetModuleHandle(nullptr);
+    surface_create_info.hwnd = viewport_data->Hwnd;
+
+    VkSurfaceKHR surface = 0;
+    VkResult result = vkCreateWin32SurfaceKHR((VkInstance)vk_inst, &surface_create_info, (VkAllocationCallbacks *)vk_allocators, (VkSurfaceKHR *)out_vk_surface);
+    Assert(result == VK_SUCCESS);
+
+    return (int)result;
+}
+
+void platform_init_imgui(struct Engine *engine)
+{
+    Win32_State *win32_state = (Win32_State *)engine->platform_state;
+    ImGuiPlatformIO &platform_io = ImGui::GetPlatformIO();
+    platform_io.Platform_CreateVkSurface = Platform_CreateVkSurface;
+    ImGui_ImplWin32_Init(win32_state->window);
+}
+
+void platform_imgui_new_frame()
+{
+    ImGui_ImplWin32_NewFrame();
+}
+
+void platform_shutdown_imgui()
+{
+    ImGui_ImplWin32_Shutdown();
 }
 
 internal_function FILETIME
@@ -476,27 +508,6 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
                win32_state->window_width, win32_state->window_height, FALSE);
     ShowWindow(win32_state->window, SW_SHOW);
 
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;   // Enable Keyboard Controls
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;    // Enable Gamepad Controls
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;       // Enable Docking
-    // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;     // Enable Multi-Viewport / Platform Windows
-
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-    //ImGui::StyleColorsClassic();
-
-    // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
-    ImGuiStyle& style = ImGui::GetStyle();
-    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-    {
-        style.WindowRounding = 0.0f;
-        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-    }
-    ImGui_ImplWin32_Init(win32_state->window);
-
     Engine *engine = &win32_state->engine;
     Game_Code *game_code = &engine->game_code;
 
@@ -538,7 +549,12 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
         MSG message = {};
         while (PeekMessageA(&message, win32_state->window, 0, 0, PM_REMOVE))
         {
-            ImGui_ImplWin32_WndProcHandler(win32_state->window, message.message, message.wParam, message.lParam);
+            // todo(amer): handle imgui input outside platform win32.
+            if (win32_state->engine.show_imgui)
+            {
+                ImGui_ImplWin32_WndProcHandler(win32_state->window, message.message, message.wParam, message.lParam);
+            }
+
             switch (message.message)
             {
                 case WM_SYSKEYDOWN:
@@ -678,10 +694,6 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
                 } break;
             }
         }
-
-        ImGui_ImplVulkan_NewFrame();
-        ImGui_ImplWin32_NewFrame();
-        ImGui::NewFrame();
 
         Input *input = &engine->input;
 
