@@ -42,6 +42,8 @@ struct Renderer_State
 
     U32 scene_node_count;
     Scene_Node *scene_nodes;
+
+    struct Free_List_Allocator *transfer_allocator;
 };
 
 bool init_renderer_state(struct Engine *engine,
@@ -93,8 +95,7 @@ Scene_Node *add_child_scene_node(Renderer_State *renderer_state,
 
 Scene_Node*
 load_model(const char *path, Renderer *renderer,
-           Renderer_State *renderer_state,
-           Memory_Arena *arena);
+           Renderer_State *renderer_state);
 
 void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene_Node *scene_node, glm::mat4 transform);
 

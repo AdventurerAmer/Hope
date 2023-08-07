@@ -36,13 +36,11 @@ struct Memory_Arena
 #endif
 };
 
-Memory_Arena
-create_memory_arena(void *memory, Mem_Size size);
+Memory_Arena create_memory_arena(void *memory, Mem_Size size);
 
-void*
-allocate(Memory_Arena *arena,
-         Mem_Size size, U16 alignment,
-         Temprary_Memory_Arena *parent = nullptr);
+void* allocate(Memory_Arena *arena,
+               Mem_Size size, U16 alignment,
+               Temprary_Memory_Arena *parent = nullptr);
 
 //
 // Temprary Memory Arena
@@ -68,8 +66,7 @@ allocate(Temprary_Memory_Arena *temprary_arena, Mem_Size size, U16 alignment)
     return allocate(temprary_arena->arena, size, alignment, temprary_arena);
 }
 
-void
-end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena);
+void end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena);
 
 //
 // Scoped Temprary Memory Arena
@@ -114,14 +111,14 @@ struct Free_List_Allocator
     Free_List_Node sentinal;
 };
 
-void
-init_free_list_allocator(Free_List_Allocator *free_list_allocator,
-                         Memory_Arena *arena,
-                         Mem_Size size);
+void init_free_list_allocator(Free_List_Allocator *allocator,
+                              Memory_Arena *arena,
+                              Mem_Size size);
 
-void*
-allocate(Free_List_Allocator *allocator,
-         Mem_Size size,
-         U16 alignment);
+void init_free_list_allocator(Free_List_Allocator *allocator,
+                              void *memory,
+                              Mem_Size size);
 
+void* allocate(Free_List_Allocator *allocator, Mem_Size size, U16 alignment);
+void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16 alignment);
 void deallocate(Free_List_Allocator *allocator, void *memory);

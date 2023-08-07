@@ -2,12 +2,28 @@
 #define CGLTF_IMPLEMENTATION
 #include <cgltf.h>
 
+#include "core/memory.h"
+
+static Free_List_Allocator *_stbi_allocator;
+
+// bug(amer): when using our custom free list allocator with stbi some textures load in 6000ms
+// even tho if we use malloc and copy to the free list allocator it's only taking 100ms
+
+#define STBI_ALLOCATOR 0
+#if STBI_ALLOCATOR
+#define STBI_MALLOC(sz) allocate(_stbi_allocator, sz, 4);
+#define STBI_REALLOC(p, newsz) reallocate(_stbi_allocator, p, newsz, 4)
+#define STBI_FREE(p) deallocate(_stbi_allocator, p)
+#define STBI_REALLOC_SIZED(p, oldsz, newsz) reallocate(_stbi_allocator, p, newsz, 0)
+#endif
+
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 #pragma warning(pop)
 
 #include "rendering/renderer.h"
 #include "core/platform.h"
+#include "core/debugging.h"
 
 #ifdef HE_RHI_VULKAN
 #include "rendering/vulkan/vulkan_renderer.h"
@@ -67,6 +83,8 @@ bool init_renderer_state(Engine *engine,
     renderer_state->materials     = AllocateArray(arena, U8, renderer_state->material_bundle_size * MAX_MATERIAL_COUNT);
     renderer_state->static_meshes = AllocateArray(arena, U8, renderer_state->static_mesh_bundle_size * MAX_STATIC_MESH_COUNT);
     renderer_state->scene_nodes   = AllocateArray(arena, Scene_Node, MAX_SCENE_NODE_COUNT);
+
+    _stbi_allocator = renderer_state->transfer_allocator;
     return true;
 }
 
@@ -93,10 +111,35 @@ add_child_scene_node(Renderer_State *renderer_state,
     return node;
 }
 
+#include <string>
+#include <chrono>
+
+struct Timer
+{
+    std::chrono::time_point< std::chrono::system_clock > start_time;
+    std::string str;
+
+    Timer(const std::string& s)
+    {
+        start_time = std::chrono::system_clock::now();
+        str = s;
+    }
+
+    ~Timer()
+    {
+        F64 elapsed = (F64)std::chrono::duration_cast< std::chrono::milliseconds >(std::chrono::system_clock::now() - start_time).count();
+        DebugPrintf(Rendering, Trace, "%s took %f ms\n", str.c_str(), elapsed);
+    }
+};
+
+#define TIMER(CString) Timer timer##__LINE__##__COUNTER__(CString)
+
 internal_function Texture*
 cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32 model_path_without_file_name_length,
-                   Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena)
+                   Renderer *renderer, Renderer_State *renderer_state)
 {
+    TIMER("load_texture");
+
     const cgltf_image *image = texture_view->texture->image;
 
     Texture *texture = nullptr;
@@ -176,18 +219,25 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
         }
         else
         {
+            TIMER("stbi_load");
             pixels = stbi_load(texture_path,
                                &texture_width, &texture_height,
                                &texture_channels, STBI_rgb_alpha);
         }
 
         Assert(pixels);
+
+        U64 data_size = texture_width * texture_height * sizeof(U32);
+        U32 *data = AllocateArray(renderer_state->transfer_allocator, U32, data_size);
+        memcpy(data, pixels, data_size);
+
         bool mipmapping = true;
         bool created = renderer->create_texture(texture,
                                                 texture_width,
                                                 texture_height,
-                                                pixels, TextureFormat_RGBA, mipmapping);
+                                                data, TextureFormat_RGBA, mipmapping);
         Assert(created);
+        deallocate(renderer_state->transfer_allocator, data);
 
         stbi_image_free(pixels);
     }
@@ -202,9 +252,9 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
 // note(amer): https://github.com/deccer/CMake-Glfw-OpenGL-Template/blob/main/src/Project/ProjectApplication.cpp
 // thanks to this giga chad for the example
 Scene_Node *load_model(const char *path, Renderer *renderer,
-                       Renderer_State *renderer_state, Memory_Arena *arena)
+                       Renderer_State *renderer_state)
 {
-    Scoped_Temprary_Memory_Arena temp_arena(arena);
+    TIMER("load_model");
 
     Read_Entire_File_Result result =
         platform_begin_read_entire_file(path);
@@ -214,7 +264,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
         return nullptr;
     }
 
-    U8 *buffer = AllocateArray(&temp_arena, U8, result.size);
+    U8 *buffer = AllocateArray(renderer_state->transfer_allocator, U8, result.size);
     platform_end_read_entire_file(&result, buffer);
 
     U64 path_length = strlen(path);
@@ -269,8 +319,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                                             path,
                                             u64_to_u32(path_without_file_name_length),
                                             renderer,
-                                            renderer_state,
-                                            arena);
+                                            renderer_state);
             }
         }
 
@@ -280,8 +329,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                                         path,
                                         u64_to_u32(path_without_file_name_length),
                                         renderer,
-                                        renderer_state,
-                                        arena);
+                                        renderer_state);
         }
         else
         {
@@ -416,14 +464,18 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                     Assert(primitive->indices->component_type == cgltf_component_type_r_16u);
                     Assert(primitive->indices->stride == sizeof(U16));
 
+                    TIMER("load vertices and indicies");
+
                     index_count = u64_to_u32(primitive->indices->count);
                     const auto *accessor = primitive->indices;
                     const auto *view = accessor->buffer_view;
                     U8 *data_ptr = (U8*)view->buffer->data;
                     indices = (U16*)(data_ptr + view->offset + accessor->offset);
+                    U16* transfered_indices = AllocateArray(renderer_state->transfer_allocator, U16, index_count);
+                    memcpy(transfered_indices, indices, sizeof(U16) * index_count);
 
                     U32 vertex_count = position_count;
-                    Vertex *vertices = AllocateArray(&temp_arena, Vertex, vertex_count);
+                    Vertex *vertices = AllocateArray(renderer_state->transfer_allocator, Vertex, vertex_count);
 
                     for (U32 vertex_index = 0; vertex_index < vertex_count; vertex_index++)
                     {
@@ -436,9 +488,12 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                         vertex->uv = uvs[vertex_index];
                     }
 
+
                     bool created = renderer->create_static_mesh(static_mesh, vertices, vertex_count,
-                                                                indices, index_count);
+                                                                transfered_indices, index_count);
                     Assert(created);
+
+                    deallocate(renderer_state->transfer_allocator, vertices);
                 }
             }
 
@@ -452,6 +507,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
     }
 
     cgltf_free(model_data);
+    deallocate(renderer_state->transfer_allocator, buffer);
     return root_scene_node;
 }
 

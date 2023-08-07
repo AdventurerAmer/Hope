@@ -37,12 +37,10 @@ init_game(Engine *engine)
                                            base_movement_speed,
                                            max_movement_speed, sensitivity_x, sensitivity_y);
 
-	/*game_state.sponza = engine->api.load_model("models/Sponza/Sponza.gltf", renderer, renderer_state,
-                                                 &engine->memory.transient_arena);
+	/*game_state.sponza = engine->api.load_model("models/Sponza/Sponza.gltf", renderer, renderer_state);
     Assert(game_state.sponza);*/
 
-    game_state.flight_helmet = engine->api.load_model("models/FlightHelmet/FlightHelmet.gltf", renderer, renderer_state,
-                                                      &engine->memory.transient_arena);
+    game_state.flight_helmet = engine->api.load_model("models/FlightHelmet/FlightHelmet.gltf", renderer, renderer_state);
     Assert(game_state.flight_helmet);
 
     return true;

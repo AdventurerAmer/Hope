@@ -57,10 +57,9 @@ get_number_of_bytes_to_align_address(Mem_Size address, U16 alignment)
     return result;
 }
 
-void*
-allocate(Memory_Arena *arena,
-         Mem_Size size, U16 alignment,
-         Temprary_Memory_Arena *parent)
+void* allocate(Memory_Arena *arena,
+               Mem_Size size, U16 alignment,
+               Temprary_Memory_Arena *parent)
 {
     Assert(arena);
     Assert(size);
@@ -127,7 +126,8 @@ Scoped_Temprary_Memory_Arena::~Scoped_Temprary_Memory_Arena()
 // Free List Allocator
 //
 
-internal_function void insert_after(Free_List_Node *node, Free_List_Node *before)
+internal_function void
+insert_after(Free_List_Node *node, Free_List_Node *before)
 {
     node->next = before->next;
     node->prev = before;
@@ -136,7 +136,8 @@ internal_function void insert_after(Free_List_Node *node, Free_List_Node *before
     before->next = node;
 }
 
-internal_function void remove_node(Free_List_Node *node)
+internal_function void
+remove_node(Free_List_Node *node)
 {
     Assert(node->next);
     Assert(node->prev);
@@ -145,7 +146,8 @@ internal_function void remove_node(Free_List_Node *node)
     node->next->prev = node->prev;
 }
 
-internal_function void merge(Free_List_Node *left, Free_List_Node *right)
+internal_function void
+merge(Free_List_Node *left, Free_List_Node *right)
 {
     if ((U8 *)left + left->size == (U8 *)right)
     {
@@ -155,15 +157,13 @@ internal_function void merge(Free_List_Node *left, Free_List_Node *right)
 }
 
 void init_free_list_allocator(Free_List_Allocator *allocator,
-                              Memory_Arena *arena,
+                              void *memory,
                               Mem_Size size)
 {
     Assert(allocator);
-    Assert(arena);
     Assert(size >= sizeof(Free_List_Node));
 
-    U8 *base = AllocateArray(arena, U8, size);
-    allocator->base = base;
+    allocator->base = (U8 *)memory;
     allocator->size = size;
     allocator->used = 0;
 
@@ -174,6 +174,15 @@ void init_free_list_allocator(Free_List_Allocator *allocator,
     Free_List_Node *first_free_node = (Free_List_Node *)allocator->base;
     first_free_node->size = size;
     insert_after(first_free_node, &allocator->sentinal);
+}
+
+void init_free_list_allocator(Free_List_Allocator *allocator,
+                              Memory_Arena *arena,
+                              Mem_Size size)
+{
+    Assert(arena);
+    U8 *base = AllocateArray(arena, U8, size);
+    init_free_list_allocator(allocator, base, size);
 }
 
 struct Free_List_Allocation_Header
@@ -240,8 +249,109 @@ void* allocate(Free_List_Allocator *allocator,
     return result;
 }
 
+void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16 alignment)
+{
+    if (!memory)
+    {
+        return allocate(allocator, new_size, alignment);
+    }
+
+    Assert(allocator);
+    Assert(memory >= allocator->base && memory <= allocator->base + allocator->size);
+    Assert(new_size);
+
+    Free_List_Allocation_Header &header = ((Free_List_Allocation_Header *)memory)[-1];
+    Assert(header.size >= 0);
+    Assert(header.offset >= 0);
+    Assert(new_size != header.size);
+
+    U8 *memory_node_address = ((U8 *)memory - header.offset);
+    
+    Free_List_Node *adjacent_node_after_memory = nullptr;
+    Free_List_Node *node_before_memory = &allocator->sentinal;
+
+    for (Free_List_Node *node = allocator->sentinal.next;
+         node != &allocator->sentinal;
+         node = node->next)
+    {
+        if ((U8 *)node < memory_node_address)
+        {
+            node_before_memory = node;
+        }
+
+        if (memory_node_address + header.size == (U8 *)node)
+        {
+            adjacent_node_after_memory = node;
+            break;
+        }
+    }
+
+    if (new_size < header.size)
+    {
+        U64 amount = header.size - new_size;
+
+        if (adjacent_node_after_memory)
+        {
+            header.size = new_size;
+            Free_List_Node *prev = adjacent_node_after_memory->prev;
+            U64 new_node_size = adjacent_node_after_memory->size + amount;
+            Free_List_Node *new_node = (Free_List_Node *)((U8 *)adjacent_node_after_memory - amount);
+            remove_node(adjacent_node_after_memory);
+            insert_after(new_node, prev);
+        }
+        else
+        {
+            if (amount >= sizeof(Free_List_Node))
+            {
+                header.size = new_size;
+                Free_List_Node *new_node = (Free_List_Node *)((U8 *)memory + new_size);
+                new_node->size = amount;
+                insert_after(new_node, node_before_memory);
+            }
+        }
+
+        return memory;
+    }
+    else
+    {
+        if (adjacent_node_after_memory)
+        {
+            if (header.size + adjacent_node_after_memory->size >= new_size)
+            {
+                U64 remaining = (header.size + adjacent_node_after_memory->size) - new_size;
+                if (remaining >= sizeof(Free_List_Node))
+                {
+                    header.size = new_size;
+                    remove_node(adjacent_node_after_memory);
+
+                    Free_List_Node *new_node = (Free_List_Node *)((U8 *)memory + new_size);
+                    new_node->size = remaining;
+                    insert_after(new_node, node_before_memory);
+                }
+                else
+                {
+                    header.size += adjacent_node_after_memory->size;
+                    remove_node(adjacent_node_after_memory);
+                }
+            }
+
+            return memory;
+        }
+    }
+
+    void *new_memory = allocate(allocator, new_size, alignment);
+    memcpy(new_memory, memory, header.size);
+    deallocate(allocator, memory);
+    return new_memory;
+}
+
 void deallocate(Free_List_Allocator *allocator, void *memory)
 {
+    if (!memory)
+    {
+        return;
+    }
+
     Assert(allocator);
     Assert(memory >= allocator->base && memory <= allocator->base + allocator->size);
 

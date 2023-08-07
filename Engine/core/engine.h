@@ -111,8 +111,7 @@ struct Engine_API
                            F32 delta_time);
 
     Scene_Node* (*load_model)(const char *path, Renderer *renderer,
-                              Renderer_State *renderer_state,
-                              Memory_Arena *arena);
+                              Renderer_State *renderer_state);
 
     void (*render_scene_node)(Renderer *renderer, Renderer_State *renderer_state,
                            Scene_Node *scene_node, glm::mat4 transform);

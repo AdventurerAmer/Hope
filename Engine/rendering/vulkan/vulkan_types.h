@@ -248,7 +248,6 @@ struct Vulkan_Context
 
     VkCommandPool transfer_command_pool;
     Vulkan_Buffer transfer_buffer;
-    Memory_Arena transfer_arena;
 
     Vulkan_Buffer vertex_buffer;
     U64 vertex_offset;
@@ -261,6 +260,7 @@ struct Vulkan_Context
     U32 current_swapchain_image_index;
 
     Free_List_Allocator *allocator;
+    Free_List_Allocator transfer_allocator;
 
     VkDescriptorPool imgui_descriptor_pool;
 
