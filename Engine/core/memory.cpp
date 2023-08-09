@@ -219,11 +219,7 @@ void* allocate(Free_List_Allocator *allocator,
             Mem_Size remaining_size = node->size - allocation_size;
 
             Free_List_Allocation_Header allocation_header = {};
-            allocation_header.size = node->size;
             allocation_header.offset = offset;
-
-            Free_List_Node *before = node->prev;
-            remove_node(node);
 
             if (remaining_size > sizeof(Free_List_Node))
             {
@@ -231,11 +227,14 @@ void* allocate(Free_List_Allocator *allocator,
 
                 Free_List_Node *new_node = (Free_List_Node *)((U8 *)node + allocation_size);
                 new_node->size = remaining_size;
-                new_node->next = new_node->prev = nullptr; // note(amer): is this nessessary
-
-                insert_after(new_node, before);
+                insert_after(new_node, node->prev);
+            }
+            else
+            {
+                allocation_header.size = node->size;
             }
 
+            remove_node(node);
             result = (U8*)node + offset;
             ((Free_List_Allocation_Header *)result)[-1] = allocation_header;
 
@@ -245,7 +244,7 @@ void* allocate(Free_List_Allocator *allocator,
     }
 
     Assert(result);
-    zero_memory(result, size);
+    // zero_memory(result, size);
     return result;
 }
 
@@ -363,7 +362,6 @@ void deallocate(Free_List_Allocator *allocator, void *memory)
 
     Free_List_Node *new_node = (Free_List_Node *)((U8 *)memory - header.offset);
     new_node->size = header.size;
-    new_node->next = new_node->prev = nullptr; // note(amer): is this nessessary ?
 
     if (allocator->sentinal.next == &allocator->sentinal)
     {

@@ -138,7 +138,7 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 
     init_free_list_allocator(&engine->memory.free_list_allocator,
                              &engine->memory.transient_arena,
-                             HE_MegaBytes(128));
+                             HE_MegaBytes(256));
 
     engine->show_cursor = configuration.show_cursor;
     engine->lock_cursor = configuration.lock_cursor;
