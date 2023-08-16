@@ -4,10 +4,6 @@
 #include "renderer_types.h"
 #include "camera.h"
 
-#if HE_OS_WINDOWS
-#define HE_RHI_VULKAN
-#endif
-
 enum RenderingAPI
 {
     RenderingAPI_Vulkan
@@ -18,15 +14,27 @@ enum RenderingAPI
 #define MAX_STATIC_MESH_COUNT 4096
 #define MAX_SCENE_NODE_COUNT 4096
 
+struct Directional_Light
+{
+    glm::vec3 direction;
+    glm::vec4 color;
+    F32 intensity;
+};
+
+struct Scene_Data
+{
+    glm::mat4 view;
+    glm::mat4 projection;
+
+    Directional_Light directional_light;
+};
+
 struct Renderer_State
 {
     struct Engine *engine;
 
     U32 back_buffer_width;
     U32 back_buffer_height;
-
-    Camera camera;
-    FPS_Camera_Controller camera_controller;
 
     U64 texture_bundle_size;
     U32 texture_count;
@@ -43,21 +51,14 @@ struct Renderer_State
     U32 scene_node_count;
     Scene_Node *scene_nodes;
 
+    Scene_Data scene_data;
+
     struct Free_List_Allocator *transfer_allocator;
 };
 
 bool init_renderer_state(struct Engine *engine,
                          Renderer_State *renderer_state,
                          struct Memory_Arena *arena);
-
-struct Scene_Data
-{
-    glm::mat4 view;
-    glm::mat4 projection;
-
-    glm::vec3 directional_light_direction;
-    glm::vec4 directional_light_color;
-};
 
 struct Renderer
 {
@@ -71,7 +72,7 @@ struct Renderer
     void (*on_resize)(struct Renderer_State *renderer_state, U32 width, U32 height);
 
     void (*begin_frame)(struct Renderer_State *renderer_state, const Scene_Data *scene_data);
-    void (*submit_static_mesh)(struct Renderer_State *renderer_state, const struct Static_Mesh *mesh, const glm::mat4 transfom);
+    void (*submit_static_mesh)(struct Renderer_State *renderer_state, const struct Static_Mesh *mesh, const glm::mat4 &transfom);
     void (*end_frame)(struct Renderer_State *renderer_state);
 
     bool (*create_texture)(Texture *texture, U32 width, U32 height,
@@ -93,9 +94,8 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);
 Scene_Node *add_child_scene_node(Renderer_State *renderer_state,
                                  Scene_Node *parent);
 
-Scene_Node*
-load_model(const char *path, Renderer *renderer,
-           Renderer_State *renderer_state);
+Scene_Node* load_model(const char *path, Renderer *renderer,
+                       Renderer_State *renderer_state);
 
 void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene_Node *scene_node, glm::mat4 transform);
 

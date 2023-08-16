@@ -71,6 +71,9 @@ project "Engine"
     objdir "bin/intermediates/%{prj.name}"
 
 project "TestGame"
+
+    dependson { "Engine" }
+
     kind "SharedLib"
     location "TestGame"
     language "C++"
@@ -80,7 +83,7 @@ project "TestGame"
     defines { "HE_EXPORT" }
     files { "TestGame/**.h", "TestGame/**.hpp", "TestGame/**.cpp" }
 
-    includedirs { "Engine", "ThirdParty/include" }
+    includedirs { "Engine", "ThirdParty/include", }
 
     debugdir "Data"
     targetdir "bin"

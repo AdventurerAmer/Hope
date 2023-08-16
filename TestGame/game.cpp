@@ -1,10 +1,12 @@
 #include "core/defines.h"
 #include "core/engine.h"
 
+
 struct Game_State
 {
 	Camera camera;
 	FPS_Camera_Controller camera_controller;
+
 	Scene_Node *sponza;
 	Scene_Node *flight_helmet;
 };
@@ -71,6 +73,19 @@ on_event(Engine *engine, Event event)
                 }
 			}
 		} break;
+
+        case EventType_Resize:
+        {
+            if (event.width != 0 && event.height != 0)
+            {
+                game_state.camera.aspect_ratio = (F32)event.width / (F32)event.height;
+                // todo(amer): don't check for this...
+                if (engine->api.update_camera)
+                {
+                    engine->api.update_camera(&game_state.camera);
+                }
+            }
+        } break;
 	}
 }
 
@@ -81,7 +96,7 @@ on_update(Engine *engine, F32 delta_time)
 
 	Input *input = &engine->input;
     Renderer *renderer = &engine->renderer;
-    Renderer_State* renderer_state = &engine->renderer_state;
+    Renderer_State *renderer_state = &engine->renderer_state;
 
     Camera *camera = &game_state.camera;
     FPS_Camera_Controller *camera_controller = &game_state.camera_controller;
@@ -113,18 +128,13 @@ on_update(Engine *engine, F32 delta_time)
         engine->show_cursor = true;
     }
 
-    glm::vec3 directional_light_direction = { 0.0f, -1.0f, 0.0f };
-    glm::vec4 directional_light_color = { 1.0f, 1.0f, 1.0f, 1.0f };
-
     if (!engine->is_minimized)
     {
-        Scene_Data scene_data;
-        scene_data.view = camera->view;
-        scene_data.projection = camera->projection;
-        scene_data.directional_light_direction = directional_light_direction;
-        scene_data.directional_light_color = directional_light_color;
+        Scene_Data *scene_data = &renderer_state->scene_data;
+        scene_data->view = camera->view;
+        scene_data->projection = camera->projection;
 
-        renderer->begin_frame(renderer_state, &scene_data);
+        renderer->begin_frame(renderer_state, scene_data);
         // engine->api.render_scene_node(renderer,renderer_state, engine->api.sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
         engine->api.render_scene_node(renderer, renderer_state, game_state.flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)));
         renderer->end_frame(renderer_state);

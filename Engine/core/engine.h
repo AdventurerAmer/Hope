@@ -92,6 +92,9 @@ struct Engine_Configuration
     U32 back_buffer_height;
 };
 
+typedef void* (*imgui_mem_alloc_proc)(size_t sz, void* user_data);
+typedef void  (*imgui_mem_free_proc)(void* ptr, void* user_data);
+
 struct Engine_API
 {
     void (*init_camera)(Camera *camera, glm::vec3 position,
@@ -110,11 +113,16 @@ struct Engine_API
                            const FPS_Camera_Controller_Input input,
                            F32 delta_time);
 
+    void (*update_camera)(Camera *camera);
+
     Scene_Node* (*load_model)(const char *path, Renderer *renderer,
                               Renderer_State *renderer_state);
 
     void (*render_scene_node)(Renderer *renderer, Renderer_State *renderer_state,
-                           Scene_Node *scene_node, glm::mat4 transform);
+                              Scene_Node *scene_node, glm::mat4 transform);
+
+    bool (*imgui_begin_window)(const char* name, bool *p_open, int flags);
+    void (*imgui_end_window)();
 };
 
 struct Engine

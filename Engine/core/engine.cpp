@@ -19,7 +19,7 @@ internal_function void init_imgui(Engine *engine)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad; // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; // Enable Docking
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable Multi-Viewport / Platform Windows
+    // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable Multi-Viewport / Platform Windows
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
@@ -70,7 +70,7 @@ internal_function void imgui_new_frame(Engine *engine)
             // and handle the pass-thru hole, so we ask Begin() to not render a background.
             if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
             {
-                window_flags|=ImGuiWindowFlags_NoBackground;
+                window_flags |= ImGuiWindowFlags_NoBackground;
             }
 
             // Important: note that we proceed even if Begin() returns false (aka window is collapsed).
@@ -99,6 +99,7 @@ internal_function void imgui_new_frame(Engine *engine)
                 ImGuiID dockspace_id = ImGui::GetID("DockSpace");
                 ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
             }
+
             style.WindowMinSize.x = minWindowSizeX;
         }
     }
@@ -181,6 +182,11 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
         return false;
     }
 
+    Scene_Data *scene_data = &renderer_state->scene_data;
+    scene_data->directional_light.direction = { 0.0f, -1.0f, 0.0f };
+    scene_data->directional_light.color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    scene_data->directional_light.intensity = 1.0f;
+
     renderer_state->back_buffer_width = configuration.back_buffer_width;
     renderer_state->back_buffer_height = configuration.back_buffer_height;
 
@@ -198,7 +204,7 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     engine->api.init_camera = &init_camera;
     engine->api.init_fps_camera_controller = &init_fps_camera_controller;
     engine->api.control_camera = &control_camera;
-
+    engine->api.update_camera = &update_camera;
     engine->api.load_model = &load_model;
     engine->api.render_scene_node = &render_scene_node;
 
@@ -211,6 +217,35 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 void game_loop(Engine *engine, F32 delta_time)
 {
     imgui_new_frame(engine);
+
+    Renderer_State *renderer_state = &engine->renderer_state;
+    Scene_Data *scene_data = &renderer_state->scene_data;
+    Directional_Light *directional_light = &scene_data->directional_light;
+
+    ImGui::Begin("Graphics");
+
+    ImGui::Text("Directional Light");
+
+    ImGui::Text("Direction");
+    ImGui::SameLine();
+
+    ImGui::DragFloat3("##Direction", &directional_light->direction.x, 0.1f);
+
+    if (glm::length(directional_light->direction) > 0.0f)
+    {
+        directional_light->direction = glm::normalize(directional_light->direction);
+    }
+    ImGui::Text("Color");
+    ImGui::SameLine();
+
+    ImGui::ColorEdit4("##Color", &directional_light->color.r);
+
+    ImGui::Text("Intensity");
+    ImGui::SameLine();
+
+    ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f);
+
+    ImGui::End();
 
     Game_Code *game_code = &engine->game_code;
     game_code->on_update(engine, delta_time);

@@ -217,12 +217,9 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
             win32_state->engine.renderer_state.back_buffer_width = client_width;
             win32_state->engine.renderer_state.back_buffer_height = client_height;
 
-            // todo(amer): resizing camera here for now...
-            if (client_width != 0 && client_height != 0)
-            {
-                win32_state->engine.renderer_state.camera.aspect_ratio = (F32)client_width / (F32)client_height;
-                update_camera(&win32_state->engine.renderer_state.camera);
-            }
+            event.width = u32_to_u16(client_width);
+            event.height = u32_to_u16(client_height);
+            win32_state->engine.game_code.on_event(&win32_state->engine, event);
 
             if (win32_state->engine.renderer.on_resize)
             {
@@ -230,9 +227,6 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
                                                        client_width,
                                                        client_height);
             }
-            event.width = u32_to_u16(client_width);
-            event.height = u32_to_u16(client_height);
-            win32_state->engine.game_code.on_event(&win32_state->engine, event);
         } break;
 
         default:
@@ -512,6 +506,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
     Game_Code *game_code = &engine->game_code;
 
     bool started = startup(engine, configuration, win32_state);
+    Assert(started);
     engine->is_running = started;
 
     LARGE_INTEGER performance_frequency;
@@ -733,7 +728,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
 void* platform_allocate_memory(U64 size)
 {
     Assert(size);
-    return VirtualAlloc(0, size, MEM_COMMIT, PAGE_READWRITE);
+    return VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 }
 
 void platform_deallocate_memory(void *memory)

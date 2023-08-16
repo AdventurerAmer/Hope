@@ -1215,14 +1215,6 @@ void vulkan_renderer_imgui_new_frame()
 
 void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Scene_Data *scene_data)
 {
-    ImGui::Begin("Graphics");
-    static glm::vec3 light_direction = { 0.0f, -1.0f, 0.0f };
-    ImGui::Text("Directional Light");
-    ImGui::Text("Direction");
-    ImGui::SameLine();
-    ImGui::DragFloat3("##Directional Light Direction", &light_direction.x, 0.01, -1.0f, 1.0f);
-    ImGui::End();
-
     Vulkan_Context *context = &vulkan_context;
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
 
@@ -1234,9 +1226,8 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     globals.view = scene_data->view;
     globals.projection = scene_data->projection;
     globals.projection[1][1] *= -1;
-    // globals.directional_light_direction = glm::vec4(scene_data->directional_light_direction, 0.0f);
-    globals.directional_light_direction = glm::vec4(glm::normalize(light_direction), 0.0f);
-    globals.directional_light_color = scene_data->directional_light_color;
+    globals.directional_light_direction = glm::vec4(scene_data->directional_light.direction, 0.0f);
+    globals.directional_light_color = scene_data->directional_light.color;
 
     Vulkan_Buffer *global_uniform_buffer = &context->globals_uniform_buffers[current_frame_in_flight_index];
     memcpy(global_uniform_buffer->data, &globals, sizeof(Globals));
@@ -1392,7 +1383,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
 }
 
 void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
-                                        const struct Static_Mesh *static_mesh, const glm::mat4 transform)
+                                        const struct Static_Mesh *static_mesh, const glm::mat4 &transform)
 {
     Vulkan_Context *context = &vulkan_context;
     Assert(context->object_data_count < MAX_OBJECT_DATA_COUNT);
@@ -1457,7 +1448,7 @@ void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
     vkQueueSubmit(context->graphics_queue, 1, &submit_info, context->frame_in_flight_fences[current_frame_in_flight_index]);
 
 
-    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    if (io.ConfigFlags&ImGuiConfigFlags_ViewportsEnable)
     {
         ImGui::UpdatePlatformWindows();
         ImGui::RenderPlatformWindowsDefault();

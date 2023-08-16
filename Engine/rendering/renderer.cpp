@@ -19,6 +19,10 @@ static Free_List_Allocator *_stbi_allocator;
 #include "rendering/renderer.h"
 #include "core/platform.h"
 
+#if HE_OS_WINDOWS
+#define HE_RHI_VULKAN
+#endif
+
 #ifdef HE_RHI_VULKAN
 #include "rendering/vulkan/vulkan_renderer.h"
 #endif
