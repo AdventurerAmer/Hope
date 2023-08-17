@@ -1227,7 +1227,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     globals.projection = scene_data->projection;
     globals.projection[1][1] *= -1;
     globals.directional_light_direction = glm::vec4(scene_data->directional_light.direction, 0.0f);
-    globals.directional_light_color = scene_data->directional_light.color;
+    globals.directional_light_color = sRGB_to_linear(scene_data->directional_light.color) * scene_data->directional_light.intensity;
 
     Vulkan_Buffer *global_uniform_buffer = &context->globals_uniform_buffers[current_frame_in_flight_index];
     memcpy(global_uniform_buffer->data, &globals, sizeof(Globals));
@@ -1447,7 +1447,6 @@ void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
 
     vkQueueSubmit(context->graphics_queue, 1, &submit_info, context->frame_in_flight_fences[current_frame_in_flight_index]);
 
-
     if (io.ConfigFlags&ImGuiConfigFlags_ViewportsEnable)
     {
         ImGui::UpdatePlatformWindows();
@@ -1519,12 +1518,26 @@ void vulkan_renderer_destroy_texture(Texture *texture)
     destroy_image(vulkan_image, &vulkan_context);
 }
 
-bool vulkan_renderer_create_material(Material *material, U32 albedo_texture_index, U32 normal_texture_index)
+bool vulkan_renderer_create_material(Material *material,
+                                     U32 albedo_texture_index,
+                                     U32 normal_texture_index,
+                                     U32 roughness_texture_index,
+                                     F32 roughness_factor,
+                                     U32 metallic_texture_index,
+                                     F32 metallic_factor)
 {
+    Assert(albedo_texture_index != normal_texture_index);
+    Assert(normal_texture_index != roughness_texture_index);
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Material *vulkan_material = get_data(material);
     vulkan_material->data.albedo_texture_index = albedo_texture_index;
     vulkan_material->data.normal_texture_index = normal_texture_index;
+    vulkan_material->data.roughness_texture_index = roughness_texture_index;
+    // vulkan_material->data.roughness_factor = roughness_factor;
+    // vulkan_material->data.metallic_texture_index = metallic_texture_index;
+    // vulkan_material->data.metallic_factor = metallic_factor;
+    // vulkan_material->data.reflectance = 0.04f;
+    // vulkan_material->data.albedo_color = glm::vec4(1.0f);
     return true;
 }
 

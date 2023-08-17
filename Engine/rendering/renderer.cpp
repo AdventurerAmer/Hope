@@ -294,6 +294,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
 
         Texture *albedo = nullptr;
         Texture *normal = nullptr;
+        Texture *metallic_roughness = nullptr;
 
         if (material->has_pbr_metallic_roughness)
         {
@@ -304,6 +305,19 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                                             u64_to_u32(path_without_file_name_length),
                                             renderer,
                                             renderer_state);
+            }
+
+            if (material->pbr_metallic_roughness.metallic_roughness_texture.texture)
+            {
+                metallic_roughness = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture,
+                                                        path,
+                                                        u64_to_u32(path_without_file_name_length),
+                                                        renderer,
+                                                        renderer_state);
+            }
+            else
+            {
+                metallic_roughness = albedo;
             }
         }
 
@@ -321,7 +335,19 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
             normal = albedo;
         }
 
-        renderer->create_material(renderer_material, index_of(renderer_state, albedo), index_of(renderer_state, normal));
+        Assert(albedo);
+        Assert(normal);
+        Assert(metallic_roughness);
+        Assert(albedo != normal);
+        Assert(normal != metallic_roughness);
+
+        renderer->create_material(renderer_material,
+                                  index_of(renderer_state, albedo),
+                                  index_of(renderer_state, normal),
+                                  index_of(renderer_state, metallic_roughness),
+                                  1.0f,
+                                  index_of(renderer_state, metallic_roughness),
+                                  1.0f);
     }
 
     U32 position_count = 0;
@@ -351,7 +377,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
 
     for (U32 node_index = 0; node_index < model_data->nodes_count; node_index++)
     {
-        std::queue<Scene_Node_Bundle> nodes;
+        std::queue< Scene_Node_Bundle > nodes;
         nodes.push({ &model_data->nodes[node_index], add_child_scene_node(renderer_state, root_scene_node) });
         while (!nodes.empty())
         {
@@ -467,7 +493,6 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                         vertex->bi_tangent = glm::cross(vertex->normal, vertex->tangent) * tanget.w;
                         vertex->uv = uvs[vertex_index];
                     }
-
 
                     bool created = renderer->create_static_mesh(static_mesh, vertices, vertex_count,
                                                                 indices, index_count);

@@ -13,6 +13,7 @@ enum RenderingAPI
 #define MAX_MATERIAL_COUNT 4096
 #define MAX_STATIC_MESH_COUNT 4096
 #define MAX_SCENE_NODE_COUNT 4096
+#define GAMMA 2.2f
 
 struct Directional_Light
 {
@@ -83,7 +84,14 @@ struct Renderer
     bool (*create_static_mesh)(Static_Mesh *static_mesh, void *vertices, U16 vertex_count, U16 *indices, U32 index_count);
     void (*destroy_static_mesh)(Static_Mesh *static_mesh);
 
-    bool (*create_material)(Material *material, U32 albedo_texture_index, U32 normal_texture_index);
+    bool (*create_material)(Material *material,
+                            U32 albedo_texture_index,
+                            U32 normal_texture_index,
+                            U32 roughness_texture_index,
+                            F32 roughness_factor,
+                            U32 metallic_texture_index,
+                            F32 metallic_factor);
+
     void (*destroy_material)(Material *material);
 
     void (*imgui_new_frame)();
@@ -113,3 +121,13 @@ U32 index_of(Renderer_State *renderer_state, Static_Mesh *static_mesh);
 
 S32 find_texture(Renderer_State *renderer_state, char *name, U32 length);
 S32 find_material(Renderer_State *renderer_state, U64 hash);
+
+inline glm::vec4 sRGB_to_linear(const glm::vec4 &color)
+{
+    return glm::pow(color, glm::vec4(GAMMA));
+}
+
+inline glm::vec4 linear_to_sRGB(const glm::vec4 &color)
+{
+    return glm::pow(color, glm::vec4(1.0f / GAMMA));
+}

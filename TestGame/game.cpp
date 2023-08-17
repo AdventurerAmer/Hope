@@ -102,7 +102,7 @@ on_update(Engine *engine, F32 delta_time)
     FPS_Camera_Controller *camera_controller = &game_state.camera_controller;
 
     FPS_Camera_Controller_Input camera_controller_input = {};
-    camera_controller_input.can_control = input->button_states[HE_BUTTON_RIGHT] != InputState_Released;
+    camera_controller_input.can_control = input->button_states[HE_BUTTON_RIGHT] != InputState_Released && !engine->show_imgui;
     camera_controller_input.move_fast = input->key_states[HE_KEY_LEFT_SHIFT] != InputState_Released;
     camera_controller_input.forward = input->key_states[HE_KEY_W] != InputState_Released;
     camera_controller_input.backward = input->key_states[HE_KEY_S] != InputState_Released;
@@ -131,6 +131,7 @@ on_update(Engine *engine, F32 delta_time)
     if (!engine->is_minimized)
     {
         Scene_Data *scene_data = &renderer_state->scene_data;
+
         scene_data->view = camera->view;
         scene_data->projection = camera->projection;
 

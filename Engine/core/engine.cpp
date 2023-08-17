@@ -225,16 +225,18 @@ void game_loop(Engine *engine, F32 delta_time)
     ImGui::Begin("Graphics");
 
     ImGui::Text("Directional Light");
+    ImGui::Separator();
 
     ImGui::Text("Direction");
     ImGui::SameLine();
 
-    ImGui::DragFloat3("##Direction", &directional_light->direction.x, 0.1f);
+    ImGui::DragFloat3("##Direction", &directional_light->direction.x, 0.1f, -1.0f, 1.0f);
 
     if (glm::length(directional_light->direction) > 0.0f)
     {
         directional_light->direction = glm::normalize(directional_light->direction);
     }
+
     ImGui::Text("Color");
     ImGui::SameLine();
 

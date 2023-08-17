@@ -7,12 +7,14 @@
 layout (location = 0) in vec3 in_position;
 layout (location = 1) in vec3 in_normal;
 layout (location = 2) in vec3 in_tangent;
-layout (location = 3) in vec3 in_bi_tangent;
+layout (location = 3) in vec3 in_bitangent;
 layout (location = 4) in vec2 in_uv;
 
+out vec3 out_position;
 out vec2 out_uv;
 out vec3 out_normal;
-out mat3 out_TBN;
+out vec3 out_tangent;
+out vec3 out_bitangent;
 flat out uint out_material_index;
 
 layout (std140, set = 0, binding = 0) uniform u_Globals
@@ -28,16 +30,20 @@ layout (std140, set = 0, binding = 1) readonly buffer u_Object_Buffer
 void main()
 {
     mat4 model = objects[gl_InstanceIndex].model;
-    gl_Position = globals.projection * globals.view * model * vec4(in_position, 1.0);
+
+    vec4 world_position = model * vec4(in_position, 1.0);
+    out_position = world_position.xyz;
+    gl_Position = globals.projection * globals.view * world_position;
 
     mat3 non_uniform_scaling_removed_model = transpose(inverse(mat3(model)));
 
-    vec3 normal = normalize(non_uniform_scaling_removed_model * in_normal);
-    vec3 tangent = normalize(non_uniform_scaling_removed_model * in_tangent);
-    vec3 bi_tangent = normalize(non_uniform_scaling_removed_model * in_bi_tangent);
+    vec3 normal = non_uniform_scaling_removed_model * in_normal;
+    vec3 tangent = non_uniform_scaling_removed_model * in_tangent;
+    vec3 bitangent = non_uniform_scaling_removed_model * in_bitangent;
 
     out_uv = in_uv;
-    out_normal = in_normal;
-    out_TBN = mat3(tangent, bi_tangent, normal);
+    out_normal = normal;
+    out_tangent = tangent;
+    out_bitangent = bitangent;
     out_material_index = objects[gl_InstanceIndex].material_index;
 }
