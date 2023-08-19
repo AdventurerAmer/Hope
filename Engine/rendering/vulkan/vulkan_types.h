@@ -174,22 +174,10 @@ struct Vulkan_Material
     Material_Data data;
 };
 
-struct Vulkan_Material_Bundle
-{
-    Material material;
-    Vulkan_Material vulkan_material;
-};
-
 struct Vulkan_Static_Mesh
 {
     S32 first_vertex;
     U32 first_index;
-};
-
-struct Vulkan_Static_Mesh_Bundle
-{
-    Static_Mesh static_mesh;
-    Vulkan_Static_Mesh vulkan_static_mesh;
 };
 
 #define MAX_OBJECT_DATA_COUNT UINT16_MAX
@@ -259,6 +247,10 @@ struct Vulkan_Context
     U32 current_frame_in_flight_index;
     U32 current_swapchain_image_index;
 
+    Vulkan_Image *textures;
+    Vulkan_Material *materials;
+    Vulkan_Static_Mesh *static_meshes;
+
     Free_List_Allocator *allocator;
     Free_List_Allocator transfer_allocator;
 
@@ -269,24 +261,14 @@ struct Vulkan_Context
 #endif
 };
 
-// todo(amer): force inline.
-inline Vulkan_Image*
-get_data(const Texture *texture)
-{
-    Vulkan_Texture_Bundle *bundle = (Vulkan_Texture_Bundle *)texture;
-    return &bundle->vulkan_image;
-}
+Vulkan_Image* get_data(Vulkan_Context *context, Texture *texture);
 
-inline Vulkan_Material*
-get_data(const Material *material)
-{
-    Vulkan_Material_Bundle *bundle = (Vulkan_Material_Bundle *)material;
-    return &bundle->vulkan_material;
-}
+Vulkan_Material* get_data(Vulkan_Context *context, Material *material);
 
-inline Vulkan_Static_Mesh*
-get_data(const Static_Mesh *static_mesh)
-{
-    Vulkan_Static_Mesh_Bundle *bundle = (Vulkan_Static_Mesh_Bundle *)static_mesh;
-    return &bundle->vulkan_static_mesh;
-}
+Vulkan_Static_Mesh* get_data(Vulkan_Context *context, Static_Mesh *static_mesh);
+
+Vulkan_Image* get_data(Vulkan_Context *context, const Texture *texture);
+
+Vulkan_Material* get_data(Vulkan_Context *context, const Material *material);
+
+Vulkan_Static_Mesh* get_data(Vulkan_Context *context, const Static_Mesh *static_mesh);

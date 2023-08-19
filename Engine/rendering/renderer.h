@@ -37,17 +37,14 @@ struct Renderer_State
     U32 back_buffer_width;
     U32 back_buffer_height;
 
-    U64 texture_bundle_size;
     U32 texture_count;
-    U8 *textures;
+    Texture *textures;
 
-    U64 material_bundle_size;
     U32 material_count;
-    U8 *materials;
+    Material *materials;
 
-    U64 static_mesh_bundle_size;
     U32 static_mesh_count;
-    U8 *static_meshes;
+    Static_Mesh *static_meshes;
 
     U32 scene_node_count;
     Scene_Node *scene_nodes;
@@ -111,13 +108,13 @@ Texture *allocate_texture(Renderer_State *renderer_state);
 Material *allocate_material(Renderer_State *renderer_state);
 Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state);
 
-Texture *get_texture(Renderer_State *renderer_state, U32 index);
-Material *get_material(Renderer_State *renderer_state, U32 index);
-Static_Mesh *get_static_mesh(Renderer_State *renderer_state, U32 index);
-
 U32 index_of(Renderer_State *renderer_state, Texture *texture);
 U32 index_of(Renderer_State *renderer_state, Material *material);
 U32 index_of(Renderer_State *renderer_state, Static_Mesh *static_mesh);
+
+U32 index_of(Renderer_State *renderer_state, const Texture *texture);
+U32 index_of(Renderer_State *renderer_state, const Material *material);
+U32 index_of(Renderer_State *renderer_state, const Static_Mesh *static_mesh);
 
 S32 find_texture(Renderer_State *renderer_state, char *name, U32 length);
 S32 find_material(Renderer_State *renderer_state, U64 hash);

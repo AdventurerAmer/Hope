@@ -16,6 +16,54 @@
 
 static Vulkan_Context vulkan_context;
 
+Vulkan_Image*
+get_data(Vulkan_Context *context, const Texture *texture)
+{
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Vulkan_Image *image = context->textures + index_of(renderer_state, texture);
+    return image;
+}
+
+Vulkan_Material*
+get_data(Vulkan_Context *context, const Material *material)
+{
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Vulkan_Material *vulkan_material = context->materials + index_of(renderer_state, material);
+    return vulkan_material;
+}
+
+Vulkan_Static_Mesh*
+get_data(Vulkan_Context *context, const Static_Mesh *static_mesh)
+{
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Vulkan_Static_Mesh *vulkan_mesh = context->static_meshes + index_of(renderer_state, static_mesh);
+    return vulkan_mesh;
+}
+
+Vulkan_Image*
+get_data(Vulkan_Context *context, Texture *texture)
+{
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Vulkan_Image *image = context->textures + index_of(renderer_state, texture);
+    return image;
+}
+
+Vulkan_Material*
+get_data(Vulkan_Context *context, Material *material)
+{
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Vulkan_Material *vulkan_material = context->materials + index_of(renderer_state, material);
+    return vulkan_material;
+}
+
+Vulkan_Static_Mesh*
+get_data(Vulkan_Context *context, Static_Mesh *static_mesh)
+{
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Vulkan_Static_Mesh *vulkan_mesh = context->static_meshes + index_of(renderer_state, static_mesh);
+    return vulkan_mesh;
+}
+
 internal_function VKAPI_ATTR VkBool32 VKAPI_CALL
 vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
                       VkDebugUtilsMessageTypeFlagsEXT message_type,
@@ -325,6 +373,10 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 {
     context->engine = engine;
     context->allocator = &engine->memory.free_list_allocator;
+
+    context->textures = AllocateArray(arena, Vulkan_Image, MAX_TEXTURE_COUNT);
+    context->materials = AllocateArray(arena, Vulkan_Material, MAX_MATERIAL_COUNT);
+    context->static_meshes = AllocateArray(arena, Vulkan_Static_Mesh, MAX_STATIC_MESH_COUNT);
 
     const char *required_instance_extensions[] =
     {
@@ -1175,9 +1227,6 @@ bool vulkan_renderer_init(Renderer_State *renderer_state,
                           Memory_Arena *arena)
 {
     (void)renderer_state;
-    renderer_state->texture_bundle_size = sizeof(Vulkan_Texture_Bundle);
-    renderer_state->material_bundle_size = sizeof(Vulkan_Material_Bundle);
-    renderer_state->static_mesh_bundle_size = sizeof(Vulkan_Static_Mesh_Bundle);
     return init_vulkan(&vulkan_context, engine, arena);
 }
 
@@ -1239,8 +1288,8 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
          material_index < renderer_state->material_count;
          material_index++)
     {
-        Material *material = get_material(renderer_state, material_index);
-        Vulkan_Material *vulkan_material = get_data(material);
+        Material *material = &renderer_state->materials[material_index];
+        Vulkan_Material *vulkan_material = get_data(context, material);
         material_data_base[material_index] = vulkan_material->data;
     }
 
@@ -1323,8 +1372,8 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
          texture_index < renderer_state->texture_count;
          texture_index++)
     {
-        Texture *texture = get_texture(renderer_state, texture_index);
-        Vulkan_Image *vulkan_image = get_data(texture);
+        Texture *texture = &renderer_state->textures[texture_index];
+        Vulkan_Image *vulkan_image = get_data(context, texture);
 
         descriptor_image_infos[texture_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         descriptor_image_infos[texture_index].imageView = vulkan_image->view;
@@ -1394,7 +1443,7 @@ void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
     VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
 
-    Vulkan_Static_Mesh *vulkan_static_mesh = get_data(static_mesh);
+    Vulkan_Static_Mesh *vulkan_static_mesh = get_data(context, static_mesh);
 
     U32 instance_count = 1;
     U32 start_instance = object_data_index;
@@ -1490,7 +1539,7 @@ bool vulkan_renderer_create_texture(Texture *texture, U32 width, U32 height,
                                     void *data, TextureFormat format, bool mipmapping)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Image *image = get_data(texture);
+    Vulkan_Image *image = get_data(context, texture);
 
     Assert(format == TextureFormat_RGBA); // todo(amer): only supporting RGBA for now.
     create_image(image, context, width, height,
@@ -1514,7 +1563,8 @@ bool vulkan_renderer_create_texture(Texture *texture, U32 width, U32 height,
 
 void vulkan_renderer_destroy_texture(Texture *texture)
 {
-    Vulkan_Image *vulkan_image = get_data(texture);
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Image *vulkan_image = get_data(context, texture);
     destroy_image(vulkan_image, &vulkan_context);
 }
 
@@ -1529,7 +1579,7 @@ bool vulkan_renderer_create_material(Material *material,
     Assert(albedo_texture_index != normal_texture_index);
     Assert(normal_texture_index != roughness_texture_index);
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Material *vulkan_material = get_data(material);
+    Vulkan_Material *vulkan_material = get_data(context, material);
     vulkan_material->data.albedo_texture_index = albedo_texture_index;
     vulkan_material->data.normal_texture_index = normal_texture_index;
     vulkan_material->data.roughness_texture_index = roughness_texture_index;
@@ -1544,7 +1594,7 @@ bool vulkan_renderer_create_material(Material *material,
 void vulkan_renderer_destroy_material(Material *material)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Material *vulkan_material = get_data(material);
+    Vulkan_Material *vulkan_material = get_data(context, material);
 }
 
 bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices,
@@ -1560,7 +1610,7 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices
     static_mesh->index_count = index_count;
     static_mesh->vertex_count = vertex_count;
 
-    Vulkan_Static_Mesh *vulkan_static_mesh = get_data(static_mesh);
+    Vulkan_Static_Mesh *vulkan_static_mesh = get_data(context, static_mesh);
 
     U64 vertices_offset = (U8 *)vertices - context->transfer_allocator.base;
     U64 indicies_offset = (U8 *)indices - context->transfer_allocator.base;
@@ -1579,5 +1629,5 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices
 void vulkan_renderer_destroy_static_mesh(Static_Mesh *static_mesh)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Static_Mesh *vulkan_static_mesh = get_data(static_mesh);
+    Vulkan_Static_Mesh *vulkan_static_mesh = get_data(context, static_mesh);
 }

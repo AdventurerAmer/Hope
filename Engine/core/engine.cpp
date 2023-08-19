@@ -46,9 +46,9 @@ internal_function void imgui_new_frame(Engine *engine)
     {
         if (engine->imgui_docking)
         {
-            static bool opt_fullscreen_persistant = true;
+            local_presist bool opt_fullscreen_persistant = true;
             bool opt_fullscreen = opt_fullscreen_persistant;
-            static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+            local_presist ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
 
             // We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
             // because it would be confusing to have two docking targets within each others.
@@ -245,7 +245,7 @@ void game_loop(Engine *engine, F32 delta_time)
     ImGui::Text("Intensity");
     ImGui::SameLine();
 
-    ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f);
+    ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, MAX_F32);
 
     ImGui::End();
 
@@ -264,20 +264,17 @@ void shutdown(Engine *engine)
     // todo(amer): maybe we want a iterator version of this...
     for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
     {
-        Texture *texture = (Texture*)(renderer_state->textures + texture_index * renderer_state->texture_bundle_size);
-        renderer->destroy_texture(texture);
+        renderer->destroy_texture(&renderer_state->textures[texture_index]);
     }
 
     for (U32 material_index = 0; material_index < renderer_state->material_count; material_index++)
     {
-        Material *material = (Material *)(renderer_state->materials + material_index * renderer_state->material_bundle_size);
-        renderer->destroy_material(material);
+        renderer->destroy_material(&renderer_state->materials[material_index]);
     }
 
     for (U32 static_mesh_index = 0; static_mesh_index < renderer_state->static_mesh_count; static_mesh_index++)
     {
-        Static_Mesh *static_mesh = (Static_Mesh *)(renderer_state->static_meshes + static_mesh_index * renderer_state->static_mesh_bundle_size);
-        renderer->destroy_static_mesh(static_mesh);
+        renderer->destroy_static_mesh(&renderer_state->static_meshes[static_mesh_index]);
     }
 
     renderer->deinit(&engine->renderer_state);

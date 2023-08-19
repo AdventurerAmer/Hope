@@ -72,15 +72,11 @@ bool init_renderer_state(Engine *engine,
                          Renderer_State *renderer_state,
                          struct Memory_Arena *arena)
 {
-    // note(amer): right now we are getting sizes should we even care about alignment ?
-    Assert(renderer_state->texture_bundle_size);
-    Assert(renderer_state->material_bundle_size);
-    Assert(renderer_state->static_mesh_bundle_size);
-    renderer_state->engine        = engine;
-    renderer_state->textures      = AllocateArray(arena, U8, renderer_state->texture_bundle_size * MAX_TEXTURE_COUNT);
-    renderer_state->materials     = AllocateArray(arena, U8, renderer_state->material_bundle_size * MAX_MATERIAL_COUNT);
-    renderer_state->static_meshes = AllocateArray(arena, U8, renderer_state->static_mesh_bundle_size * MAX_STATIC_MESH_COUNT);
-    renderer_state->scene_nodes   = AllocateArray(arena, Scene_Node, MAX_SCENE_NODE_COUNT);
+    renderer_state->engine = engine;
+    renderer_state->textures = AllocateArray(arena, Texture, MAX_TEXTURE_COUNT);
+    renderer_state->materials = AllocateArray(arena, Material, MAX_MATERIAL_COUNT);
+    renderer_state->static_meshes = AllocateArray(arena, Static_Mesh, MAX_STATIC_MESH_COUNT);
+    renderer_state->scene_nodes = AllocateArray(arena, Scene_Node, MAX_SCENE_NODE_COUNT);
 
     _transfer_allocator = renderer_state->transfer_allocator;
     _stbi_allocator = &engine->memory.free_list_allocator;
@@ -216,7 +212,7 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
     }
     else
     {
-        texture = get_texture(renderer_state, texture_index);
+        texture = &renderer_state->textures[texture_index];
     }
 
     return texture;
@@ -404,7 +400,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                     Assert(material_index != -1);
 
                     Static_Mesh *static_mesh = allocate_static_mesh(renderer_state);
-                    static_mesh->material = get_material(renderer_state, material_index);
+                    static_mesh->material = &renderer_state->materials[material_index];
 
                     Assert(primitive->type == cgltf_primitive_type_triangles);
 
@@ -524,7 +520,7 @@ void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene
          static_mesh_index < scene_node->static_mesh_count;
          static_mesh_index++)
     {
-        Static_Mesh *static_mesh = get_static_mesh(renderer_state, scene_node->start_mesh_index + static_mesh_index);
+        Static_Mesh *static_mesh = renderer_state->static_meshes + scene_node->start_mesh_index + static_mesh_index;
         renderer->submit_static_mesh(renderer_state, static_mesh, transform);
     }
 
@@ -539,73 +535,70 @@ Texture *allocate_texture(Renderer_State *renderer_state)
 {
     Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
     U32 texture_index = renderer_state->texture_count++;
-    return get_texture(renderer_state, texture_index);
+    return &renderer_state->textures[texture_index];
 }
 
 Material *allocate_material(Renderer_State *renderer_state)
 {
     Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
     U32 material_index = renderer_state->material_count++;
-    return get_material(renderer_state, material_index);
+    return &renderer_state->materials[material_index];
 }
 
 Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state)
 {
     Assert(renderer_state->static_mesh_count < MAX_STATIC_MESH_COUNT);
     U32 static_mesh_index = renderer_state->static_mesh_count++;
-    return get_static_mesh(renderer_state, static_mesh_index);
+    return &renderer_state->static_meshes[static_mesh_index];
+}
+
+U32 index_of(Renderer_State *renderer_state, const Texture *texture)
+{
+    U64 index = texture - renderer_state->textures;
+    Assert(index < MAX_TEXTURE_COUNT);
+    return u64_to_u32(index);
+}
+
+U32 index_of(Renderer_State *renderer_state, const Material *material)
+{
+    U64 index = material - renderer_state->materials;
+    Assert(index < MAX_MATERIAL_COUNT);
+    return u64_to_u32(index);
+}
+
+U32 index_of(Renderer_State *renderer_state, const Static_Mesh *static_mesh)
+{
+    U64 index = static_mesh - renderer_state->static_meshes;
+    Assert(index < MAX_STATIC_MESH_COUNT);
+    return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Texture *texture)
 {
-    U64 offset = (U8 *)texture - renderer_state->textures;
-    Assert(offset >= 0);
-    U32 index = u64_to_u32(offset / renderer_state->texture_bundle_size);
+    U64 index = texture - renderer_state->textures;
     Assert(index < MAX_TEXTURE_COUNT);
-    return index;
+    return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Material *material)
 {
-    U64 offset = (U8 *)material - renderer_state->materials;
-    Assert(offset >= 0);
-    U32 index = u64_to_u32(offset / renderer_state->material_bundle_size);
+    U64 index = material - renderer_state->materials;
     Assert(index < MAX_MATERIAL_COUNT);
-    return index;
+    return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Static_Mesh *static_mesh)
 {
-    U64 offset = (U8 *)static_mesh - renderer_state->static_meshes;
-    Assert(offset >= 0);
-    U32 index = u64_to_u32(offset / renderer_state->static_mesh_bundle_size);
+    U64 index = static_mesh - renderer_state->static_meshes;
     Assert(index < MAX_STATIC_MESH_COUNT);
-    return index;
-}
-
-Texture *get_texture(Renderer_State *renderer_state, U32 index)
-{
-    Assert(index < MAX_TEXTURE_COUNT);
-    return (Texture*)(renderer_state->textures + index * renderer_state->texture_bundle_size);
-}
-
-Material *get_material(Renderer_State *renderer_state, U32 index)
-{
-    Assert(index < MAX_MATERIAL_COUNT);
-    return (Material*)(renderer_state->materials + index * renderer_state->material_bundle_size);
-}
-
-Static_Mesh *get_static_mesh(Renderer_State *renderer_state, U32 index)
-{
-    Assert(index < MAX_STATIC_MESH_COUNT);
-    return (Static_Mesh*)(renderer_state->static_meshes + index * renderer_state->static_mesh_bundle_size);
+    return u64_to_u32(index);
 }
 
 S32 find_texture(Renderer_State *renderer_state, char *name, U32 length)
 {
     for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
     {
-        Texture* texture = get_texture(renderer_state, texture_index);
+        Texture *texture = &renderer_state->textures[texture_index];
         if (texture->name_length == length && strncmp(texture->name, name, length) == 0)
         {
             return texture_index;
@@ -618,7 +611,7 @@ S32 find_material(Renderer_State *renderer_state, U64 hash)
 {
     for (U32 material_index = 0; material_index < renderer_state->material_count; material_index++)
     {
-        Material *material = get_material(renderer_state, material_index);
+        Material *material = &renderer_state->materials[material_index];
         if (material->hash == hash)
         {
             return material_index;
