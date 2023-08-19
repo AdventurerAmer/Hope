@@ -16,13 +16,6 @@ struct Object_Data
 struct Material_Data
 {
     uint albedo_texture_index;
-    // vec3 albedo_color;
     uint normal_texture_index;
     uint roughness_texture_index;
-    // float roughness_factor;
-
-    // uint metallic_texture_index;
-    // float metallic_factor;
-
-    // float reflectance;
 };

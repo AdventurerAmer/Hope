@@ -43,69 +43,12 @@ enum ShaderDataType
     ShaderDataType_Array,
 };
 
-#define USING_STD_LAYOUT_140 1
-#ifdef USING_STD_LAYOUT_140
-
-typedef glm::ivec2 _ivec2;
-typedef glm::ivec4 _ivec3;
-typedef glm::ivec4 _ivec4;
-
-typedef glm::uvec2 _uvec2;
-typedef glm::uvec4 _uvec3;
-typedef glm::uvec4 _uvec4;
-
-typedef glm::vec2 _vec2;
-typedef glm::vec4 _vec3;
-typedef glm::vec4 _vec4;
-typedef glm::mat4 _mat3;
-typedef glm::mat4 _mat4;
-
-#define int S32
-#define uint U32
-
-#define ivec2 alignas(8) _ivec2
-#define ivec3 alignas(16) _ivec3
-#define ivec4 alignas(16) _ivec4
-
-#define uvec2 alignas(8) _uvec2
-#define uvec3 alignas(16) _uvec3
-#define uvec4 alignas(16) _uvec4
-
-#define vec2 alignas(8) _vec2
-#define vec3 alignas(16) _vec3
-#define vec4 alignas(16) _vec4
-
-#define mat3 alignas(16) _mat3
-#define mat4 alignas(16) _mat4
-#define struct struct alignas(16)
-
-#endif
-
-// todo(amer): don't depend on common.glsl in this path
-#include "../Data/shaders/common.glsl"
-
-#ifdef USING_STD_LAYOUT_140
-
-#undef int
-#undef uint
-#undef vec2
-#undef vec3
-#undef vec4
-#undef ivec2
-#undef ivec3
-#undef ivec4
-#undef mat3
-#undef mat4
-#undef struct
-
-#endif
-
 struct Vertex
 {
     glm::vec3 position;
     glm::vec3 normal;
     glm::vec3 tangent;
-    glm::vec3 bi_tangent;
+    glm::vec3 bitangent;
     glm::vec2 uv;
 };
 
@@ -118,6 +61,7 @@ enum TextureFormat
 
 struct Texture
 {
+    // todo(amer): String
     char name[MAX_TEXTURE_NAME];
     U32 name_length;
 
@@ -125,14 +69,73 @@ struct Texture
     U32 height;
 };
 
+struct Shader_Input_Variable
+{
+    const char *name;
+    U32 name_length;
+    ShaderDataType type;
+    U32 location;
+};
+
+struct Shader_Output_Variable
+{
+    const char *name;
+    U32 name_length;
+    ShaderDataType type;
+    U32 location;
+};
+
+struct Shader_Struct_Member
+{
+    const char *name;
+    U32 name_length;
+
+    ShaderDataType data_type;
+    U32 offset;
+
+    bool is_array;
+    S32 array_element_count = -1;
+
+    S32 struct_index = -1;
+};
+
+struct Shader_Struct
+{
+    const char *name;
+    U32 name_length;
+
+    U32 member_count;
+    Shader_Struct_Member *members;
+};
+
+#define MAX_SHADER_NAME 256
+
+struct Shader
+{
+    // todo(amer): String
+    char name[MAX_SHADER_NAME];
+    U32 name_length;
+
+    U32 input_count;
+    Shader_Input_Variable *inputs;
+
+    U32 output_count;
+    Shader_Output_Variable *outputs;
+
+    U32 struct_count;
+    Shader_Struct *structs;
+};
+
 #define MAX_MATERIAL_NAME 256
 
 struct Material
 {
+    // todo(amer): String
     char name[MAX_MATERIAL_NAME];
     U32 name_length;
 
     U64 hash; // todo(amer): temprary
+
     Texture *albedo;
     Texture *normal;
 };
@@ -141,9 +144,22 @@ struct Material
 
 struct Static_Mesh
 {
+    // todo(amer): String
+    char name[MAX_MATERIAL_NAME];
+    U32 name_length;
+
     U16 vertex_count;
     U32 index_count;
     Material *material;
+};
+
+#define MAX_PIPELINE_STATE
+
+struct Pipeline_State
+{
+    // todo(amer): String
+    char name[MAX_MATERIAL_NAME];
+    U32 name_length;
 };
 
 struct Scene_Node
@@ -158,3 +174,39 @@ struct Scene_Node
 
     glm::mat4 transform;
 };
+
+struct Object_Data
+{
+    glm::mat4 model;
+    alignas(16) U32 material_index;
+};
+
+StaticAssert(offsetof(Object_Data, model) == 0);
+StaticAssert(offsetof(Object_Data, material_index) == 64);
+StaticAssert(sizeof(Object_Data) == 80);
+
+struct Globals
+{
+    glm::mat4 view;
+    glm::mat4 projection;
+
+    glm::vec3 directional_light_direction;
+    alignas(16) glm::vec3 directional_light_color;
+};
+
+StaticAssert(offsetof(Globals, view) == 0);
+StaticAssert(offsetof(Globals, projection) == 64);
+StaticAssert(offsetof(Globals, directional_light_direction) == 128);
+StaticAssert(offsetof(Globals, directional_light_color) == 144);
+
+struct alignas(16) Material_Data
+{
+    U32 albedo_texture_index;
+    U32 normal_texture_index;
+    U32 roughness_texture_index;
+};
+
+StaticAssert(offsetof(Material_Data, albedo_texture_index) == 0);
+StaticAssert(offsetof(Material_Data, normal_texture_index) == 4);
+StaticAssert(offsetof(Material_Data, roughness_texture_index) == 8);
+StaticAssert(sizeof(Material_Data) == 16);

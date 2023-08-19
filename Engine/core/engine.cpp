@@ -107,15 +107,17 @@ internal_function void imgui_new_frame(Engine *engine)
 
 bool startup(Engine *engine, const Engine_Configuration &configuration, void *platform_state)
 {
+
 #ifndef HE_SHIPPING
+
     Logger *logger = &global_debug_state.main_logger;
     U64 channel_mask = 0xFFFFFFFFFFFFFFFF;
-    bool logger_initied = init_logger(logger, "all",
-                                      Verbosity_Trace, channel_mask);
+    bool logger_initied = init_logger(logger, "all", Verbosity_Trace, channel_mask);
     if (!logger_initied)
     {
         return false;
     }
+
 #endif
 
     Mem_Size required_memory_size =
@@ -159,6 +161,15 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 
     init_imgui(engine);
 
+    Renderer_State *renderer_state = &engine->renderer_state;
+    renderer_state->engine = engine;
+    renderer_state->textures = AllocateArray(&engine->memory.transient_arena, Texture, MAX_TEXTURE_COUNT);
+    renderer_state->materials = AllocateArray(&engine->memory.transient_arena, Material, MAX_MATERIAL_COUNT);
+    renderer_state->static_meshes = AllocateArray(&engine->memory.transient_arena, Static_Mesh, MAX_STATIC_MESH_COUNT);
+    renderer_state->scene_nodes = AllocateArray(&engine->memory.transient_arena, Scene_Node, MAX_SCENE_NODE_COUNT);
+    renderer_state->shaders = AllocateArray(&engine->memory.transient_arena, Shader, MAX_SHADER_COUNT);
+    renderer_state->pipeline_states = AllocateArray(&engine->memory.transient_arena, Pipeline_State, MAX_PIPELINE_STATE_COUNT);
+
     bool requested = request_renderer(RenderingAPI_Vulkan, &engine->renderer);
     if (!requested)
     {
@@ -173,7 +184,7 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     {
         return false;
     }
-    Renderer_State *renderer_state = &engine->renderer_state;
+
     bool renderer_state_inited = init_renderer_state(engine,
                                                      renderer_state,
                                                      &engine->memory.transient_arena);
@@ -261,7 +272,6 @@ void shutdown(Engine *engine)
     Renderer_State *renderer_state = &engine->renderer_state;
     renderer->wait_for_gpu_to_finish_all_work(renderer_state);
 
-    // todo(amer): maybe we want a iterator version of this...
     for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
     {
         renderer->destroy_texture(&renderer_state->textures[texture_index]);
@@ -295,7 +305,7 @@ void set_game_code_to_stubs(Game_Code *game_code)
     game_code->on_update = &on_update_stub;
 }
 
-// todo(amer): maybe we should program a game in the stubs...
+// todo(amer): maybe we should program a small game in the stubs...
 bool init_game_stub(Engine *engine)
 {
     (void)engine;

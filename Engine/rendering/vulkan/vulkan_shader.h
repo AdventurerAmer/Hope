@@ -2,19 +2,13 @@
 
 #include "vulkan_types.h"
 
-bool
-load_shader(Vulkan_Shader *shader, const char *path,
-            Vulkan_Context *context, Memory_Arena *arena);
+bool load_shader(Shader *shader, const char *path, Vulkan_Context *context);
 
-void
-destroy_shader(Vulkan_Shader *shader, VkDevice logical_device);
+void destroy_shader(Shader *shader, Vulkan_Context *context);
 
-bool
-create_graphics_pipeline(Vulkan_Context *context,
-                         const std::initializer_list<const Vulkan_Shader *> &shaders,
-                         VkRenderPass render_pass,
-                         Vulkan_Graphics_Pipeline *pipeline);
+bool create_graphics_pipeline(Pipeline_State *pipeline,
+                              const std::initializer_list< const Shader * > &shaders,
+                              VkRenderPass render_pass,
+                              Vulkan_Context *context);
 
-void
-destroy_graphics_pipeline(VkDevice logical_device,
-                          Vulkan_Graphics_Pipeline *graphics_pipeline);
+void destroy_pipeline(Pipeline_State *pipeline_state, Vulkan_Context *context);

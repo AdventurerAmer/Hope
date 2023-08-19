@@ -32,6 +32,9 @@ bool vulkan_renderer_create_material(Material *material,
 
 void vulkan_renderer_destroy_material(Material *material);
 
+bool vulkan_renderer_create_shader(Shader *shader, const char *path);
+void vulkan_renderer_destroy_shader(Shader *shader);
+
 bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices, U16 vertex_count, U16 *indices, U32 index_count);
 void vulkan_renderer_destroy_static_mesh(Static_Mesh *static_mesh);
 

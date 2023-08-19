@@ -72,12 +72,6 @@ bool init_renderer_state(Engine *engine,
                          Renderer_State *renderer_state,
                          struct Memory_Arena *arena)
 {
-    renderer_state->engine = engine;
-    renderer_state->textures = AllocateArray(arena, Texture, MAX_TEXTURE_COUNT);
-    renderer_state->materials = AllocateArray(arena, Material, MAX_MATERIAL_COUNT);
-    renderer_state->static_meshes = AllocateArray(arena, Static_Mesh, MAX_STATIC_MESH_COUNT);
-    renderer_state->scene_nodes = AllocateArray(arena, Scene_Node, MAX_SCENE_NODE_COUNT);
-
     _transfer_allocator = renderer_state->transfer_allocator;
     _stbi_allocator = &engine->memory.free_list_allocator;
     return true;
@@ -486,7 +480,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                         vertex->position = positions[vertex_index];
                         vertex->normal = normals[vertex_index];
                         vertex->tangent = tanget;
-                        vertex->bi_tangent = glm::cross(vertex->normal, vertex->tangent) * tanget.w;
+                        vertex->bitangent = glm::cross(vertex->normal, vertex->tangent) * tanget.w;
                         vertex->uv = uvs[vertex_index];
                     }
 
@@ -552,6 +546,20 @@ Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state)
     return &renderer_state->static_meshes[static_mesh_index];
 }
 
+Shader *allocate_shader(Renderer_State *renderer_state)
+{
+    Assert(renderer_state->shader_count < MAX_STATIC_MESH_COUNT);
+    U32 shader_index = renderer_state->shader_count++;
+    return &renderer_state->shaders[shader_index];
+}
+
+Pipeline_State *allocate_pipeline_state(Renderer_State *renderer_state)
+{
+    Assert(renderer_state->pipeline_state_count < MAX_PIPELINE_STATE_COUNT);
+    U32 pipline_state_index = renderer_state->pipeline_state_count++;
+    return &renderer_state->pipeline_states[pipline_state_index];
+}
+
 U32 index_of(Renderer_State *renderer_state, const Texture *texture)
 {
     U64 index = texture - renderer_state->textures;
@@ -573,6 +581,20 @@ U32 index_of(Renderer_State *renderer_state, const Static_Mesh *static_mesh)
     return u64_to_u32(index);
 }
 
+U32 index_of(Renderer_State *renderer_state, const Shader *shader)
+{
+    U64 index = shader - renderer_state->shaders;
+    Assert(index < MAX_SHADER_COUNT);
+    return u64_to_u32(index);
+}
+
+U32 index_of(Renderer_State *renderer_state, const Pipeline_State *pipeline_state)
+{
+    U64 index = pipeline_state - renderer_state->pipeline_states;
+    Assert(index < MAX_SHADER_COUNT);
+    return u64_to_u32(index);
+}
+
 U32 index_of(Renderer_State *renderer_state, Texture *texture)
 {
     U64 index = texture - renderer_state->textures;
@@ -591,6 +613,20 @@ U32 index_of(Renderer_State *renderer_state, Static_Mesh *static_mesh)
 {
     U64 index = static_mesh - renderer_state->static_meshes;
     Assert(index < MAX_STATIC_MESH_COUNT);
+    return u64_to_u32(index);
+}
+
+U32 index_of(Renderer_State *renderer_state, Shader *shader)
+{
+    U64 index = shader - renderer_state->shaders;
+    Assert(index < MAX_SHADER_COUNT);
+    return u64_to_u32(index);
+}
+
+U32 index_of(Renderer_State *renderer_state, Pipeline_State *pipeline_state)
+{
+    U64 index = pipeline_state - renderer_state->pipeline_states;
+    Assert(index < MAX_SHADER_COUNT);
     return u64_to_u32(index);
 }
 

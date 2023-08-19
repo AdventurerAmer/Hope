@@ -72,64 +72,14 @@ struct Vulkan_Descriptor_Set
     VkDescriptorSetLayoutBinding *bindings;
 };
 
-struct Vulkan_Shader_Input_Variable
-{
-    const char *name;
-    U32 name_length;
-    ShaderDataType type;
-    U32 location;
-};
-
-struct Vulkan_Shader_Output_Variable
-{
-    const char *name;
-    U32 name_length;
-    ShaderDataType type;
-    U32 location;
-};
-
-struct Shader_Struct_Member
-{
-    const char *name;
-    U32 name_length;
-
-    ShaderDataType data_type;
-    U32 offset;
-
-    bool is_array;
-    S32 array_element_count = -1;
-
-    S32 struct_index = -1;
-};
-
-struct Shader_Struct
-{
-    const char *name;
-    U32 name_length;
-
-    U32 member_count;
-    Shader_Struct_Member *members;
-};
-
 struct Vulkan_Shader
 {
     VkShaderModule handle;
-
     VkShaderStageFlagBits stage;
-
     Vulkan_Descriptor_Set sets[MAX_DESCRIPTOR_SET_COUNT];
-
-    U32 input_count;
-    Vulkan_Shader_Input_Variable *inputs;
-
-    U32 output_count;
-    Vulkan_Shader_Output_Variable *outputs;
-
-    U32 struct_count;
-    Shader_Struct *structs;
 };
 
-struct Vulkan_Graphics_Pipeline
+struct Vulkan_Pipeline_State
 {
     U32 descriptor_set_layout_count;
     VkDescriptorSetLayout descriptor_set_layouts[MAX_DESCRIPTOR_SET_COUNT];
@@ -213,9 +163,9 @@ struct Vulkan_Context
     VkRenderPass render_pass;
 
     VkPipelineCache pipeline_cache;
-    Vulkan_Shader mesh_vertex_shader;
-    Vulkan_Shader mesh_fragment_shader;
-    Vulkan_Graphics_Pipeline mesh_pipeline;
+    Shader *mesh_vertex_shader;
+    Shader *mesh_fragment_shader;
+    Pipeline_State *mesh_pipeline;
 
     VkCommandPool graphics_command_pool;
     VkCommandBuffer graphics_command_buffers[MAX_FRAMES_IN_FLIGHT];
@@ -250,6 +200,8 @@ struct Vulkan_Context
     Vulkan_Image *textures;
     Vulkan_Material *materials;
     Vulkan_Static_Mesh *static_meshes;
+    Vulkan_Shader *shaders;
+    Vulkan_Pipeline_State *pipeline_states;
 
     Free_List_Allocator *allocator;
     Free_List_Allocator transfer_allocator;
@@ -267,8 +219,16 @@ Vulkan_Material* get_data(Vulkan_Context *context, Material *material);
 
 Vulkan_Static_Mesh* get_data(Vulkan_Context *context, Static_Mesh *static_mesh);
 
+Vulkan_Shader *get_data(Vulkan_Context *context, Shader *shader);
+
+Vulkan_Pipeline_State* get_data(Vulkan_Context *context, Pipeline_State *pipeline_state);
+
 Vulkan_Image* get_data(Vulkan_Context *context, const Texture *texture);
 
 Vulkan_Material* get_data(Vulkan_Context *context, const Material *material);
 
 Vulkan_Static_Mesh* get_data(Vulkan_Context *context, const Static_Mesh *static_mesh);
+
+Vulkan_Shader *get_data(Vulkan_Context *context, const Shader *shader);
+
+Vulkan_Pipeline_State* get_data(Vulkan_Context *context, const Pipeline_State *pipeline_state);

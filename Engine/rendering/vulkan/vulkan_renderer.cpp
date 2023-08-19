@@ -40,6 +40,20 @@ get_data(Vulkan_Context *context, const Static_Mesh *static_mesh)
     return vulkan_mesh;
 }
 
+Vulkan_Shader *get_data(Vulkan_Context *context, const Shader *shader)
+{
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Vulkan_Shader *vulkan_shader = context->shaders + index_of(renderer_state, shader);
+    return vulkan_shader;
+}
+
+Vulkan_Pipeline_State* get_data(Vulkan_Context *context, const Pipeline_State *pipeline_state)
+{
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Vulkan_Pipeline_State *vulkan_pipeline_state = context->pipeline_states + index_of(renderer_state, pipeline_state);
+    return vulkan_pipeline_state;
+}
+
 Vulkan_Image*
 get_data(Vulkan_Context *context, Texture *texture)
 {
@@ -62,6 +76,20 @@ get_data(Vulkan_Context *context, Static_Mesh *static_mesh)
     Renderer_State *renderer_state = &context->engine->renderer_state;
     Vulkan_Static_Mesh *vulkan_mesh = context->static_meshes + index_of(renderer_state, static_mesh);
     return vulkan_mesh;
+}
+
+Vulkan_Shader *get_data(Vulkan_Context *context, Shader *shader)
+{
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Vulkan_Shader *vulkan_shader = context->shaders + index_of(renderer_state, shader);
+    return vulkan_shader;
+}
+
+Vulkan_Pipeline_State* get_data(Vulkan_Context *context, Pipeline_State *pipeline_state)
+{
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Vulkan_Pipeline_State *vulkan_pipeline_state = context->pipeline_states + index_of(renderer_state, pipeline_state);
+    return vulkan_pipeline_state;
 }
 
 internal_function VKAPI_ATTR VkBool32 VKAPI_CALL
@@ -377,6 +405,8 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     context->textures = AllocateArray(arena, Vulkan_Image, MAX_TEXTURE_COUNT);
     context->materials = AllocateArray(arena, Vulkan_Material, MAX_MATERIAL_COUNT);
     context->static_meshes = AllocateArray(arena, Vulkan_Static_Mesh, MAX_STATIC_MESH_COUNT);
+    context->shaders = AllocateArray(arena, Vulkan_Shader, MAX_SHADER_COUNT);
+    context->pipeline_states = AllocateArray(arena, Vulkan_Pipeline_State, MAX_PIPELINE_STATE_COUNT);
 
     const char *required_instance_extensions[] =
     {
@@ -912,21 +942,25 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                             nullptr, &context->pipeline_cache));
     }
 
-    bool shader_loaded = load_shader(&context->mesh_vertex_shader,
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    context->mesh_vertex_shader = allocate_shader(renderer_state);
+    bool shader_loaded = load_shader(context->mesh_vertex_shader,
                                      "shaders/bin/mesh.vert.spv",
-                                     context, arena);
+                                     context);
     Assert(shader_loaded);
 
-    shader_loaded = load_shader(&context->mesh_fragment_shader,
+    context->mesh_fragment_shader = allocate_shader(renderer_state);
+    shader_loaded = load_shader(context->mesh_fragment_shader,
                                 "shaders/bin/mesh.frag.spv",
-                                context, arena);
+                                context);
     Assert(shader_loaded);
 
-    create_graphics_pipeline(context,
-                             { &context->mesh_vertex_shader,
-                               &context->mesh_fragment_shader },
+    context->mesh_pipeline = allocate_pipeline_state(renderer_state);
+    create_graphics_pipeline(context->mesh_pipeline,
+                             { context->mesh_vertex_shader,
+                               context->mesh_fragment_shader },
                              context->render_pass,
-                             &context->mesh_pipeline);
+                             context);
 
     VkCommandPoolCreateInfo graphics_command_pool_create_info
         = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
@@ -971,7 +1005,6 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-    Renderer_State *renderer_state = &engine->renderer_state;
     init_free_list_allocator(&context->transfer_allocator, context->transfer_buffer.data, context->transfer_buffer.size);
     renderer_state->transfer_allocator = &context->transfer_allocator;
 
@@ -1014,7 +1047,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
              frame_index < MAX_FRAMES_IN_FLIGHT;
              frame_index++)
         {
-            level0_descriptor_set_layouts[frame_index] = context->mesh_pipeline.descriptor_set_layouts[0];
+            level0_descriptor_set_layouts[frame_index] = get_data(context, context->mesh_pipeline)->descriptor_set_layouts[0];
         }
 
         VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -1089,7 +1122,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
              frame_index < MAX_FRAMES_IN_FLIGHT;
              frame_index++)
         {
-            level1_descriptor_set_layouts[frame_index] = context->mesh_pipeline.descriptor_set_layouts[1];
+            level1_descriptor_set_layouts[frame_index] = get_data(context, context->mesh_pipeline)->descriptor_set_layouts[1];
         }
 
         VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -1199,12 +1232,12 @@ void deinit_vulkan(Vulkan_Context *context)
     }
 
     vkDestroyPipelineCache(context->logical_device, context->pipeline_cache, nullptr);
-    destroy_graphics_pipeline(context->logical_device, &context->mesh_pipeline);
+    destroy_pipeline(context->mesh_pipeline, context);
 
     vkDestroyRenderPass(context->logical_device, context->render_pass, nullptr);
 
-    destroy_shader(&context->mesh_vertex_shader, context->logical_device);
-    destroy_shader(&context->mesh_fragment_shader, context->logical_device);
+    destroy_shader(context->mesh_vertex_shader, context);
+    destroy_shader(context->mesh_fragment_shader, context);
 
     vkDestroySurfaceKHR(context->instance, context->surface, nullptr);
     vkDestroyDevice(context->logical_device, nullptr);
@@ -1364,7 +1397,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
 
     vkCmdBindPipeline(command_buffer,
                       VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      context->mesh_pipeline.handle);
+                      get_data(context, context->mesh_pipeline)->handle);
 
     VkDescriptorImageInfo descriptor_image_infos[MAX_TEXTURE_COUNT] = {};
 
@@ -1398,7 +1431,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
 
     vkCmdBindDescriptorSets(command_buffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            context->mesh_pipeline.layout,
+                            get_data(context, context->mesh_pipeline)->layout,
                             0, ArrayCount(descriptor_sets),
                             descriptor_sets,
                             0, nullptr);
@@ -1566,6 +1599,17 @@ void vulkan_renderer_destroy_texture(Texture *texture)
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Image *vulkan_image = get_data(context, texture);
     destroy_image(vulkan_image, &vulkan_context);
+}
+
+bool vulkan_renderer_create_shader(Shader *shader, const char *path)
+{
+    Vulkan_Context *context = &vulkan_context;
+    bool loaded = load_shader(shader, path, context);
+    return loaded;
+}
+
+void vulkan_renderer_destroy_shader(Shader *shader)
+{
 }
 
 bool vulkan_renderer_create_material(Material *material,

@@ -3,10 +3,10 @@
 #include "vulkan_shader.h"
 #include "core/platform.h"
 #include "core/debugging.h"
+#include "core/engine.h"
 
 #include <initializer_list>
 #include <vector>
-#include <map>
 
 enum ShaderEntityKind
 {
@@ -266,10 +266,13 @@ U32 parse_struct(const Shader_Entity &entity,
 }
 
 bool
-load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Memory_Arena *arena)
+load_shader(Shader *shader, const char *path, Vulkan_Context *context)
 {
+    Memory_Arena *arena = &context->engine->memory.transient_arena;
     Temprary_Memory_Arena temp_arena = {};
     begin_temprary_memory_arena(&temp_arena, arena);
+
+    Vulkan_Shader *vulkan_shader = get_data(context, shader);
 
     Read_Entire_File_Result result =
         platform_begin_read_entire_file(path);
@@ -346,12 +349,12 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                 {
                     case SpvExecutionModelVertex:
                     {
-                        shader->stage = VK_SHADER_STAGE_VERTEX_BIT;
+                        vulkan_shader->stage = VK_SHADER_STAGE_VERTEX_BIT;
                     } break;
 
                     case SpvExecutionModelFragment:
                     {
-                        shader->stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+                        vulkan_shader->stage = VK_SHADER_STAGE_FRAGMENT_BIT;
                     } break;
                 }
             } break;
@@ -582,8 +585,8 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
     }
 
     std::vector< VkDescriptorSetLayoutBinding > sets[MAX_DESCRIPTOR_SET_COUNT];
-    std::vector< Vulkan_Shader_Input_Variable > inputs;
-    std::vector< Vulkan_Shader_Output_Variable > outputs;
+    std::vector< Shader_Input_Variable > inputs;
+    std::vector< Shader_Output_Variable > outputs;
     std::vector< SPIRV_Shader_Struct > structs;
 
     for (const Shader_Entity &entity : ids)
@@ -602,7 +605,7 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                     VkDescriptorSetLayoutBinding &descriptor_set_layout_binding = set.back();
 
                     descriptor_set_layout_binding.binding = entity.binding;
-                    descriptor_set_layout_binding.stageFlags = shader->stage;
+                    descriptor_set_layout_binding.stageFlags = vulkan_shader->stage;
 
                     const Shader_Entity &uniform = ids[ ids[ entity.id_of_type ].id_of_type ];
 
@@ -625,7 +628,7 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                     const Shader_Entity &input_type = ids[ ids[ entity.id_of_type ].id_of_type ];
                     if (entity.location != -1)
                     {
-                        Vulkan_Shader_Input_Variable input = {};
+                        Shader_Input_Variable input = {};
                         input.name = entity.name;
                         input.name_length = entity.name_length;
                         input.location = entity.location;
@@ -639,7 +642,7 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
                     const Shader_Entity& input_type = ids[ids[entity.id_of_type].id_of_type];
                     if (entity.location != -1)
                     {
-                        Vulkan_Shader_Output_Variable output = {};
+                        Shader_Output_Variable output = {};
                         output.name = entity.name;
                         output.name_length = entity.name_length;
                         output.location = entity.location;
@@ -659,7 +662,7 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
     CheckVkResult(vkCreateShaderModule(context->logical_device,
                                        &shader_create_info,
                                        nullptr,
-                                       &shader->handle));
+                                       &vulkan_shader->handle));
 
     end_temprary_memory_arena(&temp_arena);
 
@@ -671,7 +674,7 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
             continue;
         }
 
-        Vulkan_Descriptor_Set* set = &shader->sets[set_index];
+        Vulkan_Descriptor_Set *set = &vulkan_shader->sets[set_index];
         set->binding_count = binding_count;
         set->bindings = AllocateArray(arena, VkDescriptorSetLayoutBinding, binding_count);
         for (U32 binding_index = 0; binding_index < binding_count; binding_index++)
@@ -681,12 +684,12 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
     }
 
     U32 input_count = u64_to_u32(inputs.size());
-    Vulkan_Shader_Input_Variable *input_variables = AllocateArray(arena, Vulkan_Shader_Input_Variable, input_count);
-    memcpy(input_variables, inputs.data(), sizeof(Vulkan_Shader_Input_Variable) * input_count);
+    Shader_Input_Variable *input_variables = AllocateArray(arena, Shader_Input_Variable, input_count);
+    memcpy(input_variables, inputs.data(), sizeof(Shader_Input_Variable) * input_count);
 
     U32 output_count = u64_to_u32(outputs.size());
-    Vulkan_Shader_Output_Variable *output_variables = AllocateArray(arena, Vulkan_Shader_Output_Variable, input_count);
-    memcpy(output_variables, outputs.data(), sizeof(Vulkan_Shader_Output_Variable) * output_count);
+    Shader_Output_Variable *output_variables = AllocateArray(arena, Shader_Output_Variable, input_count);
+    memcpy(output_variables, outputs.data(), sizeof(Shader_Output_Variable) * output_count);
 
     shader->input_count = input_count;
     shader->inputs = input_variables;
@@ -716,9 +719,10 @@ load_shader(Vulkan_Shader *shader, const char *path, Vulkan_Context *context, Me
     return true;
 }
 
-void destroy_shader(Vulkan_Shader *shader, VkDevice logical_device)
+void destroy_shader(Shader *shader, Vulkan_Context *context)
 {
-    vkDestroyShaderModule(logical_device, shader->handle, nullptr);
+    Vulkan_Shader *vulkan_shader = get_data(context, shader);
+    vkDestroyShaderModule(context->logical_device, vulkan_shader->handle, nullptr);
 }
 
 internal_function void
@@ -737,34 +741,36 @@ combine_stage_flags_or_add_binding_if_not_found(std::vector<VkDescriptorSetLayou
     set.push_back(descriptor_set_layout_binding);
 }
 
-bool create_graphics_pipeline(Vulkan_Context *context,
-                              const std::initializer_list< const Vulkan_Shader * > &shaders,
+bool create_graphics_pipeline(Pipeline_State *pipeline_state,
+                              const std::initializer_list< const Shader * > &shaders,
                               VkRenderPass render_pass,
-                              Vulkan_Graphics_Pipeline *pipeline)
+                              Vulkan_Context *context)
 {
-
+    Vulkan_Pipeline_State *pipeline = get_data(context, pipeline_state);
     std::vector< VkPipelineShaderStageCreateInfo > shader_stage_create_infos(shaders.size());
 
     bool is_using_vertex_shader = false;
     std::vector<VkDescriptorSetLayoutBinding> sets[MAX_DESCRIPTOR_SET_COUNT];
     U32 shader_index = 0;
 
-    for (const Vulkan_Shader *shader : shaders)
+    for (const Shader *shader : shaders)
     {
+        Vulkan_Shader *vulkan_shader = get_data(context, shader);
+
         VkPipelineShaderStageCreateInfo &pipeline_stage_create_info = shader_stage_create_infos[shader_index++];
         pipeline_stage_create_info.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        pipeline_stage_create_info.stage  = shader->stage;
-        pipeline_stage_create_info.module = shader->handle;
+        pipeline_stage_create_info.stage  = vulkan_shader->stage;
+        pipeline_stage_create_info.module = vulkan_shader->handle;
         pipeline_stage_create_info.pName  = "main";
 
-        if (shader->stage == VK_SHADER_STAGE_VERTEX_BIT)
+        if (vulkan_shader->stage == VK_SHADER_STAGE_VERTEX_BIT)
         {
             is_using_vertex_shader = true;
         }
 
         for (U32 set_index = 0; set_index < MAX_DESCRIPTOR_SET_COUNT; set_index++)
         {
-            const Vulkan_Descriptor_Set &set = shader->sets[set_index];
+            const Vulkan_Descriptor_Set &set = vulkan_shader->sets[set_index];
             for (U32 binding_index = 0;
                  binding_index < set.binding_count;
                  binding_index++)
@@ -840,7 +846,7 @@ bool create_graphics_pipeline(Vulkan_Context *context,
     vertex_input_attribute_descriptions[3].binding  = 0;
     vertex_input_attribute_descriptions[3].location = 3;
     vertex_input_attribute_descriptions[3].format   = VK_FORMAT_R32G32B32_SFLOAT;
-    vertex_input_attribute_descriptions[3].offset   = offsetof(Vertex, bi_tangent);
+    vertex_input_attribute_descriptions[3].offset   = offsetof(Vertex, bitangent);
 
     vertex_input_attribute_descriptions[4].binding  = 0;
     vertex_input_attribute_descriptions[4].location = 4;
@@ -990,18 +996,19 @@ bool create_graphics_pipeline(Vulkan_Context *context,
     return true;
 }
 
-void destroy_graphics_pipeline(VkDevice logical_device, Vulkan_Graphics_Pipeline *graphics_pipeline)
+void destroy_pipeline(Pipeline_State *pipeline_state, Vulkan_Context *context)
 {
-    Assert(logical_device != VK_NULL_HANDLE);
-    Assert(graphics_pipeline);
+    Assert(pipeline_state);
+    Assert(context);
+    Vulkan_Pipeline_State *pipeline = get_data(context, pipeline_state);
 
-    for (U32 set_index = 0; set_index < graphics_pipeline->descriptor_set_layout_count; set_index++)
+    for (U32 set_index = 0; set_index < pipeline->descriptor_set_layout_count; set_index++)
     {
-        vkDestroyDescriptorSetLayout(logical_device,
-                                     graphics_pipeline->descriptor_set_layouts[set_index],
+        vkDestroyDescriptorSetLayout(context->logical_device,
+                                     pipeline->descriptor_set_layouts[set_index],
                                      nullptr);
     }
 
-    vkDestroyPipelineLayout(logical_device, graphics_pipeline->layout, nullptr);
-    vkDestroyPipeline(logical_device, graphics_pipeline->handle, nullptr);
+    vkDestroyPipelineLayout(context->logical_device, pipeline->layout, nullptr);
+    vkDestroyPipeline(context->logical_device, pipeline->handle, nullptr);
 }
