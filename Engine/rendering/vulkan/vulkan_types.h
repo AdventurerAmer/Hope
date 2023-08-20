@@ -52,12 +52,6 @@ struct Vulkan_Image
     VkSampler sampler;
 };
 
-struct Vulkan_Texture_Bundle
-{
-    Texture texture;
-    Vulkan_Image vulkan_image;
-};
-
 struct Vulkan_Buffer
 {
     VkBuffer handle;
@@ -121,7 +115,8 @@ struct Vulkan_Swapchain
 
 struct Vulkan_Material
 {
-    Material_Data data;
+    Vulkan_Buffer buffers[MAX_FRAMES_IN_FLIGHT];
+    VkDescriptorSet descriptor_sets[MAX_FRAMES_IN_FLIGHT];
 };
 
 struct Vulkan_Static_Mesh
@@ -163,9 +158,6 @@ struct Vulkan_Context
     VkRenderPass render_pass;
 
     VkPipelineCache pipeline_cache;
-    Shader *mesh_vertex_shader;
-    Shader *mesh_fragment_shader;
-    Pipeline_State *mesh_pipeline;
 
     VkCommandPool graphics_command_pool;
     VkCommandBuffer graphics_command_buffers[MAX_FRAMES_IN_FLIGHT];
@@ -178,8 +170,6 @@ struct Vulkan_Context
     Vulkan_Buffer object_storage_buffers[MAX_FRAMES_IN_FLIGHT];
     Object_Data *object_data_base;
     U32 object_data_count;
-
-    Vulkan_Buffer material_storage_buffers[MAX_FRAMES_IN_FLIGHT];
 
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet descriptor_sets[MAX_DESCRIPTOR_SET_COUNT][MAX_FRAMES_IN_FLIGHT];

@@ -444,7 +444,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
     // todo(amer): engine configuration should be outside win32_main
     Engine_Configuration configuration = {};
     configuration.permanent_memory_size = HE_MegaBytes(256);
-    configuration.transient_memory_size = HE_MegaBytes(512);
+    configuration.transient_memory_size = HE_GigaBytes(1);
     configuration.show_cursor = true;
     configuration.lock_cursor = false;
     configuration.window_mode = WindowMode_Windowed;

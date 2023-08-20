@@ -1,17 +1,6 @@
-[Rendering-Trace]: Validation Error: [ VUID-vkCreateImage-pImage-parameter ] Object 0: handle = 0x1d05dabd5c0, type = VK_OBJECT_TYPE_DEVICE; | MessageID = 0x5791ea8f | vkCreateImage: required parameter pImage specified as NULL. The Vulkan spec states: pImage must be a valid pointer to a VkImage handle (https://vulkan.lunarg.com/doc/view/1.3.243.0/windows/1.3-extensions/vkspec.html#VUID-vkCreateImage-pImage-parameter)
-the index of a presentable image acquired from the swapchain specified by the corresponding element of the pSwapchains array, and the presented image subresource must be in the VK_IMAGE_LAYOUT_PRESENT_SRC_KHR layout at the time the operation is executed on a VkDevice (https://github.com/KhronosGroup/Vulkan-Docs/search?q=)VUID-VkPresentInfoKHR-pImageIndices-01296)
- graphics pipeline must be the same as the current subpass color and/or depth/stencil attachments (https://vulkan.lunarg.com/doc/view/1.3.243.0/windows/1.3-extensions/vkspec.html#VUID-vkCmdDrawIndexed-rasterizationSamples-04740)
-e took 0.000000 ms
-[Rendering-Trace]: allocate took 0.000000 ms
-[Rendering-Trace]: allocate took 0.000000 ms
-[Rendering-Trace]: allocate took 0.000000 ms
-[Rendering-Trace]: allocate took 0.000000 ms
-[Rendering-Trace]: allocate took 0.000000 ms
-[Rendering-Trace]: allocate took 0.000000 ms
-[Rendering-Trace]: allocate took 0.000000 ms
-[Rendering-Trace]: allocate took 0.000000 ms
-[Rendering-Trace]: allocate took 0.000000 ms
-[Rendering-Trace]: allocate took 0.000000 ms
+[Rendering-Trace]: Validation Error: [ VUID-vkUpdateDescriptorSets-pDescriptorCopies-parameter ] Object 0: handle = 0x2798035db40, type = VK_OBJECT_TYPE_DEVICE; | MessageID = 0xe81b9f52 | vkUpdateDescriptorSets: required parameter pDescriptorCopies specified as NULL. The Vulkan spec states: If descriptorCopyCount is not 0, pDescriptorCopies must be a valid pointer to an array of descriptorCopyCount valid VkCopyDescriptorSet structures (https://vulkan.lunarg.com/doc/view/1.3.243.0/windows/1.3-extensions/vkspec.html#VUID-vkUpdateDescriptorSets-pDescriptorCopies-parameter)
+; Object 1: handle = 0x2cfba2000000001c, type = VK_OBJECT_TYPE_PIPELINE_LAYOUT; | MessageID = 0x9888fef3 | vkCmdDrawIndexed(): The VkPipeline 0x908683000000001d[] (created with VkPipelineLayout 0x2cfba2000000001c[]) statically uses descriptor set (index #2) which is not compatible with the currently bound descriptor set's pipeline layout (VkPipelineLayout 0x2cfba2000000001c[]) The Vulkan spec states: For each set n that is statically used by the VkPipeline bound to the pipeline bind point used by this command, a descriptor set must have been bound to n at the same pipeline bind point, with a VkPipelineLayout that is compatible for set n, with the VkPipelineLayout used to create the current VkPipeline, as described in Pipeline Layout Compatibility (https://vulkan.lunarg.com/doc/view/1.3.243.0/windows/1.3-extensions/vkspec.html#VUID-vkCmdDrawIndexed-None-02697)
+g-Trace]: allocate took 0.000000 ms
 [Rendering-Trace]: allocate took 0.000000 ms
 [Rendering-Trace]: allocate took 0.000000 ms
 [Rendering-Trace]: allocate took 0.000000 ms

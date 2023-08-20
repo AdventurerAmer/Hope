@@ -22,18 +22,15 @@ bool vulkan_renderer_create_texture(Texture *texture, U32 width, U32 height,
 
 void vulkan_renderer_destroy_texture(Texture *texture);
 
-bool vulkan_renderer_create_material(Material *material,
-                                     U32 albedo_texture_index,
-                                     U32 normal_texture_index,
-                                     U32 roughness_texture_index,
-                                     F32 roughness_factor,
-                                     U32 metallic_texture_index,
-                                     F32 metallic_factor);
+bool vulkan_renderer_create_material(Material *material, const Material_Descriptor &descriptor);
 
 void vulkan_renderer_destroy_material(Material *material);
 
 bool vulkan_renderer_create_shader(Shader *shader, const char *path);
 void vulkan_renderer_destroy_shader(Shader *shader);
+
+bool vulkan_renderer_create_pipeline_state(Pipeline_State *pipeline_state, const std::initializer_list< const Shader * > &shaders);
+void vulkan_renderer_destroy_pipeline_state(Pipeline_State *pipeline_state);
 
 bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices, U16 vertex_count, U16 *indices, U32 index_count);
 void vulkan_renderer_destroy_static_mesh(Static_Mesh *static_mesh);

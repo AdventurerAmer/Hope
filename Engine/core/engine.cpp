@@ -141,7 +141,7 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 
     init_free_list_allocator(&engine->memory.free_list_allocator,
                              &engine->memory.transient_arena,
-                             HE_MegaBytes(256));
+                             HE_MegaBytes(512));
 
     engine->show_cursor = configuration.show_cursor;
     engine->lock_cursor = configuration.lock_cursor;
@@ -272,22 +272,8 @@ void shutdown(Engine *engine)
     Renderer_State *renderer_state = &engine->renderer_state;
     renderer->wait_for_gpu_to_finish_all_work(renderer_state);
 
-    for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
-    {
-        renderer->destroy_texture(&renderer_state->textures[texture_index]);
-    }
-
-    for (U32 material_index = 0; material_index < renderer_state->material_count; material_index++)
-    {
-        renderer->destroy_material(&renderer_state->materials[material_index]);
-    }
-
-    for (U32 static_mesh_index = 0; static_mesh_index < renderer_state->static_mesh_count; static_mesh_index++)
-    {
-        renderer->destroy_static_mesh(&renderer_state->static_meshes[static_mesh_index]);
-    }
-
-    renderer->deinit(&engine->renderer_state);
+    deinit_renderer_state(renderer, renderer_state);
+    renderer->deinit(renderer_state);
 
     platform_shutdown_imgui();
     ImGui::DestroyContext();

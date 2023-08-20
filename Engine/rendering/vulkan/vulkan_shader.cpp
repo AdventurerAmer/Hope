@@ -316,7 +316,7 @@ load_shader(Shader *shader, const char *path, Vulkan_Context *context)
                 Shader_Entity &entity = ids[id];
 
                 // note(amer): not proper utf8 paring here keep the shaders in english please.
-                // english mother fucker english do you speak it!!!!!.
+                // english mother fucker english do you speak it !!!!!.
                 const char *name = (const char*)(instruction + 2);
                 U32 name_length = u64_to_u32(strlen(name));
                 entity.name = (char *)malloc(name_length + 1); // @Leak
@@ -335,7 +335,7 @@ load_shader(Shader *shader, const char *path, Vulkan_Context *context)
                     entity.members.push_back(SPIRV_Struct_Member {});
                 }
                 SPIRV_Struct_Member &member = entity.members[member_index];
-                const char *name = (const char*)(instruction + 2);
+                const char *name = (const char*)(instruction + 3);
                 U32 name_length = u64_to_u32(strlen(name));
                 member.name = (char *)malloc(name_length + 1); // @Leak
                 memcpy(member.name, name, name_length + 1);
@@ -710,7 +710,7 @@ load_shader(Shader *shader, const char *path, Vulkan_Context *context)
         U32 member_count = u64_to_u32(spirv_struct.members.size());
         shader_struct->member_count = member_count;
         shader_struct->members = AllocateArray(arena, Shader_Struct_Member, member_count);
-        memcpy(shader_struct->members, spirv_struct.members.data(), sizeof(Shader_Struct_Member) * member_count);
+        copy_memory(shader_struct->members, spirv_struct.members.data(), sizeof(Shader_Struct_Member) * member_count);
     }
 
     shader->struct_count = struct_count;
@@ -746,6 +746,16 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
                               VkRenderPass render_pass,
                               Vulkan_Context *context)
 {
+    U32 shader_count = (U32)shaders.size();
+    Shader **shaders_ = AllocateArray(context->allocator, Shader *, shader_count);
+    U32 shader_index_ = 0;
+    for (const Shader *shader : shaders)
+    {
+        shaders_[shader_index_++] = const_cast< Shader * >(shader);
+    }
+    pipeline_state->shader_count = shader_count;
+    pipeline_state->shaders = shaders_;
+
     Vulkan_Pipeline_State *pipeline = get_data(context, pipeline_state);
     std::vector< VkPipelineShaderStageCreateInfo > shader_stage_create_infos(shaders.size());
 

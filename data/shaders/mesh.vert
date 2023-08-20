@@ -15,7 +15,6 @@ out vec2 out_uv;
 out vec3 out_normal;
 out vec3 out_tangent;
 out vec3 out_bitangent;
-flat out uint out_material_index;
 
 layout (std140, set = 0, binding = 0) uniform u_Globals
 {
@@ -45,5 +44,4 @@ void main()
     out_normal = normal;
     out_tangent = tangent;
     out_bitangent = bitangent;
-    out_material_index = objects[gl_InstanceIndex].material_index;
 }

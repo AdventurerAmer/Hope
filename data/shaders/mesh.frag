@@ -23,21 +23,27 @@ in vec2 in_uv;
 in vec3 in_normal;
 in vec3 in_tangent;
 in vec3 in_bitangent;
-flat in uint in_material_index;
-
-layout(location = 0) out vec4 out_color;
 
 layout (std140, set = 0, binding = 0) uniform u_Globals
 {
     Globals globals;
 };
 
-layout (std140, set = 0, binding = 2) readonly buffer u_Materials_Buffer
+layout(set = 1, binding = 0) uniform sampler2D u_textures[];
+
+struct Material_Properties
 {
-    Material_Data materials[];
+    uint albedo_texture_index;
+    uint normal_texture_index;
+    uint occlusion_roughness_metallic_texture_index;
 };
 
-layout(set = 1, binding = 0) uniform sampler2D u_textures[];
+layout (std140, set = 2, binding = 0) uniform u_Material
+{
+    Material_Properties material;
+};
+
+layout(location = 0) out vec4 out_color;
 
 vec3 fresnel_schlick(float NdotL, vec3 f0)
 {
@@ -67,13 +73,11 @@ float geometry_smith(float NdotV, float NdotL, float roughness)
 
 void main()
 {
-    const Material_Data material = materials[nonuniformEXT( in_material_index )];
-
     vec3 albedo = srgb_to_linear( texture( u_textures[ nonuniformEXT( material.albedo_texture_index) ], in_uv ).rgb );
-    vec3 occlusion_roughness_metal = texture( u_textures[ nonuniformEXT(material.roughness_texture_index) ], in_uv ).rgb;
-    float occlusion = occlusion_roughness_metal.r;
-    float roughness = occlusion_roughness_metal.g;
-    float metallic = occlusion_roughness_metal.b;
+    vec3 occlusion_roughness_metallic = texture( u_textures[ nonuniformEXT(material.occlusion_roughness_metallic_texture_index) ], in_uv ).rgb;
+    float occlusion = occlusion_roughness_metallic.r;
+    float roughness = occlusion_roughness_metallic.g;
+    float metallic = occlusion_roughness_metallic.b;
     vec3 light_color = globals.directional_light_color;
 
     vec3 normal = normalize(in_normal);

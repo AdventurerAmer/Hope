@@ -57,6 +57,10 @@ struct Renderer_State
     U32 scene_node_count;
     Scene_Node *scene_nodes;
 
+    Shader *mesh_vertex_shader;
+    Shader *mesh_fragment_shader;
+    Pipeline_State *mesh_pipeline;
+
     Scene_Data scene_data;
 
     struct Free_List_Allocator *transfer_allocator;
@@ -65,6 +69,8 @@ struct Renderer_State
 bool init_renderer_state(struct Engine *engine,
                          Renderer_State *renderer_state,
                          struct Memory_Arena *arena);
+
+void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_state);
 
 struct Renderer
 {
@@ -97,13 +103,7 @@ struct Renderer
     bool (*create_static_mesh)(Static_Mesh *static_mesh, void *vertices, U16 vertex_count, U16 *indices, U32 index_count);
     void (*destroy_static_mesh)(Static_Mesh *static_mesh);
 
-    bool (*create_material)(Material *material,
-                            U32 albedo_texture_index,
-                            U32 normal_texture_index,
-                            U32 roughness_texture_index,
-                            F32 roughness_factor,
-                            U32 metallic_texture_index,
-                            F32 metallic_factor);
+    bool (*create_material)(Material *material, const Material_Descriptor &descriptor);
 
     void (*destroy_material)(Material *material);
 
@@ -125,6 +125,8 @@ Material *allocate_material(Renderer_State *renderer_state);
 Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state);
 Shader *allocate_shader(Renderer_State *renderer_state);
 Pipeline_State *allocate_pipeline_state(Renderer_State *renderer_state);
+
+U8 *get_property(Material *material, const char *property_name, ShaderDataType shader_datatype);
 
 U32 index_of(Renderer_State *renderer_state, Texture *texture);
 U32 index_of(Renderer_State *renderer_state, Material *material);

@@ -943,22 +943,22 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     }
 
     Renderer_State *renderer_state = &context->engine->renderer_state;
-    context->mesh_vertex_shader = allocate_shader(renderer_state);
-    bool shader_loaded = load_shader(context->mesh_vertex_shader,
+    renderer_state->mesh_vertex_shader = allocate_shader(renderer_state);
+    bool shader_loaded = load_shader(renderer_state->mesh_vertex_shader,
                                      "shaders/bin/mesh.vert.spv",
                                      context);
     Assert(shader_loaded);
 
-    context->mesh_fragment_shader = allocate_shader(renderer_state);
-    shader_loaded = load_shader(context->mesh_fragment_shader,
+    renderer_state->mesh_fragment_shader = allocate_shader(renderer_state);
+    shader_loaded = load_shader(renderer_state->mesh_fragment_shader,
                                 "shaders/bin/mesh.frag.spv",
                                 context);
     Assert(shader_loaded);
 
-    context->mesh_pipeline = allocate_pipeline_state(renderer_state);
-    create_graphics_pipeline(context->mesh_pipeline,
-                             { context->mesh_vertex_shader,
-                               context->mesh_fragment_shader },
+    renderer_state->mesh_pipeline = allocate_pipeline_state(renderer_state);
+    create_graphics_pipeline(renderer_state->mesh_pipeline,
+                             { renderer_state->mesh_vertex_shader,
+                               renderer_state->mesh_fragment_shader },
                              context->render_pass,
                              context);
 
@@ -1017,10 +1017,6 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         Vulkan_Buffer *object_storage_buffer = &context->object_storage_buffers[frame_index];
         create_buffer(object_storage_buffer, context, sizeof(Object_Data) * MAX_OBJECT_DATA_COUNT,
                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-        Vulkan_Buffer *material_storage_buffer = &context->material_storage_buffers[frame_index];
-        create_buffer(material_storage_buffer, context, sizeof(Material_Data) * MAX_MATERIAL_COUNT,
-                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     }
 
     VkDescriptorPoolSize descriptor_pool_sizes[] = {
@@ -1039,7 +1035,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                          &descriptor_pool_create_info,
                                          nullptr, &context->descriptor_pool));
 
-    // level 0 sets
+    // set 0
     {
         VkDescriptorSetLayout level0_descriptor_set_layouts[MAX_FRAMES_IN_FLIGHT] = {};
 
@@ -1047,7 +1043,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
              frame_index < MAX_FRAMES_IN_FLIGHT;
              frame_index++)
         {
-            level0_descriptor_set_layouts[frame_index] = get_data(context, context->mesh_pipeline)->descriptor_set_layouts[0];
+            level0_descriptor_set_layouts[frame_index] = get_data(context, renderer_state->mesh_pipeline)->descriptor_set_layouts[0];
         }
 
         VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -1089,24 +1085,10 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
             object_data_storage_buffer_write_descriptor_set.descriptorCount = 1;
             object_data_storage_buffer_write_descriptor_set.pBufferInfo = &object_data_storage_buffer_descriptor_info;
 
-            VkDescriptorBufferInfo material_storage_buffer_descriptor_info = {};
-            material_storage_buffer_descriptor_info.buffer = context->material_storage_buffers[frame_index].handle;
-            material_storage_buffer_descriptor_info.offset = 0;
-            material_storage_buffer_descriptor_info.range = sizeof(Material_Data) * MAX_MATERIAL_COUNT;
-
-            VkWriteDescriptorSet material_storage_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            material_storage_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
-            material_storage_buffer_write_descriptor_set.dstBinding = 2;
-            material_storage_buffer_write_descriptor_set.dstArrayElement = 0;
-            material_storage_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            material_storage_buffer_write_descriptor_set.descriptorCount = 1;
-            material_storage_buffer_write_descriptor_set.pBufferInfo = &material_storage_buffer_descriptor_info;
-
             VkWriteDescriptorSet write_descriptor_sets[] =
             {
                 globals_uniform_buffer_write_descriptor_set,
-                object_data_storage_buffer_write_descriptor_set,
-                material_storage_buffer_write_descriptor_set
+                object_data_storage_buffer_write_descriptor_set
             };
 
             vkUpdateDescriptorSets(context->logical_device,
@@ -1115,6 +1097,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         }
     }
 
+    // set 1
     {
         VkDescriptorSetLayout level1_descriptor_set_layouts[MAX_FRAMES_IN_FLIGHT] = {};
 
@@ -1122,7 +1105,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
              frame_index < MAX_FRAMES_IN_FLIGHT;
              frame_index++)
         {
-            level1_descriptor_set_layouts[frame_index] = get_data(context, context->mesh_pipeline)->descriptor_set_layouts[1];
+            level1_descriptor_set_layouts[frame_index] = get_data(context, renderer_state->mesh_pipeline)->descriptor_set_layouts[1];
         }
 
         VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -1187,7 +1170,6 @@ void deinit_vulkan(Vulkan_Context *context)
     {
         destroy_buffer(&context->globals_uniform_buffers[frame_index], context->logical_device);
         destroy_buffer(&context->object_storage_buffers[frame_index], context->logical_device);
-        destroy_buffer(&context->material_storage_buffers[frame_index], context->logical_device);
 
         vkDestroySemaphore(context->logical_device,
                            context->image_available_semaphores[frame_index],
@@ -1232,12 +1214,8 @@ void deinit_vulkan(Vulkan_Context *context)
     }
 
     vkDestroyPipelineCache(context->logical_device, context->pipeline_cache, nullptr);
-    destroy_pipeline(context->mesh_pipeline, context);
 
     vkDestroyRenderPass(context->logical_device, context->render_pass, nullptr);
-
-    destroy_shader(context->mesh_vertex_shader, context);
-    destroy_shader(context->mesh_fragment_shader, context);
 
     vkDestroySurfaceKHR(context->instance, context->surface, nullptr);
     vkDestroyDevice(context->logical_device, nullptr);
@@ -1314,18 +1292,6 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     Vulkan_Buffer *global_uniform_buffer = &context->globals_uniform_buffers[current_frame_in_flight_index];
     memcpy(global_uniform_buffer->data, &globals, sizeof(Globals));
 
-    Vulkan_Buffer *material_storage_buffer = &context->material_storage_buffers[current_frame_in_flight_index];
-    Material_Data *material_data_base = (Material_Data *)material_storage_buffer->data;
-
-    for (U32 material_index = 0;
-         material_index < renderer_state->material_count;
-         material_index++)
-    {
-        Material *material = &renderer_state->materials[material_index];
-        Vulkan_Material *vulkan_material = get_data(context, material);
-        material_data_base[material_index] = vulkan_material->data;
-    }
-
     context->object_data_base = (Object_Data *)context->object_storage_buffers[current_frame_in_flight_index].data;
     context->object_data_count = 0;
 
@@ -1395,10 +1361,6 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
                          &render_pass_begin_info,
                          VK_SUBPASS_CONTENTS_INLINE);
 
-    vkCmdBindPipeline(command_buffer,
-                      VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      get_data(context, context->mesh_pipeline)->handle);
-
     VkDescriptorImageInfo descriptor_image_infos[MAX_TEXTURE_COUNT] = {};
 
     for (U32 texture_index = 0;
@@ -1431,7 +1393,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
 
     vkCmdBindDescriptorSets(command_buffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            get_data(context, context->mesh_pipeline)->layout,
+                            get_data(context, renderer_state->mesh_pipeline)->layout,
                             0, ArrayCount(descriptor_sets),
                             descriptor_sets,
                             0, nullptr);
@@ -1472,11 +1434,32 @@ void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
     U32 object_data_index = context->object_data_count++;
     Object_Data *object_data = &context->object_data_base[object_data_index];
     object_data->model = transform;
-    object_data->material_index = index_of(renderer_state, static_mesh->material);
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
     VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
 
     Vulkan_Static_Mesh *vulkan_static_mesh = get_data(context, static_mesh);
+
+    Material *material = static_mesh->material;
+    Vulkan_Material *vulkan_material = get_data(context, material);
+
+    Vulkan_Buffer *material_buffer = &vulkan_material->buffers[current_frame_in_flight_index];
+    memcpy(material_buffer->data, material->data, material->size);
+
+    VkDescriptorSet descriptor_sets[] =
+    {
+        vulkan_material->descriptor_sets[current_frame_in_flight_index]
+    };
+
+    vkCmdBindDescriptorSets(command_buffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            get_data(context, material->pipeline_state)->layout,
+                            2, ArrayCount(descriptor_sets),
+                            descriptor_sets,
+                            0, nullptr);
+
+    vkCmdBindPipeline(command_buffer,
+                      VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      get_data(context, material->pipeline_state)->handle);
 
     U32 instance_count = 1;
     U32 start_instance = object_data_index;
@@ -1496,7 +1479,7 @@ void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
     ImGuiIO &io = ImGui::GetIO();
     io.DisplaySize = ImVec2((F32)(renderer_state->back_buffer_width),
                             (F32)(renderer_state->back_buffer_height));
-    
+
     if (renderer_state->engine->imgui_docking)
     {
         ImGui::End();
@@ -1586,7 +1569,7 @@ bool vulkan_renderer_create_texture(Texture *texture, U32 width, U32 height,
     U64 size = (U64)width * (U64)height * sizeof(U32);
     U64 transfered_data_offset = (U8 *)data - context->transfer_allocator.base;
 
-    copy_data_to_image_from_buffer(context, image, width, height, &context->transfer_buffer, 
+    copy_data_to_image_from_buffer(context, image, width, height, &context->transfer_buffer,
                                    transfered_data_offset, size);
 
     texture->width = width;
@@ -1610,28 +1593,136 @@ bool vulkan_renderer_create_shader(Shader *shader, const char *path)
 
 void vulkan_renderer_destroy_shader(Shader *shader)
 {
+    Vulkan_Context *context = &vulkan_context;
+    destroy_shader(shader, context);
 }
 
-bool vulkan_renderer_create_material(Material *material,
-                                     U32 albedo_texture_index,
-                                     U32 normal_texture_index,
-                                     U32 roughness_texture_index,
-                                     F32 roughness_factor,
-                                     U32 metallic_texture_index,
-                                     F32 metallic_factor)
+bool vulkan_renderer_create_pipeline_state(Pipeline_State *pipeline_state, const std::initializer_list< const Shader * > &shaders)
 {
-    Assert(albedo_texture_index != normal_texture_index);
-    Assert(normal_texture_index != roughness_texture_index);
+    Vulkan_Context *context = &vulkan_context;
+    return create_graphics_pipeline(pipeline_state, shaders, context->render_pass, context);
+}
+
+void vulkan_renderer_destroy_pipeline_state(Pipeline_State *pipeline_state)
+{
+    Vulkan_Context *context = &vulkan_context;
+    destroy_pipeline(pipeline_state, context);
+}
+
+U32 size_of_shader_data_type(ShaderDataType shader_data_type)
+{
+    switch (shader_data_type)
+    {
+        case ShaderDataType_Bool: return 1;
+
+        case ShaderDataType_S8: return 1;
+        case ShaderDataType_S16: return 2;
+        case ShaderDataType_S32: return 4;
+        case ShaderDataType_S64: return 8;
+
+        case ShaderDataType_U8: return 1;
+        case ShaderDataType_U16: return 2;
+        case ShaderDataType_U32: return 4;
+        case ShaderDataType_U64: return 8;
+
+        case ShaderDataType_F16: return 2;
+        case ShaderDataType_F32: return 4;
+        case ShaderDataType_F64: return 8;
+
+        case ShaderDataType_Vector2f: return 2 * 4;
+        case ShaderDataType_Vector3f: return 3 * 4;
+        case ShaderDataType_Vector4f: return 4 * 4;
+
+        case ShaderDataType_Matrix3f: return 9 * 4;
+        case ShaderDataType_Matrix4f: return 16 * 4;
+
+        default:
+        {
+            Assert(!"unsupported type");
+        } break;
+    }
+    return 0;
+}
+
+bool vulkan_renderer_create_material(Material *material, const Material_Descriptor &descriptor)
+{
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Material *vulkan_material = get_data(context, material);
-    vulkan_material->data.albedo_texture_index = albedo_texture_index;
-    vulkan_material->data.normal_texture_index = normal_texture_index;
-    vulkan_material->data.roughness_texture_index = roughness_texture_index;
-    // vulkan_material->data.roughness_factor = roughness_factor;
-    // vulkan_material->data.metallic_texture_index = metallic_texture_index;
-    // vulkan_material->data.metallic_factor = metallic_factor;
-    // vulkan_material->data.reflectance = 0.04f;
-    // vulkan_material->data.albedo_color = glm::vec4(1.0f);
+
+    Shader_Struct *properties = nullptr;
+
+    for (U32 shader_index = 0; shader_index < descriptor.pipeline_state->shader_count; shader_index++)
+    {
+        Shader *shader = descriptor.pipeline_state->shaders[shader_index];
+        for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
+        {
+            Shader_Struct *shader_struct = &shader->structs[struct_index];
+            if (strcmp(shader_struct->name, "Material_Properties") == 0)
+            {
+                properties = shader_struct;
+                break;
+            }
+        }
+    }
+
+    Assert(properties);
+
+    Shader_Struct_Member *last_member = &properties->members[properties->member_count - 1];
+    U32 last_member_size = size_of_shader_data_type(last_member->data_type);
+    U32 size = last_member->offset + last_member_size;
+
+    VkDescriptorSetLayout level2_descriptor_set_layouts[MAX_FRAMES_IN_FLIGHT] = {};
+
+    for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        Vulkan_Buffer *buffer = &vulkan_material->buffers[frame_index];
+        create_buffer(buffer, context, size,
+                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+        level2_descriptor_set_layouts[frame_index] = get_data(context, descriptor.pipeline_state)->descriptor_set_layouts[2];
+    }
+
+    VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    descriptor_set_allocation_info.descriptorPool = context->descriptor_pool;
+    descriptor_set_allocation_info.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+    descriptor_set_allocation_info.pSetLayouts = level2_descriptor_set_layouts;
+
+    CheckVkResult(vkAllocateDescriptorSets(context->logical_device,
+                                           &descriptor_set_allocation_info,
+                                           vulkan_material->descriptor_sets));
+
+    for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        VkDescriptorBufferInfo material_uniform_buffer_descriptor_info = {};
+        material_uniform_buffer_descriptor_info.buffer = vulkan_material->buffers[frame_index].handle;
+        material_uniform_buffer_descriptor_info.offset = 0;
+        material_uniform_buffer_descriptor_info.range = size;
+
+        VkWriteDescriptorSet material_uniform_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        material_uniform_buffer_write_descriptor_set.dstSet = vulkan_material->descriptor_sets[frame_index];
+        material_uniform_buffer_write_descriptor_set.dstBinding = 0;
+        material_uniform_buffer_write_descriptor_set.dstArrayElement = 0;
+        material_uniform_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        material_uniform_buffer_write_descriptor_set.descriptorCount = 1;
+        material_uniform_buffer_write_descriptor_set.pBufferInfo = &material_uniform_buffer_descriptor_info;
+
+        VkWriteDescriptorSet write_descriptor_sets[] =
+        {
+            material_uniform_buffer_write_descriptor_set,
+        };
+
+        vkUpdateDescriptorSets(context->logical_device,
+                               ArrayCount(write_descriptor_sets),
+                               write_descriptor_sets, 0, nullptr);
+    }
+
+    material->pipeline_state = descriptor.pipeline_state;
+    material->data = AllocateArray(context->allocator, U8, size);
+    material->size = size;
+
+    material->properties = properties;
+
     return true;
 }
 
@@ -1639,6 +1730,10 @@ void vulkan_renderer_destroy_material(Material *material)
 {
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Material *vulkan_material = get_data(context, material);
+    for (U32 frame_index = 0; frame_index < MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        destroy_buffer(&vulkan_material->buffers[frame_index], context->logical_device);
+    }
 }
 
 bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, void *vertices,

@@ -8,9 +8,9 @@
 static Free_List_Allocator *_transfer_allocator;
 static Free_List_Allocator *_stbi_allocator;
 
-#define STBI_MALLOC(sz) allocate(_stbi_allocator, sz, 0);
-#define STBI_REALLOC(p, newsz) reallocate(_stbi_allocator, p, newsz, 0)
-#define STBI_FREE(p) deallocate(_stbi_allocator, p)
+// #define STBI_MALLOC(sz) allocate(_stbi_allocator, sz, 0);
+// #define STBI_REALLOC(p, newsz) reallocate(_stbi_allocator, p, newsz, 0)
+// #define STBI_FREE(p) deallocate(_stbi_allocator, p)
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
@@ -52,6 +52,10 @@ bool request_renderer(RenderingAPI rendering_api,
             renderer->destroy_static_mesh = &vulkan_renderer_destroy_static_mesh;
             renderer->create_material = &vulkan_renderer_create_material;
             renderer->destroy_material = &vulkan_renderer_destroy_material;
+            renderer->create_shader = &vulkan_renderer_create_shader;
+            renderer->destroy_shader = &vulkan_renderer_destroy_shader;
+            renderer->create_pipeline_state = &vulkan_renderer_create_pipeline_state;
+            renderer->destroy_pipeline_state = &vulkan_renderer_destroy_pipeline_state;
             renderer->begin_frame = &vulkan_renderer_begin_frame;
             renderer->submit_static_mesh = &vulkan_renderer_submit_static_mesh;
             renderer->end_frame = &vulkan_renderer_end_frame;
@@ -75,6 +79,34 @@ bool init_renderer_state(Engine *engine,
     _transfer_allocator = renderer_state->transfer_allocator;
     _stbi_allocator = &engine->memory.free_list_allocator;
     return true;
+}
+
+void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_state)
+{
+    for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
+    {
+        renderer->destroy_texture(&renderer_state->textures[texture_index]);
+    }
+
+    for (U32 material_index = 0; material_index < renderer_state->material_count; material_index++)
+    {
+        renderer->destroy_material(&renderer_state->materials[material_index]);
+    }
+
+    for (U32 static_mesh_index = 0; static_mesh_index < renderer_state->static_mesh_count; static_mesh_index++)
+    {
+        renderer->destroy_static_mesh(&renderer_state->static_meshes[static_mesh_index]);
+    }
+
+    for (U32 shader_index = 0; shader_index < renderer_state->shader_count; shader_index++)
+    {
+        renderer->destroy_shader(&renderer_state->shaders[shader_index]);
+    }
+
+    for (U32 pipeline_state_index = 0; pipeline_state_index < renderer_state->pipeline_state_count; pipeline_state_index++)
+    {
+        renderer->destroy_pipeline_state(&renderer_state->pipeline_states[pipeline_state_index]);
+    }
 }
 
 Scene_Node*
@@ -331,13 +363,19 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
         Assert(albedo != normal);
         Assert(normal != metallic_roughness);
 
-        renderer->create_material(renderer_material,
-                                  index_of(renderer_state, albedo),
-                                  index_of(renderer_state, normal),
-                                  index_of(renderer_state, metallic_roughness),
-                                  1.0f,
-                                  index_of(renderer_state, metallic_roughness),
-                                  1.0f);
+        Material_Descriptor desc = {};
+        desc.pipeline_state = renderer_state->mesh_pipeline;
+        renderer->create_material(renderer_material, desc);
+
+        U32 *albedo_texture_index = (U32 *)get_property(renderer_material, "albedo_texture_index", ShaderDataType_U32);
+        U32 *normal_texture_index = (U32 *)get_property(renderer_material, "normal_texture_index", ShaderDataType_U32);
+        U32 *occlusion_roughness_metallic_texture_index = (U32 *)get_property(renderer_material,
+                                                                              "occlusion_roughness_metallic_texture_index",
+                                                                              ShaderDataType_U32);
+
+        *albedo_texture_index = index_of(renderer_state, albedo);
+        *normal_texture_index = index_of(renderer_state, normal);
+        *occlusion_roughness_metallic_texture_index = index_of(renderer_state, metallic_roughness);
     }
 
     U32 position_count = 0;
@@ -558,6 +596,21 @@ Pipeline_State *allocate_pipeline_state(Renderer_State *renderer_state)
     Assert(renderer_state->pipeline_state_count < MAX_PIPELINE_STATE_COUNT);
     U32 pipline_state_index = renderer_state->pipeline_state_count++;
     return &renderer_state->pipeline_states[pipline_state_index];
+}
+
+U8 *get_property(Material *material, const char *property_name, ShaderDataType shader_datatype)
+{
+    Shader_Struct *properties = material->properties;
+    for (U32 member_index = 0; member_index < properties->member_count; member_index++)
+    {
+        Shader_Struct_Member *member = &properties->members[member_index];
+        if (strcmp(property_name, member->name) == 0 && member->data_type == shader_datatype)
+        {
+            return material->data + member->offset;
+        }
+    }
+
+    return nullptr;
 }
 
 U32 index_of(Renderer_State *renderer_state, const Texture *texture)

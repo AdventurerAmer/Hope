@@ -126,7 +126,24 @@ struct Shader
     Shader_Struct *structs;
 };
 
+#define MAX_PIPELINE_STATE_NAME 256
+
+struct Pipeline_State
+{
+    // todo(amer): String
+    char name[MAX_PIPELINE_STATE_NAME];
+    U32 name_length;
+
+    U32 shader_count;
+    Shader **shaders;
+};
+
 #define MAX_MATERIAL_NAME 256
+
+struct Material_Descriptor
+{
+    Pipeline_State *pipeline_state;
+};
 
 struct Material
 {
@@ -136,8 +153,12 @@ struct Material
 
     U64 hash; // todo(amer): temprary
 
-    Texture *albedo;
-    Texture *normal;
+    Pipeline_State *pipeline_state;
+
+    U8 *data;
+    U64 size;
+
+    Shader_Struct *properties;
 };
 
 #define MAX_MESH_NAME 256
@@ -151,15 +172,6 @@ struct Static_Mesh
     U16 vertex_count;
     U32 index_count;
     Material *material;
-};
-
-#define MAX_PIPELINE_STATE
-
-struct Pipeline_State
-{
-    // todo(amer): String
-    char name[MAX_MATERIAL_NAME];
-    U32 name_length;
 };
 
 struct Scene_Node
@@ -178,12 +190,10 @@ struct Scene_Node
 struct Object_Data
 {
     glm::mat4 model;
-    alignas(16) U32 material_index;
 };
 
 StaticAssert(offsetof(Object_Data, model) == 0);
-StaticAssert(offsetof(Object_Data, material_index) == 64);
-StaticAssert(sizeof(Object_Data) == 80);
+StaticAssert(sizeof(Object_Data) == 64);
 
 struct Globals
 {
@@ -198,15 +208,3 @@ StaticAssert(offsetof(Globals, view) == 0);
 StaticAssert(offsetof(Globals, projection) == 64);
 StaticAssert(offsetof(Globals, directional_light_direction) == 128);
 StaticAssert(offsetof(Globals, directional_light_color) == 144);
-
-struct alignas(16) Material_Data
-{
-    U32 albedo_texture_index;
-    U32 normal_texture_index;
-    U32 roughness_texture_index;
-};
-
-StaticAssert(offsetof(Material_Data, albedo_texture_index) == 0);
-StaticAssert(offsetof(Material_Data, normal_texture_index) == 4);
-StaticAssert(offsetof(Material_Data, roughness_texture_index) == 8);
-StaticAssert(sizeof(Material_Data) == 16);
