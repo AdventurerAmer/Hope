@@ -19,7 +19,7 @@ static Free_List_Allocator *_stbi_allocator;
 #include "rendering/renderer.h"
 #include "core/platform.h"
 
-#if HE_OS_WINDOWS
+#if HOPE_OS_WINDOWS
 #define HE_RHI_VULKAN
 #endif
 
@@ -113,8 +113,8 @@ Scene_Node*
 add_child_scene_node(Renderer_State *renderer_state,
                      Scene_Node *parent)
 {
-    Assert(renderer_state->scene_node_count < MAX_SCENE_NODE_COUNT);
-    Assert(parent);
+    HOPE_Assert(renderer_state->scene_node_count < MAX_SCENE_NODE_COUNT);
+    HOPE_Assert(parent);
 
     Scene_Node *node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
     node->parent = parent;
@@ -132,7 +132,7 @@ add_child_scene_node(Renderer_State *renderer_state,
     return node;
 }
 
-internal_function Texture*
+static Texture*
 cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32 model_path_without_file_name_length,
                    Renderer *renderer, Renderer_State *renderer_state)
 {
@@ -154,7 +154,7 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
 
         char *name = texture_view->texture->image->name;
         U32 name_length = u64_to_u32(strlen(name));
-        Assert(name_length <= (MAX_TEXTURE_NAME - 1));
+        HOPE_Assert(name_length <= (MAX_TEXTURE_NAME - 1));
 
         S32 last_dot_index = -1;
         for (U32 char_index = 0; char_index < name_length; char_index++)
@@ -192,7 +192,7 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
                                      texture_path_length);
     if (texture_index == -1)
     {
-        Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
+        HOPE_Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
         texture = allocate_texture(renderer_state);
         strcpy(texture->name, texture_path);
         texture->name_length = texture_path_length;
@@ -220,18 +220,20 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
                                &texture_channels, STBI_rgb_alpha);
         }
 
-        Assert(pixels);
+        HOPE_Assert(pixels);
 
         U64 data_size = texture_width * texture_height * sizeof(U32);
         U32 *data = AllocateArray(renderer_state->transfer_allocator, U32, data_size);
         memcpy(data, pixels, data_size);
-
-        bool mipmapping = true;
-        bool created = renderer->create_texture(texture,
-                                                texture_width,
-                                                texture_height,
-                                                data, TextureFormat_RGBA, mipmapping);
-        Assert(created);
+        
+        Texture_Descriptor descriptor = {};
+        descriptor.width = texture_width;
+        descriptor.height = texture_height;
+        descriptor.data = data;
+        descriptor.format = TextureFormat_RGBA;
+        descriptor.mipmapping = true;
+        bool created = renderer->create_texture(texture, descriptor);
+        HOPE_Assert(created);
 
         deallocate(renderer_state->transfer_allocator, data);
         stbi_image_free(pixels);
@@ -244,12 +246,12 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
     return texture;
 }
 
-internal_function void* _cgltf_alloc(void* user, cgltf_size size)
+static void* _cgltf_alloc(void* user, cgltf_size size)
 {
     return allocate(_transfer_allocator, size, 8);
 }
 
-internal_function void _cgltf_free(void* user, void *ptr)
+static void _cgltf_free(void* user, void *ptr)
 {
     deallocate(_transfer_allocator, ptr);
 }
@@ -303,13 +305,13 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
         cgltf_material *material = &model_data->materials[material_index];
         U64 material_hash = (U64)material;
 
-        Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
+        HOPE_Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
         Material* renderer_material = allocate_material(renderer_state);
 
         if (material->name)
         {
             renderer_material->name_length = u64_to_u32(strlen(material->name));
-            Assert(renderer_material->name_length <= (MAX_MATERIAL_NAME - 1));
+            HOPE_Assert(renderer_material->name_length <= (MAX_MATERIAL_NAME - 1));
             strncpy(renderer_material->name, material->name, renderer_material->name_length);
         }
         renderer_material->hash = material_hash;
@@ -357,11 +359,11 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
             normal = albedo;
         }
 
-        Assert(albedo);
-        Assert(normal);
-        Assert(metallic_roughness);
-        Assert(albedo != normal);
-        Assert(normal != metallic_roughness);
+        HOPE_Assert(albedo);
+        HOPE_Assert(normal);
+        HOPE_Assert(metallic_roughness);
+        HOPE_Assert(albedo != normal);
+        HOPE_Assert(normal != metallic_roughness);
 
         Material_Descriptor desc = {};
         desc.pipeline_state = renderer_state->mesh_pipeline;
@@ -424,22 +426,22 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                 for (U32 primitive_index = 0; primitive_index < node->mesh->primitives_count; primitive_index++)
                 {
                     cgltf_primitive *primitive = &node->mesh->primitives[primitive_index];
-                    Assert(primitive->material);
+                    HOPE_Assert(primitive->material);
                     cgltf_material *material = primitive->material;
 
                     U64 material_hash = (U64)material;
                     S32 material_index = find_material(renderer_state, material_hash);
-                    Assert(material_index != -1);
+                    HOPE_Assert(material_index != -1);
 
                     Static_Mesh *static_mesh = allocate_static_mesh(renderer_state);
                     static_mesh->material = &renderer_state->materials[material_index];
 
-                    Assert(primitive->type == cgltf_primitive_type_triangles);
+                    HOPE_Assert(primitive->type == cgltf_primitive_type_triangles);
 
                     for (U32 attribute_index = 0; attribute_index < primitive->attributes_count; attribute_index++)
                     {
                         cgltf_attribute *attribute = &primitive->attributes[attribute_index];
-                        Assert(attribute->type != cgltf_attribute_type_invalid);
+                        HOPE_Assert(attribute->type != cgltf_attribute_type_invalid);
 
                         const auto *accessor = attribute->data;
                         const auto *view = accessor->buffer_view;
@@ -449,58 +451,58 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                         {
                             case cgltf_attribute_type_position:
                             {
-                                Assert(attribute->data->type == cgltf_type_vec3);
-                                Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                                HOPE_Assert(attribute->data->type == cgltf_type_vec3);
+                                HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
 
                                 position_count = u64_to_u32(attribute->data->count);
                                 U64 stride = attribute->data->stride;
-                                Assert(stride == sizeof(glm::vec3));
+                                HOPE_Assert(stride == sizeof(glm::vec3));
                                 positions = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
                             } break;
 
                             case cgltf_attribute_type_normal:
                             {
-                                Assert(attribute->data->type == cgltf_type_vec3);
-                                Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                                HOPE_Assert(attribute->data->type == cgltf_type_vec3);
+                                HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
 
                                 normal_count = u64_to_u32(attribute->data->count);
                                 U64 stride = attribute->data->stride;
-                                Assert(stride == sizeof(glm::vec3));
+                                HOPE_Assert(stride == sizeof(glm::vec3));
                                 normals = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
                             } break;
 
                             case cgltf_attribute_type_tangent:
                             {
-                                Assert(attribute->data->type == cgltf_type_vec4);
-                                Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                                HOPE_Assert(attribute->data->type == cgltf_type_vec4);
+                                HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
                                 tangent_count = u64_to_u32(attribute->data->count);
                                 U64 stride = attribute->data->stride;
-                                Assert(stride == sizeof(glm::vec4));
+                                HOPE_Assert(stride == sizeof(glm::vec4));
                                 tangents = (glm::vec4*)(data_ptr + view->offset + accessor->offset);
                             } break;
 
                             case cgltf_attribute_type_texcoord:
                             {
-                                Assert(attribute->data->type == cgltf_type_vec2);
-                                Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                                HOPE_Assert(attribute->data->type == cgltf_type_vec2);
+                                HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
 
                                 uv_count = u64_to_u32(attribute->data->count);
                                 U64 stride = attribute->data->stride;
-                                Assert(stride == sizeof(glm::vec2));
+                                HOPE_Assert(stride == sizeof(glm::vec2));
                                 uvs = (glm::vec2*)(data_ptr + view->offset + accessor->offset);
                             } break;
                         }
                     }
                     
-                    Assert(tangents);
-                    Assert(position_count == normal_count);
-                    Assert(position_count == uv_count);
-                    Assert(position_count == tangent_count);
+                    HOPE_Assert(tangents);
+                    HOPE_Assert(position_count == normal_count);
+                    HOPE_Assert(position_count == uv_count);
+                    HOPE_Assert(position_count == tangent_count);
 
                     // note(amer): we only support u16 indices for now.
-                    Assert(primitive->indices->type == cgltf_type_scalar);
-                    Assert(primitive->indices->component_type == cgltf_component_type_r_16u);
-                    Assert(primitive->indices->stride == sizeof(U16));
+                    HOPE_Assert(primitive->indices->type == cgltf_type_scalar);
+                    HOPE_Assert(primitive->indices->component_type == cgltf_component_type_r_16u);
+                    HOPE_Assert(primitive->indices->stride == sizeof(U16));
 
                     index_count = u64_to_u32(primitive->indices->count);
                     const auto *accessor = primitive->indices;
@@ -522,9 +524,13 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                         vertex->uv = uvs[vertex_index];
                     }
 
-                    bool created = renderer->create_static_mesh(static_mesh, vertices, vertex_count,
-                                                                indices, index_count);
-                    Assert(created);
+                    Static_Mesh_Descriptor descriptor = {};
+                    descriptor.vertices = vertices;
+                    descriptor.vertex_count = vertex_count;
+                    descriptor.indices = indices;
+                    descriptor.index_count = index_count;
+                    bool created = renderer->create_static_mesh(static_mesh, descriptor);
+                    HOPE_Assert(created);
 
                     deallocate(renderer_state->transfer_allocator, vertices);
                 }
@@ -565,35 +571,35 @@ void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene
 
 Texture *allocate_texture(Renderer_State *renderer_state)
 {
-    Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
+    HOPE_Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
     U32 texture_index = renderer_state->texture_count++;
     return &renderer_state->textures[texture_index];
 }
 
 Material *allocate_material(Renderer_State *renderer_state)
 {
-    Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
+    HOPE_Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
     U32 material_index = renderer_state->material_count++;
     return &renderer_state->materials[material_index];
 }
 
 Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state)
 {
-    Assert(renderer_state->static_mesh_count < MAX_STATIC_MESH_COUNT);
+    HOPE_Assert(renderer_state->static_mesh_count < MAX_STATIC_MESH_COUNT);
     U32 static_mesh_index = renderer_state->static_mesh_count++;
     return &renderer_state->static_meshes[static_mesh_index];
 }
 
 Shader *allocate_shader(Renderer_State *renderer_state)
 {
-    Assert(renderer_state->shader_count < MAX_STATIC_MESH_COUNT);
+    HOPE_Assert(renderer_state->shader_count < MAX_STATIC_MESH_COUNT);
     U32 shader_index = renderer_state->shader_count++;
     return &renderer_state->shaders[shader_index];
 }
 
 Pipeline_State *allocate_pipeline_state(Renderer_State *renderer_state)
 {
-    Assert(renderer_state->pipeline_state_count < MAX_PIPELINE_STATE_COUNT);
+    HOPE_Assert(renderer_state->pipeline_state_count < MAX_PIPELINE_STATE_COUNT);
     U32 pipline_state_index = renderer_state->pipeline_state_count++;
     return &renderer_state->pipeline_states[pipline_state_index];
 }
@@ -616,70 +622,70 @@ U8 *get_property(Material *material, const char *property_name, ShaderDataType s
 U32 index_of(Renderer_State *renderer_state, const Texture *texture)
 {
     U64 index = texture - renderer_state->textures;
-    Assert(index < MAX_TEXTURE_COUNT);
+    HOPE_Assert(index < MAX_TEXTURE_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, const Material *material)
 {
     U64 index = material - renderer_state->materials;
-    Assert(index < MAX_MATERIAL_COUNT);
+    HOPE_Assert(index < MAX_MATERIAL_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, const Static_Mesh *static_mesh)
 {
     U64 index = static_mesh - renderer_state->static_meshes;
-    Assert(index < MAX_STATIC_MESH_COUNT);
+    HOPE_Assert(index < MAX_STATIC_MESH_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, const Shader *shader)
 {
     U64 index = shader - renderer_state->shaders;
-    Assert(index < MAX_SHADER_COUNT);
+    HOPE_Assert(index < MAX_SHADER_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, const Pipeline_State *pipeline_state)
 {
     U64 index = pipeline_state - renderer_state->pipeline_states;
-    Assert(index < MAX_SHADER_COUNT);
+    HOPE_Assert(index < MAX_SHADER_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Texture *texture)
 {
     U64 index = texture - renderer_state->textures;
-    Assert(index < MAX_TEXTURE_COUNT);
+    HOPE_Assert(index < MAX_TEXTURE_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Material *material)
 {
     U64 index = material - renderer_state->materials;
-    Assert(index < MAX_MATERIAL_COUNT);
+    HOPE_Assert(index < MAX_MATERIAL_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Static_Mesh *static_mesh)
 {
     U64 index = static_mesh - renderer_state->static_meshes;
-    Assert(index < MAX_STATIC_MESH_COUNT);
+    HOPE_Assert(index < MAX_STATIC_MESH_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Shader *shader)
 {
     U64 index = shader - renderer_state->shaders;
-    Assert(index < MAX_SHADER_COUNT);
+    HOPE_Assert(index < MAX_SHADER_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Pipeline_State *pipeline_state)
 {
     U64 index = pipeline_state - renderer_state->pipeline_states;
-    Assert(index < MAX_SHADER_COUNT);
+    HOPE_Assert(index < MAX_SHADER_COUNT);
     return u64_to_u32(index);
 }
 

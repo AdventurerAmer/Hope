@@ -14,9 +14,9 @@ extern Debug_State global_debug_state;
 
 #define DebugPrintf(channel, verbosity, format, ...) debug_printf(\
 &global_debug_state.main_logger,\
-Glue(Channel_, channel),\
-Glue(Verbosity_, verbosity),\
-"[" Stringify(channel) "-" Stringify(verbosity) "]: " format,\
+HOPE_Glue(Channel_, channel),\
+HOPE_Glue(Verbosity_, verbosity),\
+"[" HOPE_Stringify(channel) "-" HOPE_Stringify(verbosity) "]: " format,\
 __VA_ARGS__)
 
 #else

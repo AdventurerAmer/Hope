@@ -2,17 +2,17 @@
 
 #include "memory.h"
 
-void zero_memory(void *memory, Mem_Size size)
+void zero_memory(void *memory, Size size)
 {
-    Assert(memory);
+    HOPE_Assert(memory);
     memset(memory, 0, size);
 }
 
-void copy_memory(void *dst, const void *src, Mem_Size size)
+void copy_memory(void *dst, const void *src, Size size)
 {
-    Assert(dst);
-    Assert(src);
-    Assert(size);
+    HOPE_Assert(dst);
+    HOPE_Assert(src);
+    HOPE_Assert(size);
     memcpy(dst, src, size);
 }
 
@@ -20,10 +20,10 @@ void copy_memory(void *dst, const void *src, Mem_Size size)
 // Memory Arena
 //
 
-Memory_Arena create_memory_arena(void *memory, Mem_Size size)
+Memory_Arena create_memory_arena(void *memory, Size size)
 {
-    Assert(memory);
-    Assert(size);
+    HOPE_Assert(memory);
+    HOPE_Assert(size);
 
     Memory_Arena result = {};
     result.base = (U8 *)memory;
@@ -32,22 +32,22 @@ Memory_Arena create_memory_arena(void *memory, Mem_Size size)
     return result;
 }
 
-internal_function inline bool
+HOPE_FORCE_INLINE static bool
 is_power_of_2(U16 value)
 {
     return (value & (value - 1)) == 0;
 }
 
-internal_function Mem_Size
-get_number_of_bytes_to_align_address(Mem_Size address, U16 alignment)
+static Size
+get_number_of_bytes_to_align_address(Size address, U16 alignment)
 {
     // todo(amer): branchless version daddy
-    Mem_Size result = 0;
+    Size result = 0;
 
     if (alignment != 0)
     {
-        Assert(is_power_of_2(alignment));
-        Mem_Size modulo = address & (alignment - 1);
+        HOPE_Assert(is_power_of_2(alignment));
+        Size modulo = address & (alignment - 1);
 
         if (modulo != 0)
         {
@@ -58,17 +58,17 @@ get_number_of_bytes_to_align_address(Mem_Size address, U16 alignment)
 }
 
 void* allocate(Memory_Arena *arena,
-               Mem_Size size, U16 alignment,
+               Size size, U16 alignment,
                Temprary_Memory_Arena *parent)
 {
-    Assert(arena);
-    Assert(size);
-    Assert(arena->current_temprary_owner == parent);
+    HOPE_Assert(arena);
+    HOPE_Assert(size);
+    HOPE_Assert(arena->current_temprary_owner == parent);
 
     void *result = 0;
     U8 *cursor = arena->base + arena->offset;
-    Mem_Size padding = get_number_of_bytes_to_align_address((Mem_Size)cursor, alignment);
-    Assert(arena->offset + size + padding <= arena->size);
+    Size padding = get_number_of_bytes_to_align_address((Size)cursor, alignment);
+    HOPE_Assert(arena->offset + size + padding <= arena->size);
     result = cursor + padding;
     arena->offset += padding + size;
     return result;
@@ -81,8 +81,8 @@ void* allocate(Memory_Arena *arena,
 void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena,
                                  Memory_Arena *arena)
 {
-    Assert(temprary_memory_arena);
-    Assert(arena);
+    HOPE_Assert(temprary_memory_arena);
+    HOPE_Assert(arena);
 
     temprary_memory_arena->arena = arena;
     temprary_memory_arena->offset = arena->offset;
@@ -97,7 +97,7 @@ void
 end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena)
 {
     Memory_Arena *arena = temprary_arena->arena;
-    Assert(arena);
+    HOPE_Assert(arena);
 
     arena->offset = temprary_arena->offset;
     arena->current_temprary_owner = temprary_arena->parent;
@@ -126,7 +126,7 @@ Scoped_Temprary_Memory_Arena::~Scoped_Temprary_Memory_Arena()
 // Free List Allocator
 //
 
-internal_function void
+static void
 insert_after(Free_List_Node *node, Free_List_Node *before)
 {
     node->next = before->next;
@@ -136,17 +136,17 @@ insert_after(Free_List_Node *node, Free_List_Node *before)
     before->next = node;
 }
 
-internal_function void
+static void
 remove_node(Free_List_Node *node)
 {
-    Assert(node->next);
-    Assert(node->prev);
+    HOPE_Assert(node->next);
+    HOPE_Assert(node->prev);
 
     node->prev->next = node->next;
     node->next->prev = node->prev;
 }
 
-internal_function void
+static void
 merge(Free_List_Node *left, Free_List_Node *right)
 {
     if ((U8 *)left + left->size == (U8 *)right)
@@ -158,10 +158,10 @@ merge(Free_List_Node *left, Free_List_Node *right)
 
 void init_free_list_allocator(Free_List_Allocator *allocator,
                               void *memory,
-                              Mem_Size size)
+                              Size size)
 {
-    Assert(allocator);
-    Assert(size >= sizeof(Free_List_Node));
+    HOPE_Assert(allocator);
+    HOPE_Assert(size >= sizeof(Free_List_Node));
 
     allocator->base = (U8 *)memory;
     allocator->size = size;
@@ -178,24 +178,24 @@ void init_free_list_allocator(Free_List_Allocator *allocator,
 
 void init_free_list_allocator(Free_List_Allocator *allocator,
                               Memory_Arena *arena,
-                              Mem_Size size)
+                              Size size)
 {
-    Assert(arena);
+    HOPE_Assert(arena);
     U8 *base = AllocateArray(arena, U8, size);
     init_free_list_allocator(allocator, base, size);
 }
 
 struct Free_List_Allocation_Header
 {
-    Mem_Size size;
-    Mem_Size offset;
-    Mem_Size reserved;
+    Size size;
+    Size offset;
+    Size reserved;
 };
 
-StaticAssert(sizeof(Free_List_Allocation_Header) == sizeof(Free_List_Node));
+static_assert(sizeof(Free_List_Allocation_Header) == sizeof(Free_List_Node));
 
 void* allocate(Free_List_Allocator *allocator,
-               Mem_Size size,
+               Size size,
                U16 alignment)
 {
     void *result = nullptr;
@@ -204,8 +204,8 @@ void* allocate(Free_List_Allocator *allocator,
          node != &allocator->sentinal;
          node = node->next)
     {
-        Mem_Size node_address = (Mem_Size)node;
-        Mem_Size offset = get_number_of_bytes_to_align_address(node_address, alignment);
+        Size node_address = (Size)node;
+        Size offset = get_number_of_bytes_to_align_address(node_address, alignment);
         if (offset < sizeof(Free_List_Allocation_Header))
         {
             node_address += sizeof(Free_List_Allocation_Header);
@@ -213,10 +213,10 @@ void* allocate(Free_List_Allocator *allocator,
                                                                                                 alignment);
         }
 
-        Mem_Size allocation_size = offset + size;
+        Size allocation_size = offset + size;
         if (node->size >= allocation_size)
         {
-            Mem_Size remaining_size = node->size - allocation_size;
+            Size remaining_size = node->size - allocation_size;
 
             Free_List_Allocation_Header allocation_header = {};
             allocation_header.offset = offset;
@@ -243,7 +243,7 @@ void* allocate(Free_List_Allocator *allocator,
         }
     }
 
-    Assert(result);
+    HOPE_Assert(result);
     // zero_memory(result, size);
     return result;
 }
@@ -255,14 +255,14 @@ void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16
         return allocate(allocator, new_size, alignment);
     }
 
-    Assert(allocator);
-    Assert(memory >= allocator->base && memory <= allocator->base + allocator->size);
-    Assert(new_size);
+    HOPE_Assert(allocator);
+    HOPE_Assert(memory >= allocator->base && memory <= allocator->base + allocator->size);
+    HOPE_Assert(new_size);
 
     Free_List_Allocation_Header &header = ((Free_List_Allocation_Header *)memory)[-1];
-    Assert(header.size >= 0);
-    Assert(header.offset >= 0);
-    Assert(new_size != header.size);
+    HOPE_Assert(header.size >= 0);
+    HOPE_Assert(header.offset >= 0);
+    HOPE_Assert(new_size != header.size);
 
     U8 *memory_node_address = ((U8 *)memory - header.offset);
     
@@ -351,12 +351,12 @@ void deallocate(Free_List_Allocator *allocator, void *memory)
         return;
     }
 
-    Assert(allocator);
-    Assert(memory >= allocator->base && memory <= allocator->base + allocator->size);
+    HOPE_Assert(allocator);
+    HOPE_Assert(memory >= allocator->base && memory <= allocator->base + allocator->size);
 
     Free_List_Allocation_Header header = ((Free_List_Allocation_Header *)memory)[-1];
-    Assert(header.size >= 0);
-    Assert(header.offset >= 0);
+    HOPE_Assert(header.size >= 0);
+    HOPE_Assert(header.offset >= 0);
 
     allocator->used -= header.size;
 

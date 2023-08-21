@@ -87,24 +87,21 @@ struct Renderer
     void (*submit_static_mesh)(struct Renderer_State *renderer_state, const struct Static_Mesh *mesh, const glm::mat4 &transfom);
     void (*end_frame)(struct Renderer_State *renderer_state);
 
-    bool (*create_texture)(Texture *texture, U32 width, U32 height,
-                           void *data, TextureFormat format, bool mipmaping);
+    bool (*create_texture)(Texture *texture, const Texture_Descriptor &descriptor);
 
     void (*destroy_texture)(Texture *texture);
 
-    bool (*create_shader)(Shader *shader, const char *path);
+    bool (*create_shader)(Shader *shader, const Shader_Descriptor &descriptor);
     void (*destroy_shader)(Shader *shader);
 
-    bool (*create_pipeline_state)(Pipeline_State *pipeline_state,
-                                  const std::initializer_list< const Shader * > &shaders);
+    bool (*create_pipeline_state)(Pipeline_State *pipeline_state, const Pipeline_State_Descriptor &descriptor);
 
     void (*destroy_pipeline_state)(Pipeline_State *pipeline_state);
 
-    bool (*create_static_mesh)(Static_Mesh *static_mesh, void *vertices, U16 vertex_count, U16 *indices, U32 index_count);
+    bool (*create_static_mesh)(Static_Mesh *static_mesh, const Static_Mesh_Descriptor &descriptor);
     void (*destroy_static_mesh)(Static_Mesh *static_mesh);
 
     bool (*create_material)(Material *material, const Material_Descriptor &descriptor);
-
     void (*destroy_material)(Material *material);
 
     void (*imgui_new_frame)();

@@ -17,7 +17,7 @@ init_swapchain_support(Vulkan_Context *context,
                                          &swapchain_support->surface_format_count,
                                          nullptr);
 
-    Assert(swapchain_support->surface_format_count);
+    HOPE_Assert(swapchain_support->surface_format_count);
 
     swapchain_support->surface_formats = AllocateArray(arena,
                                                        VkSurfaceFormatKHR,
@@ -34,7 +34,7 @@ init_swapchain_support(Vulkan_Context *context,
                                               &swapchain_support->present_mode_count,
                                               nullptr);
 
-    Assert(swapchain_support->present_mode_count);
+    HOPE_Assert(swapchain_support->present_mode_count);
 
     swapchain_support->present_modes = AllocateArray(arena,
                                                      VkPresentModeKHR,
@@ -101,11 +101,11 @@ create_swapchain(Vulkan_Context *context,
                  VkPresentModeKHR present_mode,
                  Vulkan_Swapchain *swapchain)
 {
-    Assert(context);
-    Assert(width);
-    Assert(height);
-    Assert(min_image_count);
-    Assert(swapchain);
+    HOPE_Assert(context);
+    HOPE_Assert(width);
+    HOPE_Assert(height);
+    HOPE_Assert(min_image_count);
+    HOPE_Assert(swapchain);
     
     const Vulkan_Swapchain_Support *swapchain_support = &context->swapchain_support;
     VkColorSpaceKHR image_color_space = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
@@ -115,11 +115,11 @@ create_swapchain(Vulkan_Context *context,
                                               context->surface,
                                               &surface_capabilities);
 
-    width = Clamp(width,
+    width = HOPE_Clamp(width,
                   surface_capabilities.minImageExtent.width,
                   surface_capabilities.maxImageExtent.width);
 
-    height = Clamp(height,
+    height = HOPE_Clamp(height,
                    surface_capabilities.minImageExtent.height,
                    surface_capabilities.maxImageExtent.height);
 
@@ -142,11 +142,11 @@ create_swapchain(Vulkan_Context *context,
         }
     }
 
-    min_image_count = Max(min_image_count, surface_capabilities.minImageCount);
+    min_image_count = HOPE_Max(min_image_count, surface_capabilities.minImageCount);
 
     if (surface_capabilities.maxImageCount)
     {
-        min_image_count = Min(min_image_count, surface_capabilities.maxImageCount);
+        min_image_count = HOPE_Min(min_image_count, surface_capabilities.maxImageCount);
     }
 
     VkExtent2D extent = { width, height };
@@ -163,7 +163,7 @@ create_swapchain(Vulkan_Context *context,
     }
     else
     {
-        Assert(false);
+        HOPE_Assert(false);
     }
 
     VkSwapchainCreateInfoKHR swapchain_create_info =
@@ -193,7 +193,7 @@ create_swapchain(Vulkan_Context *context,
         swapchain_create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     }
 
-    Assert(swapchain->handle == VK_NULL_HANDLE);
+    HOPE_Assert(swapchain->handle == VK_NULL_HANDLE);
     CheckVkResult(vkCreateSwapchainKHR(context->logical_device,
                                        &swapchain_create_info,
                                        nullptr,
@@ -279,12 +279,12 @@ create_swapchain(Vulkan_Context *context,
 
         if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
         {
-            frame_buffer_create_info.attachmentCount = ArrayCount(image_views_msaa);
+            frame_buffer_create_info.attachmentCount = HOPE_ArrayCount(image_views_msaa);
             frame_buffer_create_info.pAttachments = image_views_msaa;
         }
         else
         {
-            frame_buffer_create_info.attachmentCount = ArrayCount(image_views);
+            frame_buffer_create_info.attachmentCount = HOPE_ArrayCount(image_views);
             frame_buffer_create_info.pAttachments = image_views;
         }
 

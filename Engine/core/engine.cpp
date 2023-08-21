@@ -7,7 +7,7 @@
 
 extern Debug_State global_debug_state;
 
-internal_function void init_imgui(Engine *engine)
+static void init_imgui(Engine *engine)
 {
     engine->show_imgui = false;
     engine->imgui_docking = false;
@@ -36,7 +36,7 @@ internal_function void init_imgui(Engine *engine)
     platform_init_imgui(engine);
 }
 
-internal_function void imgui_new_frame(Engine *engine)
+static void imgui_new_frame(Engine *engine)
 {
     platform_imgui_new_frame();
     engine->renderer.imgui_new_frame();
@@ -46,9 +46,9 @@ internal_function void imgui_new_frame(Engine *engine)
     {
         if (engine->imgui_docking)
         {
-            local_presist bool opt_fullscreen_persistant = true;
+            static bool opt_fullscreen_persistant = true;
             bool opt_fullscreen = opt_fullscreen_persistant;
-            local_presist ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+            static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
 
             // We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
             // because it would be confusing to have two docking targets within each others.
@@ -105,6 +105,16 @@ internal_function void imgui_new_frame(Engine *engine)
     }
 }
 
+void hock_engine_api(Engine_API *api)
+{
+    api->init_camera = &init_camera;
+    api->init_fps_camera_controller = &init_fps_camera_controller;
+    api->control_camera = &control_camera;
+    api->update_camera = &update_camera;
+    api->load_model = &load_model;
+    api->render_scene_node = &render_scene_node;
+}
+
 bool startup(Engine *engine, const Engine_Configuration &configuration, void *platform_state)
 {
 
@@ -120,7 +130,7 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 
 #endif
 
-    Mem_Size required_memory_size =
+    Size required_memory_size =
         configuration.permanent_memory_size + configuration.transient_memory_size;
 
     void *memory = platform_allocate_memory(required_memory_size);
@@ -212,13 +222,6 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     api->debug_printf = &platform_debug_printf;
     api->toggle_fullscreen = &platform_toggle_fullscreen;
 
-    engine->api.init_camera = &init_camera;
-    engine->api.init_fps_camera_controller = &init_fps_camera_controller;
-    engine->api.control_camera = &control_camera;
-    engine->api.update_camera = &update_camera;
-    engine->api.load_model = &load_model;
-    engine->api.render_scene_node = &render_scene_node;
-
     Game_Code *game_code = &engine->game_code;
     bool game_initialized = game_code->init_game(engine);
     renderer->wait_for_gpu_to_finish_all_work(renderer_state);
@@ -256,7 +259,7 @@ void game_loop(Engine *engine, F32 delta_time)
     ImGui::Text("Intensity");
     ImGui::SameLine();
 
-    ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, MAX_F32);
+    ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, HOPE_MAX_F32);
 
     ImGui::End();
 

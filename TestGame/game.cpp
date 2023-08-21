@@ -13,7 +13,7 @@ struct Game_State
 
 static Game_State game_state;
 
-extern "C" HE_API bool
+extern "C" HOPE_API bool
 init_game(Engine *engine)
 {
 	Renderer *renderer = &engine->renderer;
@@ -43,12 +43,12 @@ init_game(Engine *engine)
     Assert(game_state.sponza);*/
 
     game_state.flight_helmet = engine->api.load_model("models/FlightHelmet/FlightHelmet.gltf", renderer, renderer_state);
-    Assert(game_state.flight_helmet);
+    HOPE_Assert(game_state.flight_helmet);
 
     return true;
 }
 
-extern "C" HE_API void
+extern "C" HOPE_API void
 on_event(Engine *engine, Event event)
 {
 	Platform_API *platform = &engine->platform_api;
@@ -79,17 +79,13 @@ on_event(Engine *engine, Event event)
             if (event.width != 0 && event.height != 0)
             {
                 game_state.camera.aspect_ratio = (F32)event.width / (F32)event.height;
-                // todo(amer): don't check for this...
-                if (engine->api.update_camera)
-                {
-                    engine->api.update_camera(&game_state.camera);
-                }
+                engine->api.update_camera(&game_state.camera);
             }
         } break;
 	}
 }
 
-extern "C" HE_API void
+extern "C" HOPE_API void
 on_update(Engine *engine, F32 delta_time)
 {
 	(void)delta_time;

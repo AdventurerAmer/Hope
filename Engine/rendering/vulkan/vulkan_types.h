@@ -30,7 +30,7 @@
 #define CheckVkResult(VulkanFunctionCall)\
 {\
     VkResult vk_result = VulkanFunctionCall;\
-    Assert(vk_result == VK_SUCCESS);\
+    HOPE_Assert(vk_result == VK_SUCCESS);\
 }
 
 #else
@@ -202,23 +202,3 @@ struct Vulkan_Context
     VkDebugUtilsMessengerEXT debug_messenger;
 #endif
 };
-
-Vulkan_Image* get_data(Vulkan_Context *context, Texture *texture);
-
-Vulkan_Material* get_data(Vulkan_Context *context, Material *material);
-
-Vulkan_Static_Mesh* get_data(Vulkan_Context *context, Static_Mesh *static_mesh);
-
-Vulkan_Shader *get_data(Vulkan_Context *context, Shader *shader);
-
-Vulkan_Pipeline_State* get_data(Vulkan_Context *context, Pipeline_State *pipeline_state);
-
-Vulkan_Image* get_data(Vulkan_Context *context, const Texture *texture);
-
-Vulkan_Material* get_data(Vulkan_Context *context, const Material *material);
-
-Vulkan_Static_Mesh* get_data(Vulkan_Context *context, const Static_Mesh *static_mesh);
-
-Vulkan_Shader *get_data(Vulkan_Context *context, const Shader *shader);
-
-Vulkan_Pipeline_State* get_data(Vulkan_Context *context, const Pipeline_State *pipeline_state);

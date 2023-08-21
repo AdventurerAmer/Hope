@@ -5,7 +5,7 @@
 #include "vulkan_renderer.h"
 #include "core/memory.h"
 
-internal_function void
+static void
 transtion_image_to_layout(Vulkan_Image *image,
                           VkCommandBuffer command_buffer,
                           VkImageLayout old_layout,
@@ -55,7 +55,7 @@ transtion_image_to_layout(Vulkan_Image *image,
     }
     else
     {
-        Assert(false);
+        HOPE_Assert(false);
     }
 
     vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage,
@@ -159,12 +159,12 @@ copy_data_to_image_from_buffer(Vulkan_Context *context,
                                Vulkan_Buffer *buffer,
                                U64 offset, U64 size)
 {
-    Assert(context);
-    Assert(image);
-    Assert(width);
-    Assert(height);
-    Assert(buffer);
-    Assert(size);
+    HOPE_Assert(context);
+    HOPE_Assert(image);
+    HOPE_Assert(width);
+    HOPE_Assert(height);
+    HOPE_Assert(buffer);
+    HOPE_Assert(size);
     
 #if CPU_SIDE_MIPMAPS
 
@@ -372,7 +372,7 @@ copy_data_to_image_from_buffer(Vulkan_Context *context,
 
     VkFormatProperties format_properties;
     vkGetPhysicalDeviceFormatProperties(context->physical_device, image->format, &format_properties);
-    Assert((format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT));
+    HOPE_Assert((format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT));
 
     U32 mip_width = width;
     U32 mip_height = height;

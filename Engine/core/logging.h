@@ -46,7 +46,7 @@ struct Logger
 {
     Verbosity verbosity;
 
-    StaticAssert(Channel_Count <= 64);
+    static_assert(Channel_Count <= 64);
     U64 channel_mask;
 
     Logging_Channel main_channel;

@@ -14,17 +14,17 @@ workspace "Hope"
     characterset "MBCS" --Multi-byte Character Set
 
     filter "configurations:Debug"
-        defines "HE_DEBUG"
+        defines "HOPE_DEBUG"
         runtime "Debug"
         symbols "on"
 
     filter "configurations:Release"
-        defines "HE_RELEASE"
+        defines "HOPE_RELEASE"
         runtime "Release"
         optimize "on"
 
     filter "configurations:Shipping"
-        defines "HE_SHIPPING"
+        defines "HOPE_SHIPPING"
         runtime "Release"
         optimize "on"
 
@@ -80,7 +80,7 @@ project "TestGame"
     cppdialect "C++17"
     staticruntime "on"
 
-    defines { "HE_EXPORT" }
+    defines { "HOPE_EXPORT" }
     files { "TestGame/**.h", "TestGame/**.hpp", "TestGame/**.cpp" }
 
     includedirs { "Engine", "ThirdParty/include", }

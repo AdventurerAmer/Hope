@@ -51,7 +51,7 @@ struct Win32_Dynamic_Library
     HMODULE handle;
 };
 
-internal_function void win32_report_last_error_and_exit(char *message)
+static void win32_report_last_error_and_exit(char *message)
 {
     // note(amer): https://learn.microsoft.com/en-us/windows/win32/debug/retrieving-the-last-error-code
     DWORD error_code = GetLastError();
@@ -77,7 +77,7 @@ internal_function void win32_report_last_error_and_exit(char *message)
     ExitProcess(error_code);
 }
 
-internal_function void
+static void
 win32_set_window_client_size(Win32_State *win32_state, U32 client_width, U32 client_height)
 {
     RECT window_rect;
@@ -86,7 +86,7 @@ win32_set_window_client_size(Win32_State *win32_state, U32 client_width, U32 cli
     window_rect.top = 0;
     window_rect.bottom = client_height;
 
-    Assert(AdjustWindowRect(&window_rect, WS_OVERLAPPEDWINDOW, FALSE));
+    HOPE_Assert(AdjustWindowRect(&window_rect, WS_OVERLAPPEDWINDOW, FALSE));
     win32_state->window_width = window_rect.right - window_rect.left;
     win32_state->window_height = window_rect.bottom - window_rect.top;
     win32_state->window_client_width = client_width;
@@ -141,14 +141,14 @@ void* platform_create_vulkan_surface(Engine *engine, void *instance, const void 
 
     VkSurfaceKHR surface = 0;
     VkResult result = vkCreateWin32SurfaceKHR((VkInstance)instance, &surface_create_info, (VkAllocationCallbacks *)allocator_callbacks, &surface);
-    Assert(result == VK_SUCCESS);
+    HOPE_Assert(result == VK_SUCCESS);
     return surface;
 }
 
 LRESULT CALLBACK
 win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
 {
-    local_presist Win32_State *win32_state;
+    static Win32_State *win32_state;
 
     LRESULT result = 0;
 
@@ -238,7 +238,7 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
     return result;
 }
 
-internal_function int Platform_CreateVkSurface(ImGuiViewport *vp, ImU64 vk_inst, const void* vk_allocators, ImU64* out_vk_surface)
+static int Platform_CreateVkSurface(ImGuiViewport *vp, ImU64 vk_inst, const void* vk_allocators, ImU64* out_vk_surface)
 {
     ImGui_ImplWin32_ViewportData *viewport_data = (ImGui_ImplWin32_ViewportData *)vp->PlatformUserData;
 
@@ -248,7 +248,7 @@ internal_function int Platform_CreateVkSurface(ImGuiViewport *vp, ImU64 vk_inst,
 
     VkSurfaceKHR surface = 0;
     VkResult result = vkCreateWin32SurfaceKHR((VkInstance)vk_inst, &surface_create_info, (VkAllocationCallbacks *)vk_allocators, (VkSurfaceKHR *)out_vk_surface);
-    Assert(result == VK_SUCCESS);
+    HOPE_Assert(result == VK_SUCCESS);
 
     return (int)result;
 }
@@ -271,7 +271,7 @@ void platform_shutdown_imgui()
     ImGui_ImplWin32_Shutdown();
 }
 
-internal_function FILETIME
+static FILETIME
 win32_get_file_last_write_time(const char *filename)
 {
     FILETIME result = {};
@@ -286,7 +286,7 @@ win32_get_file_last_write_time(const char *filename)
     return result;
 }
 
-internal_function bool
+static bool
 win32_load_game_code(Win32_Dynamic_Library *win32_dynamic_library,
                      Game_Code *game_code)
 {
@@ -353,7 +353,7 @@ win32_load_game_code(Win32_Dynamic_Library *win32_dynamic_library,
     return result;
 }
 
-internal_function bool
+static bool
 win32_reload_game_code(Win32_Dynamic_Library *win32_dynamic_library, Game_Code *game_code)
 {
     bool result = true;
@@ -375,8 +375,7 @@ win32_reload_game_code(Win32_Dynamic_Library *win32_dynamic_library, Game_Code *
     return result;
 }
 
-// todo(amer): force inline
-internal_function inline void
+HOPE_FORCE_INLINE static void
 win32_handle_mouse_input(Event *event, MSG message)
 {
     event->type = EventType_Mouse;
@@ -454,7 +453,9 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
     Win32_State *win32_state = (Win32_State *)VirtualAlloc(0,
                                                            sizeof(Win32_State),
                                                            MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-    
+
+    hock_engine_api(&win32_state->engine.api);
+
     win32_state->instance = instance;
     win32_state->cursor = LoadCursor(NULL, IDC_ARROW);
 
@@ -464,7 +465,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
     win32_dynamic_library.last_write_time = win32_get_file_last_write_time(win32_dynamic_library.filename);
 
     bool loaded = win32_load_game_code(&win32_dynamic_library, &win32_state->engine.game_code);
-    Assert(loaded);
+    HOPE_Assert(loaded);
 
     win32_set_window_client_size(win32_state,
                                  configuration.back_buffer_width,
@@ -506,20 +507,20 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
     Game_Code *game_code = &engine->game_code;
 
     bool started = startup(engine, configuration, win32_state);
-    Assert(started);
+    HOPE_Assert(started);
     engine->is_running = started;
 
     LARGE_INTEGER performance_frequency;
-    Assert(QueryPerformanceFrequency(&performance_frequency));
+    HOPE_Assert(QueryPerformanceFrequency(&performance_frequency));
     S64 counts_per_second = performance_frequency.QuadPart;
 
     LARGE_INTEGER last_counter;
-    Assert(QueryPerformanceCounter(&last_counter));
+    HOPE_Assert(QueryPerformanceCounter(&last_counter));
 
     while (engine->is_running)
     {
         LARGE_INTEGER current_counter;
-        Assert(QueryPerformanceCounter(&current_counter));
+        HOPE_Assert(QueryPerformanceCounter(&current_counter));
 
         S64 elapsed_counts = current_counter.QuadPart - last_counter.QuadPart;
         F64 elapsed_time = (F64)elapsed_counts / (F64)counts_per_second;
@@ -727,13 +728,13 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
 
 void* platform_allocate_memory(U64 size)
 {
-    Assert(size);
+    HOPE_Assert(size);
     return VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 }
 
 void platform_deallocate_memory(void *memory)
 {
-    Assert(memory);
+    HOPE_Assert(memory);
     VirtualFree(memory, 0, MEM_RELEASE);
 }
 
@@ -772,7 +773,7 @@ U64 platform_get_file_size(Platform_File_Handle file_handle)
 {
     LARGE_INTEGER result = {};
     BOOL return_value = GetFileSizeEx(file_handle.platform_data, &result);
-    Assert(return_value);
+    HOPE_Assert(return_value);
     return result.QuadPart;
 }
 
@@ -848,12 +849,12 @@ bool platform_end_read_entire_file(Read_Entire_File_Result *read_entire_file_res
 
 void platform_report_error_and_exit(const char *message, ...)
 {
-    local_presist char string_buffer[1024];
+    static char string_buffer[1024];
     va_list arg_list;
 
     va_start(arg_list, message);
     S32 written = vsprintf(string_buffer, message, arg_list);
-    Assert(written >= 0);
+    HOPE_Assert(written >= 0);
 
     MessageBoxA(NULL, string_buffer, "Error", MB_OK);
     ExitProcess(-1);
@@ -863,12 +864,12 @@ void platform_report_error_and_exit(const char *message, ...)
 
 void platform_debug_printf(const char *message, ...)
 {
-    local_presist char string_buffer[1024];
+    static char string_buffer[1024];
     va_list arg_list;
 
     va_start(arg_list, message);
     S32 written = vsprintf(string_buffer, message, arg_list);
-    Assert(written >= 0);
+    HOPE_Assert(written >= 0);
     OutputDebugStringA(string_buffer);
     va_end(arg_list);
 }

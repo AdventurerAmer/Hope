@@ -4,7 +4,7 @@
 #include "logging.h"
 #include "platform.h"
 
-global_variable const char *channel_to_ansi_string[] =
+static const char *channel_to_ansi_string[] =
 {
 #define X(name, str) str,
     Channel_Table
@@ -97,13 +97,13 @@ void disable_all_channels(Logger *logger)
 void debug_printf(Logger *logger, Channel channel, Verbosity verbosity, const char *format, ...)
 {
     // note(amer): this is fine for now...
-    local_presist char string_buffer[1024];
+    static char string_buffer[1024];
 
     va_list arg_list;
     va_start(arg_list, format);
 
     S32 written = vsnprintf(string_buffer, sizeof(string_buffer), format, arg_list);
-    Assert(written >= 0);
+    HOPE_Assert(written >= 0);
 
     Logging_Channel *main_channel = &logger->main_channel;
 

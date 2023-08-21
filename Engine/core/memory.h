@@ -16,8 +16,8 @@
 #define AllocateArray(AllocatorPointer, Type, Count)\
 (Type *)allocate((AllocatorPointer), sizeof(Type) * (Count), alignof(Type))
 
-void zero_memory(void *memory, Mem_Size size);
-void copy_memory(void *dst, const void *src, Mem_Size size);
+void zero_memory(void *memory, Size size);
+void copy_memory(void *dst, const void *src, Size size);
 
 //
 // Memory Arena
@@ -28,18 +28,18 @@ struct Temprary_Memory_Arena;
 struct Memory_Arena
 {
     U8 *base;
-    Mem_Size size;
-    Mem_Size offset;
+    Size size;
+    Size offset;
 
 #ifndef HE_SHIPPING
     Temprary_Memory_Arena *current_temprary_owner;
 #endif
 };
 
-Memory_Arena create_memory_arena(void *memory, Mem_Size size);
+Memory_Arena create_memory_arena(void *memory, Size size);
 
 void* allocate(Memory_Arena *arena,
-               Mem_Size size, U16 alignment,
+               Size size, U16 alignment,
                Temprary_Memory_Arena *parent = nullptr);
 
 //
@@ -49,7 +49,7 @@ void* allocate(Memory_Arena *arena,
 struct Temprary_Memory_Arena
 {
     Memory_Arena *arena;
-    Mem_Size offset;
+    Size offset;
 
 #ifndef HE_SHIPPING
     Temprary_Memory_Arena *parent;
@@ -59,9 +59,8 @@ struct Temprary_Memory_Arena
 void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena,
                                  Memory_Arena *arena);
 
-// todo(amer): force inline
-inline internal_function void*
-allocate(Temprary_Memory_Arena *temprary_arena, Mem_Size size, U16 alignment)
+HOPE_FORCE_INLINE static void*
+allocate(Temprary_Memory_Arena *temprary_arena, Size size, U16 alignment)
 {
     return allocate(temprary_arena->arena, size, alignment, temprary_arena);
 }
@@ -80,9 +79,8 @@ struct Scoped_Temprary_Memory_Arena
     ~Scoped_Temprary_Memory_Arena();
 };
 
-// todo(amer): force inline
-inline internal_function void*
-allocate(Scoped_Temprary_Memory_Arena *scoped_temprary_memory_arena, Mem_Size size, U16 alignment)
+HOPE_FORCE_INLINE static void*
+allocate(Scoped_Temprary_Memory_Arena *scoped_temprary_memory_arena, Size size, U16 alignment)
 {
     return allocate(scoped_temprary_memory_arena->temprary_arena.arena,
                     size,
@@ -100,25 +98,25 @@ struct Free_List_Node
     // could we use relative pointers or u32 offsets to reduce the node size...
     Free_List_Node *next;
     Free_List_Node *prev;
-    Mem_Size size;
+    Size size;
 };
 
 struct Free_List_Allocator
 {
     U8 *base;
-    Mem_Size size;
-    Mem_Size used;
+    Size size;
+    Size used;
     Free_List_Node sentinal;
 };
 
 void init_free_list_allocator(Free_List_Allocator *allocator,
                               Memory_Arena *arena,
-                              Mem_Size size);
+                              Size size);
 
 void init_free_list_allocator(Free_List_Allocator *allocator,
                               void *memory,
-                              Mem_Size size);
+                              Size size);
 
-void* allocate(Free_List_Allocator *allocator, Mem_Size size, U16 alignment);
+void* allocate(Free_List_Allocator *allocator, Size size, U16 alignment);
 void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16 alignment);
 void deallocate(Free_List_Allocator *allocator, void *memory);

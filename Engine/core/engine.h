@@ -9,10 +9,10 @@
 
 struct Game_Memory
 {
-    Mem_Size permanent_memory_size;
+    Size permanent_memory_size;
     void *permenent_memory;
 
-    Mem_Size transient_memory_size;
+    Size transient_memory_size;
     void *transient_memory;
 
     Memory_Arena permanent_arena;
@@ -83,8 +83,8 @@ enum WindowMode : U8
 
 struct Engine_Configuration
 {
-    Mem_Size permanent_memory_size;
-    Mem_Size transient_memory_size;
+    Size permanent_memory_size;
+    Size transient_memory_size;
     WindowMode window_mode;
     bool show_cursor;
     bool lock_cursor;
@@ -124,6 +124,8 @@ struct Engine_API
     bool (*imgui_begin_window)(const char* name, bool *p_open, int flags);
     void (*imgui_end_window)();
 };
+
+void hock_engine_api(Engine_API *api);
 
 struct Engine
 {

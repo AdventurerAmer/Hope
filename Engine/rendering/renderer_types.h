@@ -59,6 +59,15 @@ enum TextureFormat
 
 #define MAX_TEXTURE_NAME 256
 
+struct Texture_Descriptor
+{
+    U32 width;
+    U32 height;
+    void *data;
+    TextureFormat format;
+    bool mipmapping;
+};
+
 struct Texture
 {
     // todo(amer): String
@@ -110,6 +119,11 @@ struct Shader_Struct
 
 #define MAX_SHADER_NAME 256
 
+struct Shader_Descriptor
+{
+    const char *path;
+};
+
 struct Shader
 {
     // todo(amer): String
@@ -127,6 +141,11 @@ struct Shader
 };
 
 #define MAX_PIPELINE_STATE_NAME 256
+
+struct Pipeline_State_Descriptor
+{
+    std::initializer_list< const Shader * > shaders;
+};
 
 struct Pipeline_State
 {
@@ -163,6 +182,15 @@ struct Material
 
 #define MAX_MESH_NAME 256
 
+struct Static_Mesh_Descriptor
+{
+    void *vertices;
+    U16 vertex_count;
+
+    U16 *indices;
+    U32 index_count;
+};
+
 struct Static_Mesh
 {
     // todo(amer): String
@@ -192,8 +220,8 @@ struct Object_Data
     glm::mat4 model;
 };
 
-StaticAssert(offsetof(Object_Data, model) == 0);
-StaticAssert(sizeof(Object_Data) == 64);
+static_assert(offsetof(Object_Data, model) == 0);
+static_assert(sizeof(Object_Data) == 64);
 
 struct Globals
 {
@@ -204,7 +232,7 @@ struct Globals
     alignas(16) glm::vec3 directional_light_color;
 };
 
-StaticAssert(offsetof(Globals, view) == 0);
-StaticAssert(offsetof(Globals, projection) == 64);
-StaticAssert(offsetof(Globals, directional_light_direction) == 128);
-StaticAssert(offsetof(Globals, directional_light_color) == 144);
+static_assert(offsetof(Globals, view) == 0);
+static_assert(offsetof(Globals, projection) == 64);
+static_assert(offsetof(Globals, directional_light_direction) == 128);
+static_assert(offsetof(Globals, directional_light_color) == 144);
