@@ -61,6 +61,9 @@ struct Renderer_State
     Shader *mesh_fragment_shader;
     Pipeline_State *mesh_pipeline;
 
+    Texture *white_pixel_texture;
+    Texture *normal_pixel_texture;
+
     Scene_Data scene_data;
 
     struct Free_List_Allocator *transfer_allocator;
@@ -123,7 +126,7 @@ Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state);
 Shader *allocate_shader(Renderer_State *renderer_state);
 Pipeline_State *allocate_pipeline_state(Renderer_State *renderer_state);
 
-U8 *get_property(Material *material, const char *property_name, ShaderDataType shader_datatype);
+U8 *get_property(Material *material, String name, ShaderDataType shader_datatype);
 
 U32 index_of(Renderer_State *renderer_state, Texture *texture);
 U32 index_of(Renderer_State *renderer_state, Material *material);
@@ -137,7 +140,7 @@ U32 index_of(Renderer_State *renderer_state, const Static_Mesh *static_mesh);
 U32 index_of(Renderer_State *renderer_state, const Shader *shader);
 U32 index_of(Renderer_State *renderer_state, const Pipeline_State *pipeline_state);
 
-S32 find_texture(Renderer_State *renderer_state, char *name, U32 length);
+S32 find_texture(Renderer_State *renderer_state, const String &name);
 S32 find_material(Renderer_State *renderer_state, U64 hash);
 
 inline glm::vec4 sRGB_to_linear(const glm::vec4 &color)

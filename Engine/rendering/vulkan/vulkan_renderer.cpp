@@ -1587,7 +1587,7 @@ bool vulkan_renderer_create_material(Material *material, const Material_Descript
         for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
         {
             Shader_Struct *shader_struct = &shader->structs[struct_index];
-            if (strcmp(shader_struct->name, "Material_Properties") == 0)
+            if (equal(&shader_struct->name, "Material_Properties"))
             {
                 properties = shader_struct;
                 break;

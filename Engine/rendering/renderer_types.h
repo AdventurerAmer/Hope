@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/defines.h"
+#include "containers/string.h"
 
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -57,8 +58,6 @@ enum TextureFormat
     TextureFormat_RGBA
 };
 
-#define MAX_TEXTURE_NAME 256
-
 struct Texture_Descriptor
 {
     U32 width;
@@ -70,9 +69,7 @@ struct Texture_Descriptor
 
 struct Texture
 {
-    // todo(amer): String
-    char name[MAX_TEXTURE_NAME];
-    U32 name_length;
+    String name;
 
     U32 width;
     U32 height;
@@ -80,24 +77,21 @@ struct Texture
 
 struct Shader_Input_Variable
 {
-    const char *name;
-    U32 name_length;
+    String name;
     ShaderDataType type;
     U32 location;
 };
 
 struct Shader_Output_Variable
 {
-    const char *name;
-    U32 name_length;
+    String name;
     ShaderDataType type;
     U32 location;
 };
 
 struct Shader_Struct_Member
 {
-    const char *name;
-    U32 name_length;
+    String name;
 
     ShaderDataType data_type;
     U32 offset;
@@ -110,14 +104,11 @@ struct Shader_Struct_Member
 
 struct Shader_Struct
 {
-    const char *name;
-    U32 name_length;
+    String name;
 
     U32 member_count;
     Shader_Struct_Member *members;
 };
-
-#define MAX_SHADER_NAME 256
 
 struct Shader_Descriptor
 {
@@ -126,9 +117,7 @@ struct Shader_Descriptor
 
 struct Shader
 {
-    // todo(amer): String
-    char name[MAX_SHADER_NAME];
-    U32 name_length;
+    String name;
 
     U32 input_count;
     Shader_Input_Variable *inputs;
@@ -140,8 +129,6 @@ struct Shader
     Shader_Struct *structs;
 };
 
-#define MAX_PIPELINE_STATE_NAME 256
-
 struct Pipeline_State_Descriptor
 {
     std::initializer_list< const Shader * > shaders;
@@ -149,15 +136,11 @@ struct Pipeline_State_Descriptor
 
 struct Pipeline_State
 {
-    // todo(amer): String
-    char name[MAX_PIPELINE_STATE_NAME];
-    U32 name_length;
+    String name;
 
     U32 shader_count;
     Shader **shaders;
 };
-
-#define MAX_MATERIAL_NAME 256
 
 struct Material_Descriptor
 {
@@ -166,9 +149,7 @@ struct Material_Descriptor
 
 struct Material
 {
-    // todo(amer): String
-    char name[MAX_MATERIAL_NAME];
-    U32 name_length;
+    String name;
 
     U64 hash; // todo(amer): temprary
 
@@ -179,8 +160,6 @@ struct Material
 
     Shader_Struct *properties;
 };
-
-#define MAX_MESH_NAME 256
 
 struct Static_Mesh_Descriptor
 {
@@ -193,9 +172,7 @@ struct Static_Mesh_Descriptor
 
 struct Static_Mesh
 {
-    // todo(amer): String
-    char name[MAX_MATERIAL_NAME];
-    U32 name_length;
+    String name;
 
     U16 vertex_count;
     U32 index_count;

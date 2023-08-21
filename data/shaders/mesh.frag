@@ -34,8 +34,12 @@ layout(set = 1, binding = 0) uniform sampler2D u_textures[];
 struct Material_Properties
 {
     uint albedo_texture_index;
+    vec3 albedo_color;
     uint normal_texture_index;
     uint occlusion_roughness_metallic_texture_index;
+    float roughness_factor;
+    float metallic_factor;
+    float reflectance;
 };
 
 layout (std140, set = 2, binding = 0) uniform u_Material
@@ -74,10 +78,17 @@ float geometry_smith(float NdotV, float NdotL, float roughness)
 void main()
 {
     vec3 albedo = srgb_to_linear( texture( u_textures[ nonuniformEXT( material.albedo_texture_index) ], in_uv ).rgb );
+    albedo *= srgb_to_linear( material.albedo_color );
+
     vec3 occlusion_roughness_metallic = texture( u_textures[ nonuniformEXT(material.occlusion_roughness_metallic_texture_index) ], in_uv ).rgb;
     float occlusion = occlusion_roughness_metallic.r;
+
     float roughness = occlusion_roughness_metallic.g;
+    roughness *= material.roughness_factor;
+
     float metallic = occlusion_roughness_metallic.b;
+    metallic *= material.metallic_factor;
+
     vec3 light_color = globals.directional_light_color;
 
     vec3 normal = normalize(in_normal);
@@ -100,7 +111,7 @@ void main()
     float NdotV = max(0.0, dot(N, V));
     float HdotV = max(0.0, dot(H, V));
 
-    vec3 f0 = mix(vec3(0.04), albedo, metallic);
+    vec3 f0 = mix(vec3(material.reflectance), albedo, metallic);
     vec3 F = fresnel_schlick(HdotV, f0);
 
     float D = distribution_GGX(NdotH, roughness);

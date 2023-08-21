@@ -39,8 +39,7 @@ enum ShaderEntityType
 
 struct SPIRV_Struct_Member
 {
-    char *name;
-    U32 name_length;
+    String name;
 
     S32 offset = -1;
     S32 id_of_type = -1;
@@ -48,16 +47,13 @@ struct SPIRV_Struct_Member
 
 struct SPIRV_Shader_Struct
 {
-    char *name;
-    U32 name_length;
-
+    String name;
     std::vector< Shader_Struct_Member > members;
 };
 
 struct Shader_Entity
 {
-    char *name;
-    U32 name_length;
+    String name;
 
     ShaderEntityKind kind = ShaderEntityKind_Unkown;
     ShaderEntityType type = ShaderEntityType_Unkown;
@@ -221,7 +217,7 @@ U32 parse_struct(const Shader_Entity &entity,
 {
     for (U32 struct_index = 0; struct_index < structs.size(); struct_index++)
     {
-        if (strncmp(entity.name, structs[struct_index].name, entity.name_length) == 0)
+        if (equal(&entity.name, &structs[struct_index].name) == 0)
         {
             return struct_index;
         }
@@ -229,8 +225,7 @@ U32 parse_struct(const Shader_Entity &entity,
 
     SPIRV_Shader_Struct struct_;
     struct_.name = entity.name;
-    struct_.name_length = entity.name_length;
-
+    
     U32 member_count = u64_to_u32(entity.members.size());
     struct_.members.resize(member_count);
 
@@ -239,7 +234,6 @@ U32 parse_struct(const Shader_Entity &entity,
         const SPIRV_Struct_Member &spirv_struct_member = entity.members[member_index];
         Shader_Struct_Member &member = struct_.members[member_index];
         member.name = spirv_struct_member.name;
-        member.name_length = spirv_struct_member.name_length;
         member.offset = spirv_struct_member.offset;
 
         Shader_Entity &spirv_struct_member_type = ids[spirv_struct_member.id_of_type];
@@ -299,7 +293,7 @@ load_shader(Shader *shader, const char *path, Vulkan_Context *context)
 
     U32 id_count = words[3];
 
-    std::vector<Shader_Entity> ids(id_count);
+    std::vector< Shader_Entity > ids(id_count);
 
     const U32 *instruction = &words[5];
 
@@ -318,10 +312,7 @@ load_shader(Shader *shader, const char *path, Vulkan_Context *context)
                 // note(amer): not proper utf8 paring here keep the shaders in english please.
                 // english mother fucker english do you speak it !!!!!.
                 const char *name = (const char*)(instruction + 2);
-                U32 name_length = u64_to_u32(strlen(name));
-                entity.name = (char *)malloc(name_length + 1); // @Leak
-                memcpy(entity.name, name, name_length + 1);
-                entity.name_length = name_length;
+                entity.name = copy_string(name, string_length(name), context->allocator);
             } break;
 
             case SpvOpMemberName:
@@ -336,10 +327,7 @@ load_shader(Shader *shader, const char *path, Vulkan_Context *context)
                 }
                 SPIRV_Struct_Member &member = entity.members[member_index];
                 const char *name = (const char*)(instruction + 3);
-                U32 name_length = u64_to_u32(strlen(name));
-                member.name = (char *)malloc(name_length + 1); // @Leak
-                memcpy(member.name, name, name_length + 1);
-                member.name_length = name_length;
+                member.name = copy_string(name, string_length(name), context->allocator);
             } break;
 
             case SpvOpEntryPoint:
@@ -630,7 +618,6 @@ load_shader(Shader *shader, const char *path, Vulkan_Context *context)
                     {
                         Shader_Input_Variable input = {};
                         input.name = entity.name;
-                        input.name_length = entity.name_length;
                         input.location = entity.location;
                         input.type = entity.data_type;
                         inputs.push_back(input);
@@ -644,7 +631,6 @@ load_shader(Shader *shader, const char *path, Vulkan_Context *context)
                     {
                         Shader_Output_Variable output = {};
                         output.name = entity.name;
-                        output.name_length = entity.name_length;
                         output.location = entity.location;
                         output.type = entity.data_type;
                         outputs.push_back(output);
@@ -705,8 +691,7 @@ load_shader(Shader *shader, const char *path, Vulkan_Context *context)
         const SPIRV_Shader_Struct &spirv_struct = structs[struct_index];
         Shader_Struct *shader_struct = &shader_structs[struct_index];
         shader_struct->name = spirv_struct.name;
-        shader_struct->name_length = spirv_struct.name_length;
-
+        
         U32 member_count = u64_to_u32(spirv_struct.members.size());
         shader_struct->member_count = member_count;
         shader_struct->members = AllocateArray(arena, Shader_Struct_Member, member_count);

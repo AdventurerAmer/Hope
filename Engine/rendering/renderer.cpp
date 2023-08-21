@@ -78,6 +78,34 @@ bool init_renderer_state(Engine *engine,
 {
     _transfer_allocator = renderer_state->transfer_allocator;
     _stbi_allocator = &engine->memory.free_list_allocator;
+
+    Renderer *renderer = &engine->renderer;
+    renderer_state->white_pixel_texture = allocate_texture(renderer_state);
+
+    U32 *white_pixel_data = Allocate(renderer_state->transfer_allocator, U32);
+    *white_pixel_data = 0xFFFFFFFF;
+
+    Texture_Descriptor white_pixel_descriptor = {};
+    white_pixel_descriptor.width = 1;
+    white_pixel_descriptor.height = 1;
+    white_pixel_descriptor.data = white_pixel_data;
+    white_pixel_descriptor.format = TextureFormat_RGBA;
+    white_pixel_descriptor.mipmapping = false;
+    renderer->create_texture(renderer_state->white_pixel_texture, white_pixel_descriptor);
+
+    U32 *normal_pixel_data = Allocate(renderer_state->transfer_allocator, U32);
+    *normal_pixel_data = 0xFFFF8080;
+
+    Texture_Descriptor normal_pixel_descriptor = {};
+    normal_pixel_descriptor.width = 1;
+    normal_pixel_descriptor.height = 1;
+    normal_pixel_descriptor.data = normal_pixel_data;
+    normal_pixel_descriptor.format = TextureFormat_RGBA;
+    normal_pixel_descriptor.mipmapping = false;
+
+    renderer_state->normal_pixel_texture = allocate_texture(renderer_state);
+    renderer->create_texture(renderer_state->normal_pixel_texture, normal_pixel_descriptor);
+
     return true;
 }
 
@@ -138,13 +166,14 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
 {
     const cgltf_image *image = texture_view->texture->image;
 
+    // todo(amer): String Builder
     Texture *texture = nullptr;
-    char texture_path[MAX_TEXTURE_NAME];
+    char texture_path_buffer[256];
 
     if (texture_view->texture->image->uri)
     {
         char *uri = texture_view->texture->image->uri;
-        sprintf(texture_path, "%.*s/%s",
+        sprintf(texture_path_buffer, "%.*s/%s",
                 u64_to_u32(model_path_without_file_name_length),
                 model_path, uri);
     }
@@ -154,7 +183,7 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
 
         char *name = texture_view->texture->image->name;
         U32 name_length = u64_to_u32(strlen(name));
-        HOPE_Assert(name_length <= (MAX_TEXTURE_NAME - 1));
+        HOPE_Assert(name_length <= (255));
 
         S32 last_dot_index = -1;
         for (U32 char_index = 0; char_index < name_length; char_index++)
@@ -180,22 +209,22 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
                 extension_to_append = ".jpg";
             }
         }
-        sprintf(texture_path, "%.*s/%.*s%s",
+        sprintf(texture_path_buffer, "%.*s/%.*s%s",
                 u64_to_u32(model_path_without_file_name_length), model_path,
                 name_length, name, extension_to_append);
     }
 
-    U32 texture_path_length = u64_to_u32(strlen(texture_path));
+    String texture_path = copy_string(texture_path_buffer,
+                                      string_length(texture_path_buffer),
+                                      &renderer_state->engine->memory.free_list_allocator);
 
     S32 texture_index = find_texture(renderer_state,
-                                     texture_path,
-                                     texture_path_length);
+                                     texture_path);
     if (texture_index == -1)
     {
         HOPE_Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
         texture = allocate_texture(renderer_state);
-        strcpy(texture->name, texture_path);
-        texture->name_length = texture_path_length;
+        texture->name = texture_path;
 
         S32 texture_width;
         S32 texture_height;
@@ -203,7 +232,7 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
 
         stbi_uc *pixels = nullptr;
 
-        if (!fs::exists(fs::path(texture_path)))
+        if (!fs::exists(fs::path(texture_path.data)))
         {
             const auto *view = image->buffer_view;
             U8 *data_ptr = (U8*)view->buffer->data;
@@ -215,7 +244,7 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
         }
         else
         {
-            pixels = stbi_load(texture_path,
+            pixels = stbi_load(texture_path.data,
                                &texture_width, &texture_height,
                                &texture_channels, STBI_rgb_alpha);
         }
@@ -306,13 +335,13 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
         U64 material_hash = (U64)material;
 
         HOPE_Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
-        Material* renderer_material = allocate_material(renderer_state);
+        Material *renderer_material = allocate_material(renderer_state);
 
         if (material->name)
         {
-            renderer_material->name_length = u64_to_u32(strlen(material->name));
-            HOPE_Assert(renderer_material->name_length <= (MAX_MATERIAL_NAME - 1));
-            strncpy(renderer_material->name, material->name, renderer_material->name_length);
+            renderer_material->name = copy_string(material->name,
+                                                  string_length(material->name),
+                                                  &renderer_state->engine->memory.free_list_allocator);
         }
         renderer_material->hash = material_hash;
 
@@ -330,6 +359,10 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                                             renderer,
                                             renderer_state);
             }
+            else
+            {
+                albedo = renderer_state->white_pixel_texture;
+            }
 
             if (material->pbr_metallic_roughness.metallic_roughness_texture.texture)
             {
@@ -341,7 +374,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
             }
             else
             {
-                metallic_roughness = albedo;
+                metallic_roughness = renderer_state->white_pixel_texture;
             }
         }
 
@@ -355,26 +388,39 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
         }
         else
         {
-            // todo(amer): default normal texture doing this for now.
-            normal = albedo;
+            normal = renderer_state->normal_pixel_texture;
         }
-
-        HOPE_Assert(albedo);
-        HOPE_Assert(normal);
-        HOPE_Assert(metallic_roughness);
-        HOPE_Assert(albedo != normal);
-        HOPE_Assert(normal != metallic_roughness);
 
         Material_Descriptor desc = {};
         desc.pipeline_state = renderer_state->mesh_pipeline;
         renderer->create_material(renderer_material, desc);
 
-        U32 *albedo_texture_index = (U32 *)get_property(renderer_material, "albedo_texture_index", ShaderDataType_U32);
-        U32 *normal_texture_index = (U32 *)get_property(renderer_material, "normal_texture_index", ShaderDataType_U32);
+        U32 *albedo_texture_index = (U32 *)get_property(renderer_material, HOPE_String("albedo_texture_index"), ShaderDataType_U32);
+        U32 *normal_texture_index = (U32 *)get_property(renderer_material, HOPE_String("normal_texture_index"), ShaderDataType_U32);
         U32 *occlusion_roughness_metallic_texture_index = (U32 *)get_property(renderer_material,
-                                                                              "occlusion_roughness_metallic_texture_index",
+                                                                              HOPE_String("occlusion_roughness_metallic_texture_index"),
                                                                               ShaderDataType_U32);
 
+        glm::vec3 *albedo_color = (glm::vec3 *)get_property(renderer_material,
+                                                            HOPE_String("albedo_color"),
+                                                            ShaderDataType_Vector3f);
+
+        F32 *roughness_factor = (F32 *)get_property(renderer_material,
+                                                    HOPE_String("roughness_factor"),
+                                                    ShaderDataType_F32);
+
+        F32 *metallic_factor = (F32 *)get_property(renderer_material,
+                                                    HOPE_String("metallic_factor"),
+                                                    ShaderDataType_F32);
+
+        F32 *reflectance = (F32 *)get_property(renderer_material,
+                                               HOPE_String("reflectance"),
+                                               ShaderDataType_F32);
+        
+        *albedo_color = *(glm::vec3 *)material->pbr_metallic_roughness.base_color_factor;
+        *roughness_factor = material->pbr_metallic_roughness.roughness_factor;
+        *metallic_factor = material->pbr_metallic_roughness.metallic_factor;
+        *reflectance = 0.04f;
         *albedo_texture_index = index_of(renderer_state, albedo);
         *normal_texture_index = index_of(renderer_state, normal);
         *occlusion_roughness_metallic_texture_index = index_of(renderer_state, metallic_roughness);
@@ -604,18 +650,17 @@ Pipeline_State *allocate_pipeline_state(Renderer_State *renderer_state)
     return &renderer_state->pipeline_states[pipline_state_index];
 }
 
-U8 *get_property(Material *material, const char *property_name, ShaderDataType shader_datatype)
+U8 *get_property(Material *material, String name, ShaderDataType shader_datatype)
 {
     Shader_Struct *properties = material->properties;
     for (U32 member_index = 0; member_index < properties->member_count; member_index++)
     {
         Shader_Struct_Member *member = &properties->members[member_index];
-        if (strcmp(property_name, member->name) == 0 && member->data_type == shader_datatype)
+        if (equal(&name, &member->name) && member->data_type == shader_datatype)
         {
             return material->data + member->offset;
         }
     }
-
     return nullptr;
 }
 
@@ -689,12 +734,12 @@ U32 index_of(Renderer_State *renderer_state, Pipeline_State *pipeline_state)
     return u64_to_u32(index);
 }
 
-S32 find_texture(Renderer_State *renderer_state, char *name, U32 length)
+S32 find_texture(Renderer_State *renderer_state, const String &name)
 {
     for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
     {
         Texture *texture = &renderer_state->textures[texture_index];
-        if (texture->name_length == length && strncmp(texture->name, name, length) == 0)
+        if (equal(&texture->name, &name))
         {
             return texture_index;
         }
