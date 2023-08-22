@@ -263,25 +263,20 @@ bool
 load_shader(Shader *shader, const char *path, Vulkan_Context *context)
 {
     Memory_Arena *arena = &context->engine->memory.transient_arena;
+    
     Temprary_Memory_Arena temp_arena = {};
     begin_temprary_memory_arena(&temp_arena, arena);
 
     Vulkan_Shader *vulkan_shader = context->shaders + index_of(&context->engine->renderer_state, shader);
 
-    Read_Entire_File_Result result =
-        platform_begin_read_entire_file(path);
+    Read_Entire_File_Result result = read_entire_file(path, &temp_arena);
 
     if (!result.success)
     {
         return false;
     }
 
-    U8 *data = AllocateArray(&temp_arena, U8, result.size);
-    if (!platform_end_read_entire_file(&result, data))
-    {
-        return false;
-    }
-
+    U8 *data = result.data;
     HOPE_Assert(result.size % 4 == 0);
 
     U32 *words = (U32 *)data;

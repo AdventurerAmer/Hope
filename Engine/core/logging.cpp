@@ -29,8 +29,8 @@ bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 chan
     // note(amer): should logging files be in the bin folder or a separate folder for logs ?
     String main_channel_path = format_string(temprary_arena.arena, "logging/%s.log", name);
 
-    main_channel->log_file = platform_open_file(main_channel_path.data, FileOperation_Write);
-    if (!platform_is_file_handle_valid(main_channel->log_file))
+    main_channel->log_file_result = platform_open_file(main_channel_path.data, OpenFileFlag_Write);
+    if (!main_channel->log_file_result.success)
     {
         result = false;
     }
@@ -44,8 +44,8 @@ bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 chan
 
         String channel_path = format_string(temprary_arena.arena, "logging/%s.log", channel->name);
 
-        channel->log_file = platform_open_file(channel_path.data, FileOperation_Write);
-        if (!platform_is_file_handle_valid(channel->log_file))
+        channel->log_file_result = platform_open_file(channel_path.data, OpenFileFlag_Write);
+        if (!channel->log_file_result.success)
         {
             result = false;
             break;
@@ -58,14 +58,14 @@ bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 chan
 
 void deinit_logger(Logger *logger)
 {
-    platform_close_file(logger->main_channel.log_file);
+    platform_close_file(&logger->main_channel.log_file_result);
 
     for (U32 channel_index = 0;
          channel_index < Channel_Count;
          channel_index++)
     {
         Logging_Channel *channel = &logger->channels[channel_index];
-        platform_close_file(channel->log_file);
+        platform_close_file(&channel->log_file_result);
     }
 }
 
@@ -108,7 +108,7 @@ void debug_printf(Logger *logger, Channel channel, Verbosity verbosity, Memory_A
 
     Logging_Channel *main_channel = &logger->main_channel;
 
-    if (platform_write_data_to_file(main_channel->log_file,
+    if (platform_write_data_to_file(&main_channel->log_file_result,
                                     main_channel->log_file_offset,
                                     (void*)message.data, message.count))
     {
@@ -116,7 +116,7 @@ void debug_printf(Logger *logger, Channel channel, Verbosity verbosity, Memory_A
     }
 
     Logging_Channel *logging_channel = &logger->channels[U8(channel)];
-    if (platform_write_data_to_file(logging_channel->log_file,
+    if (platform_write_data_to_file(&logging_channel->log_file_result,
                                     logging_channel->log_file_offset,
                                     (void*)message.data, message.count))
     {

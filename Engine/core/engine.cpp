@@ -217,11 +217,6 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     Platform_API *api = &engine->platform_api;
     api->allocate_memory = &platform_allocate_memory;
     api->deallocate_memory = &platform_deallocate_memory;
-    api->open_file = &platform_open_file;
-    api->is_file_handle_valid = &platform_is_file_handle_valid;
-    api->read_data_from_file = &platform_read_data_from_file;
-    api->write_data_to_file = &platform_write_data_to_file;
-    api->close_file = &platform_close_file;
     api->debug_printf = &platform_debug_printf;
     api->toggle_fullscreen = &platform_toggle_fullscreen;
 
@@ -314,4 +309,17 @@ void on_update_stub(Engine *engine, F32 delta_time)
 {
     (void)engine;
     (void)delta_time;
+}
+
+bool write_entire_file(const char *filepath, void *data, Size size)
+{
+    Open_File_Result open_file_result = platform_open_file(filepath, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
+    if (!open_file_result.success)
+    {
+        return false;
+    }
+    bool success = platform_write_data_to_file(&open_file_result, 0, data, size);
+    HOPE_Assert(success);
+    platform_close_file(&open_file_result);
+    return success;
 }

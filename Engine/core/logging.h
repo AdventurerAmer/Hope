@@ -39,8 +39,9 @@ enum Channel : U8
 struct Logging_Channel
 {
     const char *name;
+
     U64 log_file_offset;
-    Platform_File_Handle log_file;
+    Open_File_Result log_file_result;
 };
 
 struct Logger

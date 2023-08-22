@@ -640,7 +640,8 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
              extension_index < HOPE_ArrayCount(required_device_extensions);
              extension_index++)
         {
-            const char *device_extension = required_device_extensions[extension_index];
+            String device_extension = { required_device_extensions[extension_index], string_length(required_device_extensions[extension_index]) };
+
             bool is_extension_supported = false;
 
             for (U32 extension_property_index = 0;
@@ -648,8 +649,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                  extension_property_index++)
             {
                 VkExtensionProperties *extension_property = &extension_properties[extension_property_index];
-                // todo(amer): string utils
-                if (strcmp(device_extension, extension_property->extensionName) == 0)
+                if (equal(&device_extension, extension_property->extensionName))
                 {
                     is_extension_supported = true;
                     break;
@@ -841,20 +841,15 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         U64 pipeline_cache_size = 0;
         U8 *pipeline_cache_data = nullptr;
 
-        Read_Entire_File_Result result = platform_begin_read_entire_file(PIPELINE_CACHE_FILENAME);
+        Read_Entire_File_Result result = read_entire_file(PIPELINE_CACHE_FILENAME, &temp_arena);
         if (result.success)
         {
-            U8 *data = AllocateArray(&temp_arena, U8, result.size);
-            if (platform_end_read_entire_file(&result, data))
+            VkPipelineCacheHeaderVersionOne *pipeline_cache_header = (VkPipelineCacheHeaderVersionOne *)result.data;
+            if (pipeline_cache_header->deviceID == context->physical_device_properties.deviceID &&
+                pipeline_cache_header->vendorID == context->physical_device_properties.vendorID)
             {
-
-                VkPipelineCacheHeaderVersionOne *pipeline_cache_header = (VkPipelineCacheHeaderVersionOne *)data;
-                if (pipeline_cache_header->deviceID == context->physical_device_properties.deviceID &&
-                    pipeline_cache_header->vendorID == context->physical_device_properties.vendorID)
-                {
-                    pipeline_cache_data = data;
-                    pipeline_cache_size = result.size;
-                }
+                pipeline_cache_data = result.data;
+                pipeline_cache_size = result.size;
             }
         }
 
@@ -1126,17 +1121,11 @@ void deinit_vulkan(Vulkan_Context *context)
     {
         U8 *pipeline_cache_data = AllocateArray(context->allocator, U8, pipeline_cache_size);
         vkGetPipelineCacheData(context->logical_device,
-                           context->pipeline_cache,
-                           &pipeline_cache_size,
-                           pipeline_cache_data);
+                               context->pipeline_cache,
+                               &pipeline_cache_size,
+                               pipeline_cache_data);
 
-        // todo(amer): platform_write_entire_file
-        Platform_File_Handle pipeline_cache_file = platform_open_file(PIPELINE_CACHE_FILENAME,
-                                                                      FileOperation_Write);
-        HOPE_Assert(platform_is_file_handle_valid(pipeline_cache_file));
-        bool written = platform_write_data_to_file(pipeline_cache_file, 0, pipeline_cache_data, pipeline_cache_size);
-        HOPE_Assert(written);
-        platform_close_file(pipeline_cache_file);
+        write_entire_file(PIPELINE_CACHE_FILENAME, pipeline_cache_data, pipeline_cache_size);
     }
 
     vkDestroyPipelineCache(context->logical_device, context->pipeline_cache, nullptr);

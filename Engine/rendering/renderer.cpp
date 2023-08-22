@@ -284,16 +284,14 @@ static void _cgltf_free(void* user, void *ptr)
 Scene_Node *load_model(const char *path, Renderer *renderer,
                        Renderer_State *renderer_state)
 {
-    Read_Entire_File_Result result =
-        platform_begin_read_entire_file(path);
+    Read_Entire_File_Result result = read_entire_file(path, renderer_state->transfer_allocator);
 
     if (!result.success)
     {
         return nullptr;
     }
 
-    U8 *buffer = AllocateArray(renderer_state->transfer_allocator, U8, result.size);
-    platform_end_read_entire_file(&result, buffer);
+    U8 *buffer = result.data;
 
     U64 path_length = strlen(path);
     U64 path_without_file_name_length = 0;

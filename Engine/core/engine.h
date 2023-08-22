@@ -45,32 +45,14 @@ typedef void* (*Allocate_Memory_Proc)(U64 size);
 
 typedef void (*Deallocate_Memory_Proc)(void *memory);
 
-typedef Platform_File_Handle (*Open_File_Proc)(const char *filename,
-                                               File_Operation operations);
-
-typedef bool (*Is_File_Handle_Valid_Proc)(Platform_File_Handle file_handle);
-
-typedef bool (*Read_Data_From_File_Proc)(Platform_File_Handle file_handle,
-                                         U64 offset, void *data, U64 size);
-
-typedef bool (*Write_Data_To_File_Proc)(Platform_File_Handle file_handle,
-                                        U64 offset, void *data, U64 size);
-
-typedef bool (*Close_File_Proc)(Platform_File_Handle file_handle);
-
 typedef void (*Toggle_Fullscreen_Proc)(struct Engine *engine);
 
-typedef void (*Debug_Printf)(const char *message, ...);
+typedef void (*Debug_Printf)(const char *message);
 
 struct Platform_API
 {
     Allocate_Memory_Proc allocate_memory;
     Deallocate_Memory_Proc deallocate_memory;
-    Open_File_Proc open_file;
-    Is_File_Handle_Valid_Proc is_file_handle_valid;
-    Read_Data_From_File_Proc read_data_from_file;
-    Write_Data_To_File_Proc write_data_to_file;
-    Close_File_Proc close_file;
     Toggle_Fullscreen_Proc toggle_fullscreen;
     Debug_Printf debug_printf;
 };
@@ -160,3 +142,33 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 void game_loop(Engine *engine, F32 delta_time);
 
 void shutdown(Engine *engine);
+
+// todo(amer): move to file_utils.h
+struct Read_Entire_File_Result
+{
+    bool success;
+    U8 *data;
+    Size size;
+};
+
+template< typename Allocator >
+Read_Entire_File_Result read_entire_file(const char *filepath, Allocator *allocator)
+{
+    Read_Entire_File_Result result = {};
+
+    Open_File_Result open_file_result = platform_open_file(filepath, OpenFileFlag_Read);
+    if (open_file_result.success)
+    {
+        U8 *data = AllocateArray(allocator, U8, open_file_result.size);
+        bool read = platform_read_data_from_file(&open_file_result, 0, data, open_file_result.size);
+        HOPE_Assert(read);
+        platform_close_file(&open_file_result);
+
+        result.data = data;
+        result.size = open_file_result.size;
+        result.success = true;
+    }
+    return result;
+}
+
+bool write_entire_file(const char *filepath, void *data, Size size);

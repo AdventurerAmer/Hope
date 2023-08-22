@@ -42,52 +42,40 @@ struct Event
 };
 
 
-enum File_Operation : U32
+enum Open_File_Flags : U32
 {
-    FileOperation_Read  = 0x1,
-    FileOperation_Write = 0x2
+    OpenFileFlag_Read = 0x1,
+    OpenFileFlag_Write = 0x2,
+    OpenFileFlag_Truncate = 0x4,
 };
 
-struct Platform_File_Handle
-{
-    void *platform_data;
-};
-
-void* platform_allocate_memory(U64 size);
+void* platform_allocate_memory(Size size);
 
 void platform_deallocate_memory(void *memory);
 
-Platform_File_Handle platform_open_file(const char *filename, File_Operation operations);
-
-bool platform_is_file_handle_valid(Platform_File_Handle file_handle);
-
-U64 platform_get_file_size(Platform_File_Handle file_handle);
-
-bool platform_read_data_from_file(Platform_File_Handle file_handle, U64 offset, void *data, U64 size);
-
-bool platform_write_data_to_file(Platform_File_Handle file_handle, U64 offset, void *data, U64 size);
-
-bool platform_close_file(Platform_File_Handle file_handle);
-
-struct Read_Entire_File_Result
+struct Open_File_Result
 {
-    Platform_File_Handle file_handle;
-    U64 size;
+    void *file_handle;
+    Size size;
     bool success;
 };
 
-Read_Entire_File_Result platform_begin_read_entire_file(const char *filename);
+Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_file_flags);
 
-bool platform_end_read_entire_file(Read_Entire_File_Result *read_entire_file_result, void *data);
+bool platform_read_data_from_file(const Open_File_Result *open_file_result, Size offset, void *data, Size size);
+
+bool platform_write_data_to_file(const Open_File_Result *open_file_result, Size offset, void *data, Size size);
+
+bool platform_close_file(Open_File_Result *open_file_result);
 
 void platform_toggle_fullscreen(struct Engine *engine);
 
-void* platform_create_vulkan_surface(struct Engine *engine, void *instance, const void *allocator_callbacks = nullptr);
-
-void platform_report_error_and_exit(const char *message, ...);
+void* platform_create_vulkan_surface(struct Engine *engine,
+                                     void *instance, const
+                                     void *allocator_callbacks = nullptr);
 
 void platform_init_imgui(struct Engine *engine);
 void platform_imgui_new_frame();
 void platform_shutdown_imgui();
 
-void platform_debug_printf(const char *message, ...);
+void platform_debug_printf(const char *message);

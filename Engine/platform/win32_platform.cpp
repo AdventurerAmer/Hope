@@ -738,138 +738,74 @@ void platform_deallocate_memory(void *memory)
     VirtualFree(memory, 0, MEM_RELEASE);
 }
 
-Platform_File_Handle platform_open_file(const char *filename, File_Operation operations)
+Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_file_flags)
 {
-    Platform_File_Handle result = {};
+    Open_File_Result result = {};
 
     DWORD access_flags = 0;
 
-    if ((operations & FileOperation_Read) && (operations & FileOperation_Write))
+    if ((open_file_flags & OpenFileFlag_Read) && (open_file_flags & OpenFileFlag_Write))
     {
         access_flags = GENERIC_READ|GENERIC_WRITE;
     }
-    else if ((operations & FileOperation_Read))
+    else if ((open_file_flags & OpenFileFlag_Read))
     {
         access_flags = GENERIC_READ;
     }
-    else if ((operations & FileOperation_Write))
+    else if ((open_file_flags & OpenFileFlag_Write))
     {
         access_flags = GENERIC_WRITE;
     }
 
-    result.platform_data = CreateFileA(filename, access_flags, FILE_SHARE_READ,
-                                       0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    DWORD creation_disposition = (open_file_flags & OpenFileFlag_Truncate) ? TRUNCATE_EXISTING : OPEN_ALWAYS;
+    HANDLE file_handle = CreateFileA(filepath, access_flags, FILE_SHARE_READ,
+                                     0, creation_disposition, FILE_ATTRIBUTE_NORMAL, NULL);
+    HOPE_Assert(file_handle);
 
+    LARGE_INTEGER large_integer_size = {};
+    BOOL success = GetFileSizeEx(file_handle, &large_integer_size);
+    HOPE_Assert(success);
+
+    result.size = large_integer_size.QuadPart;
+    result.file_handle = file_handle;
+    result.success = true;
     return result;
 }
 
-bool platform_is_file_handle_valid(Platform_File_Handle file_handle)
-{
-    bool result = file_handle.platform_data != INVALID_HANDLE_VALUE;
-    return result;
-}
-
-U64 platform_get_file_size(Platform_File_Handle file_handle)
-{
-    LARGE_INTEGER result = {};
-    BOOL return_value = GetFileSizeEx(file_handle.platform_data, &result);
-    HOPE_Assert(return_value);
-    return result.QuadPart;
-}
-
-bool platform_read_data_from_file(Platform_File_Handle file_handle, U64 offset, void *data, U64 size)
+bool platform_read_data_from_file(const Open_File_Result *open_file_result, U64 offset, void *data, U64 size)
 {
     OVERLAPPED overlapped = {};
     overlapped.Offset = u64_to_u32(offset & 0xFFFFFFFF);
     overlapped.OffsetHigh = u64_to_u32(offset >> 32);
 
-    // note(amer): we are only limited to a read of 4GBs
+    // todo(amer): we are only limited to a read of 4GBs
     DWORD read_bytes;
-    BOOL result = ReadFile(file_handle.platform_data, data,
+    BOOL result = ReadFile(open_file_result->file_handle, data,
                            u64_to_u32(size), &read_bytes, &overlapped);
     return result == TRUE && read_bytes == size;
 }
 
-bool platform_write_data_to_file(Platform_File_Handle file_handle, U64 offset, void *data, U64 size)
+bool platform_write_data_to_file(const Open_File_Result *open_file_result, U64 offset, void *data, U64 size)
 {
     OVERLAPPED overlapped = {};
     overlapped.Offset = u64_to_u32(offset & 0xFFFFFFFF);
     overlapped.OffsetHigh = u64_to_u32(offset >> 32);
 
-    // note(amer): we are only limited to a write of 4GBs
+    // todo(amer): we are only limited to a write of 4GBs
     DWORD written_bytes;
-    BOOL result = WriteFile(file_handle.platform_data, data,
+    BOOL result = WriteFile(open_file_result->file_handle, data,
                             u64_to_u32(size), &written_bytes, &overlapped);
     return result == TRUE && written_bytes == size;
 }
 
-bool platform_close_file(Platform_File_Handle file_handle)
+bool platform_close_file(Open_File_Result *open_file_result)
 {
-    bool result = CloseHandle(file_handle.platform_data) != 0;
+    bool result = CloseHandle(open_file_result->file_handle) != 0;
+    open_file_result->file_handle = nullptr;
     return result;
 }
 
-Read_Entire_File_Result platform_begin_read_entire_file(const char *filename)
+void platform_debug_printf(const char *message)
 {
-    Read_Entire_File_Result result = {};
-    HANDLE win32_file_handle = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ,
-                                           0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (win32_file_handle != INVALID_HANDLE_VALUE)
-    {
-        LARGE_INTEGER size_result = {};
-        if (GetFileSizeEx(win32_file_handle, &size_result))
-        {
-            U64 size = size_result.QuadPart;
-            if (size)
-            {
-                result.file_handle.platform_data = win32_file_handle;
-                result.size = size;
-                result.success = true;
-            }
-            else
-            {
-                CloseHandle(win32_file_handle);
-            }
-        }
-    }
-
-    return result;
-}
-
-bool platform_end_read_entire_file(Read_Entire_File_Result *read_entire_file_result,
-                              void *data)
-{
-    // note(amer): we are only limited to a write of 4GBs
-    DWORD read_bytes;
-    BOOL result = ReadFile(read_entire_file_result->file_handle.platform_data, data,
-                           u64_to_u32(read_entire_file_result->size), &read_bytes, NULL);
-    CloseHandle(read_entire_file_result->file_handle.platform_data);
-    return result == TRUE && read_bytes == read_entire_file_result->size;
-}
-
-void platform_report_error_and_exit(const char *message, ...)
-{
-    static char string_buffer[1024];
-    va_list arg_list;
-
-    va_start(arg_list, message);
-    S32 written = vsprintf(string_buffer, message, arg_list);
-    HOPE_Assert(written >= 0);
-
-    MessageBoxA(NULL, string_buffer, "Error", MB_OK);
-    ExitProcess(-1);
-
-    va_end(arg_list);
-}
-
-void platform_debug_printf(const char *message, ...)
-{
-    static char string_buffer[1024];
-    va_list arg_list;
-
-    va_start(arg_list, message);
-    S32 written = vsprintf(string_buffer, message, arg_list);
-    HOPE_Assert(written >= 0);
-    OutputDebugStringA(string_buffer);
-    va_end(arg_list);
+    OutputDebugStringA(message);
 }
