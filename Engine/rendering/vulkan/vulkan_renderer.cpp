@@ -25,7 +25,7 @@ vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
     (void)message_severity;
     (void)message_type;
     (void)user_data;
-    DebugPrintf(Rendering, Trace, "%s\n", callback_data->pMessage);
+    HOPE_DebugPrintf(Rendering, Trace, "%s\n", callback_data->pMessage);
     HOPE_Assert(message_severity != VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT);
     return VK_FALSE;
 }

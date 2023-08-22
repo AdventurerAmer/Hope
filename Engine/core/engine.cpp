@@ -117,19 +117,6 @@ void hock_engine_api(Engine_API *api)
 
 bool startup(Engine *engine, const Engine_Configuration &configuration, void *platform_state)
 {
-
-#ifndef HE_SHIPPING
-
-    Logger *logger = &global_debug_state.main_logger;
-    U64 channel_mask = 0xFFFFFFFFFFFFFFFF;
-    bool logger_initied = init_logger(logger, "all", Verbosity_Trace, channel_mask);
-    if (!logger_initied)
-    {
-        return false;
-    }
-
-#endif
-
     Size required_memory_size =
         configuration.permanent_memory_size + configuration.transient_memory_size;
 
@@ -152,6 +139,22 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     init_free_list_allocator(&engine->memory.free_list_allocator,
                              &engine->memory.transient_arena,
                              HE_MegaBytes(512));
+
+#ifndef HOPE_SHIPPING
+
+    U64 debug_state_arena_size = HE_MegaBytes(64);
+    U8 *debug_state_arena_data = AllocateArray(&engine->memory.permanent_arena, U8, debug_state_arena_size);
+    global_debug_state.arena = create_memory_arena(debug_state_arena_data, debug_state_arena_size);
+
+    Logger* logger = &global_debug_state.main_logger;
+    U64 channel_mask = 0xFFFFFFFFFFFFFFFF;
+    bool logger_initied = init_logger(logger, "all", Verbosity_Trace, channel_mask, &engine->memory.transient_arena);
+    if (!logger_initied)
+    {
+        return false;
+    }
+
+#endif
 
     engine->show_cursor = configuration.show_cursor;
     engine->lock_cursor = configuration.lock_cursor;

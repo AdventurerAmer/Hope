@@ -2,6 +2,7 @@
 
 #include "defines.h"
 #include "platform.h"
+#include "memory.h"
 
 #define Verbosity_Table\
     X(Fetal, "fetal")\
@@ -53,7 +54,7 @@ struct Logger
     Logging_Channel channels[Channel_Count];
 };
 
-bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 channel_mask);
+bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 channel_mask, struct Memory_Arena *arena);
 
 void deinit_logger(Logger *logger);
 
@@ -67,4 +68,4 @@ void disable_channel(Logger *logger, Channel channel);
 
 void disable_all_channels(Logger *logger);
 
-void debug_printf(Logger *logger, Channel channel, Verbosity verobisty, const char *format, ...);
+void debug_printf(Logger *logger, Channel channel, Verbosity verobisty, struct Memory_Arena *arena, const char *format, ...);

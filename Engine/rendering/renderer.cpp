@@ -1,4 +1,5 @@
 #pragma warning(push, 0)
+
 #define CGLTF_IMPLEMENTATION
 #include <cgltf.h>
 
@@ -14,6 +15,7 @@ static Free_List_Allocator *_stbi_allocator;
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
+
 #pragma warning(pop)
 
 #include "rendering/renderer.h"
@@ -161,70 +163,60 @@ add_child_scene_node(Renderer_State *renderer_state,
 }
 
 static Texture*
-cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32 model_path_without_file_name_length,
+cgltf_load_texture(cgltf_texture_view *texture_view, String model_path,
                    Renderer *renderer, Renderer_State *renderer_state)
 {
+    Temprary_Memory_Arena temprary_arena;
+    begin_temprary_memory_arena(&temprary_arena, &renderer_state->engine->memory.transient_arena);
+
     const cgltf_image *image = texture_view->texture->image;
 
-    // todo(amer): String Builder
+    String texture_path = {};
     Texture *texture = nullptr;
-    char texture_path_buffer[256];
 
     if (texture_view->texture->image->uri)
     {
         char *uri = texture_view->texture->image->uri;
-        sprintf(texture_path_buffer, "%.*s/%s",
-                u64_to_u32(model_path_without_file_name_length),
-                model_path, uri);
+        texture_path = format_string(temprary_arena.arena, "%.*s/%s", HOPE_ExpandString(&model_path), uri);
     }
     else
     {
-        const char *extension_to_append = "";
+        String texture_name = { texture_view->texture->image->name, string_length(texture_view->texture->image->name) };
+        S64 dot_index = find_first_char_from_right(&texture_name, ".");
+        HOPE_Assert(dot_index != -1);
 
-        char *name = texture_view->texture->image->name;
-        U32 name_length = u64_to_u32(strlen(name));
-        HOPE_Assert(name_length <= (255));
+        String extension_to_append = HOPE_String("");
+        String extension = sub_string(&texture_name, dot_index);
 
-        S32 last_dot_index = -1;
-        for (U32 char_index = 0; char_index < name_length; char_index++)
+        if (!equal(&extension, ".png") &&
+            !equal(&extension, ".jpg"))
         {
-            if (name[name_length - char_index - 1] == '.')
+            String mime_type = { image->mime_type, string_length(image->mime_type) };
+
+            if (equal(&mime_type, "image/png"))
             {
-                last_dot_index = char_index;
-                break;
+                extension_to_append = HOPE_String(".png");
+            }
+            else if (equal(&mime_type, "image/jpg"))
+            {
+                extension_to_append = HOPE_String(".jpg");
             }
         }
 
-        // todo(amer): string utils
-        char *extension = name + last_dot_index;
-        if (strcmp(extension, ".png") != 0 &&
-            strcmp(extension, ".jpg") != 0)
-        {
-            if (strcmp(image->mime_type, "image/png") == 0)
-            {
-                extension_to_append = ".png";
-            }
-            else if (strcmp(image->mime_type, "image/jpg") == 0)
-            {
-                extension_to_append = ".jpg";
-            }
-        }
-        sprintf(texture_path_buffer, "%.*s/%.*s%s",
-                u64_to_u32(model_path_without_file_name_length), model_path,
-                name_length, name, extension_to_append);
+        texture_path = format_string(temprary_arena.arena, "%.*s/%.*s%s",
+                                     HOPE_ExpandString(&model_path),
+                                     HOPE_ExpandString(&texture_name),
+                                     HOPE_ExpandString(&extension_to_append));
     }
-
-    String texture_path = copy_string(texture_path_buffer,
-                                      string_length(texture_path_buffer),
-                                      &renderer_state->engine->memory.free_list_allocator);
 
     S32 texture_index = find_texture(renderer_state,
                                      texture_path);
+
     if (texture_index == -1)
     {
         HOPE_Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
         texture = allocate_texture(renderer_state);
-        texture->name = texture_path;
+        texture->name = copy_string(texture_path.data, texture_path.count, &renderer_state->engine->memory.free_list_allocator);
 
         S32 texture_width;
         S32 texture_height;
@@ -232,6 +224,7 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
 
         stbi_uc *pixels = nullptr;
 
+        // todo(amer): file_system.h
         if (!fs::exists(fs::path(texture_path.data)))
         {
             const auto *view = image->buffer_view;
@@ -272,6 +265,7 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const char *model_path, U32
         texture = &renderer_state->textures[texture_index];
     }
 
+    end_temprary_memory_arena(&temprary_arena);
     return texture;
 }
 
@@ -349,13 +343,14 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
         Texture *normal = nullptr;
         Texture *metallic_roughness = nullptr;
 
+        String model_path = String{ path, path_without_file_name_length };
+
         if (material->has_pbr_metallic_roughness)
         {
             if (material->pbr_metallic_roughness.base_color_texture.texture)
             {
                 albedo = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture,
-                                            path,
-                                            u64_to_u32(path_without_file_name_length),
+                                            model_path,
                                             renderer,
                                             renderer_state);
             }
@@ -367,8 +362,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
             if (material->pbr_metallic_roughness.metallic_roughness_texture.texture)
             {
                 metallic_roughness = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture,
-                                                        path,
-                                                        u64_to_u32(path_without_file_name_length),
+                                                        model_path,
                                                         renderer,
                                                         renderer_state);
             }
@@ -381,8 +375,7 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
         if (material->normal_texture.texture)
         {
             normal = cgltf_load_texture(&material->normal_texture,
-                                        path,
-                                        u64_to_u32(path_without_file_name_length),
+                                        model_path,
                                         renderer,
                                         renderer_state);
         }

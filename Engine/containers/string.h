@@ -45,3 +45,12 @@ HOPE_FORCE_INLINE bool equal(const String *a, const char *b)
     String str = { b, string_length(b) };
     return equal(a, &str);
 }
+
+S64 find_first_char_from_left(const String *str, const char *chars);
+S64 find_first_char_from_right(const String *str, const char *chars);
+
+String sub_string(const String *str, U64 index);
+String sub_string(const String *str, U64 index, U64 count);
+
+String format_string(struct Memory_Arena *arena, const char *format, ...);
+String format_string(struct Memory_Arena *arena, const char *format, va_list args);
