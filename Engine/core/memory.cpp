@@ -87,7 +87,7 @@ void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena,
     temprary_memory_arena->arena = arena;
     temprary_memory_arena->offset = arena->offset;
 
-#ifndef HE_SHIPPING
+#ifndef HOPE_SHIPPING
     temprary_memory_arena->parent = arena->current_temprary_owner;
     arena->current_temprary_owner = temprary_memory_arena;
 #endif
@@ -102,7 +102,7 @@ end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena)
     arena->offset = temprary_arena->offset;
     arena->current_temprary_owner = temprary_arena->parent;
 
-#ifndef HE_SHIPPING
+#ifndef HOPE_SHIPPING
     temprary_arena->arena = nullptr;
     temprary_arena->offset = 0;
 #endif

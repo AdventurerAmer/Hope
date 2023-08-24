@@ -16,7 +16,7 @@ create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
     buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     buffer_create_info.flags = 0;
 
-    CheckVkResult(vkCreateBuffer(context->logical_device, &buffer_create_info, nullptr, &buffer->handle));
+    HOPE_CheckVkResult(vkCreateBuffer(context->logical_device, &buffer_create_info, nullptr, &buffer->handle));
 
     VkMemoryRequirements memory_requirements = {};
     vkGetBufferMemoryRequirements(context->logical_device, buffer->handle, &memory_requirements);
@@ -28,11 +28,11 @@ create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
     memory_allocate_info.allocationSize = memory_requirements.size;
     memory_allocate_info.memoryTypeIndex = memory_type_index;
 
-    CheckVkResult(vkAllocateMemory(context->logical_device, &memory_allocate_info,
-                                   nullptr, &buffer->memory));
+    HOPE_CheckVkResult(vkAllocateMemory(context->logical_device, &memory_allocate_info,
+                                        nullptr, &buffer->memory));
 
-    CheckVkResult(vkBindBufferMemory(context->logical_device,
-                                     buffer->handle, buffer->memory, 0));
+    HOPE_CheckVkResult(vkBindBufferMemory(context->logical_device,
+                                          buffer->handle, buffer->memory, 0));
 
     if ((memory_property_flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
     {

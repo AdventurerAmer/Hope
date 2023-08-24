@@ -738,11 +738,19 @@ void platform_deallocate_memory(void *memory)
     VirtualFree(memory, 0, MEM_RELEASE);
 }
 
+bool platform_file_exists(const char *filepath)
+{
+    DWORD dwAttrib = GetFileAttributesA(filepath);
+    return (dwAttrib != INVALID_FILE_ATTRIBUTES &&
+           !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
+}
+
 Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_file_flags)
 {
     Open_File_Result result = {};
 
     DWORD access_flags = 0;
+    DWORD creation_disposition = OPEN_ALWAYS;
 
     if ((open_file_flags & OpenFileFlag_Read) && (open_file_flags & OpenFileFlag_Write))
     {
@@ -751,24 +759,32 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
     else if ((open_file_flags & OpenFileFlag_Read))
     {
         access_flags = GENERIC_READ;
+        creation_disposition = OPEN_EXISTING;
     }
     else if ((open_file_flags & OpenFileFlag_Write))
     {
         access_flags = GENERIC_WRITE;
     }
 
-    DWORD creation_disposition = (open_file_flags & OpenFileFlag_Truncate) ? TRUNCATE_EXISTING : OPEN_ALWAYS;
+    if ((open_file_flags & OpenFileFlag_Truncate) && platform_file_exists(filepath))
+    {
+        creation_disposition = TRUNCATE_EXISTING;
+    }
+
     HANDLE file_handle = CreateFileA(filepath, access_flags, FILE_SHARE_READ,
                                      0, creation_disposition, FILE_ATTRIBUTE_NORMAL, NULL);
-    HOPE_Assert(file_handle);
+    
+    if (file_handle != INVALID_HANDLE_VALUE)
+    {
+        LARGE_INTEGER size = {};
+        BOOL success = GetFileSizeEx(file_handle, &size);
+        HOPE_Assert(success);
 
-    LARGE_INTEGER large_integer_size = {};
-    BOOL success = GetFileSizeEx(file_handle, &large_integer_size);
-    HOPE_Assert(success);
-
-    result.size = large_integer_size.QuadPart;
-    result.file_handle = file_handle;
-    result.success = true;
+        result.size = size.QuadPart;
+        result.file_handle = file_handle;
+        result.success = true;
+    }
+    
     return result;
 }
 

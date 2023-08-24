@@ -194,15 +194,15 @@ create_swapchain(Vulkan_Context *context,
     }
 
     HOPE_Assert(swapchain->handle == VK_NULL_HANDLE);
-    CheckVkResult(vkCreateSwapchainKHR(context->logical_device,
-                                       &swapchain_create_info,
-                                       nullptr,
-                                       &swapchain->handle));
+    HOPE_CheckVkResult(vkCreateSwapchainKHR(context->logical_device,
+                                            &swapchain_create_info,
+                                            nullptr,
+                                            &swapchain->handle));
 
-    CheckVkResult(vkGetSwapchainImagesKHR(context->logical_device,
-                                          swapchain->handle,
-                                          &swapchain->image_count,
-                                          nullptr));
+    HOPE_CheckVkResult(vkGetSwapchainImagesKHR(context->logical_device,
+                                               swapchain->handle,
+                                               &swapchain->image_count,
+                                               nullptr));
 
     swapchain->images = AllocateArray(context->allocator,
                                       VkImage, swapchain->image_count);
@@ -211,10 +211,10 @@ create_swapchain(Vulkan_Context *context,
     swapchain->frame_buffers = AllocateArray(context->allocator,
                                              VkFramebuffer, swapchain->image_count);
 
-    CheckVkResult(vkGetSwapchainImagesKHR(context->logical_device,
-                                          swapchain->handle,
-                                          &swapchain->image_count,
-                                          swapchain->images));
+    HOPE_CheckVkResult(vkGetSwapchainImagesKHR(context->logical_device,
+                                               swapchain->handle,
+                                               &swapchain->image_count,
+                                               swapchain->images));
 
     for (U32 image_index = 0; image_index < swapchain->image_count; image_index++)
     {
@@ -233,10 +233,10 @@ create_swapchain(Vulkan_Context *context,
         image_view_create_info.subresourceRange.baseArrayLayer = 0;
         image_view_create_info.subresourceRange.layerCount = 1;
 
-        CheckVkResult(vkCreateImageView(context->logical_device,
-                                        &image_view_create_info,
-                                        nullptr,
-                                        &swapchain->image_views[image_index]));
+        HOPE_CheckVkResult(vkCreateImageView(context->logical_device,
+                                             &image_view_create_info,
+                                             nullptr,
+                                             &swapchain->image_views[image_index]));
     }
 
     bool mipmapping = false;
@@ -292,10 +292,10 @@ create_swapchain(Vulkan_Context *context,
         frame_buffer_create_info.height = swapchain->height;
         frame_buffer_create_info.layers = 1;
 
-        CheckVkResult(vkCreateFramebuffer(context->logical_device,
-                                          &frame_buffer_create_info,
-                                          nullptr,
-                                          &swapchain->frame_buffers[image_index]));
+        HOPE_CheckVkResult(vkCreateFramebuffer(context->logical_device,
+                                               &frame_buffer_create_info,
+                                               nullptr,
+                                               &swapchain->frame_buffers[image_index]));
     }
 
     return true;

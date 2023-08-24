@@ -1,0 +1,5 @@
+@platform
+:engine_name Hope
+:permenent_memory_size 67108864
+:transient_memory_size 1073741824
+:test 1.000000

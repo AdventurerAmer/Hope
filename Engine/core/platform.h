@@ -53,6 +53,8 @@ void* platform_allocate_memory(Size size);
 
 void platform_deallocate_memory(void *memory);
 
+bool platform_file_exists(const char *filepath);
+
 struct Open_File_Result
 {
     void *file_handle;

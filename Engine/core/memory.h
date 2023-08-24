@@ -31,7 +31,7 @@ struct Memory_Arena
     Size size;
     Size offset;
 
-#ifndef HE_SHIPPING
+#ifndef HOPE_SHIPPING
     Temprary_Memory_Arena *current_temprary_owner;
 #endif
 };
@@ -51,7 +51,7 @@ struct Temprary_Memory_Arena
     Memory_Arena *arena;
     Size offset;
 
-#ifndef HE_SHIPPING
+#ifndef HOPE_SHIPPING
     Temprary_Memory_Arena *parent;
 #endif
 };

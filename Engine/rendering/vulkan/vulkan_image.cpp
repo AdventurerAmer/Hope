@@ -95,8 +95,8 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     image_create_info.samples = samples;
     image_create_info.flags = 0;
 
-    CheckVkResult(vkCreateImage(context->logical_device, &image_create_info,
-                                nullptr, &image->handle));
+    HOPE_CheckVkResult(vkCreateImage(context->logical_device, &image_create_info,
+                                     nullptr, &image->handle));
 
     VkMemoryRequirements memory_requirements = {};
     vkGetImageMemoryRequirements(context->logical_device, image->handle, &memory_requirements);
@@ -107,8 +107,8 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
                                                                   memory_requirements,
                                                                   properties);
 
-    CheckVkResult(vkAllocateMemory(context->logical_device, &memory_allocate_info,
-                                   nullptr, &image->memory));
+    HOPE_CheckVkResult(vkAllocateMemory(context->logical_device, &memory_allocate_info,
+                                        nullptr, &image->memory));
 
     vkBindImageMemory(context->logical_device, image->handle, image->memory, 0);
     image->mip_levels = mip_levels;
@@ -126,8 +126,8 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     image_view_create_info.subresourceRange.levelCount = mip_levels;
     image_view_create_info.subresourceRange.baseArrayLayer = 0;
     image_view_create_info.subresourceRange.layerCount = 1;
-    CheckVkResult(vkCreateImageView(context->logical_device, &image_view_create_info,
-                                    nullptr, &image->view));
+    HOPE_CheckVkResult(vkCreateImageView(context->logical_device, &image_view_create_info,
+                                         nullptr, &image->view));
 
     VkSamplerCreateInfo sampler_create_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
     sampler_create_info.minFilter = VK_FILTER_LINEAR;
@@ -145,7 +145,7 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     sampler_create_info.mipLodBias = 0.0f;
     sampler_create_info.minLod = 0.0f;
     sampler_create_info.maxLod = (F32)image->mip_levels;
-    CheckVkResult(vkCreateSampler(context->logical_device, &sampler_create_info, nullptr, &image->sampler));
+    HOPE_CheckVkResult(vkCreateSampler(context->logical_device, &sampler_create_info, nullptr, &image->sampler));
 
     return true;
 }

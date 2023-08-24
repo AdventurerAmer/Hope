@@ -2,6 +2,12 @@
 #include "platform.h"
 #include "rendering/renderer.h"
 #include "debugging.h"
+#include "cvars.h"
+
+HOPE_CVarString(engine_name, "name of the engine", "Hope", "platform", CVarFlag_None);
+HOPE_CVarInt(permenent_memory_size, "size of permenent memory in bytes", HE_MegaBytes(64), "platform", CVarFlag_None);
+HOPE_CVarInt(transient_memory_size, "size of permenent memory in bytes", HE_GigaBytes(1), "platform", CVarFlag_None);
+HOPE_CVarFloat(test, "test", 1.0, "platform", CVarFlag_None);
 
 #include <imgui.h>
 
@@ -115,8 +121,14 @@ void hock_engine_api(Engine_API *api)
     api->render_scene_node = &render_scene_node;
 }
 
+
 bool startup(Engine *engine, const Engine_Configuration &configuration, void *platform_state)
 {
+    HOPE_CVarGetString(engine_name, "platform");
+    HOPE_CVarGetInt(permenent_memory_size, "platform");
+    HOPE_CVarGetInt(transient_memory_size, "platform");
+    HOPE_CVarGetFloat(test, "platform");
+
     Size required_memory_size =
         configuration.permanent_memory_size + configuration.transient_memory_size;
 
@@ -140,6 +152,8 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
                              &engine->memory.transient_arena,
                              HE_MegaBytes(512));
 
+    init_cvars("hope_config.cvars", engine);
+    
 #ifndef HOPE_SHIPPING
 
     U64 debug_state_arena_size = HE_MegaBytes(64);
@@ -269,6 +283,8 @@ void shutdown(Engine *engine)
 {
     (void)engine;
 
+    deinit_cvars(engine);
+
     Renderer *renderer = &engine->renderer;
     Renderer_State *renderer_state = &engine->renderer_state;
     renderer->wait_for_gpu_to_finish_all_work(renderer_state);
@@ -279,7 +295,7 @@ void shutdown(Engine *engine)
     platform_shutdown_imgui();
     ImGui::DestroyContext();
 
-#ifndef HE_SHIPPING
+#ifndef HOPE_SHIPPING
     Logger *logger = &global_debug_state.main_logger;
     deinit_logger(logger);
 #endif

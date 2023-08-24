@@ -5,6 +5,7 @@
 
 #include "core/memory.h"
 #include "core/engine.h"
+#include "containers/queue.h"
 
 static Free_List_Allocator *_transfer_allocator;
 static Free_List_Allocator *_stbi_allocator;
@@ -442,145 +443,152 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
         Scene_Node *node;
     };
 
+    Temprary_Memory_Arena temprary_arena = {};
+    begin_temprary_memory_arena(&temprary_arena, &renderer_state->engine->memory.transient_arena);
+
+    Queue< Scene_Node_Bundle > nodes;
+    init_queue(&nodes, 4096, &temprary_arena);
+
     for (U32 node_index = 0; node_index < model_data->nodes_count; node_index++)
     {
-        std::queue< Scene_Node_Bundle > nodes;
-        nodes.push({ &model_data->nodes[node_index], add_child_scene_node(renderer_state, root_scene_node) });
-        while (!nodes.empty())
+        push(&nodes, { &model_data->nodes[node_index], add_child_scene_node(renderer_state, root_scene_node) });
+    }
+
+    while (!empty(&nodes))
+    {
+        Scene_Node_Bundle node_bundle = pop(&nodes);
+        Scene_Node* scene_node = node_bundle.node;
+        cgltf_node* node = node_bundle.cgltf_node;
+
+        cgltf_node_transform_world(node, glm::value_ptr(scene_node->transform));
+
+        if (node->mesh)
         {
-            Scene_Node_Bundle &node_bundle = nodes.front();
-            cgltf_node *node = node_bundle.cgltf_node;
-            Scene_Node *scene_node = node_bundle.node;
-            nodes.pop();
+            scene_node->start_mesh_index = renderer_state->static_mesh_count;
+            scene_node->static_mesh_count += u64_to_u32(node->mesh->primitives_count);
 
-            cgltf_node_transform_world(node, glm::value_ptr(scene_node->transform));
-
-            if (node->mesh)
+            for (U32 primitive_index = 0; primitive_index < node->mesh->primitives_count; primitive_index++)
             {
-                scene_node->start_mesh_index = renderer_state->static_mesh_count;
-                scene_node->static_mesh_count += u64_to_u32(node->mesh->primitives_count);
+                cgltf_primitive* primitive = &node->mesh->primitives[primitive_index];
+                HOPE_Assert(primitive->material);
+                cgltf_material* material = primitive->material;
 
-                for (U32 primitive_index = 0; primitive_index < node->mesh->primitives_count; primitive_index++)
+                U64 material_hash = (U64)material;
+                S32 material_index = find_material(renderer_state, material_hash);
+                HOPE_Assert(material_index != -1);
+
+                Static_Mesh* static_mesh = allocate_static_mesh(renderer_state);
+                static_mesh->material = &renderer_state->materials[material_index];
+
+                HOPE_Assert(primitive->type == cgltf_primitive_type_triangles);
+
+                for (U32 attribute_index = 0; attribute_index < primitive->attributes_count; attribute_index++)
                 {
-                    cgltf_primitive *primitive = &node->mesh->primitives[primitive_index];
-                    HOPE_Assert(primitive->material);
-                    cgltf_material *material = primitive->material;
+                    cgltf_attribute* attribute = &primitive->attributes[attribute_index];
+                    HOPE_Assert(attribute->type != cgltf_attribute_type_invalid);
 
-                    U64 material_hash = (U64)material;
-                    S32 material_index = find_material(renderer_state, material_hash);
-                    HOPE_Assert(material_index != -1);
-
-                    Static_Mesh *static_mesh = allocate_static_mesh(renderer_state);
-                    static_mesh->material = &renderer_state->materials[material_index];
-
-                    HOPE_Assert(primitive->type == cgltf_primitive_type_triangles);
-
-                    for (U32 attribute_index = 0; attribute_index < primitive->attributes_count; attribute_index++)
-                    {
-                        cgltf_attribute *attribute = &primitive->attributes[attribute_index];
-                        HOPE_Assert(attribute->type != cgltf_attribute_type_invalid);
-
-                        const auto *accessor = attribute->data;
-                        const auto *view = accessor->buffer_view;
-                        U8 *data_ptr = (U8*)view->buffer->data;
-
-                        switch (attribute->type)
-                        {
-                            case cgltf_attribute_type_position:
-                            {
-                                HOPE_Assert(attribute->data->type == cgltf_type_vec3);
-                                HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
-
-                                position_count = u64_to_u32(attribute->data->count);
-                                U64 stride = attribute->data->stride;
-                                HOPE_Assert(stride == sizeof(glm::vec3));
-                                positions = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
-                            } break;
-
-                            case cgltf_attribute_type_normal:
-                            {
-                                HOPE_Assert(attribute->data->type == cgltf_type_vec3);
-                                HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
-
-                                normal_count = u64_to_u32(attribute->data->count);
-                                U64 stride = attribute->data->stride;
-                                HOPE_Assert(stride == sizeof(glm::vec3));
-                                normals = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
-                            } break;
-
-                            case cgltf_attribute_type_tangent:
-                            {
-                                HOPE_Assert(attribute->data->type == cgltf_type_vec4);
-                                HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
-                                tangent_count = u64_to_u32(attribute->data->count);
-                                U64 stride = attribute->data->stride;
-                                HOPE_Assert(stride == sizeof(glm::vec4));
-                                tangents = (glm::vec4*)(data_ptr + view->offset + accessor->offset);
-                            } break;
-
-                            case cgltf_attribute_type_texcoord:
-                            {
-                                HOPE_Assert(attribute->data->type == cgltf_type_vec2);
-                                HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
-
-                                uv_count = u64_to_u32(attribute->data->count);
-                                U64 stride = attribute->data->stride;
-                                HOPE_Assert(stride == sizeof(glm::vec2));
-                                uvs = (glm::vec2*)(data_ptr + view->offset + accessor->offset);
-                            } break;
-                        }
-                    }
-                    
-                    HOPE_Assert(tangents);
-                    HOPE_Assert(position_count == normal_count);
-                    HOPE_Assert(position_count == uv_count);
-                    HOPE_Assert(position_count == tangent_count);
-
-                    // note(amer): we only support u16 indices for now.
-                    HOPE_Assert(primitive->indices->type == cgltf_type_scalar);
-                    HOPE_Assert(primitive->indices->component_type == cgltf_component_type_r_16u);
-                    HOPE_Assert(primitive->indices->stride == sizeof(U16));
-
-                    index_count = u64_to_u32(primitive->indices->count);
-                    const auto *accessor = primitive->indices;
+                    const auto *accessor = attribute->data;
                     const auto *view = accessor->buffer_view;
-                    U8 *data_ptr = (U8*)view->buffer->data;
-                    indices = (U16*)(data_ptr + view->offset + accessor->offset);
+                    U8* data_ptr = (U8*)view->buffer->data;
 
-                    U32 vertex_count = position_count;
-                    Vertex *vertices = AllocateArray(renderer_state->transfer_allocator, Vertex, vertex_count);
-
-                    for (U32 vertex_index = 0; vertex_index < vertex_count; vertex_index++)
+                    switch (attribute->type)
                     {
-                        const glm::vec4 &tanget = tangents[vertex_index];
-                        Vertex *vertex = &vertices[vertex_index];
-                        vertex->position = positions[vertex_index];
-                        vertex->normal = normals[vertex_index];
-                        vertex->tangent = tanget;
-                        vertex->bitangent = glm::cross(vertex->normal, vertex->tangent) * tanget.w;
-                        vertex->uv = uvs[vertex_index];
+                    case cgltf_attribute_type_position:
+                    {
+                        HOPE_Assert(attribute->data->type == cgltf_type_vec3);
+                        HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+
+                        position_count = u64_to_u32(attribute->data->count);
+                        U64 stride = attribute->data->stride;
+                        HOPE_Assert(stride == sizeof(glm::vec3));
+                        positions = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
+                    } break;
+
+                    case cgltf_attribute_type_normal:
+                    {
+                        HOPE_Assert(attribute->data->type == cgltf_type_vec3);
+                        HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+
+                        normal_count = u64_to_u32(attribute->data->count);
+                        U64 stride = attribute->data->stride;
+                        HOPE_Assert(stride == sizeof(glm::vec3));
+                        normals = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
+                    } break;
+
+                    case cgltf_attribute_type_tangent:
+                    {
+                        HOPE_Assert(attribute->data->type == cgltf_type_vec4);
+                        HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                        tangent_count = u64_to_u32(attribute->data->count);
+                        U64 stride = attribute->data->stride;
+                        HOPE_Assert(stride == sizeof(glm::vec4));
+                        tangents = (glm::vec4*)(data_ptr + view->offset + accessor->offset);
+                    } break;
+
+                    case cgltf_attribute_type_texcoord:
+                    {
+                        HOPE_Assert(attribute->data->type == cgltf_type_vec2);
+                        HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+
+                        uv_count = u64_to_u32(attribute->data->count);
+                        U64 stride = attribute->data->stride;
+                        HOPE_Assert(stride == sizeof(glm::vec2));
+                        uvs = (glm::vec2*)(data_ptr + view->offset + accessor->offset);
+                    } break;
                     }
-
-                    Static_Mesh_Descriptor descriptor = {};
-                    descriptor.vertices = vertices;
-                    descriptor.vertex_count = vertex_count;
-                    descriptor.indices = indices;
-                    descriptor.index_count = index_count;
-                    bool created = renderer->create_static_mesh(static_mesh, descriptor);
-                    HOPE_Assert(created);
-
-                    deallocate(renderer_state->transfer_allocator, vertices);
                 }
-            }
 
-            for (U32 child_node_index = 0;
-                 child_node_index < node->children_count;
-                 child_node_index++)
-            {
-                nodes.push({ node->children[child_node_index], add_child_scene_node(renderer_state, scene_node) });
+                HOPE_Assert(tangents);
+                HOPE_Assert(position_count == normal_count);
+                HOPE_Assert(position_count == uv_count);
+                HOPE_Assert(position_count == tangent_count);
+
+                // note(amer): we only support u16 indices for now.
+                HOPE_Assert(primitive->indices->type == cgltf_type_scalar);
+                HOPE_Assert(primitive->indices->component_type == cgltf_component_type_r_16u);
+                HOPE_Assert(primitive->indices->stride == sizeof(U16));
+
+                index_count = u64_to_u32(primitive->indices->count);
+                const auto* accessor = primitive->indices;
+                const auto* view = accessor->buffer_view;
+                U8* data_ptr = (U8*)view->buffer->data;
+                indices = (U16*)(data_ptr + view->offset + accessor->offset);
+
+                U32 vertex_count = position_count;
+                Vertex* vertices = AllocateArray(renderer_state->transfer_allocator, Vertex, vertex_count);
+
+                for (U32 vertex_index = 0; vertex_index < vertex_count; vertex_index++)
+                {
+                    const glm::vec4& tanget = tangents[vertex_index];
+                    Vertex* vertex = &vertices[vertex_index];
+                    vertex->position = positions[vertex_index];
+                    vertex->normal = normals[vertex_index];
+                    vertex->tangent = tanget;
+                    vertex->bitangent = glm::cross(vertex->normal, vertex->tangent) * tanget.w;
+                    vertex->uv = uvs[vertex_index];
+                }
+
+                Static_Mesh_Descriptor descriptor = {};
+                descriptor.vertices = vertices;
+                descriptor.vertex_count = vertex_count;
+                descriptor.indices = indices;
+                descriptor.index_count = index_count;
+                bool created = renderer->create_static_mesh(static_mesh, descriptor);
+                HOPE_Assert(created);
+
+                deallocate(renderer_state->transfer_allocator, vertices);
             }
         }
+
+        for (U32 child_node_index = 0;
+            child_node_index < node->children_count;
+            child_node_index++)
+        {
+            push(&nodes, { node->children[child_node_index], add_child_scene_node(renderer_state, scene_node) });
+        }
     }
+
+    end_temprary_memory_arena(&temprary_arena);
 
     cgltf_free(model_data);
     deallocate(renderer_state->transfer_allocator, buffer);

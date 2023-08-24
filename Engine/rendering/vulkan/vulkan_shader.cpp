@@ -550,7 +550,7 @@ load_shader(Shader *shader, const char *path, Vulkan_Context *context)
                 entity.id_of_type = instruction[2];
                 const Shader_Entity &type_entity = ids[entity.id_of_type];
                 entity.data_type = type_entity.data_type;
-                entity.element_count = MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
+                entity.element_count = HOPE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
             } break;
 
             case SpvOpTypeSampledImage:
@@ -640,10 +640,10 @@ load_shader(Shader *shader, const char *path, Vulkan_Context *context)
     shader_create_info.codeSize = result.size;
     shader_create_info.pCode = (U32 *)data;
 
-    CheckVkResult(vkCreateShaderModule(context->logical_device,
-                                       &shader_create_info,
-                                       nullptr,
-                                       &vulkan_shader->handle));
+    HOPE_CheckVkResult(vkCreateShaderModule(context->logical_device,
+                                            &shader_create_info,
+                                            nullptr,
+                                            &vulkan_shader->handle));
 
     end_temprary_memory_arena(&temp_arena);
 
@@ -806,10 +806,10 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
         descriptor_set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         descriptor_set_layout_create_info.pNext = &extended_descriptor_set_layout_create_info;
 
-        CheckVkResult(vkCreateDescriptorSetLayout(context->logical_device,
-                                                  &descriptor_set_layout_create_info,
-                                                  nullptr,
-                                                  &pipeline->descriptor_set_layouts[set_index]));
+        HOPE_CheckVkResult(vkCreateDescriptorSetLayout(context->logical_device,
+                                                       &descriptor_set_layout_create_info,
+                                                       nullptr,
+                                                       &pipeline->descriptor_set_layouts[set_index]));
     }
 
     VkVertexInputBindingDescription vertex_input_binding_description = {};
@@ -939,9 +939,9 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
     pipeline_layout_create_info.pushConstantRangeCount = 0;
     pipeline_layout_create_info.pPushConstantRanges = nullptr;
 
-    CheckVkResult(vkCreatePipelineLayout(context->logical_device,
-                                         &pipeline_layout_create_info,
-                                         nullptr, &pipeline->layout));
+    HOPE_CheckVkResult(vkCreatePipelineLayout(context->logical_device,
+                                              &pipeline_layout_create_info,
+                                              nullptr, &pipeline->layout));
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state_create_info
         = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
@@ -979,9 +979,9 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
     graphics_pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
     graphics_pipeline_create_info.basePipelineIndex = -1;
 
-    CheckVkResult(vkCreateGraphicsPipelines(context->logical_device, context->pipeline_cache,
-                                            1, &graphics_pipeline_create_info,
-                                            nullptr, &pipeline->handle));
+    HOPE_CheckVkResult(vkCreateGraphicsPipelines(context->logical_device, context->pipeline_cache,
+                                                 1, &graphics_pipeline_create_info,
+                                                 nullptr, &pipeline->handle));
 
     return true;
 }
