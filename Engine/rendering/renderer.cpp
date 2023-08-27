@@ -21,17 +21,20 @@ static Free_List_Allocator *_stbi_allocator;
 
 #include "rendering/renderer.h"
 #include "core/platform.h"
+#include "core/cvars.h"
 
 #if HOPE_OS_WINDOWS
-#define HE_RHI_VULKAN
+#define HOPE_RHI_VULKAN
 #endif
 
-#ifdef HE_RHI_VULKAN
+#ifdef HOPE_RHI_VULKAN
 #include "rendering/vulkan/vulkan_renderer.h"
 #endif
 
+HOPE_CVarInt(back_buffer_width, "back buffer width", -1, "renderer", CVarFlag_None);
+HOPE_CVarInt(back_buffer_height, "back buffer height", -1, "renderer", CVarFlag_None);
+
 // todo(amer): to be removed...
-#include <queue>
 #include <filesystem>
 namespace fs = std::filesystem;
 
@@ -42,7 +45,7 @@ bool request_renderer(RenderingAPI rendering_api,
 
     switch (rendering_api)
     {
-#ifdef HE_RHI_VULKAN
+#ifdef HOPE_RHI_VULKAN
         case RenderingAPI_Vulkan:
         {
             renderer->init = &vulkan_renderer_init;
@@ -79,6 +82,19 @@ bool init_renderer_state(Engine *engine,
                          Renderer_State *renderer_state,
                          struct Memory_Arena *arena)
 {
+    HOPE_CVarGetInt(back_buffer_width, "renderer");
+    HOPE_CVarGetInt(back_buffer_height, "renderer");
+
+    if (*back_buffer_width == -1 || *back_buffer_height == -1)
+    {
+        // todo(amer): get video modes and pick highest one
+        *back_buffer_width = 1280;
+        *back_buffer_height = 720;
+    }
+
+    renderer_state->back_buffer_width = (U32)*back_buffer_width;
+    renderer_state->back_buffer_height = (U32)*back_buffer_height;
+
     _transfer_allocator = renderer_state->transfer_allocator;
     _stbi_allocator = &engine->memory.free_list_allocator;
 
@@ -114,6 +130,12 @@ bool init_renderer_state(Engine *engine,
 
 void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_state)
 {
+    HOPE_CVarGetInt(back_buffer_width, "renderer");
+    HOPE_CVarGetInt(back_buffer_height, "renderer");
+
+    *back_buffer_width = renderer_state->back_buffer_width;
+    *back_buffer_height = renderer_state->back_buffer_height;
+
     for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
     {
         renderer->destroy_texture(&renderer_state->textures[texture_index]);

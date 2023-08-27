@@ -338,7 +338,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         "VK_KHR_win32_surface",
 #endif
 
-#if HE_VULKAN_DEBUGGING
+#if HOPE_VULKAN_DEBUGGING
         "VK_EXT_debug_utils",
 #endif
         "VK_KHR_surface",
@@ -374,7 +374,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     instance_create_info.enabledExtensionCount = HOPE_ArrayCount(required_instance_extensions);
     instance_create_info.ppEnabledExtensionNames = required_instance_extensions;
 
-#if HE_VULKAN_DEBUGGING
+#if HOPE_VULKAN_DEBUGGING
 
     VkDebugUtilsMessengerCreateInfoEXT debug_messenger_create_info =
         { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
@@ -405,17 +405,17 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     HOPE_CheckVkResult(vkCreateInstance(&instance_create_info, nullptr, &context->instance));
 
-#if HE_VULKAN_DEBUGGING
+#if HOPE_VULKAN_DEBUGGING
 
     PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerExt =
         (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(context->instance,
                                                                   "vkCreateDebugUtilsMessengerEXT");
     HOPE_Assert(vkCreateDebugUtilsMessengerExt);
 
-    CheckVkResult(vkCreateDebugUtilsMessengerExt(context->instance,
-                                                 &debug_messenger_create_info,
-                                                 nullptr,
-                                                 &context->debug_messenger));
+    HOPE_CheckVkResult(vkCreateDebugUtilsMessengerExt(context->instance,
+                                                      &debug_messenger_create_info,
+                                                      nullptr,
+                                                      &context->debug_messenger));
 
 #endif
 
@@ -910,17 +910,17 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                            &transfer_command_pool_create_info,
                                            nullptr, &context->transfer_command_pool));
 
-    U64 vertex_size = HE_MegaBytes(256);
+    U64 vertex_size = HOPE_MegaBytes(256);
     create_buffer(&context->vertex_buffer, context, vertex_size,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    U64 index_size = HE_MegaBytes(128);
+    U64 index_size = HOPE_MegaBytes(128);
     create_buffer(&context->index_buffer, context, index_size,
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    create_buffer(&context->transfer_buffer, context, HE_MegaBytes(512),
+    create_buffer(&context->transfer_buffer, context, HOPE_MegaBytes(512),
                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
@@ -1135,7 +1135,7 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDestroySurfaceKHR(context->instance, context->surface, nullptr);
     vkDestroyDevice(context->logical_device, nullptr);
 
-#if HE_VULKAN_DEBUGGING
+#if HOPE_VULKAN_DEBUGGING
      PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerExt =
         (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(context->instance,
                                                                   "vkDestroyDebugUtilsMessengerEXT");

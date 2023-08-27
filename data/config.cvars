@@ -1,0 +1,9 @@
+@platform
+:engine_name Hope
+:app_name Hope
+:window_mode 0
+:window_width 1296
+:window_height 759
+@renderer
+:back_buffer_width 1280
+:back_buffer_height 720

@@ -2,10 +2,10 @@
 
 #include "defines.h"
 
-#define HE_KiloBytes(A) (U64(1024) * (A))
-#define HE_MegaBytes(A) (U64(1024) * HE_KiloBytes((A)))
-#define HE_GigaBytes(A) (U64(1024) * HE_MegaBytes((A)))
-#define HE_TeraBytes(A) (U64(1024) * HE_GigaBytes((A)))
+#define HOPE_KiloBytes(A) (U64(1024) * (A))
+#define HOPE_MegaBytes(A) (U64(1024) * HOPE_KiloBytes((A)))
+#define HOPE_GigaBytes(A) (U64(1024) * HOPE_MegaBytes((A)))
+#define HOPE_TeraBytes(A) (U64(1024) * HOPE_GigaBytes((A)))
 
 #define Allocate(AllocatorPointer, Type)\
 (Type *)allocate((AllocatorPointer), sizeof(Type), 0)

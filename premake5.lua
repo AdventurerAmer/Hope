@@ -33,20 +33,6 @@ workspace "Hope"
 
     filter {}
 
-project "AssetProcessor"
-    kind "ConsoleApp"
-    location "AssetProcessor"
-    language "C++"
-    cppdialect "C++17"
-    staticruntime "on"
-
-    files { "AssetProcessor/**.h", "AssetProcessor/**.hpp", "AssetProcessor/**.cpp", "Data/**.vert", "Data/**.frag", "Data/**.glsl" }
-    includedirs { "Engine", "ThirdParty/include" }
-
-    debugdir "Data"
-    targetdir "bin/%{prj.name}"
-    objdir "bin/intermediates/%{prj.name}"
-
 include "ThirdParty/ImGui"
 
 project "Engine"
@@ -70,18 +56,18 @@ project "Engine"
     targetdir "bin/%{prj.name}"
     objdir "bin/intermediates/%{prj.name}"
 
-project "TestGame"
+project "Game"
 
     dependson { "Engine" }
 
     kind "SharedLib"
-    location "TestGame"
+    location "Game"
     language "C++"
     cppdialect "C++17"
     staticruntime "on"
 
     defines { "HOPE_EXPORT" }
-    files { "TestGame/**.h", "TestGame/**.hpp", "TestGame/**.cpp" }
+    files { "Game/**.h", "Game/**.hpp", "Game/**.cpp" }
 
     includedirs { "Engine", "ThirdParty/include", }
 

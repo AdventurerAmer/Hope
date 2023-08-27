@@ -43,19 +43,19 @@ void* declare_cvar(const char *name,
 void *get_cvar(const char *name, U64 category, CVar_Type type);
 
 #define HOPE_CVarInt(Name, Description, DefaultValue, Category, Flags)\
-    static S64 *Name = (S64 *)declare_cvar(HOPE_Stringify(Name), Description, (S64)DefaultValue, compile_time_string_hash(Category), Category, Flags)
+    S64 *config_##Name = (S64 *)declare_cvar(HOPE_Stringify(Name), Description, (S64)DefaultValue, compile_time_string_hash(Category), Category, Flags)
 
 #define HOPE_CVarFloat(Name, Description, DefaultValue, Category, Flags)\
-    static F64 *Name = (F64 *)declare_cvar(HOPE_Stringify(Name), Description, (F64)DefaultValue, compile_time_string_hash(Category), Category, Flags)
+    F64 *config_##Name = (F64 *)declare_cvar(HOPE_Stringify(Name), Description, (F64)DefaultValue, compile_time_string_hash(Category), Category, Flags)
 
 #define HOPE_CVarString(Name, Description, DefaultValue, Category, Flags)\
-    static String *Name = (String *)declare_cvar(HOPE_Stringify(Name), Description, DefaultValue, compile_time_string_hash(Category), Category, Flags)
+    String *config_##Name = (String *)declare_cvar(HOPE_Stringify(Name), Description, DefaultValue, compile_time_string_hash(Category), Category, Flags)
 
 #define HOPE_CVarGetInt(Name, Category)\
-    Name = (S64 *)get_cvar(HOPE_Stringify(Name), compile_time_string_hash(Category), CVarType_Int)
+    S64 *Name = (S64 *)get_cvar(HOPE_Stringify(Name), compile_time_string_hash(Category), CVarType_Int)
 
 #define HOPE_CVarGetFloat(Name, Category)\
-    Name = (F64 *)get_cvar(HOPE_Stringify(Name), compile_time_string_hash(Category), CVarType_Float)
+    F64 *Name = (F64 *)get_cvar(HOPE_Stringify(Name), compile_time_string_hash(Category), CVarType_Float)
 
 #define HOPE_CVarGetString(Name, Category)\
-    Name = (String *)get_cvar(HOPE_Stringify(Name), compile_time_string_hash(Category), CVarType_String)
+    String *Name = (String *)get_cvar(HOPE_Stringify(Name), compile_time_string_hash(Category), CVarType_String)

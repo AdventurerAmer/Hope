@@ -33,14 +33,6 @@ struct Game_Code
     On_Update_Proc on_update;
 };
 
-void set_game_code_to_stubs(Game_Code *game_code);
-
-bool init_game_stub(Engine *engine);
-
-void on_event_stub(Engine *engine, Event event);
-
-void on_update_stub(Engine *engine, F32 delta_time);
-
 typedef void* (*Allocate_Memory_Proc)(U64 size);
 
 typedef void (*Deallocate_Memory_Proc)(void *memory);
@@ -53,25 +45,7 @@ struct Platform_API
 {
     Allocate_Memory_Proc allocate_memory;
     Deallocate_Memory_Proc deallocate_memory;
-    Toggle_Fullscreen_Proc toggle_fullscreen;
     Debug_Printf debug_printf;
-};
-
-enum WindowMode : U8
-{
-    WindowMode_Windowed,
-    WindowMode_Fullscreen
-};
-
-struct Engine_Configuration
-{
-    Size permanent_memory_size;
-    Size transient_memory_size;
-    WindowMode window_mode;
-    bool show_cursor;
-    bool lock_cursor;
-    U32 back_buffer_width;
-    U32 back_buffer_height;
 };
 
 typedef void* (*imgui_mem_alloc_proc)(size_t sz, void* user_data);
@@ -107,8 +81,6 @@ struct Engine_API
     void (*imgui_end_window)();
 };
 
-void hock_engine_api(Engine_API *api);
-
 struct Engine
 {
     Platform_API platform_api;
@@ -119,7 +91,7 @@ struct Engine
     bool is_minimized;
     bool show_cursor;
     bool lock_cursor;
-    WindowMode window_mode;
+    Window window;
 
     Input input;
 
@@ -137,7 +109,7 @@ struct Engine
     Engine_API api;
 };
 
-bool startup(Engine *engine, const Engine_Configuration &configuration, void *platform_state);
+bool startup(Engine *engine, void *platform_state);
 
 void game_loop(Engine *engine, F32 delta_time);
 

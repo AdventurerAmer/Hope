@@ -198,7 +198,7 @@ struct Vulkan_Context
 
     VkDescriptorPool imgui_descriptor_pool;
 
-#if HE_VULKAN_DEBUGGING
+#if HOPE_VULKAN_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;
 #endif
 };

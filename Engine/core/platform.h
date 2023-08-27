@@ -42,22 +42,42 @@ struct Event
 };
 
 
-enum Open_File_Flags : U32
-{
-    OpenFileFlag_Read = 0x1,
-    OpenFileFlag_Write = 0x2,
-    OpenFileFlag_Truncate = 0x4,
-};
 
 void* platform_allocate_memory(Size size);
 
 void platform_deallocate_memory(void *memory);
 
+enum class Window_Mode : U8
+{
+    WINDOWED   = 0,
+    FULLSCREEN = 1
+};
+
+struct Window
+{
+    U32 width;
+    U32 height;
+    const char *title;
+    Window_Mode mode;
+
+    void *platform_window_state;
+};
+
+bool platform_create_window(Window *window, const char *title, U32 client_width, U32 client_height, Window_Mode window_mode = Window_Mode::WINDOWED);
+void platform_set_window_mode(Window *window, Window_Mode window_mode);
+
+enum Open_File_Flags : U8
+{
+    OpenFileFlag_Read     = 1 << 0,
+    OpenFileFlag_Write    = 1 << 1,
+    OpenFileFlag_Truncate = 1 << 2,
+};
+
 bool platform_file_exists(const char *filepath);
 
 struct Open_File_Result
 {
-    void *file_handle;
+    void *handle;
     Size size;
     bool success;
 };
@@ -70,11 +90,18 @@ bool platform_write_data_to_file(const Open_File_Result *open_file_result, Size 
 
 bool platform_close_file(Open_File_Result *open_file_result);
 
-void platform_toggle_fullscreen(struct Engine *engine);
+struct Dynamic_Library
+{
+    void *platform_dynamic_library_state;
+};
+
+bool platform_load_dynamic_library(Dynamic_Library *dynamic_library, const char *filepath);
+void *platform_get_proc_address(Dynamic_Library *dynamic_library, const char *proc_name);
+bool platform_unload_dynamic_library(Dynamic_Library *dynamic_library);
 
 void* platform_create_vulkan_surface(struct Engine *engine,
-                                     void *instance, const
-                                     void *allocator_callbacks = nullptr);
+                                     void *instance,
+                                     const void *allocator_callbacks = nullptr);
 
 void platform_init_imgui(struct Engine *engine);
 void platform_imgui_new_frame();

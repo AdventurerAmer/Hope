@@ -65,7 +65,6 @@ on_event(Engine *engine, Event event)
 				}
 				else if (event.key == HE_KEY_F11)
 				{
-					platform->toggle_fullscreen(engine);
                 }
                 else if (event.key == HE_KEY_F10)
                 {

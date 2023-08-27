@@ -162,22 +162,43 @@ void deinit_cvars(Engine *engine)
 static void* declare_cvar(const char *name,
                           const char *description,
                           CVar_Type type,
+                          CVar_Data default_value,
                           U64 category_hash,
                           const char *category,
-                          CVar_Data default_value,
                           CVar_Flags flags)
 {
     CVars_Category &cvars_category = cvars_state.category_to_cvars[category_hash];
     cvars_category.name = category;
+
     std::vector< CVar > &cvars = cvars_category.cvars;
     cvars.push_back(CVar {});
     CVar &cvar = cvars.back();
+
     cvar.name = name;
     cvar.description = description;
     cvar.type = type;
     cvar.flags = flags;
     cvar.value = default_value;
-    return &cvar.value;
+
+    switch (type)
+    {
+        case CVarType_Int:
+        {
+            return &cvar.value.s64;
+        } break;
+
+        case CVarType_Float:
+        {
+            return &cvar.value.f64;
+        } break;
+
+        case CVarType_String:
+        {
+            return &cvar.value.string;
+        } break;
+    }
+
+    return nullptr;
 }
 
 
@@ -190,7 +211,7 @@ void* declare_cvar(const char *name,
 {
     CVar_Data data = {};
     data.s64 = default_value;
-    return declare_cvar(name, description, CVarType_Int, category_hash, category, data, flags);
+    return declare_cvar(name, description, CVarType_Int, data, category_hash, category, flags);
 }
 
 void* declare_cvar(const char *name,
@@ -202,7 +223,7 @@ void* declare_cvar(const char *name,
 {
     CVar_Data data = {};
     data.f64 = default_value;
-    return declare_cvar(name, description, CVarType_Float, category_hash, category, data, flags);
+    return declare_cvar(name, description, CVarType_Float, data, category_hash, category, flags);
 }
 
 void* declare_cvar(const char *name,
@@ -214,7 +235,7 @@ void* declare_cvar(const char *name,
 {
     CVar_Data data = {};
     data.string = { default_value, string_length(default_value) };
-    return declare_cvar(name, description, CVarType_String, category_hash, category, data, flags);
+    return declare_cvar(name, description, CVarType_String, data, category_hash, category, flags);
 }
 
 void *get_cvar(const char *name, U64 category, CVar_Type type)

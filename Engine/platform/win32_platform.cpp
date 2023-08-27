@@ -17,127 +17,38 @@
 #include "core/platform.h"
 #include "core/memory.h"
 #include "core/engine.h"
+#include "core/cvars.h"
 
 #include "core/debugging.h"
 
 #include "ImGui/backends/imgui_impl_win32.cpp"
 
-// todo(amer): move to static config...
-#ifndef HE_APP_NAME
-#define HE_APP_NAME "Hope"
-#endif
-
-#define HE_WINDOW_CLASS_NAME HE_APP_NAME "_WindowClass"
-
-struct Win32_State
+struct Win32_Window_State
 {
-    HWND window;
+    HWND handle;
+    WINDOWPLACEMENT placement_before_fullscreen;
+};
+
+struct Win32_Platform_State
+{
     HINSTANCE instance;
-    U32 window_width;
-    U32 window_height;
-    U32 window_client_width;
-    U32 window_client_height;
-    S32 mouse_wheel_accumulated_delta;
+
+    const char *window_class_name;
+
     HCURSOR cursor;
-    WINDOWPLACEMENT window_placement_before_fullscreen;
-    Engine engine;
+    S32 mouse_wheel_accumulated_delta;
+
+    Engine *engine;
 };
 
-struct Win32_Dynamic_Library
-{
-    const char *filename;
-    const char *temp_filename;
-    FILETIME last_write_time;
-    HMODULE handle;
-};
-
-static void win32_report_last_error_and_exit(char *message)
-{
-    // note(amer): https://learn.microsoft.com/en-us/windows/win32/debug/retrieving-the-last-error-code
-    DWORD error_code = GetLastError();
-
-    LPVOID message_buffer;
-    FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER|
-                  FORMAT_MESSAGE_FROM_SYSTEM|
-                  FORMAT_MESSAGE_IGNORE_INSERTS,
-                  NULL, error_code, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                  (LPTSTR)&message_buffer, 0, NULL);
-
-    LPVOID display_buffer = (LPVOID)LocalAlloc(LMEM_ZEROINIT,
-                                               (lstrlen((LPCTSTR)message_buffer) + lstrlen((LPCTSTR)message) + 40) * sizeof(TCHAR));
-    StringCchPrintf((LPTSTR)display_buffer,
-                    LocalSize(display_buffer) / sizeof(TCHAR),
-                    TEXT("%s\nerror code %d: %s"),
-                    message, error_code, message_buffer);
-
-    MessageBox(NULL, (LPCTSTR)display_buffer, TEXT("Error"), MB_OK);
-
-    LocalFree(message_buffer);
-    LocalFree(display_buffer);
-    ExitProcess(error_code);
-}
-
-static void
-win32_set_window_client_size(Win32_State *win32_state, U32 client_width, U32 client_height)
-{
-    RECT window_rect;
-    window_rect.left = 0;
-    window_rect.right = client_width;
-    window_rect.top = 0;
-    window_rect.bottom = client_height;
-
-    HOPE_Assert(AdjustWindowRect(&window_rect, WS_OVERLAPPEDWINDOW, FALSE));
-    win32_state->window_width = window_rect.right - window_rect.left;
-    win32_state->window_height = window_rect.bottom - window_rect.top;
-    win32_state->window_client_width = client_width;
-    win32_state->window_client_height = client_height;
-}
-
-void platform_toggle_fullscreen(Engine *engine)
-{
-    Win32_State *win32_state = (Win32_State *)engine->platform_state;
-
-    DWORD style = GetWindowLong(win32_state->window, GWL_STYLE);
-    if ((style & WS_OVERLAPPEDWINDOW))
-    {
-        MONITORINFO monitor_info = { sizeof(MONITORINFO) };
-        HMONITOR monitor = MonitorFromWindow(win32_state->window, MONITOR_DEFAULTTOPRIMARY);
-
-        if (GetWindowPlacement(win32_state->window,
-                               &win32_state->window_placement_before_fullscreen) &&
-            GetMonitorInfo(monitor, &monitor_info))
-        {
-            SetWindowLong(win32_state->window, GWL_STYLE, style & ~(WS_OVERLAPPEDWINDOW));
-            SetWindowPos(win32_state->window, HWND_TOP,
-                         monitor_info.rcMonitor.left,
-                         monitor_info.rcMonitor.top,
-                         monitor_info.rcMonitor.right - monitor_info.rcMonitor.left,
-                         monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top,
-                         SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
-
-            win32_state->engine.window_mode = WindowMode_Fullscreen;
-        }
-    }
-    else
-    {
-        SetWindowLong(win32_state->window, GWL_STYLE, style|WS_OVERLAPPEDWINDOW);
-        SetWindowPlacement(win32_state->window, &win32_state->window_placement_before_fullscreen);
-        SetWindowPos(win32_state->window,
-                     NULL, 0, 0, 0, 0,
-                     SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
-
-        win32_state->engine.window_mode = WindowMode_Windowed;
-    }
-}
-
+static Win32_Platform_State win32_platform_state;
 
 void* platform_create_vulkan_surface(Engine *engine, void *instance, const void *allocator_callbacks)
 {
-    Win32_State *win32_state = (Win32_State *)engine->platform_state;
-
+    Win32_Window_State *win32_window_state = (Win32_Window_State *)engine->window.platform_window_state;
     VkWin32SurfaceCreateInfoKHR surface_create_info = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
-    surface_create_info.hinstance = win32_state->instance;
-    surface_create_info.hwnd = win32_state->window;
+    surface_create_info.hinstance = win32_platform_state.instance;
+    surface_create_info.hwnd = (HWND)win32_window_state->handle;
 
     VkSurfaceKHR surface = 0;
     VkResult result = vkCreateWin32SurfaceKHR((VkInstance)instance, &surface_create_info, (VkAllocationCallbacks *)allocator_callbacks, &surface);
@@ -145,27 +56,34 @@ void* platform_create_vulkan_surface(Engine *engine, void *instance, const void 
     return surface;
 }
 
+static void win32_get_window_size(U32 client_width, U32 client_height, U32 *width, U32 *height)
+{
+    RECT rect;
+    rect.left = 0;
+    rect.right = client_width;
+    rect.top = 0;
+    rect.bottom = client_height;
+
+    BOOL success = AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
+    HOPE_Assert(success != 0);
+
+    *width = rect.right - rect.left;
+    *height = rect.bottom - rect.top;
+}
+
 LRESULT CALLBACK
 win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
 {
-    static Win32_State *win32_state;
-
     LRESULT result = 0;
 
     switch (message)
     {
-        case WM_CREATE:
-        {
-            CREATESTRUCTA *create_struct = (CREATESTRUCTA *)l_param;
-            win32_state = (Win32_State *)create_struct->lpCreateParams;
-        } break;
-
         case WM_CLOSE:
         {
             Event event = {};
             event.type = EventType_Close;
-            win32_state->engine.game_code.on_event(&win32_state->engine, event);
-            win32_state->engine.is_running = false;
+            win32_platform_state.engine->game_code.on_event(win32_platform_state.engine, event);
+            win32_platform_state.engine->is_running = false;
         } break;
 
         case WM_SETCURSOR:
@@ -173,9 +91,9 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
             bool is_cursor_hovering_over_window_client_area = LOWORD(l_param) == HTCLIENT;
             if (is_cursor_hovering_over_window_client_area)
             {
-                if (win32_state->engine.show_cursor)
+                if (win32_platform_state.engine->show_cursor)
                 {
-                    SetCursor(win32_state->cursor);
+                    SetCursor(win32_platform_state.cursor);
                 }
                 else
                 {
@@ -191,41 +109,46 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
 
         case WM_SIZE:
         {
+            Engine *engine = win32_platform_state.engine;
             Event event = {};
             event.type = EventType_Resize;
 
             if (w_param == SIZE_MAXIMIZED)
             {
-                win32_state->engine.is_minimized = false;
+                win32_platform_state.engine->is_minimized = false;
                 event.maximized = true;
             }
             else if (w_param == SIZE_MINIMIZED)
             {
-                win32_state->engine.is_minimized = true;
+                win32_platform_state.engine->is_minimized = true;
                 event.minimized = true;
             }
             else if (w_param == SIZE_RESTORED)
             {
-                win32_state->engine.is_minimized = false;
+                win32_platform_state.engine->is_minimized = false;
                 event.restored = true;
             }
 
             U32 client_width = u64_to_u32(l_param & 0xFFFF);
             U32 client_height = u64_to_u32(l_param >> 16);
-            win32_set_window_client_size(win32_state, client_width, client_height);
 
-            win32_state->engine.renderer_state.back_buffer_width = client_width;
-            win32_state->engine.renderer_state.back_buffer_height = client_height;
+            U32 width = 0;
+            U32 height = 0;
+            win32_get_window_size(client_width, client_height, &width, &height);
+
+            Window *window = &engine->window;
+            window->width = width;
+            window->height = height;
 
             event.width = u32_to_u16(client_width);
             event.height = u32_to_u16(client_height);
-            win32_state->engine.game_code.on_event(&win32_state->engine, event);
+            engine->game_code.on_event(engine, event);
 
-            if (win32_state->engine.renderer.on_resize)
+            if (engine->renderer.on_resize)
             {
-                win32_state->engine.renderer.on_resize(&win32_state->engine.renderer_state,
-                                                       client_width,
-                                                       client_height);
+                engine->renderer.on_resize(&engine->renderer_state,
+                                           client_width,
+                                           client_height);
             }
         } break;
 
@@ -238,12 +161,12 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
     return result;
 }
 
-static int Platform_CreateVkSurface(ImGuiViewport *vp, ImU64 vk_inst, const void* vk_allocators, ImU64* out_vk_surface)
+static int imgui_platform_create_vk_surface(ImGuiViewport *vp, ImU64 vk_inst, const void *vk_allocators, ImU64 *out_vk_surface)
 {
     ImGui_ImplWin32_ViewportData *viewport_data = (ImGui_ImplWin32_ViewportData *)vp->PlatformUserData;
 
     VkWin32SurfaceCreateInfoKHR surface_create_info = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
-    surface_create_info.hinstance = GetModuleHandle(nullptr);
+    surface_create_info.hinstance = win32_platform_state.instance;
     surface_create_info.hwnd = viewport_data->Hwnd;
 
     VkSurfaceKHR surface = 0;
@@ -255,10 +178,10 @@ static int Platform_CreateVkSurface(ImGuiViewport *vp, ImU64 vk_inst, const void
 
 void platform_init_imgui(struct Engine *engine)
 {
-    Win32_State *win32_state = (Win32_State *)engine->platform_state;
+    Win32_Window_State *win32_window_state = (Win32_Window_State *)engine->window.platform_window_state;
     ImGuiPlatformIO &platform_io = ImGui::GetPlatformIO();
-    platform_io.Platform_CreateVkSurface = Platform_CreateVkSurface;
-    ImGui_ImplWin32_Init(win32_state->window);
+    platform_io.Platform_CreateVkSurface = imgui_platform_create_vk_surface;
+    ImGui_ImplWin32_Init(win32_window_state->handle);
 }
 
 void platform_imgui_new_frame()
@@ -269,110 +192,6 @@ void platform_imgui_new_frame()
 void platform_shutdown_imgui()
 {
     ImGui_ImplWin32_Shutdown();
-}
-
-static FILETIME
-win32_get_file_last_write_time(const char *filename)
-{
-    FILETIME result = {};
-
-    WIN32_FIND_DATAA find_data = {};
-    HANDLE find_handle = FindFirstFileA(filename, &find_data);
-    if (find_handle != INVALID_HANDLE_VALUE)
-    {
-        result = find_data.ftLastWriteTime;
-        FindClose(find_handle);
-    }
-    return result;
-}
-
-static bool
-win32_load_game_code(Win32_Dynamic_Library *win32_dynamic_library,
-                     Game_Code *game_code)
-{
-    bool result = true;
-
-    game_code->init_game = nullptr;
-    game_code->on_event = nullptr;
-    game_code->on_update = nullptr;
-
-    // todo(amer): freeing the game_temp.dll take a while and the file is locked
-    while (CopyFileA(win32_dynamic_library->filename,
-                     win32_dynamic_library->temp_filename, FALSE) == 0)
-    {
-    }
-
-    DWORD flags = DONT_RESOLVE_DLL_REFERENCES|LOAD_IGNORE_CODE_AUTHZ_LEVEL;
-    win32_dynamic_library->handle = LoadLibraryExA(win32_dynamic_library->temp_filename, NULL, flags);
-
-    if (win32_dynamic_library->handle)
-    {
-        Init_Game_Proc init_game_proc =
-            (Init_Game_Proc)GetProcAddress(win32_dynamic_library->handle, "init_game");
-
-        if (init_game_proc)
-        {
-            game_code->init_game = init_game_proc;
-        }
-        else
-        {
-            game_code->init_game = init_game_stub;
-        }
-
-        On_Event_Proc on_event_proc =
-            (On_Event_Proc)GetProcAddress(win32_dynamic_library->handle, "on_event");
-
-        if (on_event_proc)
-        {
-            game_code->on_event = on_event_proc;
-        }
-        else
-        {
-            game_code->on_event = on_event_stub;
-        }
-
-        On_Update_Proc on_update_proc =
-            (On_Update_Proc)GetProcAddress(win32_dynamic_library->handle, "on_update");
-
-        if (on_update_proc)
-        {
-            game_code->on_update = on_update_proc;
-        }
-        else
-        {
-            game_code->on_update = on_update_stub;
-        }
-
-        result = init_game_proc && on_event_proc && on_update_proc;
-    }
-    else
-    {
-        result = false;
-    }
-
-    return result;
-}
-
-static bool
-win32_reload_game_code(Win32_Dynamic_Library *win32_dynamic_library, Game_Code *game_code)
-{
-    bool result = true;
-
-    if (win32_dynamic_library->handle != NULL)
-    {
-        if (FreeLibrary(win32_dynamic_library->handle) == 0)
-        {
-            result = false;
-        }
-        win32_dynamic_library->handle = NULL;
-    }
-
-    bool loaded = win32_load_game_code(win32_dynamic_library, game_code);
-    if (!loaded)
-    {
-        result = false;
-    }
-    return result;
 }
 
 HOPE_FORCE_INLINE static void
@@ -421,93 +240,32 @@ win32_handle_mouse_input(Event *event, MSG message)
     event->mouse_y = mouse_y;
 }
 
-INT WINAPI
-WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT show)
+INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT show)
 {
     (void)previous_instance;
     (void)command_line;
     (void)show;
 
-    HANDLE mutex = CreateMutexA(NULL, FALSE, HE_APP_NAME "_Mutex");
+    win32_platform_state.instance = instance;
+    win32_platform_state.window_class_name = "hope_window_class";
+    win32_platform_state.cursor = LoadCursor(NULL, IDC_ARROW);
+    win32_platform_state.engine = (Engine *)VirtualAlloc(0, sizeof(Engine), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
-    if (GetLastError() == ERROR_ALREADY_EXISTS)
-    {
-        MessageBoxA(NULL, "application is already running", "Error", MB_OK);
-        return 0;
-    }
-    else if (mutex == NULL)
-    {
-        win32_report_last_error_and_exit("failed to create mutex: " HE_APP_NAME "_Mutex");
-    }
-
-    // todo(amer): engine configuration should be outside win32_main
-    Engine_Configuration configuration = {};
-    configuration.permanent_memory_size = HE_MegaBytes(256);
-    configuration.transient_memory_size = HE_GigaBytes(1);
-    configuration.show_cursor = true;
-    configuration.lock_cursor = false;
-    configuration.window_mode = WindowMode_Windowed;
-    configuration.back_buffer_width = 1280;
-    configuration.back_buffer_height = 720;
-
-    Win32_State *win32_state = (Win32_State *)VirtualAlloc(0,
-                                                           sizeof(Win32_State),
-                                                           MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-
-    hock_engine_api(&win32_state->engine.api);
-
-    win32_state->instance = instance;
-    win32_state->cursor = LoadCursor(NULL, IDC_ARROW);
-
-    Win32_Dynamic_Library win32_dynamic_library = {};
-    win32_dynamic_library.filename = "../bin/TestGame.dll";
-    win32_dynamic_library.temp_filename = "../bin/TempTestGame.dll";
-    win32_dynamic_library.last_write_time = win32_get_file_last_write_time(win32_dynamic_library.filename);
-
-    bool loaded = win32_load_game_code(&win32_dynamic_library, &win32_state->engine.game_code);
-    HOPE_Assert(loaded);
-
-    win32_set_window_client_size(win32_state,
-                                 configuration.back_buffer_width,
-                                 configuration.back_buffer_height);
+    Engine *engine = win32_platform_state.engine;
 
     WNDCLASSA window_class = {};
     window_class.style = CS_DBLCLKS;
     window_class.lpfnWndProc = win32_window_proc;
     window_class.hInstance = instance;
-    window_class.lpszClassName = HE_WINDOW_CLASS_NAME;
-    window_class.hCursor = win32_state->cursor;
-    // todo(amer): in the future we should be load icons from disk.
-    window_class.hIcon = NULL;
-
-    if (RegisterClassA(&window_class) == 0)
-    {
-        win32_report_last_error_and_exit("failed to register window class");
-    }
-
-    win32_state->window = CreateWindowExA(0, HE_WINDOW_CLASS_NAME, HE_APP_NAME,
-                                         WS_OVERLAPPEDWINDOW,
-                                         CW_USEDEFAULT, CW_USEDEFAULT,
-                                         win32_state->window_width, win32_state->window_height,
-                                         NULL, NULL, instance, win32_state);
-    if (win32_state->window == NULL)
-    {
-        win32_report_last_error_and_exit("failed to create a window");
-    }
-
-    S32 screen_width = GetSystemMetrics(SM_CXSCREEN);
-    S32 screen_height = GetSystemMetrics(SM_CYSCREEN);
-    S32 center_x = (screen_width / 2) - (win32_state->window_width / 2);
-    S32 center_y = (screen_height / 2) - (win32_state->window_height / 2);
-    MoveWindow(win32_state->window, center_x, center_y,
-               win32_state->window_width, win32_state->window_height, FALSE);
-    ShowWindow(win32_state->window, SW_SHOW);
-
-    Engine *engine = &win32_state->engine;
-    Game_Code *game_code = &engine->game_code;
-
-    bool started = startup(engine, configuration, win32_state);
+    window_class.lpszClassName = win32_platform_state.window_class_name;
+    window_class.hCursor = win32_platform_state.cursor;
+    window_class.hIcon = NULL; // todo(amer): icons
+    ATOM success = RegisterClassA(&window_class);
+    HOPE_Assert(success != 0);
+    
+    bool started = startup(engine, &win32_platform_state);
     HOPE_Assert(started);
+
     engine->is_running = started;
 
     LARGE_INTEGER performance_frequency;
@@ -516,6 +274,11 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
 
     LARGE_INTEGER last_counter;
     HOPE_Assert(QueryPerformanceCounter(&last_counter));
+
+    Win32_Window_State *win32_window_state = (Win32_Window_State *)engine->window.platform_window_state;
+    HWND window_handle = win32_window_state->handle;
+
+    Game_Code *game_code = &engine->game_code;
 
     while (engine->is_running)
     {
@@ -527,28 +290,13 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
         last_counter = current_counter;
         F32 delta_time = (F32)elapsed_time;
 
-        FILETIME last_write_time =
-            win32_get_file_last_write_time(win32_dynamic_library.filename);
-
-        if (CompareFileTime(&last_write_time, &win32_dynamic_library.last_write_time) != 0)
-        {
-            if (win32_reload_game_code(&win32_dynamic_library, &engine->game_code))
-            {
-                win32_dynamic_library.last_write_time = last_write_time;
-            }
-            else
-            {
-                set_game_code_to_stubs(&engine->game_code);
-            }
-        }
-
         MSG message = {};
-        while (PeekMessageA(&message, win32_state->window, 0, 0, PM_REMOVE))
+        while (PeekMessageA(&message, window_handle, 0, 0, PM_REMOVE))
         {
             // todo(amer): handle imgui input outside platform win32.
-            if (win32_state->engine.show_imgui)
+            if (engine->show_imgui)
             {
-                ImGui_ImplWin32_WndProcHandler(win32_state->window, message.message, message.wParam, message.lParam);
+                ImGui_ImplWin32_WndProcHandler(window_handle, message.message, message.wParam, message.lParam);
             }
 
             switch (message.message)
@@ -663,23 +411,23 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
                 case WM_MOUSEWHEEL:
                 {
                     S32 delta = u64_to_s32(message.wParam >> 16);
-                    win32_state->mouse_wheel_accumulated_delta += delta;
+                    win32_platform_state.mouse_wheel_accumulated_delta += delta;
 
                     Event event = {};
                     event.type = EventType_Mouse;
 
-                    while (win32_state->mouse_wheel_accumulated_delta >= 120)
+                    while (win32_platform_state.mouse_wheel_accumulated_delta >= 120)
                     {
                         event.mouse_wheel_up = true;
                         game_code->on_event(engine, event);
-                        win32_state->mouse_wheel_accumulated_delta -= 120;
+                        win32_platform_state.mouse_wheel_accumulated_delta -= 120;
                     }
 
-                    while (win32_state->mouse_wheel_accumulated_delta <= -120)
+                    while (win32_platform_state.mouse_wheel_accumulated_delta <= -120)
                     {
                         event.mouse_wheel_down = true;
                         game_code->on_event(engine, event);
-                        win32_state->mouse_wheel_accumulated_delta += 120;
+                        win32_platform_state.mouse_wheel_accumulated_delta += 120;
                     }
                 } break;
 
@@ -694,7 +442,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT 
         Input *input = &engine->input;
 
         RECT window_rect;
-        GetWindowRect(win32_state->window, &window_rect);
+        GetWindowRect(window_handle, &window_rect);
 
         POINT cursor;
         GetCursorPos(&cursor);
@@ -738,6 +486,86 @@ void platform_deallocate_memory(void *memory)
     VirtualFree(memory, 0, MEM_RELEASE);
 }
 
+bool platform_create_window(Window *window, const char *title, U32 client_width, U32 client_height, Window_Mode window_mode)
+{
+    U32 width = 0;
+    U32 height = 0;
+    win32_get_window_size(client_width, client_height, &width, &height);
+
+    HWND window_handle = CreateWindowExA(0, win32_platform_state.window_class_name, title,
+                                         WS_OVERLAPPEDWINDOW,
+                                         CW_USEDEFAULT, CW_USEDEFAULT,
+                                         width,
+                                         height,
+                                         NULL, NULL, win32_platform_state.instance, nullptr);
+    if (window_handle == NULL)
+    {
+        // todo(amer): logging
+        return false;
+    }
+
+    S32 screen_width = GetSystemMetrics(SM_CXSCREEN);
+    S32 screen_height = GetSystemMetrics(SM_CYSCREEN);
+    S32 center_x = (screen_width / 2) - (width / 2);
+    S32 center_y = (screen_height / 2) - (height / 2);
+
+    MoveWindow(window_handle, center_x, center_y, width, height, FALSE);
+    ShowWindow(window_handle, SW_SHOW);
+
+    Win32_Window_State *win32_window_state = (Win32_Window_State *)VirtualAlloc(0, sizeof(Win32_Window_State), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    win32_window_state->handle = window_handle;
+
+    window->platform_window_state = win32_window_state;
+    window->mode = Window_Mode::WINDOWED;
+    window->title = title;
+    window->width = width;
+    window->height = height;
+
+    platform_set_window_mode(window, window_mode);
+    return true;
+}
+
+void platform_set_window_mode(Window *window, Window_Mode window_mode)
+{
+    if (window->mode == window_mode)
+    {
+        return;
+    }
+
+    Win32_Window_State *win32_window_state = (Win32_Window_State *)window->platform_window_state;
+    HWND window_handle = win32_window_state->handle;
+    WINDOWPLACEMENT *window_placement_before_fullscreen = &win32_window_state->placement_before_fullscreen;
+
+    DWORD style = GetWindowLong(window_handle, GWL_STYLE);
+
+    if (window_mode == Window_Mode::FULLSCREEN)
+    {
+        HOPE_Assert((style & WS_OVERLAPPEDWINDOW));
+
+        MONITORINFO monitor_info = { sizeof(MONITORINFO) };
+        HMONITOR monitor = MonitorFromWindow(window_handle, MONITOR_DEFAULTTOPRIMARY);
+
+        if (GetWindowPlacement(window_handle, window_placement_before_fullscreen) && GetMonitorInfo(monitor, &monitor_info))
+        {
+            SetWindowLong(window_handle, GWL_STYLE, style & ~(WS_OVERLAPPEDWINDOW));
+            SetWindowPos(window_handle, HWND_TOP,
+                         monitor_info.rcMonitor.left,
+                         monitor_info.rcMonitor.top,
+                         monitor_info.rcMonitor.right - monitor_info.rcMonitor.left,
+                         monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top,
+                         SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
+        }
+    }
+    else if (window_mode == Window_Mode::WINDOWED)
+    {
+        SetWindowLong(window_handle, GWL_STYLE, style|WS_OVERLAPPEDWINDOW);
+        SetWindowPlacement(window_handle, window_placement_before_fullscreen);
+        SetWindowPos(window_handle,
+                     NULL, 0, 0, 0, 0,
+                     SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
+    }
+}
+
 bool platform_file_exists(const char *filepath)
 {
     DWORD dwAttrib = GetFileAttributesA(filepath);
@@ -776,12 +604,12 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
     
     if (file_handle != INVALID_HANDLE_VALUE)
     {
-        LARGE_INTEGER size = {};
-        BOOL success = GetFileSizeEx(file_handle, &size);
+        LARGE_INTEGER file_size = {};
+        BOOL success = GetFileSizeEx(file_handle, &file_size);
         HOPE_Assert(success);
 
-        result.size = size.QuadPart;
-        result.file_handle = file_handle;
+        result.handle = file_handle;
+        result.size = file_size.QuadPart;
         result.success = true;
     }
     
@@ -790,35 +618,64 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
 
 bool platform_read_data_from_file(const Open_File_Result *open_file_result, U64 offset, void *data, U64 size)
 {
+    HOPE_Assert(open_file_result->handle != INVALID_HANDLE_VALUE);
+
     OVERLAPPED overlapped = {};
     overlapped.Offset = u64_to_u32(offset & 0xFFFFFFFF);
     overlapped.OffsetHigh = u64_to_u32(offset >> 32);
 
     // todo(amer): we are only limited to a read of 4GBs
     DWORD read_bytes;
-    BOOL result = ReadFile(open_file_result->file_handle, data,
+    BOOL result = ReadFile(open_file_result->handle, data,
                            u64_to_u32(size), &read_bytes, &overlapped);
     return result == TRUE && read_bytes == size;
 }
 
 bool platform_write_data_to_file(const Open_File_Result *open_file_result, U64 offset, void *data, U64 size)
 {
+    HOPE_Assert(open_file_result->handle != INVALID_HANDLE_VALUE);
+
     OVERLAPPED overlapped = {};
     overlapped.Offset = u64_to_u32(offset & 0xFFFFFFFF);
     overlapped.OffsetHigh = u64_to_u32(offset >> 32);
 
     // todo(amer): we are only limited to a write of 4GBs
     DWORD written_bytes;
-    BOOL result = WriteFile(open_file_result->file_handle, data,
+    BOOL result = WriteFile(open_file_result->handle, data,
                             u64_to_u32(size), &written_bytes, &overlapped);
     return result == TRUE && written_bytes == size;
 }
 
 bool platform_close_file(Open_File_Result *open_file_result)
 {
-    bool result = CloseHandle(open_file_result->file_handle) != 0;
-    open_file_result->file_handle = nullptr;
+    HOPE_Assert(open_file_result->handle != INVALID_HANDLE_VALUE);
+    bool result = CloseHandle(open_file_result->handle) != 0;
+    open_file_result->handle = nullptr;
     return result;
+}
+
+bool platform_load_dynamic_library(Dynamic_Library *dynamic_library, const char *filepath)
+{
+    DWORD flags = DONT_RESOLVE_DLL_REFERENCES|LOAD_IGNORE_CODE_AUTHZ_LEVEL;
+    HMODULE library_handle = LoadLibraryExA(filepath, NULL, flags);
+    if (library_handle == NULL)
+    {
+        return false;
+    }
+    dynamic_library->platform_dynamic_library_state = library_handle;
+    return true;
+}
+
+void *platform_get_proc_address(Dynamic_Library *dynamic_library, const char *proc_name)
+{
+    HOPE_Assert(dynamic_library->platform_dynamic_library_state);
+    return GetProcAddress((HMODULE)dynamic_library->platform_dynamic_library_state, proc_name);
+}
+
+bool platform_unload_dynamic_library(Dynamic_Library *dynamic_library)
+{
+    HOPE_Assert(dynamic_library->platform_dynamic_library_state);
+    return FreeLibrary((HMODULE)dynamic_library->platform_dynamic_library_state) == 0;
 }
 
 void platform_debug_printf(const char *message)

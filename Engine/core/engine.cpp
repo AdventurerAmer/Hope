@@ -5,9 +5,10 @@
 #include "cvars.h"
 
 HOPE_CVarString(engine_name, "name of the engine", "Hope", "platform", CVarFlag_None);
-HOPE_CVarInt(permenent_memory_size, "size of permenent memory in bytes", HE_MegaBytes(64), "platform", CVarFlag_None);
-HOPE_CVarInt(transient_memory_size, "size of permenent memory in bytes", HE_GigaBytes(1), "platform", CVarFlag_None);
-HOPE_CVarFloat(test, "test", 1.0, "platform", CVarFlag_None);
+HOPE_CVarString(app_name, "name of the application", "Hope", "platform", CVarFlag_None);
+HOPE_CVarInt(window_mode, "window mode", Window_Mode::WINDOWED, "platform", CVarFlag_None);
+HOPE_CVarInt(window_width, "window width", -1, "platform", CVarFlag_None);
+HOPE_CVarInt(window_height, "window height", -1, "platform", CVarFlag_None);
 
 #include <imgui.h>
 
@@ -122,15 +123,11 @@ void hock_engine_api(Engine_API *api)
 }
 
 
-bool startup(Engine *engine, const Engine_Configuration &configuration, void *platform_state)
+bool startup(Engine *engine, void *platform_state)
 {
-    HOPE_CVarGetString(engine_name, "platform");
-    HOPE_CVarGetInt(permenent_memory_size, "platform");
-    HOPE_CVarGetInt(transient_memory_size, "platform");
-    HOPE_CVarGetFloat(test, "platform");
-
-    Size required_memory_size =
-        configuration.permanent_memory_size + configuration.transient_memory_size;
+    U64 permenent_memory_size = HOPE_MegaBytes(512);
+    U64 transient_memory_size = HOPE_GigaBytes(1);
+    Size required_memory_size = permenent_memory_size + transient_memory_size;
 
     void *memory = platform_allocate_memory(required_memory_size);
     if (!memory)
@@ -139,24 +136,22 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     }
 
     U8 *permanent_memory = (U8 *)memory;
-    engine->memory.permanent_memory_size = configuration.permanent_memory_size;
+    engine->memory.permanent_memory_size = permenent_memory_size;
     engine->memory.permanent_arena = create_memory_arena(permanent_memory,
-                                                         configuration.permanent_memory_size);
+                                                         permenent_memory_size);
 
-    U8 *transient_memory = (U8 *)memory + configuration.permanent_memory_size;
-    engine->memory.transient_memory_size = configuration.transient_memory_size;
+    U8 *transient_memory = (U8 *)memory + permenent_memory_size;
+    engine->memory.transient_memory_size = transient_memory_size;
     engine->memory.transient_arena = create_memory_arena(transient_memory,
-                                                         configuration.transient_memory_size);
+                                                         transient_memory_size);
 
     init_free_list_allocator(&engine->memory.free_list_allocator,
                              &engine->memory.transient_arena,
-                             HE_MegaBytes(512));
+                             HOPE_MegaBytes(512));
 
-    init_cvars("hope_config.cvars", engine);
-    
 #ifndef HOPE_SHIPPING
 
-    U64 debug_state_arena_size = HE_MegaBytes(64);
+    U64 debug_state_arena_size = HOPE_MegaBytes(64);
     U8 *debug_state_arena_data = AllocateArray(&engine->memory.permanent_arena, U8, debug_state_arena_size);
     global_debug_state.arena = create_memory_arena(debug_state_arena_data, debug_state_arena_size);
 
@@ -170,14 +165,42 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
 
 #endif
 
-    engine->show_cursor = configuration.show_cursor;
-    engine->lock_cursor = configuration.lock_cursor;
-    engine->window_mode = configuration.window_mode;
+    Dynamic_Library game_code_dll = {};
+    platform_load_dynamic_library(&game_code_dll, "../bin/Game.dll"); // note(amer): hard coding dynamic library extension (dll)
+
+    Game_Code *game_code = &engine->game_code;
+    game_code->init_game = (Init_Game_Proc)platform_get_proc_address(&game_code_dll, "init_game");
+    game_code->on_event  = (On_Event_Proc)platform_get_proc_address(&game_code_dll, "on_event");
+    game_code->on_update = (On_Update_Proc)platform_get_proc_address(&game_code_dll, "on_update");
+    HOPE_Assert(game_code->init_game);
+    HOPE_Assert(game_code->on_event);
+    HOPE_Assert(game_code->on_update);
+
+    init_cvars("config.cvars", engine);
+    HOPE_CVarGetInt(window_mode, "platform");
+    HOPE_CVarGetString(app_name, "platform");
+    HOPE_CVarGetInt(window_width, "platform");
+    HOPE_CVarGetInt(window_height, "platform");
+
+    hock_engine_api(&engine->api);
+
+    engine->show_cursor = true;
+    engine->lock_cursor = false;
     engine->platform_state = platform_state;
 
-    if (engine->window_mode == WindowMode_Fullscreen)
+    if (*window_width == -1 || *window_height == -1)
     {
-        platform_toggle_fullscreen(engine);
+        // note(amer): temprary
+        *window_width = 1280;
+        *window_height = 720;
+    }
+
+    Window *window = &engine->window;
+    bool window_created = platform_create_window(window, app_name->data, (U32)*window_width, (U32)*window_height, (Window_Mode)*window_mode);
+
+    if (!window_created)
+    {
+        return false;
     }
 
     bool input_inited = init_input(&engine->input);
@@ -225,16 +248,11 @@ bool startup(Engine *engine, const Engine_Configuration &configuration, void *pl
     scene_data->directional_light.color = { 1.0f, 1.0f, 1.0f, 1.0f };
     scene_data->directional_light.intensity = 1.0f;
 
-    renderer_state->back_buffer_width = configuration.back_buffer_width;
-    renderer_state->back_buffer_height = configuration.back_buffer_height;
-
     Platform_API *api = &engine->platform_api;
     api->allocate_memory = &platform_allocate_memory;
     api->deallocate_memory = &platform_deallocate_memory;
     api->debug_printf = &platform_debug_printf;
-    api->toggle_fullscreen = &platform_toggle_fullscreen;
 
-    Game_Code *game_code = &engine->game_code;
     bool game_initialized = game_code->init_game(engine);
     renderer->wait_for_gpu_to_finish_all_work(renderer_state);
     return game_initialized;
@@ -281,9 +299,14 @@ void game_loop(Engine *engine, F32 delta_time)
 
 void shutdown(Engine *engine)
 {
-    (void)engine;
+    HOPE_CVarGetInt(window_mode, "platform");
+    HOPE_CVarGetInt(window_width, "platform");
+    HOPE_CVarGetInt(window_height, "platform");
 
-    deinit_cvars(engine);
+    Window *window = &engine->window;
+    *window_mode = (S64)window->mode;
+    *window_width = window->width;
+    *window_height = window->height;
 
     Renderer *renderer = &engine->renderer;
     Renderer_State *renderer_state = &engine->renderer_state;
@@ -299,32 +322,8 @@ void shutdown(Engine *engine)
     Logger *logger = &global_debug_state.main_logger;
     deinit_logger(logger);
 #endif
-}
 
-void set_game_code_to_stubs(Game_Code *game_code)
-{
-    game_code->init_game = &init_game_stub;
-    game_code->on_event = &on_event_stub;
-    game_code->on_update = &on_update_stub;
-}
-
-// todo(amer): maybe we should program a small game in the stubs...
-bool init_game_stub(Engine *engine)
-{
-    (void)engine;
-    return true;
-}
-
-void on_event_stub(Engine *engine, Event event)
-{
-    (void)engine;
-    (void)event;
-}
-
-void on_update_stub(Engine *engine, F32 delta_time)
-{
-    (void)engine;
-    (void)delta_time;
+    deinit_cvars(engine);
 }
 
 bool write_entire_file(const char *filepath, void *data, Size size)
