@@ -486,12 +486,8 @@ void platform_deallocate_memory(void *memory)
     VirtualFree(memory, 0, MEM_RELEASE);
 }
 
-bool platform_create_window(Window *window, const char *title, U32 client_width, U32 client_height, Window_Mode window_mode)
+bool platform_create_window(Window *window, const char *title, U32 width, U32 height, Window_Mode window_mode)
 {
-    U32 width = 0;
-    U32 height = 0;
-    win32_get_window_size(client_width, client_height, &width, &height);
-
     HWND window_handle = CreateWindowExA(0, win32_platform_state.window_class_name, title,
                                          WS_OVERLAPPEDWINDOW,
                                          CW_USEDEFAULT, CW_USEDEFAULT,

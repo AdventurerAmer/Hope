@@ -31,7 +31,8 @@ constexpr U64 compile_time_string_hash(const char (&str)[Count])
     return hash;
 }
 
-#define HOPE_String(AnciiStringLiteral) { AnciiStringLiteral, compile_time_string_length(AnciiStringLiteral) }
+#define HOPE_String(CString) { CString, string_length(CString) }
+#define HOPE_StringLiteral(StringLiteral) { StringLiteral, compile_time_string_length(StringLiteral) }
 #define HOPE_ExpandString(StringPointer) (U32)((StringPointer)->count), (StringPointer)->data
 
 U64 string_length(const char *str);
@@ -43,7 +44,7 @@ String copy_string(const char *str, U64 count, Allocator *allocator)
 {
     if (!count)
     {
-        return HOPE_String("");
+        return HOPE_StringLiteral("");
     }
     char *data = AllocateArray(allocator, char, count + 1);
     copy_memory(data, str, count);
@@ -51,19 +52,40 @@ String copy_string(const char *str, U64 count, Allocator *allocator)
     return { data, count };
 }
 
-bool equal(const char *a, const char *b);
-bool equal(const String *a, const String *b);
+bool equal(const char *a, U64 a_length, const char *b, U64 b_length);
 
-HOPE_FORCE_INLINE bool equal(const String *a, const char *b, U64 count)
+HOPE_FORCE_INLINE bool operator==(const String &lhs, const String &rhs)
 {
-    String str = { b, count };
-    return equal(a, &str);
+    return equal(lhs.data, lhs.count, rhs.data, rhs.count);
 }
 
-HOPE_FORCE_INLINE bool equal(const String *a, const char *b)
+HOPE_FORCE_INLINE bool operator==(const String &lhs, const char *rhs)
 {
-    String str = { b, string_length(b) };
-    return equal(a, &str);
+    U64 rhs_length = string_length(rhs);
+    return equal(lhs.data, lhs.count, rhs, rhs_length);
+}
+
+HOPE_FORCE_INLINE bool operator==(const char *lhs, const String &rhs)
+{
+    U64 lhs_length = string_length(lhs);
+    return equal(lhs, lhs_length, rhs.data, rhs.count);
+}
+
+HOPE_FORCE_INLINE bool operator!=(const String &lhs, const String &rhs)
+{
+    return !equal(lhs.data, lhs.count, rhs.data, rhs.count);
+}
+
+HOPE_FORCE_INLINE bool operator!=(const String &lhs, const char *rhs)
+{
+    U64 rhs_length = string_length(rhs);
+    return !equal(lhs.data, lhs.count, rhs, rhs_length);
+}
+
+HOPE_FORCE_INLINE bool operator!=(const char *lhs, const String &rhs)
+{
+    U64 lhs_length = string_length(lhs);
+    return !equal(lhs, lhs_length, rhs.data, rhs.count);
 }
 
 S64 find_first_char_from_left(const String *str, const char *chars);

@@ -30,15 +30,13 @@ U64 hash(const String *str)
 }
 
 // todo(amer): SIMD Version
-bool equal(const char *a, const char *b)
+bool equal(const char *a, U64 a_length, const char *b, U64 b_length)
 {
-    U64 a_length = string_length(a);
-    U64 b_length = string_length(b);
     if (a_length != b_length)
     {
         return false;
     }
-    for (U32 char_index = 0; char_index < a_length; char_index++)
+    for (U64 char_index = 0; char_index < a_length; char_index++)
     {
         if (a[char_index] != b[char_index])
         {
@@ -48,26 +46,7 @@ bool equal(const char *a, const char *b)
     return true;
 }
 
-// todo(amer): SIMD Version
-bool equal(const String *a, const String *b)
-{
-    if (a->count != b->count)
-    {
-        return false;
-    }
-
-    for (U32 char_index = 0; char_index < a->count; char_index++)
-    {
-        if (a->data[char_index] != b->data[char_index])
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-// todo(amer): SIMD Version
+// todo(amer): SIMD version
 S64 find_first_char_from_left(const String *str, const char *chars)
 {
     U64 chars_count = string_length(chars);
@@ -86,6 +65,7 @@ S64 find_first_char_from_left(const String *str, const char *chars)
     return -1;
 }
 
+// todo(amer): SIMD version
 S64 find_first_char_from_right(const String *str, const char *chars)
 {
     U64 chars_count = string_length(chars);

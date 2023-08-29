@@ -63,7 +63,7 @@ struct Window
     void *platform_window_state;
 };
 
-bool platform_create_window(Window *window, const char *title, U32 client_width, U32 client_height, Window_Mode window_mode = Window_Mode::WINDOWED);
+bool platform_create_window(Window *window, const char *title, U32 width, U32 height, Window_Mode window_mode = Window_Mode::WINDOWED);
 void platform_set_window_mode(Window *window, Window_Mode window_mode);
 
 enum Open_File_Flags : U8

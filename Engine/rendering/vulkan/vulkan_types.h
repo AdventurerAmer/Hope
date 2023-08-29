@@ -15,6 +15,7 @@
 #include "core/memory.h"
 #include "rendering/renderer_types.h"
 
+// todo(amer): move to renderer.h
 #define HOPE_VULKAN_DEBUGGING 1
 #define HOPE_MAX_FRAMES_IN_FLIGHT 3
 #define HOPE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX

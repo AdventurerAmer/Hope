@@ -1,10 +1,9 @@
 #include "vulkan_buffer.h"
 #include "vulkan_renderer.h"
 
-bool
-create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
-              U64 size, VkBufferUsageFlags usage_flags,
-              VkMemoryPropertyFlags memory_property_flags)
+bool create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
+                   U64 size, VkBufferUsageFlags usage_flags,
+                   VkMemoryPropertyFlags memory_property_flags)
 {
     HOPE_Assert(buffer);
     HOPE_Assert(context);
@@ -82,11 +81,11 @@ void copy_data_to_buffer_from_buffer(Vulkan_Context *context,
     submit_info.pCommandBuffers = &command_buffer;
 
     vkQueueSubmit(context->transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
+    vkQueueWaitIdle(context->transfer_queue);
 }
 
-void
-destroy_buffer(Vulkan_Buffer *buffer,
-               VkDevice logical_device)
+void destroy_buffer(Vulkan_Buffer *buffer,
+                    VkDevice logical_device)
 {
     vkFreeMemory(logical_device, buffer->memory, nullptr);
     vkDestroyBuffer(logical_device, buffer->handle, nullptr);

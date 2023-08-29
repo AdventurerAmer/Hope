@@ -11,6 +11,7 @@
 #include "vulkan_buffer.h"
 #include "vulkan_swapchain.h"
 #include "vulkan_shader.h"
+#include "core/cvars.h"
 
 #include "ImGui/backends/imgui_impl_vulkan.cpp"
 
@@ -44,8 +45,7 @@ find_memory_type_index(Vulkan_Context *context,
         if (((1 << memory_type_index) & memory_requirements.memoryTypeBits))
         {
             // todo(amer): we should track how much memory we allocated from heaps so allocations don't fail
-            const VkMemoryType *memory_type =
-                &context->physical_device_memory_properties.memoryTypes[memory_type_index];
+            const VkMemoryType *memory_type = &context->physical_device_memory_properties.memoryTypes[memory_type_index];
             if ((memory_type->propertyFlags & memory_property_flags) == memory_property_flags)
             {
                 result = (S32)memory_type_index;
@@ -172,8 +172,8 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface,
     }
 
     VkPhysicalDevice *physical_devices = AllocateArray(&temp_arena,
-                                                        VkPhysicalDevice,
-                                                        physical_device_count);
+                                                       VkPhysicalDevice,
+                                                       physical_device_count);
     HOPE_Assert(physical_devices);
 
     HOPE_CheckVkResult(vkEnumeratePhysicalDevices(instance,
@@ -296,7 +296,7 @@ init_imgui(Vulkan_Context *context)
     init_info.PipelineCache = context->pipeline_cache;
     ImGui_ImplVulkan_Init(&init_info, context->render_pass);
 
-    VkCommandBuffer &command_buffer = context->graphics_command_buffers[0];
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[0];
     vkResetCommandBuffer(command_buffer, 0);
 
     VkCommandBufferBeginInfo command_buffer_begin_info =
@@ -362,10 +362,13 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
 
     HOPE_Assert(required_api_version <= driver_api_version);
 
+    HOPE_CVarGetString(engine_name, "platform");
+    HOPE_CVarGetString(app_name, "platform");
+
     VkApplicationInfo app_info = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
-    app_info.pApplicationName = "Hope"; // todo(amer): hard coding "Hope" for now
+    app_info.pApplicationName = app_name->data;
     app_info.applicationVersion = VK_MAKE_VERSION(0, 0, 1);
-    app_info.pEngineName = "Hope"; // todo(amer): hard coding "Hope" for now
+    app_info.pEngineName = engine_name->data;
     app_info.engineVersion = VK_MAKE_VERSION(0, 0, 1);
     app_info.apiVersion = required_api_version;
 
@@ -640,8 +643,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
              extension_index < HOPE_ArrayCount(required_device_extensions);
              extension_index++)
         {
-            String device_extension = { required_device_extensions[extension_index], string_length(required_device_extensions[extension_index]) };
-
+            String device_extension = HOPE_String(required_device_extensions[extension_index]);
             bool is_extension_supported = false;
 
             for (U32 extension_property_index = 0;
@@ -649,7 +651,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                  extension_property_index++)
             {
                 VkExtensionProperties *extension_property = &extension_properties[extension_property_index];
-                if (equal(&device_extension, extension_property->extensionName))
+                if (device_extension == extension_property->extensionName)
                 {
                     is_extension_supported = true;
                     break;
@@ -827,10 +829,10 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                           &render_pass_create_info,
                                           nullptr, &context->render_pass));
 
-    U32 width = 1280;
-    U32 height = 720;
     VkPresentModeKHR present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
     U32 min_image_count = HOPE_MAX_FRAMES_IN_FLIGHT;
+    U32 width = engine->window.width;
+    U32 height = engine->window.height;
     bool swapchain_created = create_swapchain(context, width, height,
                                               min_image_count, present_mode, &context->swapchain);
     HOPE_Assert(swapchain_created);
@@ -875,11 +877,12 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     HOPE_Assert(shader_loaded);
 
     renderer_state->mesh_pipeline = allocate_pipeline_state(renderer_state);
-    create_graphics_pipeline(renderer_state->mesh_pipeline,
-                             { renderer_state->mesh_vertex_shader,
-                               renderer_state->mesh_fragment_shader },
-                             context->render_pass,
-                             context);
+    bool pipeline_created = create_graphics_pipeline(renderer_state->mesh_pipeline,
+                                                     { renderer_state->mesh_vertex_shader,
+                                                     renderer_state->mesh_fragment_shader },
+                                                     context->render_pass,
+                                                     context);
+    HOPE_Assert(pipeline_created);
 
     VkCommandPoolCreateInfo graphics_command_pool_create_info
         = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
@@ -910,12 +913,12 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                            &transfer_command_pool_create_info,
                                            nullptr, &context->transfer_command_pool));
 
-    U64 vertex_size = HOPE_MegaBytes(256);
+    U64 vertex_size = HOPE_MegaBytes(512);
     create_buffer(&context->vertex_buffer, context, vertex_size,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    U64 index_size = HOPE_MegaBytes(128);
+    U64 index_size = HOPE_MegaBytes(256);
     create_buffer(&context->index_buffer, context, index_size,
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -1210,16 +1213,17 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     context->object_data_base = (Object_Data *)context->object_storage_buffers[current_frame_in_flight_index].data;
     context->object_data_count = 0;
 
-    if ((renderer_state->back_buffer_width != context->swapchain.width ||
-         renderer_state->back_buffer_height != context->swapchain.height) &&
-        renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
+    U32 width = renderer_state->back_buffer_width;
+    U32 height = renderer_state->back_buffer_height;
+
+    if ((width != context->swapchain.width || height != context->swapchain.height) &&
+        width != 0 && height != 0)
     {
         recreate_swapchain(context,
                            &context->swapchain,
-                           renderer_state->back_buffer_width,
-                           renderer_state->back_buffer_height,
+                           width,
+                           height,
                            context->swapchain.present_mode);
-        return;
     }
 
     VkResult result = vkAcquireNextImageKHR(context->logical_device,
@@ -1231,16 +1235,15 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
     {
-        if (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
+        if (width != 0 && height != 0)
         {
             recreate_swapchain(context,
                                &context->swapchain,
-                               renderer_state->back_buffer_width,
-                               renderer_state->back_buffer_height,
+                               width,
+                               height,
                                context->swapchain.present_mode);
 
         }
-        return;
     }
     else
     {
@@ -1360,14 +1363,15 @@ void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
     Vulkan_Material *vulkan_material = context->materials + index_of(renderer_state, material);
 
     Vulkan_Buffer *material_buffer = &vulkan_material->buffers[current_frame_in_flight_index];
-    memcpy(material_buffer->data, material->data, material->size);
+    copy_memory(material_buffer->data, material->data, material->size);
+
+    Vulkan_Pipeline_State *vulkan_pipeline_state = context->pipeline_states + index_of(renderer_state, material->pipeline_state);
+    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_pipeline_state->handle);
 
     VkDescriptorSet descriptor_sets[] =
     {
         vulkan_material->descriptor_sets[current_frame_in_flight_index]
     };
-
-    Vulkan_Pipeline_State *vulkan_pipeline_state = context->pipeline_states + index_of(renderer_state, material->pipeline_state);
 
     vkCmdBindDescriptorSets(command_buffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -1375,10 +1379,6 @@ void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
                             2, HOPE_ArrayCount(descriptor_sets),
                             descriptor_sets,
                             0, nullptr);
-
-    vkCmdBindPipeline(command_buffer,
-                      VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      vulkan_pipeline_state->handle);
 
     U32 instance_count = 1;
     U32 start_instance = object_data_index;
@@ -1393,7 +1393,7 @@ void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
 {
     Vulkan_Context *context = &vulkan_context;
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
-    VkCommandBuffer &command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
 
     ImGuiIO &io = ImGui::GetIO();
     io.DisplaySize = ImVec2((F32)(renderer_state->back_buffer_width),
@@ -1576,7 +1576,7 @@ bool vulkan_renderer_create_material(Material *material, const Material_Descript
         for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
         {
             Shader_Struct *shader_struct = &shader->structs[struct_index];
-            if (equal(&shader_struct->name, "Material_Properties"))
+            if (shader_struct->name == "Material_Properties")
             {
                 properties = shader_struct;
                 break;

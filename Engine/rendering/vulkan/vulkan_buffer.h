@@ -12,7 +12,6 @@ void copy_data_to_buffer_from_buffer(Vulkan_Context *context,
                                      Vulkan_Buffer *src, U64 src_offset,
                                      U64 size);
 
-
 void
 destroy_buffer(Vulkan_Buffer *buffer,
                VkDevice logical_device);

@@ -150,14 +150,11 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     return true;
 }
 
-#define CPU_SIDE_MIPMAPS 0
-
-void
-copy_data_to_image_from_buffer(Vulkan_Context *context,
-                               Vulkan_Image *image,
-                               U32 width, U32 height,
-                               Vulkan_Buffer *buffer,
-                               U64 offset, U64 size)
+void copy_data_to_image_from_buffer(Vulkan_Context *context,
+                                    Vulkan_Image *image,
+                                    U32 width, U32 height,
+                                    Vulkan_Buffer *buffer,
+                                    U64 offset, U64 size)
 {
     HOPE_Assert(context);
     HOPE_Assert(image);
@@ -165,171 +162,8 @@ copy_data_to_image_from_buffer(Vulkan_Context *context,
     HOPE_Assert(height);
     HOPE_Assert(buffer);
     HOPE_Assert(size);
-    
-#if CPU_SIDE_MIPMAPS
 
-    VkCommandBufferAllocateInfo transfer_command_buffer_allocate_info =
-        { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    transfer_command_buffer_allocate_info.commandPool = context->transfer_command_pool;
-    transfer_command_buffer_allocate_info.commandBufferCount = 1;
-    transfer_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-
-    VkCommandBuffer tranfer_command_buffer = {};
-    vkAllocateCommandBuffers(context->logical_device, &transfer_command_buffer_allocate_info, &tranfer_command_buffer);
-    vkResetCommandBuffer(tranfer_command_buffer, 0);
-
-    VkCommandBufferBeginInfo transfer_command_buffer_begin_info =
-    { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    transfer_command_buffer_begin_info.flags = 0;
-    transfer_command_buffer_begin_info.pInheritanceInfo = 0;
-
-    vkBeginCommandBuffer(tranfer_command_buffer,
-                         &transfer_command_buffer_begin_info);
-
-    // note(amer): transtion_image_to_layout transitions all mipmaps levels
-    transtion_image_to_layout(image,
-                              tranfer_command_buffer,
-                              VK_IMAGE_LAYOUT_UNDEFINED,
-                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-    VkBufferImageCopy region = {};
-    region.bufferOffset = offset;
-    region.bufferRowLength = 0;
-    region.bufferImageHeight = 0;
-
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount = 1;
-
-    region.imageOffset = { 0, 0, 0 };
-    region.imageExtent = { width, height, 1 };
-
-    vkCmdCopyBufferToImage(tranfer_command_buffer,
-                           buffer->handle,
-                           image->handle,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                           1, &region);
-
-    U32 current_width = width;
-    U32 current_height = height;
-    const U8 *src = (U8*)context->transfer_buffer.data + offset;
-    U64 src_offset = offset;
-
-    for (U32 mip_level = 1; mip_level < image->mip_levels; mip_level++)
-    {
-        U32 new_width = current_width > 1 ? current_width / 2 : 1;
-        U32 new_height = current_height > 1 ? current_height / 2 : 1;
-        U64 new_mip_size = new_width * new_height * sizeof(U32);
-
-        U8 *dst = (U8 *)allocate(&context->transfer_arena, new_mip_size, alignof(U32));
-        U64 dst_offset = dst - context->transfer_arena.base;
-        stbir_resize_uint8_generic((U8*)src, current_width, current_height, 0,
-                                    dst, new_width, new_height, 0, 4, 0, 0,
-                                    STBIR_EDGE_ZERO, STBIR_FILTER_BOX, STBIR_COLORSPACE_SRGB, 0);
-
-        VkBufferImageCopy region = {};
-        region.bufferOffset = dst_offset;
-        region.bufferRowLength = 0;
-        region.bufferImageHeight = 0;
-
-        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.imageSubresource.mipLevel = mip_level;
-        region.imageSubresource.baseArrayLayer = 0;
-        region.imageSubresource.layerCount = 1;
-
-        region.imageOffset = { 0, 0, 0 };
-        region.imageExtent = { new_width, new_height, 1 };
-
-        vkCmdCopyBufferToImage(tranfer_command_buffer,
-                               context->transfer_buffer.handle,
-                               image->handle,
-                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                               1, &region);
-
-        current_width = new_width;
-        current_height = new_height;
-        src = dst;
-        src_offset = dst_offset;
-    }
-
-    VkImageMemoryBarrier post_transfer_image_memory_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-    post_transfer_image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    post_transfer_image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    post_transfer_image_memory_barrier.srcQueueFamilyIndex = context->transfer_queue_family_index;
-    post_transfer_image_memory_barrier.dstQueueFamilyIndex = context->graphics_queue_family_index;
-    post_transfer_image_memory_barrier.image = image->handle;
-    post_transfer_image_memory_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    post_transfer_image_memory_barrier.subresourceRange.baseMipLevel = 0;
-    post_transfer_image_memory_barrier.subresourceRange.levelCount = image->mip_levels;
-    post_transfer_image_memory_barrier.subresourceRange.baseArrayLayer = 0;
-    post_transfer_image_memory_barrier.subresourceRange.layerCount = 1;
-    post_transfer_image_memory_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    post_transfer_image_memory_barrier.dstAccessMask = 0;
-
-    vkCmdPipelineBarrier(tranfer_command_buffer,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &post_transfer_image_memory_barrier);
-
-    vkEndCommandBuffer(tranfer_command_buffer);
-
-    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &tranfer_command_buffer;
-
-    vkQueueSubmit(context->transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
-
-    VkCommandBufferAllocateInfo graphics_command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    graphics_command_buffer_allocate_info.commandPool = context->graphics_command_pool;
-    graphics_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    graphics_command_buffer_allocate_info.commandBufferCount = 1;
-
-    VkCommandBuffer graphics_command_buffer = {};
-    vkAllocateCommandBuffers(context->logical_device, &graphics_command_buffer_allocate_info, &graphics_command_buffer);
-    vkResetCommandBuffer(graphics_command_buffer, 0);
-
-    VkCommandBufferBeginInfo graphics_command_buffer_begin_info =
-        { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    graphics_command_buffer_begin_info.flags = 0;
-    graphics_command_buffer_begin_info.pInheritanceInfo = 0;
-
-    vkBeginCommandBuffer(graphics_command_buffer,
-                         &graphics_command_buffer_begin_info);
-
-    VkImageMemoryBarrier post_copy_image_memory_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-    post_copy_image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    post_copy_image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    post_copy_image_memory_barrier.srcQueueFamilyIndex = context->transfer_queue_family_index;
-    post_copy_image_memory_barrier.dstQueueFamilyIndex = context->graphics_queue_family_index;
-    post_copy_image_memory_barrier.image = image->handle;
-    post_copy_image_memory_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    post_copy_image_memory_barrier.subresourceRange.baseMipLevel = 0;
-    post_copy_image_memory_barrier.subresourceRange.levelCount = image->mip_levels;
-    post_copy_image_memory_barrier.subresourceRange.baseArrayLayer = 0;
-    post_copy_image_memory_barrier.subresourceRange.layerCount = 1;
-    post_copy_image_memory_barrier.srcAccessMask = 0;
-    post_copy_image_memory_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-    vkCmdPipelineBarrier(graphics_command_buffer,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &post_copy_image_memory_barrier);
-
-    vkEndCommandBuffer(graphics_command_buffer);
-
-    submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &graphics_command_buffer;
-    vkQueueSubmit(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-
-#else
-
-    VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    command_buffer_allocate_info.commandPool = context->graphics_command_pool;
-    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    command_buffer_allocate_info.commandBufferCount = 1;
-
-    VkCommandBuffer command_buffer = {};
-    vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[1];
     vkResetCommandBuffer(command_buffer, 0);
 
     VkCommandBufferBeginInfo command_buffer_begin_info =
@@ -449,7 +283,7 @@ copy_data_to_image_from_buffer(Vulkan_Context *context,
     submit_info.pCommandBuffers = &command_buffer;
 
     vkQueueSubmit(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-#endif
+    vkQueueWaitIdle(context->graphics_queue);
 }
 
 void

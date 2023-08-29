@@ -31,6 +31,7 @@ static Free_List_Allocator *_stbi_allocator;
 #include "rendering/vulkan/vulkan_renderer.h"
 #endif
 
+// todo(amer): this is going to be a percentage
 HOPE_CVarInt(back_buffer_width, "back buffer width", -1, "renderer", CVarFlag_None);
 HOPE_CVarInt(back_buffer_height, "back buffer height", -1, "renderer", CVarFlag_None);
 
@@ -82,19 +83,6 @@ bool init_renderer_state(Engine *engine,
                          Renderer_State *renderer_state,
                          struct Memory_Arena *arena)
 {
-    HOPE_CVarGetInt(back_buffer_width, "renderer");
-    HOPE_CVarGetInt(back_buffer_height, "renderer");
-
-    if (*back_buffer_width == -1 || *back_buffer_height == -1)
-    {
-        // todo(amer): get video modes and pick highest one
-        *back_buffer_width = 1280;
-        *back_buffer_height = 720;
-    }
-
-    renderer_state->back_buffer_width = (U32)*back_buffer_width;
-    renderer_state->back_buffer_height = (U32)*back_buffer_height;
-
     _transfer_allocator = renderer_state->transfer_allocator;
     _stbi_allocator = &engine->memory.free_list_allocator;
 
@@ -113,7 +101,8 @@ bool init_renderer_state(Engine *engine,
     renderer->create_texture(renderer_state->white_pixel_texture, white_pixel_descriptor);
 
     U32 *normal_pixel_data = Allocate(renderer_state->transfer_allocator, U32);
-    *normal_pixel_data = 0xFFFF8080;
+    *normal_pixel_data = 0xFFFF8080; // todo(amer): endianness
+    HOPE_Assert(HOPE_ARCH_X64);
 
     Texture_Descriptor normal_pixel_descriptor = {};
     normal_pixel_descriptor.width = 1;
@@ -204,25 +193,25 @@ cgltf_load_texture(cgltf_texture_view *texture_view, String model_path,
     }
     else
     {
-        String texture_name = { texture_view->texture->image->name, string_length(texture_view->texture->image->name) };
+        String texture_name = HOPE_String(texture_view->texture->image->name);
         S64 dot_index = find_first_char_from_right(&texture_name, ".");
         HOPE_Assert(dot_index != -1);
 
-        String extension_to_append = HOPE_String("");
+        String extension_to_append = HOPE_StringLiteral("");
         String extension = sub_string(&texture_name, dot_index);
 
-        if (!equal(&extension, ".png") &&
-            !equal(&extension, ".jpg"))
+        if (extension != ".png" &&
+            extension != ".jpg")
         {
-            String mime_type = { image->mime_type, string_length(image->mime_type) };
+            String mime_type = HOPE_String(image->mime_type);
 
-            if (equal(&mime_type, "image/png"))
+            if (mime_type == "image/png")
             {
-                extension_to_append = HOPE_String(".png");
+                extension_to_append = HOPE_StringLiteral(".png");
             }
-            else if (equal(&mime_type, "image/jpg"))
+            else if (mime_type == "image/jpg")
             {
-                extension_to_append = HOPE_String(".jpg");
+                extension_to_append = HOPE_StringLiteral(".jpg");
             }
         }
 
@@ -409,26 +398,26 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
         desc.pipeline_state = renderer_state->mesh_pipeline;
         renderer->create_material(renderer_material, desc);
 
-        U32 *albedo_texture_index = (U32 *)get_property(renderer_material, HOPE_String("albedo_texture_index"), ShaderDataType_U32);
-        U32 *normal_texture_index = (U32 *)get_property(renderer_material, HOPE_String("normal_texture_index"), ShaderDataType_U32);
+        U32 *albedo_texture_index = (U32 *)get_property(renderer_material, HOPE_StringLiteral("albedo_texture_index"), ShaderDataType_U32);
+        U32 *normal_texture_index = (U32 *)get_property(renderer_material, HOPE_StringLiteral("normal_texture_index"), ShaderDataType_U32);
         U32 *occlusion_roughness_metallic_texture_index = (U32 *)get_property(renderer_material,
-                                                                              HOPE_String("occlusion_roughness_metallic_texture_index"),
+                                                                              HOPE_StringLiteral("occlusion_roughness_metallic_texture_index"),
                                                                               ShaderDataType_U32);
 
         glm::vec3 *albedo_color = (glm::vec3 *)get_property(renderer_material,
-                                                            HOPE_String("albedo_color"),
+                                                            HOPE_StringLiteral("albedo_color"),
                                                             ShaderDataType_Vector3f);
 
         F32 *roughness_factor = (F32 *)get_property(renderer_material,
-                                                    HOPE_String("roughness_factor"),
+                                                    HOPE_StringLiteral("roughness_factor"),
                                                     ShaderDataType_F32);
 
         F32 *metallic_factor = (F32 *)get_property(renderer_material,
-                                                    HOPE_String("metallic_factor"),
+                                                    HOPE_StringLiteral("metallic_factor"),
                                                     ShaderDataType_F32);
 
         F32 *reflectance = (F32 *)get_property(renderer_material,
-                                               HOPE_String("reflectance"),
+                                               HOPE_StringLiteral("reflectance"),
                                                ShaderDataType_F32);
         
         *albedo_color = *(glm::vec3 *)material->pbr_metallic_roughness.base_color_factor;
@@ -677,7 +666,7 @@ U8 *get_property(Material *material, String name, ShaderDataType shader_datatype
     for (U32 member_index = 0; member_index < properties->member_count; member_index++)
     {
         Shader_Struct_Member *member = &properties->members[member_index];
-        if (equal(&name, &member->name) && member->data_type == shader_datatype)
+        if (name == member->name && member->data_type == shader_datatype)
         {
             return material->data + member->offset;
         }
@@ -760,7 +749,7 @@ S32 find_texture(Renderer_State *renderer_state, const String &name)
     for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
     {
         Texture *texture = &renderer_state->textures[texture_index];
-        if (equal(&texture->name, &name))
+        if (texture->name == name)
         {
             return texture_index;
         }

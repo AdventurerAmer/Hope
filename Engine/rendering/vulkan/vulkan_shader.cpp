@@ -217,7 +217,7 @@ U32 parse_struct(const Shader_Entity &entity,
 {
     for (U32 struct_index = 0; struct_index < structs.size(); struct_index++)
     {
-        if (equal(&entity.name, &structs[struct_index].name) == 0)
+        if (entity.name == structs[struct_index].name)
         {
             return struct_index;
         }

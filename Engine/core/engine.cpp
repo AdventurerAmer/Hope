@@ -166,7 +166,7 @@ bool startup(Engine *engine, void *platform_state)
 #endif
 
     Dynamic_Library game_code_dll = {};
-    platform_load_dynamic_library(&game_code_dll, "../bin/Game.dll"); // note(amer): hard coding dynamic library extension (dll)
+    platform_load_dynamic_library(&game_code_dll, "../bin/Game.dll"); // note(amer): hard coding dynamic library extension (.dll)
 
     Game_Code *game_code = &engine->game_code;
     game_code->init_game = (Init_Game_Proc)platform_get_proc_address(&game_code_dll, "init_game");
@@ -191,8 +191,8 @@ bool startup(Engine *engine, void *platform_state)
     if (*window_width == -1 || *window_height == -1)
     {
         // note(amer): temprary
-        *window_width = 1280;
-        *window_height = 720;
+        U32 width = 1296;
+        U32 height = 759;
     }
 
     Window *window = &engine->window;
@@ -219,6 +219,19 @@ bool startup(Engine *engine, void *platform_state)
     renderer_state->scene_nodes = AllocateArray(&engine->memory.transient_arena, Scene_Node, MAX_SCENE_NODE_COUNT);
     renderer_state->shaders = AllocateArray(&engine->memory.transient_arena, Shader, MAX_SHADER_COUNT);
     renderer_state->pipeline_states = AllocateArray(&engine->memory.transient_arena, Pipeline_State, MAX_PIPELINE_STATE_COUNT);
+
+    HOPE_CVarGetInt(back_buffer_width, "renderer");
+    HOPE_CVarGetInt(back_buffer_height, "renderer");
+
+    if (*back_buffer_width == -1 || *back_buffer_height == -1)
+    {
+        // todo(amer): get video modes and pick highest one
+        *back_buffer_width = 1280;
+        *back_buffer_height = 720;
+    }
+
+    renderer_state->back_buffer_width = (U32)*back_buffer_width;
+    renderer_state->back_buffer_height = (U32)*back_buffer_height;
 
     bool requested = request_renderer(RenderingAPI_Vulkan, &engine->renderer);
     if (!requested)

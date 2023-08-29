@@ -102,7 +102,7 @@ struct Engine
     bool imgui_docking;
 
     /*
-        note(amer): this is a platform specific pointer to Win32_State on windows
+        note(amer): this is a platform specific pointer to Win32_Platform_State on windows
     */
     void *platform_state;
 

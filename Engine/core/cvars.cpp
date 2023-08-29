@@ -1,6 +1,7 @@
 #include "cvars.h"
 #include "platform.h"
 #include "memory.h"
+#include "containers/string.h"
 #include "engine.h"
 
 #include <unordered_map>
@@ -15,8 +16,8 @@ union CVar_Data
 
 struct CVar
 {
-    const char *name;
-    const char *description;
+    String name;
+    String description;
 
     CVar_Flags flags;
     CVar_Type type;
@@ -79,7 +80,7 @@ bool init_cvars(const char *filepath, Engine *engine)
 
                 for (CVar &cvar : *cvars)
                 {
-                    if (equal(&cvar_name, cvar.name))
+                    if (cvar_name == cvar.name)
                     {
                         switch (cvar.type)
                         {
@@ -174,8 +175,8 @@ static void* declare_cvar(const char *name,
     cvars.push_back(CVar {});
     CVar &cvar = cvars.back();
 
-    cvar.name = name;
-    cvar.description = description;
+    cvar.name = HOPE_String(name);
+    cvar.description = HOPE_String(description);
     cvar.type = type;
     cvar.flags = flags;
     cvar.value = default_value;
@@ -245,7 +246,7 @@ void *get_cvar(const char *name, U64 category, CVar_Type type)
     std::vector< CVar > &cvars = it->second.cvars;
     for (CVar &cvar : cvars)
     {
-        if (equal(name, cvar.name))
+        if (cvar.name == name)
         {
             HOPE_Assert(type == cvar.type);
             switch (type)
