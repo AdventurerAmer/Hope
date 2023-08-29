@@ -19,8 +19,8 @@ vec3 linear_to_srgb(vec3 color)
 }
 
 in vec3 in_position;
-in vec2 in_uv;
 in vec3 in_normal;
+in vec2 in_uv;
 in vec3 in_tangent;
 in vec3 in_bitangent;
 
@@ -80,7 +80,7 @@ void main()
     vec3 albedo = srgb_to_linear( texture( u_textures[ nonuniformEXT( material.albedo_texture_index) ], in_uv ).rgb );
     albedo *= srgb_to_linear( material.albedo_color );
 
-    vec3 occlusion_roughness_metallic = texture( u_textures[ nonuniformEXT(material.occlusion_roughness_metallic_texture_index) ], in_uv ).rgb;
+    vec3 occlusion_roughness_metallic = texture( u_textures[ nonuniformEXT( material.occlusion_roughness_metallic_texture_index ) ], in_uv ).rgb;
     float occlusion = occlusion_roughness_metallic.r;
 
     float roughness = occlusion_roughness_metallic.g;

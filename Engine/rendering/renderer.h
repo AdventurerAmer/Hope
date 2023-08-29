@@ -152,3 +152,5 @@ inline glm::vec4 linear_to_sRGB(const glm::vec4 &color)
 {
     return glm::pow(color, glm::vec4(1.0f / GAMMA));
 }
+
+U32 get_size_of_shader_data_type(ShaderDataType shader_data_type);

@@ -6,13 +6,12 @@
 
 layout (location = 0) in vec3 in_position;
 layout (location = 1) in vec3 in_normal;
-layout (location = 2) in vec3 in_tangent;
-layout (location = 3) in vec3 in_bitangent;
-layout (location = 4) in vec2 in_uv;
+layout (location = 2) in vec2 in_uv;
+layout (location = 3) in vec4 in_tangent;
 
 out vec3 out_position;
-out vec2 out_uv;
 out vec3 out_normal;
+out vec2 out_uv;
 out vec3 out_tangent;
 out vec3 out_bitangent;
 
@@ -34,14 +33,13 @@ void main()
     out_position = world_position.xyz;
     gl_Position = globals.projection * globals.view * world_position;
 
-    mat3 non_uniform_scaling_removed_model = transpose(inverse(mat3(model)));
+    mat3 object_to_world_direction = transpose(inverse(mat3(model)));
 
-    vec3 normal = non_uniform_scaling_removed_model * in_normal;
-    vec3 tangent = non_uniform_scaling_removed_model * in_tangent;
-    vec3 bitangent = non_uniform_scaling_removed_model * in_bitangent;
+    vec3 normal = object_to_world_direction * in_normal;
+    vec3 tangent = object_to_world_direction * in_tangent.xyz;
 
     out_uv = in_uv;
     out_normal = normal;
     out_tangent = tangent;
-    out_bitangent = bitangent;
+    out_bitangent = cross(normal, tangent) * sign(in_tangent.w);
 }

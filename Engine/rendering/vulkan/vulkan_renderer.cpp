@@ -57,13 +57,9 @@ find_memory_type_index(Vulkan_Context *context,
     return result;
 }
 
-static bool
-is_physical_device_supports_all_features(VkPhysicalDevice physical_device,
-                                         VkPhysicalDeviceFeatures2 features2,
-                                         VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features)
+static bool is_physical_device_supports_all_features(VkPhysicalDevice physical_device, VkPhysicalDeviceFeatures2 features2, VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features)
 {
-    VkPhysicalDeviceDescriptorIndexingFeatures supported_descriptor_indexing_features =
-            { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
+    VkPhysicalDeviceDescriptorIndexingFeatures supported_descriptor_indexing_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
 
     VkPhysicalDeviceFeatures2 supported_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
     supported_features2.pNext = &supported_descriptor_indexing_features;
@@ -913,12 +909,23 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                            &transfer_command_pool_create_info,
                                            nullptr, &context->transfer_command_pool));
 
-    U64 vertex_size = HOPE_MegaBytes(512);
-    create_buffer(&context->vertex_buffer, context, vertex_size,
-                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    // todo(amer): temprary
+    U64 max_vertex_count = 1'000'000;
+    U64 position_size = max_vertex_count * sizeof(glm::vec3);
+    create_buffer(&context->position_buffer, context, position_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    U64 index_size = HOPE_MegaBytes(256);
+    U64 normal_size = max_vertex_count * sizeof(glm::vec3);
+    create_buffer(&context->normal_buffer, context, normal_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    U64 uv_size = max_vertex_count * sizeof(glm::vec2);
+    create_buffer(&context->uv_buffer, context, uv_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    U64 tangent_size = max_vertex_count * sizeof(glm::vec4);
+    create_buffer(&context->tangent_buffer, context, tangent_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    context->max_vertex_count = max_vertex_count;
+
+    U64 index_size = HOPE_MegaBytes(128);
     create_buffer(&context->index_buffer, context, index_size,
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -1085,7 +1092,10 @@ void deinit_vulkan(Vulkan_Context *context)
     ImGui_ImplVulkan_Shutdown();
 
     destroy_buffer(&context->transfer_buffer, context->logical_device);
-    destroy_buffer(&context->vertex_buffer, context->logical_device);
+    destroy_buffer(&context->position_buffer, context->logical_device);
+    destroy_buffer(&context->normal_buffer, context->logical_device);
+    destroy_buffer(&context->uv_buffer, context->logical_device);
+    destroy_buffer(&context->tangent_buffer, context->logical_device);
     destroy_buffer(&context->index_buffer, context->logical_device);
 
     for (U32 frame_index = 0;
@@ -1336,8 +1346,15 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     vkCmdSetScissor(command_buffer,
                     0, 1, &scissor);
 
-    VkBuffer vertex_buffers[] = { context->vertex_buffer.handle };
-    VkDeviceSize offsets[] = { 0 };
+    VkBuffer vertex_buffers[] =
+    {
+        context->position_buffer.handle,
+        context->normal_buffer.handle,
+        context->uv_buffer.handle,
+        context->tangent_buffer.handle
+    };
+
+    VkDeviceSize offsets[] = { 0, 0, 0, 0 };
 
     vkCmdBindVertexBuffers(command_buffer,
                            0, HOPE_ArrayCount(vertex_buffers), vertex_buffers, offsets);
@@ -1528,40 +1545,6 @@ void vulkan_renderer_destroy_pipeline_state(Pipeline_State *pipeline_state)
     destroy_pipeline(pipeline_state, context);
 }
 
-U32 size_of_shader_data_type(ShaderDataType shader_data_type)
-{
-    switch (shader_data_type)
-    {
-        case ShaderDataType_Bool: return 1;
-
-        case ShaderDataType_S8: return 1;
-        case ShaderDataType_S16: return 2;
-        case ShaderDataType_S32: return 4;
-        case ShaderDataType_S64: return 8;
-
-        case ShaderDataType_U8: return 1;
-        case ShaderDataType_U16: return 2;
-        case ShaderDataType_U32: return 4;
-        case ShaderDataType_U64: return 8;
-
-        case ShaderDataType_F16: return 2;
-        case ShaderDataType_F32: return 4;
-        case ShaderDataType_F64: return 8;
-
-        case ShaderDataType_Vector2f: return 2 * 4;
-        case ShaderDataType_Vector3f: return 3 * 4;
-        case ShaderDataType_Vector4f: return 4 * 4;
-
-        case ShaderDataType_Matrix3f: return 9 * 4;
-        case ShaderDataType_Matrix4f: return 16 * 4;
-
-        default:
-        {
-            HOPE_Assert(!"unsupported type");
-        } break;
-    }
-    return 0;
-}
 
 bool vulkan_renderer_create_material(Material *material, const Material_Descriptor &descriptor)
 {
@@ -1587,7 +1570,7 @@ bool vulkan_renderer_create_material(Material *material, const Material_Descript
     HOPE_Assert(properties);
 
     Shader_Struct_Member *last_member = &properties->members[properties->member_count - 1];
-    U32 last_member_size = size_of_shader_data_type(last_member->data_type);
+    U32 last_member_size = get_size_of_shader_data_type(last_member->data_type);
     U32 size = last_member->offset + last_member_size;
 
     VkDescriptorSetLayout level2_descriptor_set_layouts[HOPE_MAX_FRAMES_IN_FLIGHT] = {};
@@ -1659,26 +1642,39 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, const Static_M
 {
     Vulkan_Context *context = &vulkan_context;
 
-    U64 vertex_size = descriptor.vertex_count * sizeof(Vertex);
+    U64 position_size = descriptor.vertex_count * sizeof(glm::vec3);
+    U64 normal_size = descriptor.vertex_count * sizeof(glm::vec3);
+    U64 uv_size = descriptor.vertex_count * sizeof(glm::vec2);
+    U64 tangent_size = descriptor.vertex_count * sizeof(glm::vec4);
     U64 index_size = descriptor.index_count * sizeof(U16);
 
-    HOPE_Assert(context->vertex_offset + vertex_size <= context->vertex_buffer.size);
-    HOPE_Assert(context->index_offset + index_size <= context->index_buffer.size);
+    HOPE_Assert(context->vertex_count + descriptor.vertex_count <= context->max_vertex_count);
     static_mesh->index_count = descriptor.index_count;
     static_mesh->vertex_count = descriptor.vertex_count;
 
     Vulkan_Static_Mesh *vulkan_static_mesh = context->static_meshes + index_of(&context->engine->renderer_state, static_mesh);
 
-    U64 vertices_offset = (U8 *)descriptor.vertices - context->transfer_allocator.base;
+    U64 position_offset = (U8 *)descriptor.positions - context->transfer_allocator.base;
+    U64 normal_offset = (U8*)descriptor.normals - context->transfer_allocator.base;
+    U64 uv_offset = (U8*)descriptor.uvs - context->transfer_allocator.base;
+    U64 tangent_offset = (U8*)descriptor.tangents - context->transfer_allocator.base;
+
     U64 indicies_offset = (U8 *)descriptor.indices - context->transfer_allocator.base;
 
-    copy_data_to_buffer_from_buffer(context, &context->vertex_buffer, context->vertex_offset, &context->transfer_buffer, vertices_offset, vertex_size);
+    copy_data_to_buffer_from_buffer(context, &context->position_buffer, context->vertex_count * sizeof(glm::vec3), &context->transfer_buffer, position_offset, position_size);
+
+    copy_data_to_buffer_from_buffer(context, &context->normal_buffer, context->vertex_count * sizeof(glm::vec3), &context->transfer_buffer, normal_offset, normal_size);
+
+    copy_data_to_buffer_from_buffer(context, &context->uv_buffer, context->vertex_count * sizeof(glm::vec2), &context->transfer_buffer, uv_offset, uv_size);
+
+    copy_data_to_buffer_from_buffer(context, &context->tangent_buffer, context->vertex_count * sizeof(glm::vec4), &context->transfer_buffer, tangent_offset, position_size);
+
     copy_data_to_buffer_from_buffer(context, &context->index_buffer, context->index_offset, &context->transfer_buffer, indicies_offset, index_size);
 
-    vulkan_static_mesh->first_vertex = (S32)u64_to_u32(context->vertex_offset / sizeof(Vertex));
+    vulkan_static_mesh->first_vertex = (S32)u64_to_u32(context->vertex_count);
     vulkan_static_mesh->first_index = u64_to_u32(context->index_offset / sizeof(U16));
 
-    context->vertex_offset += vertex_size;
+    context->vertex_count += descriptor.vertex_count;
     context->index_offset += index_size;
     return true;
 }

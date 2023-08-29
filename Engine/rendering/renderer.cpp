@@ -35,10 +35,6 @@ static Free_List_Allocator *_stbi_allocator;
 HOPE_CVarInt(back_buffer_width, "back buffer width", -1, "renderer", CVarFlag_None);
 HOPE_CVarInt(back_buffer_height, "back buffer height", -1, "renderer", CVarFlag_None);
 
-// todo(amer): to be removed...
-#include <filesystem>
-namespace fs = std::filesystem;
-
 bool request_renderer(RenderingAPI rendering_api,
                       Renderer *renderer)
 {
@@ -236,8 +232,7 @@ cgltf_load_texture(cgltf_texture_view *texture_view, String model_path,
 
         stbi_uc *pixels = nullptr;
 
-        // todo(amer): file_system.h
-        if (!fs::exists(fs::path(texture_path.data)))
+        if (!platform_file_exists(texture_path.data))
         {
             const auto *view = image->buffer_view;
             U8 *data_ptr = (U8*)view->buffer->data;
@@ -435,11 +430,11 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
     U32 normal_count = 0;
     glm::vec3 *normals = nullptr;
 
-    U32 tangent_count = 0;
-    glm::vec4 *tangents = nullptr;
-
     U32 uv_count = 0;
     glm::vec2 *uvs = nullptr;
+
+    U32 tangent_count = 0;
+    glm::vec4 *tangents = nullptr;
 
     U32 index_count = 0;
     U16 *indices = nullptr;
@@ -504,55 +499,50 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
 
                     switch (attribute->type)
                     {
-                    case cgltf_attribute_type_position:
-                    {
-                        HOPE_Assert(attribute->data->type == cgltf_type_vec3);
-                        HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                        case cgltf_attribute_type_position:
+                        {
+                            HOPE_Assert(attribute->data->type == cgltf_type_vec3);
+                            HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
 
-                        position_count = u64_to_u32(attribute->data->count);
-                        U64 stride = attribute->data->stride;
-                        HOPE_Assert(stride == sizeof(glm::vec3));
-                        positions = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
-                    } break;
+                            position_count = u64_to_u32(attribute->data->count);
+                            U64 stride = attribute->data->stride;
+                            HOPE_Assert(stride == sizeof(glm::vec3));
+                            positions = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
+                        } break;
 
-                    case cgltf_attribute_type_normal:
-                    {
-                        HOPE_Assert(attribute->data->type == cgltf_type_vec3);
-                        HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                        case cgltf_attribute_type_normal:
+                        {
+                            HOPE_Assert(attribute->data->type == cgltf_type_vec3);
+                            HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
 
-                        normal_count = u64_to_u32(attribute->data->count);
-                        U64 stride = attribute->data->stride;
-                        HOPE_Assert(stride == sizeof(glm::vec3));
-                        normals = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
-                    } break;
+                            normal_count = u64_to_u32(attribute->data->count);
+                            U64 stride = attribute->data->stride;
+                            HOPE_Assert(stride == sizeof(glm::vec3));
+                            normals = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
+                        } break;
 
-                    case cgltf_attribute_type_tangent:
-                    {
-                        HOPE_Assert(attribute->data->type == cgltf_type_vec4);
-                        HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
-                        tangent_count = u64_to_u32(attribute->data->count);
-                        U64 stride = attribute->data->stride;
-                        HOPE_Assert(stride == sizeof(glm::vec4));
-                        tangents = (glm::vec4*)(data_ptr + view->offset + accessor->offset);
-                    } break;
+                        case cgltf_attribute_type_texcoord:
+                        {
+                            HOPE_Assert(attribute->data->type == cgltf_type_vec2);
+                            HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
 
-                    case cgltf_attribute_type_texcoord:
-                    {
-                        HOPE_Assert(attribute->data->type == cgltf_type_vec2);
-                        HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                            uv_count = u64_to_u32(attribute->data->count);
+                            U64 stride = attribute->data->stride;
+                            HOPE_Assert(stride == sizeof(glm::vec2));
+                            uvs = (glm::vec2*)(data_ptr + view->offset + accessor->offset);
+                        } break;
 
-                        uv_count = u64_to_u32(attribute->data->count);
-                        U64 stride = attribute->data->stride;
-                        HOPE_Assert(stride == sizeof(glm::vec2));
-                        uvs = (glm::vec2*)(data_ptr + view->offset + accessor->offset);
-                    } break;
+                        case cgltf_attribute_type_tangent:
+                        {
+                            HOPE_Assert(attribute->data->type == cgltf_type_vec4);
+                            HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                            tangent_count = u64_to_u32(attribute->data->count);
+                            U64 stride = attribute->data->stride;
+                            HOPE_Assert(stride == sizeof(glm::vec4));
+                            tangents = (glm::vec4*)(data_ptr + view->offset + accessor->offset);
+                        } break;
                     }
                 }
-
-                HOPE_Assert(tangents);
-                HOPE_Assert(position_count == normal_count);
-                HOPE_Assert(position_count == uv_count);
-                HOPE_Assert(position_count == tangent_count);
 
                 // note(amer): we only support u16 indices for now.
                 HOPE_Assert(primitive->indices->type == cgltf_type_scalar);
@@ -560,34 +550,28 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                 HOPE_Assert(primitive->indices->stride == sizeof(U16));
 
                 index_count = u64_to_u32(primitive->indices->count);
-                const auto* accessor = primitive->indices;
-                const auto* view = accessor->buffer_view;
+                const auto *accessor = primitive->indices;
+                const auto *view = accessor->buffer_view;
                 U8* data_ptr = (U8*)view->buffer->data;
                 indices = (U16*)(data_ptr + view->offset + accessor->offset);
 
-                U32 vertex_count = position_count;
-                Vertex* vertices = AllocateArray(renderer_state->transfer_allocator, Vertex, vertex_count);
+                HOPE_Assert(position_count == normal_count);
+                HOPE_Assert(position_count == uv_count);
+                HOPE_Assert(position_count == tangent_count);
 
-                for (U32 vertex_index = 0; vertex_index < vertex_count; vertex_index++)
-                {
-                    const glm::vec4& tanget = tangents[vertex_index];
-                    Vertex* vertex = &vertices[vertex_index];
-                    vertex->position = positions[vertex_index];
-                    vertex->normal = normals[vertex_index];
-                    vertex->tangent = tanget;
-                    vertex->bitangent = glm::cross(vertex->normal, vertex->tangent) * tanget.w;
-                    vertex->uv = uvs[vertex_index];
-                }
+                U32 vertex_count = position_count;
 
                 Static_Mesh_Descriptor descriptor = {};
-                descriptor.vertices = vertices;
                 descriptor.vertex_count = vertex_count;
+                descriptor.positions = positions;
+                descriptor.normals = normals;
+                descriptor.uvs = uvs;
+                descriptor.tangents = tangents;
+
                 descriptor.indices = indices;
                 descriptor.index_count = index_count;
                 bool created = renderer->create_static_mesh(static_mesh, descriptor);
                 HOPE_Assert(created);
-
-                deallocate(renderer_state->transfer_allocator, vertices);
             }
         }
 
@@ -623,7 +607,6 @@ void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene
         render_scene_node(renderer, renderer_state, node, transform);
     }
 }
-
 
 Texture *allocate_texture(Renderer_State *renderer_state)
 {
@@ -768,4 +751,41 @@ S32 find_material(Renderer_State *renderer_state, U64 hash)
         }
     }
     return -1;
+}
+
+
+U32 get_size_of_shader_data_type(ShaderDataType shader_data_type)
+{
+    switch (shader_data_type)
+    {
+        case ShaderDataType_Bool: return 1;
+
+        case ShaderDataType_S8: return 1;
+        case ShaderDataType_S16: return 2;
+        case ShaderDataType_S32: return 4;
+        case ShaderDataType_S64: return 8;
+
+        case ShaderDataType_U8: return 1;
+        case ShaderDataType_U16: return 2;
+        case ShaderDataType_U32: return 4;
+        case ShaderDataType_U64: return 8;
+
+        case ShaderDataType_F16: return 2;
+        case ShaderDataType_F32: return 4;
+        case ShaderDataType_F64: return 8;
+
+        case ShaderDataType_Vector2f: return 2 * 4;
+        case ShaderDataType_Vector3f: return 3 * 4;
+        case ShaderDataType_Vector4f: return 4 * 4;
+
+        case ShaderDataType_Matrix3f: return 9 * 4;
+        case ShaderDataType_Matrix4f: return 16 * 4;
+
+        default:
+        {
+            HOPE_Assert(!"unsupported type");
+        } break;
+    }
+
+    return 0;
 }

@@ -178,8 +178,12 @@ struct Vulkan_Context
     VkCommandPool transfer_command_pool;
     Vulkan_Buffer transfer_buffer;
 
-    Vulkan_Buffer vertex_buffer;
-    U64 vertex_offset;
+    U64 max_vertex_count;
+    U64 vertex_count;
+    Vulkan_Buffer position_buffer;
+    Vulkan_Buffer normal_buffer;
+    Vulkan_Buffer uv_buffer;
+    Vulkan_Buffer tangent_buffer;
 
     Vulkan_Buffer index_buffer;
     U64 index_offset;

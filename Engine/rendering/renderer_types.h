@@ -78,14 +78,14 @@ struct Texture
 struct Shader_Input_Variable
 {
     String name;
-    ShaderDataType type;
+    ShaderDataType data_type;
     U32 location;
 };
 
 struct Shader_Output_Variable
 {
     String name;
-    ShaderDataType type;
+    ShaderDataType data_type;
     U32 location;
 };
 
@@ -163,8 +163,11 @@ struct Material
 
 struct Static_Mesh_Descriptor
 {
-    void *vertices;
     U16 vertex_count;
+    glm::vec3 *positions;
+    glm::vec3 *normals;
+    glm::vec2 *uvs;
+    glm::vec4 *tangents;
 
     U16 *indices;
     U32 index_count;
@@ -197,8 +200,8 @@ struct Object_Data
     glm::mat4 model;
 };
 
-static_assert(offsetof(Object_Data, model) == 0);
-static_assert(sizeof(Object_Data) == 64);
+static_assert( offsetof(Object_Data, model) == 0 );
+static_assert( sizeof(Object_Data) == 64 );
 
 struct Globals
 {

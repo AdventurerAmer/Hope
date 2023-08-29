@@ -608,26 +608,26 @@ load_shader(Shader *shader, const char *path, Vulkan_Context *context)
 
                 case SpvStorageClassInput:
                 {
-                    const Shader_Entity &input_type = ids[ ids[ entity.id_of_type ].id_of_type ];
+                    const Shader_Entity &type_entity = ids[ ids[ entity.id_of_type ].id_of_type ];
                     if (entity.location != -1)
                     {
                         Shader_Input_Variable input = {};
                         input.name = entity.name;
                         input.location = entity.location;
-                        input.type = entity.data_type;
+                        input.data_type = type_entity.data_type;
                         inputs.push_back(input);
                     }
                 } break;
 
                 case SpvStorageClassOutput:
                 {
-                    const Shader_Entity& input_type = ids[ids[entity.id_of_type].id_of_type];
+                    const Shader_Entity &type_entity = ids[ ids [ entity.id_of_type ].id_of_type ];
                     if (entity.location != -1)
                     {
                         Shader_Output_Variable output = {};
                         output.name = entity.name;
                         output.location = entity.location;
-                        output.type = entity.data_type;
+                        output.data_type = type_entity.data_type;
                         outputs.push_back(output);
                     }
                 }
@@ -721,6 +721,40 @@ combine_stage_flags_or_add_binding_if_not_found(std::vector<VkDescriptorSetLayou
     set.push_back(descriptor_set_layout_binding);
 }
 
+static VkFormat get_format_from_shader_data_type(ShaderDataType shader_data_type)
+{
+    switch (shader_data_type)
+    {
+        case ShaderDataType_Bool: return VK_FORMAT_R8_UINT;
+
+        case ShaderDataType_S8: return VK_FORMAT_R8_SINT;
+        case ShaderDataType_S16: return VK_FORMAT_R16_SINT;
+        case ShaderDataType_S32: return VK_FORMAT_R32_SINT;
+        case ShaderDataType_S64: return VK_FORMAT_R64_SINT;
+
+        case ShaderDataType_U8: return VK_FORMAT_R8_UINT;
+        case ShaderDataType_U16: return VK_FORMAT_R16_UINT;
+        case ShaderDataType_U32: return VK_FORMAT_R32_UINT;
+        case ShaderDataType_U64: return VK_FORMAT_R64_UINT;
+
+        case ShaderDataType_F16: return VK_FORMAT_R16_SFLOAT;
+        case ShaderDataType_F32: return VK_FORMAT_R32_SFLOAT;
+        case ShaderDataType_F64: return VK_FORMAT_R64_SFLOAT;
+
+        case ShaderDataType_Vector2f: return VK_FORMAT_R32G32_SFLOAT;
+        case ShaderDataType_Vector3f: return VK_FORMAT_R32G32B32_SFLOAT;
+        case ShaderDataType_Vector4f: return VK_FORMAT_R32G32B32A32_SFLOAT;
+
+        // todo(amer): add support for ShaderDataType_Matrix3 and ShaderDataType_Matrix4
+        default:
+        {
+            HOPE_Assert(!"unsupported type");
+        } break;
+    }
+
+    return VK_FORMAT_UNDEFINED;
+}
+
 bool create_graphics_pipeline(Pipeline_State *pipeline_state,
                               const std::initializer_list< const Shader * > &shaders,
                               VkRenderPass render_pass,
@@ -737,11 +771,17 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
     pipeline_state->shaders = shaders_;
 
     Vulkan_Pipeline_State *pipeline = context->pipeline_states + index_of(&context->engine->renderer_state, pipeline_state);
-    std::vector< VkPipelineShaderStageCreateInfo > shader_stage_create_infos(shaders.size());
+    std::vector< VkPipelineShaderStageCreateInfo > shader_stage_create_infos(shaders.size()); // todo(amer): remove std::vector
+
+    std::vector< VkDescriptorSetLayoutBinding > sets[MAX_DESCRIPTOR_SET_COUNT]; // todo(amer): remove std::vector
+    U32 shader_index = 0;
 
     bool is_using_vertex_shader = false;
-    std::vector<VkDescriptorSetLayoutBinding> sets[MAX_DESCRIPTOR_SET_COUNT];
-    U32 shader_index = 0;
+    std::vector< VkVertexInputBindingDescription > vertex_input_binding_descriptions; // todo(amer): remove std::vector
+    std::vector< VkVertexInputAttributeDescription > vertex_input_attribute_descriptions; // todo(amer): remove std::vector
+
+    VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info =
+        { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 
     for (const Shader *shader : shaders)
     {
@@ -756,6 +796,29 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
         if (vulkan_shader->stage == VK_SHADER_STAGE_VERTEX_BIT)
         {
             is_using_vertex_shader = true;
+
+            vertex_input_binding_descriptions.resize(shader->input_count);
+            vertex_input_attribute_descriptions.resize(shader->input_count);
+
+            for (U32 input_variable_index = 0; input_variable_index < shader->input_count; input_variable_index++)
+            {
+                const Shader_Input_Variable *input_variable = &shader->inputs[input_variable_index];
+                VkVertexInputBindingDescription *vertex_binding = &vertex_input_binding_descriptions[input_variable_index];
+                vertex_binding->binding = input_variable->location;
+                vertex_binding->stride = get_size_of_shader_data_type(input_variable->data_type);
+                vertex_binding->inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+                VkVertexInputAttributeDescription *vertex_attribute = &vertex_input_attribute_descriptions[input_variable_index];
+                vertex_attribute->binding = input_variable->location;
+                vertex_attribute->location = input_variable->location;
+                vertex_attribute->format = get_format_from_shader_data_type(input_variable->data_type);
+                vertex_attribute->offset = 0;
+            }
+
+            vertex_input_state_create_info.vertexBindingDescriptionCount = u64_to_u32(vertex_input_binding_descriptions.size());
+            vertex_input_state_create_info.pVertexBindingDescriptions = vertex_input_binding_descriptions.data();
+            vertex_input_state_create_info.vertexAttributeDescriptionCount = u64_to_u32(vertex_input_attribute_descriptions.size());
+            vertex_input_state_create_info.pVertexAttributeDescriptions = vertex_input_attribute_descriptions.data();
         }
 
         for (U32 set_index = 0; set_index < MAX_DESCRIPTOR_SET_COUNT; set_index++)
@@ -811,45 +874,6 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
                                                        nullptr,
                                                        &pipeline->descriptor_set_layouts[set_index]));
     }
-
-    VkVertexInputBindingDescription vertex_input_binding_description = {};
-    vertex_input_binding_description.binding = 0;
-    vertex_input_binding_description.stride = sizeof(Vertex);
-    vertex_input_binding_description.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-    VkVertexInputAttributeDescription vertex_input_attribute_descriptions[5] = {};
-    vertex_input_attribute_descriptions[0].binding  = 0;
-    vertex_input_attribute_descriptions[0].location = 0;
-    vertex_input_attribute_descriptions[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
-    vertex_input_attribute_descriptions[0].offset   = offsetof(Vertex, position);
-
-    vertex_input_attribute_descriptions[1].binding  = 0;
-    vertex_input_attribute_descriptions[1].location = 1;
-    vertex_input_attribute_descriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
-    vertex_input_attribute_descriptions[1].offset   = offsetof(Vertex, normal);
-
-    vertex_input_attribute_descriptions[2].binding  = 0;
-    vertex_input_attribute_descriptions[2].location = 2;
-    vertex_input_attribute_descriptions[2].format   = VK_FORMAT_R32G32B32_SFLOAT;
-    vertex_input_attribute_descriptions[2].offset   = offsetof(Vertex, tangent);
-
-    vertex_input_attribute_descriptions[3].binding  = 0;
-    vertex_input_attribute_descriptions[3].location = 3;
-    vertex_input_attribute_descriptions[3].format   = VK_FORMAT_R32G32B32_SFLOAT;
-    vertex_input_attribute_descriptions[3].offset   = offsetof(Vertex, bitangent);
-
-    vertex_input_attribute_descriptions[4].binding  = 0;
-    vertex_input_attribute_descriptions[4].location = 4;
-    vertex_input_attribute_descriptions[4].format   = VK_FORMAT_R32G32_SFLOAT;
-    vertex_input_attribute_descriptions[4].offset   = offsetof(Vertex, uv);
-
-    VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info =
-        { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-
-    vertex_input_state_create_info.vertexBindingDescriptionCount = 1;
-    vertex_input_state_create_info.pVertexBindingDescriptions = &vertex_input_binding_description;
-    vertex_input_state_create_info.vertexAttributeDescriptionCount = HOPE_ArrayCount(vertex_input_attribute_descriptions);
-    vertex_input_state_create_info.pVertexAttributeDescriptions = vertex_input_attribute_descriptions;
 
     VkDynamicState dynamic_states[] =
     {
@@ -952,7 +976,7 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
     depth_stencil_state_create_info.depthBoundsTestEnable = VK_FALSE;
     depth_stencil_state_create_info.minDepthBounds = 0.0f;
     depth_stencil_state_create_info.maxDepthBounds = 1.0f;
-    depth_stencil_state_create_info.stencilTestEnable = VK_FALSE; // todo(amer): stencil test is disabled
+    depth_stencil_state_create_info.stencilTestEnable = VK_FALSE; // note(amer): stencil test is disabled
     depth_stencil_state_create_info.front = {};
     depth_stencil_state_create_info.back = {};
 
@@ -990,6 +1014,7 @@ void destroy_pipeline(Pipeline_State *pipeline_state, Vulkan_Context *context)
 {
     HOPE_Assert(pipeline_state);
     HOPE_Assert(context);
+
     Vulkan_Pipeline_State *pipeline = context->pipeline_states + index_of(&context->engine->renderer_state, pipeline_state);
 
     for (U32 set_index = 0; set_index < pipeline->descriptor_set_layout_count; set_index++)
@@ -1001,4 +1026,6 @@ void destroy_pipeline(Pipeline_State *pipeline_state, Vulkan_Context *context)
 
     vkDestroyPipelineLayout(context->logical_device, pipeline->layout, nullptr);
     vkDestroyPipeline(context->logical_device, pipeline->handle, nullptr);
+
+    deallocate(context->allocator, pipeline_state->shaders);
 }
