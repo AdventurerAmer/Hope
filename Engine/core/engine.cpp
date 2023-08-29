@@ -149,6 +149,13 @@ bool startup(Engine *engine, void *platform_state)
                              &engine->memory.transient_arena,
                              HOPE_MegaBytes(512));
 
+    init_cvars("config.cvars", engine);
+
+    HOPE_CVarGetInt(window_mode, "platform");
+    HOPE_CVarGetString(app_name, "platform");
+    HOPE_CVarGetInt(window_width, "platform");
+    HOPE_CVarGetInt(window_height, "platform");
+
 #ifndef HOPE_SHIPPING
 
     U64 debug_state_arena_size = HOPE_MegaBytes(64);
@@ -176,12 +183,6 @@ bool startup(Engine *engine, void *platform_state)
     HOPE_Assert(game_code->on_event);
     HOPE_Assert(game_code->on_update);
 
-    init_cvars("config.cvars", engine);
-    HOPE_CVarGetInt(window_mode, "platform");
-    HOPE_CVarGetString(app_name, "platform");
-    HOPE_CVarGetInt(window_width, "platform");
-    HOPE_CVarGetInt(window_height, "platform");
-
     hock_engine_api(&engine->api);
 
     engine->show_cursor = true;
@@ -190,9 +191,9 @@ bool startup(Engine *engine, void *platform_state)
 
     if (*window_width == -1 || *window_height == -1)
     {
-        // note(amer): temprary
-        U32 width = 1296;
-        U32 height = 759;
+        // note(amer): video modes
+        *window_width = 1296;
+        *window_height = 759;
     }
 
     Window *window = &engine->window;
