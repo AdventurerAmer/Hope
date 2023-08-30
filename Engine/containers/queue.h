@@ -3,7 +3,7 @@
 #include "core/defines.h"
 
 template< typename T >
-struct Queue
+struct Ring_Queue
 {
     T *data;
     U32 capacity;
@@ -13,7 +13,7 @@ struct Queue
 };
 
 template< typename T, typename Allocator >
-void init_queue(Queue< T > *queue, U32 capacity, Allocator *allocator)
+void init_ring_queue(Ring_Queue< T > *queue, U32 capacity, Allocator *allocator)
 {
     HOPE_Assert((capacity & (capacity - 1)) == 0);
     queue->data = AllocateArray(allocator, T, capacity);
@@ -24,36 +24,47 @@ void init_queue(Queue< T > *queue, U32 capacity, Allocator *allocator)
 }
 
 template< typename T >
-U32 count(Queue< T > *queue)
+U32 count(Ring_Queue< T > *queue)
 {
     return (queue->write & queue->mask) - (queue->read & queue->mask);
 }
 
 template< typename T >
-bool empty(Queue< T > *queue)
+bool empty(Ring_Queue< T > *queue)
 {
     return count(queue) == 0;
 }
 
 template< typename T >
-bool full(Queue< T > *queue)
+bool full(Ring_Queue< T > *queue)
 {
     return count(queue) == queue->capacity;
 }
 
 template< typename T >
-void push(Queue< T > *queue, const T& item)
+bool push(Ring_Queue< T > *queue, const T &item)
 {
-    HOPE_Assert(!full(queue));
+    if (full(queue))
+    {
+        return false;
+    }
+
     queue->data[(queue->write & queue->mask)] = item;
     queue->write++;
+    return true;
 }
 
 template< typename T >
-T pop(Queue< T > *queue)
+bool pop(Ring_Queue< T > *queue, T *out_datum)
 {
-    HOPE_Assert(!empty(queue));
+    HOPE_Assert(out_datum);
+
+    if (empty(queue))
+    {
+        return false;
+    }
     U32 read = (queue->read & queue->mask);
     queue->read++;
-    return queue->data[read];
+    *out_datum = queue->data[read];
+    return true;
 }

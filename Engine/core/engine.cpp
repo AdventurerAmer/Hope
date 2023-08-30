@@ -3,6 +3,7 @@
 #include "rendering/renderer.h"
 #include "debugging.h"
 #include "cvars.h"
+#include "job_system.h"
 
 HOPE_CVarString(engine_name, "name of the engine", "Hope", "platform", CVarFlag_None);
 HOPE_CVarString(app_name, "name of the application", "Hope", "platform", CVarFlag_None);
@@ -122,6 +123,19 @@ void hock_engine_api(Engine_API *api)
     api->render_scene_node = &render_scene_node;
 }
 
+struct Print_Job_Data
+{
+    const char *string_to_print;
+};
+
+Job_Result print_string_job(const Job_Parameters &params)
+{
+    HOPE_Assert(params.data);
+    Print_Job_Data *data = (Print_Job_Data *)params.data;
+    Job_Result result = Job_Result::SUCCEEDED;
+    platform_debug_printf(data->string_to_print);
+    return result;
+}
 
 bool startup(Engine *engine, void *platform_state)
 {
@@ -173,7 +187,8 @@ bool startup(Engine *engine, void *platform_state)
 #endif
 
     Dynamic_Library game_code_dll = {};
-    platform_load_dynamic_library(&game_code_dll, "../bin/Game.dll"); // note(amer): hard coding dynamic library extension (.dll)
+    bool game_code_loaded = platform_load_dynamic_library(&game_code_dll, "../bin/Game.dll"); // note(amer): hard coding dynamic library extension (.dll)
+    HOPE_Assert(game_code_loaded);
 
     Game_Code *game_code = &engine->game_code;
     game_code->init_game = (Init_Game_Proc)platform_get_proc_address(&game_code_dll, "init_game");
@@ -185,7 +200,7 @@ bool startup(Engine *engine, void *platform_state)
 
     hock_engine_api(&engine->api);
 
-    engine->show_cursor = true;
+    engine->show_cursor = false;
     engine->lock_cursor = false;
     engine->platform_state = platform_state;
 
@@ -210,6 +225,30 @@ bool startup(Engine *engine, void *platform_state)
         return false;
     }
 
+    bool job_system_inited = init_job_system(engine);
+    HOPE_Assert(job_system_inited);
+
+    Print_Job_Data data0 = 
+    {
+        "ahmed\n"
+    };
+
+    Print_Job_Data data1 = 
+    {
+        "mohamed\n"
+    };
+
+    Job job0 = {};
+    job0.proc = print_string_job;
+    job0.parameters.data = &data0;
+    execute_job(job0, JobFlag_GeneralPurpose);
+
+    Job job1 = {};
+    job1.proc = print_string_job;
+    job1.parameters.data = &data1;
+    execute_job(job1, JobFlag_GeneralPurpose);
+
+    wait_for_all_jobs_to_finish();
     init_imgui(engine);
 
     Renderer_State *renderer_state = &engine->renderer_state;
@@ -268,7 +307,6 @@ bool startup(Engine *engine, void *platform_state)
     api->debug_printf = &platform_debug_printf;
 
     bool game_initialized = game_code->init_game(engine);
-    renderer->wait_for_gpu_to_finish_all_work(renderer_state);
     return game_initialized;
 }
 
@@ -329,6 +367,8 @@ void shutdown(Engine *engine)
     deinit_renderer_state(renderer, renderer_state);
     renderer->deinit(renderer_state);
 
+    deinit_job_system();
+
     platform_shutdown_imgui();
     ImGui::DestroyContext();
 
@@ -338,17 +378,4 @@ void shutdown(Engine *engine)
 #endif
 
     deinit_cvars(engine);
-}
-
-bool write_entire_file(const char *filepath, void *data, Size size)
-{
-    Open_File_Result open_file_result = platform_open_file(filepath, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
-    if (!open_file_result.success)
-    {
-        return false;
-    }
-    bool success = platform_write_data_to_file(&open_file_result, 0, data, size);
-    HOPE_Assert(success);
-    platform_close_file(&open_file_result);
-    return success;
 }

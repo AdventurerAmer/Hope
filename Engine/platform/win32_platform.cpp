@@ -43,19 +43,6 @@ struct Win32_Platform_State
 
 static Win32_Platform_State win32_platform_state;
 
-void* platform_create_vulkan_surface(Engine *engine, void *instance, const void *allocator_callbacks)
-{
-    Win32_Window_State *win32_window_state = (Win32_Window_State *)engine->window.platform_window_state;
-    VkWin32SurfaceCreateInfoKHR surface_create_info = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
-    surface_create_info.hinstance = win32_platform_state.instance;
-    surface_create_info.hwnd = (HWND)win32_window_state->handle;
-
-    VkSurfaceKHR surface = 0;
-    VkResult result = vkCreateWin32SurfaceKHR((VkInstance)instance, &surface_create_info, (VkAllocationCallbacks *)allocator_callbacks, &surface);
-    HOPE_Assert(result == VK_SUCCESS);
-    return surface;
-}
-
 static void win32_get_window_size(U32 client_width, U32 client_height, U32 *width, U32 *height)
 {
     RECT rect;
@@ -161,39 +148,6 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
     return result;
 }
 
-static int imgui_platform_create_vk_surface(ImGuiViewport *vp, ImU64 vk_inst, const void *vk_allocators, ImU64 *out_vk_surface)
-{
-    ImGui_ImplWin32_ViewportData *viewport_data = (ImGui_ImplWin32_ViewportData *)vp->PlatformUserData;
-
-    VkWin32SurfaceCreateInfoKHR surface_create_info = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
-    surface_create_info.hinstance = win32_platform_state.instance;
-    surface_create_info.hwnd = viewport_data->Hwnd;
-
-    VkSurfaceKHR surface = 0;
-    VkResult result = vkCreateWin32SurfaceKHR((VkInstance)vk_inst, &surface_create_info, (VkAllocationCallbacks *)vk_allocators, (VkSurfaceKHR *)out_vk_surface);
-    HOPE_Assert(result == VK_SUCCESS);
-
-    return (int)result;
-}
-
-void platform_init_imgui(struct Engine *engine)
-{
-    Win32_Window_State *win32_window_state = (Win32_Window_State *)engine->window.platform_window_state;
-    ImGuiPlatformIO &platform_io = ImGui::GetPlatformIO();
-    platform_io.Platform_CreateVkSurface = imgui_platform_create_vk_surface;
-    ImGui_ImplWin32_Init(win32_window_state->handle);
-}
-
-void platform_imgui_new_frame()
-{
-    ImGui_ImplWin32_NewFrame();
-}
-
-void platform_shutdown_imgui()
-{
-    ImGui_ImplWin32_Shutdown();
-}
-
 HOPE_FORCE_INLINE static void
 win32_handle_mouse_input(Event *event, MSG message)
 {
@@ -258,7 +212,7 @@ INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command
     window_class.lpfnWndProc = win32_window_proc;
     window_class.hInstance = instance;
     window_class.lpszClassName = win32_platform_state.window_class_name;
-    window_class.hCursor = win32_platform_state.cursor;
+    window_class.hCursor = NULL;
     window_class.hIcon = NULL; // todo(amer): icons
     ATOM success = RegisterClassA(&window_class);
     HOPE_Assert(success != 0);
@@ -474,6 +428,10 @@ INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command
     return 0;
 }
 
+//
+// memory
+//
+
 void* platform_allocate_memory(U64 size)
 {
     HOPE_Assert(size);
@@ -485,6 +443,10 @@ void platform_deallocate_memory(void *memory)
     HOPE_Assert(memory);
     VirtualFree(memory, 0, MEM_RELEASE);
 }
+
+//
+// window
+//
 
 bool platform_create_window(Window *window, const char *title, U32 width, U32 height, Window_Mode window_mode)
 {
@@ -561,6 +523,10 @@ void platform_set_window_mode(Window *window, Window_Mode window_mode)
                      SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
     }
 }
+
+//
+// files
+//
 
 bool platform_file_exists(const char *filepath)
 {
@@ -650,6 +616,10 @@ bool platform_close_file(Open_File_Result *open_file_result)
     return result;
 }
 
+//
+// dynamic library
+//
+
 bool platform_load_dynamic_library(Dynamic_Library *dynamic_library, const char *filepath)
 {
     DWORD flags = DONT_RESOLVE_DLL_REFERENCES|LOAD_IGNORE_CODE_AUTHZ_LEVEL;
@@ -674,6 +644,153 @@ bool platform_unload_dynamic_library(Dynamic_Library *dynamic_library)
     return FreeLibrary((HMODULE)dynamic_library->platform_dynamic_library_state) == 0;
 }
 
+//
+// vulkan
+//
+
+void* platform_create_vulkan_surface(Engine *engine, void *instance, const void *allocator_callbacks)
+{
+    Win32_Window_State *win32_window_state = (Win32_Window_State *)engine->window.platform_window_state;
+    VkWin32SurfaceCreateInfoKHR surface_create_info = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
+    surface_create_info.hinstance = win32_platform_state.instance;
+    surface_create_info.hwnd = (HWND)win32_window_state->handle;
+
+    VkSurfaceKHR surface = 0;
+    VkResult result = vkCreateWin32SurfaceKHR((VkInstance)instance, &surface_create_info, (VkAllocationCallbacks *)allocator_callbacks, &surface);
+    HOPE_Assert(result == VK_SUCCESS);
+    return surface;
+}
+
+//
+// threading
+//
+
+bool platform_create_and_start_thread(Thread *thread, Thread_Proc thread_proc, void *params, const char *name)
+{
+    HOPE_Assert(thread);
+    HOPE_Assert(thread_proc);
+
+    DWORD thread_id;
+    HANDLE thread_handle = CreateThread(NULL, 0, thread_proc, params, 0, &thread_id);
+    if (thread_handle == NULL)
+    {
+        return false;
+    }
+
+    if (name)
+    {
+        wchar_t wide_name[256];
+        U64 count = string_length(name);
+        HOPE_Assert(count <= 255);
+
+        int result = MultiByteToWideChar(CP_OEMCP, 0, name, -1, wide_name, u64_to_u32(count + 1));
+        HOPE_Assert(result);
+
+        HRESULT hresult = SetThreadDescription(thread_handle, wide_name);
+        HOPE_Assert(!FAILED(hresult));
+    }
+
+    thread->platform_thread_state = thread_handle;
+    return true;
+}
+
+U32 platform_get_thread_count()
+{
+    SYSTEM_INFO system_info = {};
+    GetSystemInfo(&system_info);
+    return system_info.dwNumberOfProcessors;
+}
+
+bool platform_create_mutex(Mutex *mutex)
+{
+    CRITICAL_SECTION *critical_section = (CRITICAL_SECTION *)VirtualAlloc(0, sizeof(CRITICAL_SECTION), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    if (!critical_section)
+    {
+        return false;
+    }
+    InitializeCriticalSection(critical_section);
+    mutex->platform_mutex_state = critical_section;
+    return true;
+}
+
+void platform_lock_mutex(Mutex *mutex)
+{
+    CRITICAL_SECTION *critical_section = (CRITICAL_SECTION *)mutex->platform_mutex_state;
+    EnterCriticalSection(critical_section);
+}
+
+void platform_unlock_mutex(Mutex *mutex)
+{
+    CRITICAL_SECTION *critical_section = (CRITICAL_SECTION *)mutex->platform_mutex_state;
+    LeaveCriticalSection(critical_section);
+}
+
+bool platform_create_semaphore(Semaphore *semaphore, U32 initial_count, const char *name)
+{
+    // todo(amer): not sure about the max_count
+    HANDLE semaphore_handle = CreateSemaphoreA(0, initial_count, HOPE_MAX_U16, name);
+    if (semaphore_handle == NULL)
+    {
+        return false;
+    }
+    semaphore->platform_semaphore_state = semaphore_handle;
+    return true;
+}
+
+bool signal_semaphore(Semaphore *semaphore, U32 count)
+{
+    HANDLE semaphore_handle = (HANDLE)semaphore->platform_semaphore_state;
+    BOOL result = ReleaseSemaphore(semaphore_handle, count, NULL);
+    return result;
+}
+
+bool wait_for_semaphore(Semaphore *semaphore)
+{
+    HANDLE semaphore_handle = (HANDLE)semaphore->platform_semaphore_state;
+    DWORD result = WaitForSingleObject(semaphore_handle, INFINITE);
+    return result == WAIT_OBJECT_0;
+}
+
+//
+// imgui
+//
+
+static int imgui_platform_create_vk_surface(ImGuiViewport *vp, ImU64 vk_inst, const void *vk_allocators, ImU64 *out_vk_surface)
+{
+    ImGui_ImplWin32_ViewportData *viewport_data = (ImGui_ImplWin32_ViewportData *)vp->PlatformUserData;
+
+    VkWin32SurfaceCreateInfoKHR surface_create_info = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
+    surface_create_info.hinstance = win32_platform_state.instance;
+    surface_create_info.hwnd = viewport_data->Hwnd;
+
+    VkSurfaceKHR surface = 0;
+    VkResult result = vkCreateWin32SurfaceKHR((VkInstance)vk_inst, &surface_create_info, (VkAllocationCallbacks *)vk_allocators, (VkSurfaceKHR *)out_vk_surface);
+    HOPE_Assert(result == VK_SUCCESS);
+
+    return (int)result;
+}
+
+void platform_init_imgui(struct Engine *engine)
+{
+    Win32_Window_State *win32_window_state = (Win32_Window_State *)engine->window.platform_window_state;
+    ImGuiPlatformIO &platform_io = ImGui::GetPlatformIO();
+    platform_io.Platform_CreateVkSurface = imgui_platform_create_vk_surface;
+    ImGui_ImplWin32_Init(win32_window_state->handle);
+}
+
+void platform_imgui_new_frame()
+{
+    ImGui_ImplWin32_NewFrame();
+}
+
+void platform_shutdown_imgui()
+{
+    ImGui_ImplWin32_Shutdown();
+}
+
+//
+// debugging
+//
 void platform_debug_printf(const char *message)
 {
     OutputDebugStringA(message);

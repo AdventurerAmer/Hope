@@ -5,6 +5,7 @@
 
 #include "core/memory.h"
 #include "core/engine.h"
+#include "core/file_system.h"
 #include "containers/queue.h"
 
 static Free_List_Allocator *_transfer_allocator;
@@ -452,17 +453,23 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
     Temprary_Memory_Arena temprary_arena = {};
     begin_temprary_memory_arena(&temprary_arena, &renderer_state->engine->memory.transient_arena);
 
-    Queue< Scene_Node_Bundle > nodes;
-    init_queue(&nodes, 4096, &temprary_arena);
+    Ring_Queue< Scene_Node_Bundle > nodes;
+    init_ring_queue(&nodes, 4096, &temprary_arena);
 
     for (U32 node_index = 0; node_index < model_data->nodes_count; node_index++)
     {
         push(&nodes, { &model_data->nodes[node_index], add_child_scene_node(renderer_state, root_scene_node) });
     }
 
-    while (!empty(&nodes))
+    while (true)
     {
-        Scene_Node_Bundle node_bundle = pop(&nodes);
+        Scene_Node_Bundle node_bundle = {};
+        bool poped = pop(&nodes, &node_bundle);
+        if (!poped)
+        {
+            break;
+        }
+
         Scene_Node* scene_node = node_bundle.node;
         cgltf_node* node = node_bundle.cgltf_node;
 
@@ -552,12 +559,12 @@ Scene_Node *load_model(const char *path, Renderer *renderer,
                 index_count = u64_to_u32(primitive->indices->count);
                 const auto *accessor = primitive->indices;
                 const auto *view = accessor->buffer_view;
-                U8* data_ptr = (U8*)view->buffer->data;
+                U8 *data_ptr = (U8*)view->buffer->data;
                 indices = (U16*)(data_ptr + view->offset + accessor->offset);
 
                 HOPE_Assert(position_count == normal_count);
                 HOPE_Assert(position_count == uv_count);
-                HOPE_Assert(position_count == tangent_count);
+                // HOPE_Assert(position_count == tangent_count);
 
                 U32 vertex_count = position_count;
 

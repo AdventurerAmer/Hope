@@ -39,8 +39,8 @@ init_game(Engine *engine)
                                            base_movement_speed,
                                            max_movement_speed, sensitivity_x, sensitivity_y);
 
-	/*game_state.sponza = engine->api.load_model("models/Sponza/Sponza.gltf", renderer, renderer_state);
-    Assert(game_state.sponza);*/
+	game_state.sponza = engine->api.load_model("models/Sponza/Sponza.gltf", renderer, renderer_state);
+    HOPE_Assert(game_state.sponza);
 
     game_state.flight_helmet = engine->api.load_model("models/FlightHelmet/FlightHelmet.gltf", renderer, renderer_state);
     HOPE_Assert(game_state.flight_helmet);
@@ -65,10 +65,12 @@ on_event(Engine *engine, Event event)
 				}
 				else if (event.key == HE_KEY_F11)
 				{
+                    // todo(amer): toggle full screen
                 }
                 else if (event.key == HE_KEY_F10)
                 {
                     engine->show_imgui = !engine->show_imgui;
+                    engine->show_cursor = !engine->show_cursor;
                 }
 			}
 		} break;
@@ -111,7 +113,6 @@ on_update(Engine *engine, F32 delta_time)
     if (camera_controller_input.can_control)
     {
         engine->lock_cursor = true;
-        engine->show_cursor = false;
         engine->api.control_camera(camera_controller,
                                    camera,
                                    camera_controller_input,
@@ -120,7 +121,6 @@ on_update(Engine *engine, F32 delta_time)
     else
     {
         engine->lock_cursor = false;
-        engine->show_cursor = true;
     }
 
     if (!engine->is_minimized)
@@ -131,7 +131,7 @@ on_update(Engine *engine, F32 delta_time)
         scene_data->projection = camera->projection;
 
         renderer->begin_frame(renderer_state, scene_data);
-        // engine->api.render_scene_node(renderer,renderer_state, engine->api.sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
+        engine->api.render_scene_node(renderer, renderer_state, game_state.sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
         engine->api.render_scene_node(renderer, renderer_state, game_state.flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)));
         renderer->end_frame(renderer_state);
     }

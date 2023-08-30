@@ -4,6 +4,7 @@
 #include "core/platform.h"
 #include "core/debugging.h"
 #include "core/engine.h"
+#include "core/file_system.h"
 
 #include <initializer_list>
 #include <vector>
