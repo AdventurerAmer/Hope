@@ -26,7 +26,7 @@ void init_ring_queue(Ring_Queue< T > *queue, U32 capacity, Allocator *allocator)
 template< typename T >
 U32 count(Ring_Queue< T > *queue)
 {
-    return (queue->write & queue->mask) - (queue->read & queue->mask);
+    return queue->write - queue->read;
 }
 
 template< typename T >
@@ -55,16 +55,21 @@ bool push(Ring_Queue< T > *queue, const T &item)
 }
 
 template< typename T >
-bool pop(Ring_Queue< T > *queue, T *out_datum)
+bool peek(Ring_Queue< T > *queue, T *out_datum)
 {
     HOPE_Assert(out_datum);
-
     if (empty(queue))
     {
         return false;
     }
     U32 read = (queue->read & queue->mask);
-    queue->read++;
     *out_datum = queue->data[read];
     return true;
+}
+
+template< typename T >
+void pop(Ring_Queue< T > *queue)
+{
+    HOPE_Assert(!empty(queue));
+    queue->read++;
 }

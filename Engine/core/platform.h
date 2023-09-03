@@ -148,8 +148,8 @@ struct Semaphore
     void *platform_semaphore_state;
 };
 
-bool platform_create_semaphore(Semaphore *semaphore, U32 initial_count, const char *name = nullptr);
-bool signal_semaphore(Semaphore *semaphore, U32 count = 1);
+bool platform_create_semaphore(Semaphore *semaphore, U32 init_count = 0);
+bool signal_semaphore(Semaphore *semaphore, U32 increase_amount = 1);
 bool wait_for_semaphore(Semaphore *semaphore);
 
 //

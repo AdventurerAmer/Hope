@@ -216,7 +216,7 @@ INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command
     window_class.hIcon = NULL; // todo(amer): icons
     ATOM success = RegisterClassA(&window_class);
     HOPE_Assert(success != 0);
-    
+
     bool started = startup(engine, &win32_platform_state);
     HOPE_Assert(started);
 
@@ -489,6 +489,7 @@ void platform_set_window_mode(Window *window, Window_Mode window_mode)
     {
         return;
     }
+    window->mode = window_mode;
 
     Win32_Window_State *win32_window_state = (Win32_Window_State *)window->platform_window_state;
     HWND window_handle = win32_window_state->handle;
@@ -563,7 +564,7 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
 
     HANDLE file_handle = CreateFileA(filepath, access_flags, FILE_SHARE_READ,
                                      0, creation_disposition, FILE_ATTRIBUTE_NORMAL, NULL);
-    
+
     if (file_handle != INVALID_HANDLE_VALUE)
     {
         LARGE_INTEGER file_size = {};
@@ -574,7 +575,7 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
         result.size = file_size.QuadPart;
         result.success = true;
     }
-    
+
     return result;
 }
 
@@ -677,6 +678,7 @@ bool platform_create_and_start_thread(Thread *thread, Thread_Proc thread_proc, v
         return false;
     }
 
+#ifndef HOPE_SHIPPING
     if (name)
     {
         wchar_t wide_name[256];
@@ -689,6 +691,7 @@ bool platform_create_and_start_thread(Thread *thread, Thread_Proc thread_proc, v
         HRESULT hresult = SetThreadDescription(thread_handle, wide_name);
         HOPE_Assert(!FAILED(hresult));
     }
+#endif
 
     thread->platform_thread_state = thread_handle;
     return true;
@@ -725,10 +728,9 @@ void platform_unlock_mutex(Mutex *mutex)
     LeaveCriticalSection(critical_section);
 }
 
-bool platform_create_semaphore(Semaphore *semaphore, U32 initial_count, const char *name)
+bool platform_create_semaphore(Semaphore *semaphore, U32 init_count)
 {
-    // todo(amer): not sure about the max_count
-    HANDLE semaphore_handle = CreateSemaphoreA(0, initial_count, HOPE_MAX_U16, name);
+    HANDLE semaphore_handle = CreateSemaphoreA(0, init_count, LONG_MAX, NULL);
     if (semaphore_handle == NULL)
     {
         return false;
@@ -737,11 +739,11 @@ bool platform_create_semaphore(Semaphore *semaphore, U32 initial_count, const ch
     return true;
 }
 
-bool signal_semaphore(Semaphore *semaphore, U32 count)
+bool signal_semaphore(Semaphore *semaphore, U32 increase_amount)
 {
     HANDLE semaphore_handle = (HANDLE)semaphore->platform_semaphore_state;
-    BOOL result = ReleaseSemaphore(semaphore_handle, count, NULL);
-    return result;
+    BOOL result = ReleaseSemaphore(semaphore_handle, increase_amount, NULL);
+    return result != 0;
 }
 
 bool wait_for_semaphore(Semaphore *semaphore)

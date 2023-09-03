@@ -203,8 +203,8 @@ pick_physical_device(VkInstance instance, VkSurfaceKHR surface,
         bool can_physical_device_present = false;
 
         VkQueueFamilyProperties *queue_families = AllocateArray(&temp_arena,
-                                                                 VkQueueFamilyProperties,
-                                                                 queue_family_count);
+                                                                VkQueueFamilyProperties,
+                                                                queue_family_count);
 
         vkGetPhysicalDeviceQueueFamilyProperties(*current_physical_device,
                                                  &queue_family_count,
@@ -931,7 +931,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    create_buffer(&context->transfer_buffer, context, HOPE_MegaBytes(512),
+    create_buffer(&context->transfer_buffer, context, HOPE_GigaBytes(2),
                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
@@ -950,8 +950,8 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     }
 
     VkDescriptorPoolSize descriptor_pool_sizes[] = {
-        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 16 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, HOPE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, HOPE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT },
         { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, HOPE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT }
     };
 
@@ -959,7 +959,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     descriptor_pool_create_info.poolSizeCount = HOPE_ArrayCount(descriptor_pool_sizes);
     descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
-    descriptor_pool_create_info.maxSets = (16 + 16 + HOPE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT) * HOPE_ArrayCount(descriptor_pool_sizes);
+    descriptor_pool_create_info.maxSets = HOPE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT * HOPE_ArrayCount(descriptor_pool_sizes);
 
     HOPE_CheckVkResult(vkCreateDescriptorPool(context->logical_device,
                                               &descriptor_pool_create_info,

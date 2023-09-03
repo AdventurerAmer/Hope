@@ -5,7 +5,6 @@
 enum Job_Flag : U64
 {
     JobFlag_GeneralPurpose = 1 << 0,
-    JobFlag_Loading        = 1 << 1,
 };
 
 enum class Job_Result : U8
@@ -19,6 +18,8 @@ typedef void (*Job_Completed_Proc)(Job_Result result);
 
 struct Job_Parameters
 {
+    struct Temprary_Memory_Arena *temprary_memory_arena;
+    U64 thread_id;
     void *data;
 };
 
@@ -34,6 +35,6 @@ struct Job
 bool init_job_system(struct Engine *engine);
 void deinit_job_system();
 
-void execute_job(Job job, Job_Flag flags);
+void execute_job(Job job, Job_Flag flags = JobFlag_GeneralPurpose);
 
 void wait_for_all_jobs_to_finish();

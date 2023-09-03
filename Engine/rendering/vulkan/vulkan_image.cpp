@@ -40,6 +40,7 @@ transtion_image_to_layout(Vulkan_Image *image,
     {
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
         source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         destination_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     }
@@ -163,7 +164,13 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
     HOPE_Assert(buffer);
     HOPE_Assert(size);
 
-    VkCommandBuffer command_buffer = context->graphics_command_buffers[1];
+    VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    command_buffer_allocate_info.commandPool = context->graphics_command_pool;
+    command_buffer_allocate_info.commandBufferCount = 1;
+    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+    VkCommandBuffer command_buffer = {};
+    vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
     vkResetCommandBuffer(command_buffer, 0);
 
     VkCommandBufferBeginInfo command_buffer_begin_info =

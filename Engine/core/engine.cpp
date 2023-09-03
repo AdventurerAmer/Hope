@@ -115,26 +115,17 @@ static void imgui_new_frame(Engine *engine)
 
 void hock_engine_api(Engine_API *api)
 {
+    api->allocate_memory = &platform_allocate_memory;
+    api->deallocate_memory = &platform_deallocate_memory;
+    api->debug_printf = &platform_debug_printf;
+    api->set_window_mode = &platform_set_window_mode;
     api->init_camera = &init_camera;
     api->init_fps_camera_controller = &init_fps_camera_controller;
     api->control_camera = &control_camera;
     api->update_camera = &update_camera;
     api->load_model = &load_model;
+    api->load_model_threaded = &load_model_threaded;
     api->render_scene_node = &render_scene_node;
-}
-
-struct Print_Job_Data
-{
-    const char *string_to_print;
-};
-
-Job_Result print_string_job(const Job_Parameters &params)
-{
-    HOPE_Assert(params.data);
-    Print_Job_Data *data = (Print_Job_Data *)params.data;
-    Job_Result result = Job_Result::SUCCEEDED;
-    platform_debug_printf(data->string_to_print);
-    return result;
 }
 
 bool startup(Engine *engine, void *platform_state)
@@ -228,58 +219,22 @@ bool startup(Engine *engine, void *platform_state)
     bool job_system_inited = init_job_system(engine);
     HOPE_Assert(job_system_inited);
 
-    Print_Job_Data data0 = 
-    {
-        "ahmed\n"
-    };
-
-    Print_Job_Data data1 = 
-    {
-        "mohamed\n"
-    };
-
-    Job job0 = {};
-    job0.proc = print_string_job;
-    job0.parameters.data = &data0;
-    execute_job(job0, JobFlag_GeneralPurpose);
-
-    Job job1 = {};
-    job1.proc = print_string_job;
-    job1.parameters.data = &data1;
-    execute_job(job1, JobFlag_GeneralPurpose);
-
-    wait_for_all_jobs_to_finish();
     init_imgui(engine);
 
     Renderer_State *renderer_state = &engine->renderer_state;
-    renderer_state->engine = engine;
-    renderer_state->textures = AllocateArray(&engine->memory.transient_arena, Texture, MAX_TEXTURE_COUNT);
-    renderer_state->materials = AllocateArray(&engine->memory.transient_arena, Material, MAX_MATERIAL_COUNT);
-    renderer_state->static_meshes = AllocateArray(&engine->memory.transient_arena, Static_Mesh, MAX_STATIC_MESH_COUNT);
-    renderer_state->scene_nodes = AllocateArray(&engine->memory.transient_arena, Scene_Node, MAX_SCENE_NODE_COUNT);
-    renderer_state->shaders = AllocateArray(&engine->memory.transient_arena, Shader, MAX_SHADER_COUNT);
-    renderer_state->pipeline_states = AllocateArray(&engine->memory.transient_arena, Pipeline_State, MAX_PIPELINE_STATE_COUNT);
-
-    HOPE_CVarGetInt(back_buffer_width, "renderer");
-    HOPE_CVarGetInt(back_buffer_height, "renderer");
-
-    if (*back_buffer_width == -1 || *back_buffer_height == -1)
-    {
-        // todo(amer): get video modes and pick highest one
-        *back_buffer_width = 1280;
-        *back_buffer_height = 720;
-    }
-
-    renderer_state->back_buffer_width = (U32)*back_buffer_width;
-    renderer_state->back_buffer_height = (U32)*back_buffer_height;
-
-    bool requested = request_renderer(RenderingAPI_Vulkan, &engine->renderer);
-    if (!requested)
+    bool renderer_state_per_inited = pre_init_renderer_state(renderer_state, engine);
+    if (!renderer_state_per_inited)
     {
         return false;
     }
 
     Renderer *renderer = &engine->renderer;
+    bool renderer_requested = request_renderer(RenderingAPI_Vulkan, renderer);
+    if (!renderer_requested)
+    {
+        return false;
+    }
+
     bool renderer_inited = renderer->init(&engine->renderer_state,
                                           engine,
                                           &engine->memory.permanent_arena);
@@ -288,9 +243,8 @@ bool startup(Engine *engine, void *platform_state)
         return false;
     }
 
-    bool renderer_state_inited = init_renderer_state(engine,
-                                                     renderer_state,
-                                                     &engine->memory.transient_arena);
+    bool renderer_state_inited = init_renderer_state(renderer_state,
+                                                     engine);
     if (!renderer_state_inited)
     {
         return false;
@@ -301,12 +255,9 @@ bool startup(Engine *engine, void *platform_state)
     scene_data->directional_light.color = { 1.0f, 1.0f, 1.0f, 1.0f };
     scene_data->directional_light.intensity = 1.0f;
 
-    Platform_API *api = &engine->platform_api;
-    api->allocate_memory = &platform_allocate_memory;
-    api->deallocate_memory = &platform_deallocate_memory;
-    api->debug_printf = &platform_debug_printf;
-
     bool game_initialized = game_code->init_game(engine);
+    wait_for_all_jobs_to_finish();
+    renderer->wait_for_gpu_to_finish_all_work(renderer_state);
     return game_initialized;
 }
 

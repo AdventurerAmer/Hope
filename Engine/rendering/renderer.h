@@ -1,6 +1,9 @@
 #pragma once
 
 #include "core/defines.h"
+#include "core/platform.h"
+#include "core/job_system.h"
+
 #include "renderer_types.h"
 #include "camera.h"
 
@@ -39,6 +42,8 @@ struct Renderer_State
     U32 back_buffer_width;
     U32 back_buffer_height;
 
+    Mutex resource_mutex;
+
     U32 texture_count;
     Texture *textures;
 
@@ -54,8 +59,11 @@ struct Renderer_State
     U32 pipeline_state_count;
     Pipeline_State *pipeline_states;
 
+    Mutex node_mutex;
+
     U32 scene_node_count;
     Scene_Node *scene_nodes;
+    Mutex scene_node_mutex;
 
     Shader *mesh_vertex_shader;
     Shader *mesh_fragment_shader;
@@ -67,11 +75,13 @@ struct Renderer_State
     Scene_Data scene_data;
 
     struct Free_List_Allocator *transfer_allocator;
+
+    Mutex render_commands_mutex;
 };
 
-bool init_renderer_state(struct Engine *engine,
-                         Renderer_State *renderer_state,
-                         struct Memory_Arena *arena);
+bool pre_init_renderer_state(Renderer_State *renderer_state, struct Engine *engine);
+
+bool init_renderer_state(Renderer_State *renderer_state, struct Engine *engine);
 
 void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_state);
 
@@ -115,10 +125,14 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);
 Scene_Node *add_child_scene_node(Renderer_State *renderer_state,
                                  Scene_Node *parent);
 
-Scene_Node* load_model(const char *path, Renderer *renderer,
-                       Renderer_State *renderer_state);
+bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena);
 
-void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene_Node *scene_node, glm::mat4 transform);
+Scene_Node* load_model(const String &path, Renderer *renderer,
+                       Renderer_State *renderer_state, Memory_Arena *arena);
+
+Scene_Node* load_model_threaded(const String &path, Renderer *renderer, Renderer_State *renderer_state);
+
+void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene_Node *scene_node, const glm::mat4 &transform);
 
 Texture *allocate_texture(Renderer_State *renderer_state);
 Material *allocate_material(Renderer_State *renderer_state);
@@ -126,7 +140,7 @@ Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state);
 Shader *allocate_shader(Renderer_State *renderer_state);
 Pipeline_State *allocate_pipeline_state(Renderer_State *renderer_state);
 
-U8 *get_property(Material *material, String name, ShaderDataType shader_datatype);
+U8 *get_property(Material *material, const String &name, ShaderDataType shader_datatype);
 
 U32 index_of(Renderer_State *renderer_state, Texture *texture);
 U32 index_of(Renderer_State *renderer_state, Material *material);

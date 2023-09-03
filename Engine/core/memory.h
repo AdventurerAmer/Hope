@@ -1,6 +1,7 @@
 #pragma once
 
 #include "defines.h"
+#include "platform.h"
 
 #define HOPE_KiloBytes(A) (U64(1024) * (A))
 #define HOPE_MegaBytes(A) (U64(1024) * HOPE_KiloBytes((A)))
@@ -106,6 +107,7 @@ struct Free_List_Allocator
     U8 *base;
     Size size;
     Size used;
+    Mutex mutex;
     Free_List_Node sentinal;
 };
 

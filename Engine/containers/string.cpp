@@ -70,7 +70,7 @@ S64 find_first_char_from_right(const String *str, const char *chars)
 {
     U64 chars_count = string_length(chars);
 
-    for (U64 i = chars_count - 1; i >= 0; i--)
+    for (U64 i = str->count - 1; i >= 0; i--)
     {
         for (U64 j = 0; j < chars_count; j++)
         {

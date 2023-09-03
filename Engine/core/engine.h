@@ -33,24 +33,6 @@ struct Game_Code
     On_Update_Proc on_update;
 };
 
-typedef void* (*Allocate_Memory_Proc)(U64 size);
-
-typedef void (*Deallocate_Memory_Proc)(void *memory);
-
-typedef void (*Toggle_Fullscreen_Proc)(struct Engine *engine);
-
-typedef void (*Debug_Printf)(const char *message);
-
-struct Platform_API
-{
-    Allocate_Memory_Proc allocate_memory;
-    Deallocate_Memory_Proc deallocate_memory;
-    Debug_Printf debug_printf;
-};
-
-typedef void* (*imgui_mem_alloc_proc)(size_t sz, void* user_data);
-typedef void  (*imgui_mem_free_proc)(void* ptr, void* user_data);
-
 struct Engine_API
 {
     void (*init_camera)(Camera *camera, glm::vec3 position,
@@ -71,19 +53,22 @@ struct Engine_API
 
     void (*update_camera)(Camera *camera);
 
-    Scene_Node* (*load_model)(const char *path, Renderer *renderer,
-                              Renderer_State *renderer_state);
+    Scene_Node* (*load_model)(const String &path, Renderer *renderer,
+                              Renderer_State *renderer_state, Memory_Arena *arena);
+
+    Scene_Node* (*load_model_threaded)(const String &path, Renderer *renderer, Renderer_State *renderer_state);
 
     void (*render_scene_node)(Renderer *renderer, Renderer_State *renderer_state,
-                              Scene_Node *scene_node, glm::mat4 transform);
+                              Scene_Node *scene_node, const glm::mat4 &transform);
 
-    bool (*imgui_begin_window)(const char* name, bool *p_open, int flags);
-    void (*imgui_end_window)();
+    void* (*allocate_memory)(U64 size);
+    void  (*deallocate_memory)(void *memory);
+    void  (*set_window_mode)(Window *window, Window_Mode mode);
+    void  (*debug_printf)(const char *message);
 };
 
 struct Engine
 {
-    Platform_API platform_api;
     Game_Memory memory;
     Game_Code game_code;
 

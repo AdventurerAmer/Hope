@@ -13,6 +13,7 @@
 
 #include "core/defines.h"
 #include "core/memory.h"
+#include "core/platform.h"
 #include "rendering/renderer_types.h"
 
 // todo(amer): move to renderer.h
@@ -160,8 +161,6 @@ struct Vulkan_Context
 
     VkPipelineCache pipeline_cache;
 
-    VkCommandPool graphics_command_pool;
-    VkCommandBuffer graphics_command_buffers[HOPE_MAX_FRAMES_IN_FLIGHT];
     VkSemaphore image_available_semaphores[HOPE_MAX_FRAMES_IN_FLIGHT];
     VkSemaphore rendering_finished_semaphores[HOPE_MAX_FRAMES_IN_FLIGHT];
     VkFence frame_in_flight_fences[HOPE_MAX_FRAMES_IN_FLIGHT];
@@ -174,6 +173,9 @@ struct Vulkan_Context
 
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet descriptor_sets[MAX_DESCRIPTOR_SET_COUNT][HOPE_MAX_FRAMES_IN_FLIGHT];
+
+    VkCommandPool graphics_command_pool;
+    VkCommandBuffer graphics_command_buffers[HOPE_MAX_FRAMES_IN_FLIGHT];
 
     VkCommandPool transfer_command_pool;
     Vulkan_Buffer transfer_buffer;

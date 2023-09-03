@@ -1,13 +1,13 @@
 #include "core/defines.h"
 #include "core/engine.h"
-
+#include "core/job_system.h"
 
 struct Game_State
 {
 	Camera camera;
 	FPS_Camera_Controller camera_controller;
 
-	Scene_Node *sponza;
+    Scene_Node *sponza;
 	Scene_Node *flight_helmet;
 };
 
@@ -38,21 +38,15 @@ init_game(Engine *engine)
                                            rotation_speed,
                                            base_movement_speed,
                                            max_movement_speed, sensitivity_x, sensitivity_y);
-
-	game_state.sponza = engine->api.load_model("models/Sponza/Sponza.gltf", renderer, renderer_state);
-    HOPE_Assert(game_state.sponza);
-
-    game_state.flight_helmet = engine->api.load_model("models/FlightHelmet/FlightHelmet.gltf", renderer, renderer_state);
-    HOPE_Assert(game_state.flight_helmet);
-
+    
+    game_state.sponza = engine->api.load_model_threaded(HOPE_StringLiteral("models/Sponza/Sponza.gltf"), renderer, renderer_state);
+    game_state.flight_helmet = engine->api.load_model_threaded(HOPE_StringLiteral("models/FlightHelmet/FlightHelmet.gltf"), renderer, renderer_state);
     return true;
 }
 
 extern "C" HOPE_API void
 on_event(Engine *engine, Event event)
 {
-	Platform_API *platform = &engine->platform_api;
-
 	switch (event.type)
 	{
 		case EventType_Key:
@@ -65,7 +59,15 @@ on_event(Engine *engine, Event event)
 				}
 				else if (event.key == HE_KEY_F11)
 				{
-                    // todo(amer): toggle full screen
+                    Window *window = &engine->window;
+                    if (window->mode == Window_Mode::WINDOWED)
+                    {
+                        engine->api.set_window_mode(window, Window_Mode::FULLSCREEN);
+                    }
+                    else
+                    {
+                        engine->api.set_window_mode(window, Window_Mode::WINDOWED);
+                    }
                 }
                 else if (event.key == HE_KEY_F10)
                 {
@@ -89,8 +91,6 @@ on_event(Engine *engine, Event event)
 extern "C" HOPE_API void
 on_update(Engine *engine, F32 delta_time)
 {
-	(void)delta_time;
-
 	Input *input = &engine->input;
     Renderer *renderer = &engine->renderer;
     Renderer_State *renderer_state = &engine->renderer_state;
