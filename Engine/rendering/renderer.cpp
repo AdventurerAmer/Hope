@@ -570,12 +570,12 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
     while (true)
     {
         Scene_Node_Bundle node_bundle = {};
-        bool peeked = peek(&nodes, &node_bundle);
+        bool peeked = peek_front(&nodes, &node_bundle);
         if (!peeked)
         {
             break;
         }
-        pop(&nodes);
+        pop_front(&nodes);
 
         Scene_Node *scene_node = node_bundle.node;
         cgltf_node *node = node_bundle.cgltf_node;

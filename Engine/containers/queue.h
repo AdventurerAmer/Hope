@@ -55,7 +55,7 @@ bool push(Ring_Queue< T > *queue, const T &item)
 }
 
 template< typename T >
-bool peek(Ring_Queue< T > *queue, T *out_datum)
+bool peek_front(Ring_Queue< T > *queue, T *out_datum)
 {
     HOPE_Assert(out_datum);
     if (empty(queue))
@@ -67,9 +67,30 @@ bool peek(Ring_Queue< T > *queue, T *out_datum)
     return true;
 }
 
+template < typename T >
+bool peek_back(Ring_Queue< T > *queue, T *out_datum)
+{
+
+    HOPE_Assert(out_datum);
+    if (empty(queue))
+    {
+        return false;
+    }
+    U32 before_write = ((queue->write - 1) & queue->mask);
+    *out_datum = queue->data[before_write];
+    return true;
+}
+
 template< typename T >
-void pop(Ring_Queue< T > *queue)
+void pop_front(Ring_Queue< T > *queue)
 {
     HOPE_Assert(!empty(queue));
     queue->read++;
+}
+
+template< typename T >
+void pop_back(Ring_Queue< T > *queue)
+{
+    HOPE_Assert(!empty(queue));
+    queue->write--;
 }

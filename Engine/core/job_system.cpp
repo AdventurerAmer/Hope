@@ -57,7 +57,7 @@ unsigned long execute_thread_work(void *params)
         }
 
         Job job = {};
-        bool peeked = peek(job_queue, &job);
+        bool peeked = peek_front(job_queue, &job);
         platform_unlock_mutex(job_queue_mutex);
         HOPE_Assert(peeked);
         HOPE_Assert(job.proc);
@@ -73,7 +73,7 @@ unsigned long execute_thread_work(void *params)
         }
 
         end_temprary_memory_arena(&temprary_memory_arena);
-        pop(job_queue);
+        pop_front(job_queue);
         job_system_state.in_progress_job_count.fetch_sub(1);
 
         deallocate(&job_system_state.job_data_allocator, job.parameters.data);
@@ -200,14 +200,14 @@ void wait_for_all_jobs_to_finish()
         }
 
         // we don't actually wait here we just decrement the semaphore counter
+        // effectivly 
         wait_for_semaphore(&most_worked_thread_state->job_queue_semaphore);
 
         // todo(amer): manual poping from the back
         Ring_Queue< Job > *job_queue = &most_worked_thread_state->job_queue;
-        HOPE_Assert(!empty(job_queue));
-        Job job = job_queue->data[(job_queue->write & job_queue->mask) - 1];
-        job_queue->write--;
-
+        Job job = {};
+        bool peeked = peek_back(job_queue, &job);
+        pop_back(job_queue);
         platform_unlock_mutex(&most_worked_thread_state->job_queue_mutex);
         HOPE_Assert(job.proc);
 
