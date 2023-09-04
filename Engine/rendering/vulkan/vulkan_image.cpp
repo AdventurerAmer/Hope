@@ -290,7 +290,6 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
     submit_info.pCommandBuffers = &command_buffer;
 
     vkQueueSubmit(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-    vkQueueWaitIdle(context->graphics_queue);
 }
 
 void

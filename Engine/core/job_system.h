@@ -19,8 +19,9 @@ typedef void (*Job_Completed_Proc)(Job_Result result);
 struct Job_Parameters
 {
     struct Temprary_Memory_Arena *temprary_memory_arena;
-    U64 thread_id;
+
     void *data;
+    U64 size;
 };
 
 typedef Job_Result (*Job_Proc)(const Job_Parameters &params);

@@ -81,7 +81,6 @@ void copy_data_to_buffer_from_buffer(Vulkan_Context *context,
     submit_info.pCommandBuffers = &command_buffer;
 
     vkQueueSubmit(context->transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
-    vkQueueWaitIdle(context->transfer_queue);
 }
 
 void destroy_buffer(Vulkan_Buffer *buffer,

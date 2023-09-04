@@ -30,6 +30,8 @@ struct Job_System_State
 
     U32 thread_count;
     Thread_State *thread_states;
+
+    Free_List_Allocator job_data_allocator;
 };
 
 static Job_System_State job_system_state;
@@ -73,6 +75,8 @@ unsigned long execute_thread_work(void *params)
         end_temprary_memory_arena(&temprary_memory_arena);
         pop(job_queue);
         job_system_state.in_progress_job_count.fetch_sub(1);
+
+        deallocate(&job_system_state.job_data_allocator, job.parameters.data);
     }
 
     return 0;
@@ -82,10 +86,8 @@ bool init_job_system(Engine *engine)
 {
     Memory_Arena *arena = &engine->memory.permanent_arena;
 
-    // todo(amer): create_sub_arena
-    U64 size = HOPE_MegaBytes(32);
-    U8 *memory = AllocateArray(arena, U8, size);
-    job_system_state.arena = create_memory_arena(memory, size);
+    init_free_list_allocator(&job_system_state.job_data_allocator, arena, HOPE_MegaBytes(32));
+    job_system_state.arena = create_sub_arena(arena, HOPE_MegaBytes(32));
 
     U32 thread_count = platform_get_thread_count();
     HOPE_Assert(thread_count);
@@ -100,10 +102,7 @@ bool init_job_system(Engine *engine)
         Thread_State *thread_state = &job_system_state.thread_states[thread_index];
         thread_state->thread_index = thread_index;
 
-        // todo(amer): create_sub_arena
-        U64 size = HOPE_MegaBytes(32);
-        U8 *memory = AllocateArray(arena, U8, size);
-        thread_state->arena = create_memory_arena(memory, size);
+        thread_state->arena = create_sub_arena(arena, HOPE_MegaBytes(32));
 
         init_ring_queue(&thread_state->job_queue, JOB_COUNT_PER_THREAD, arena);
 
@@ -130,6 +129,13 @@ void deinit_job_system()
 
 void execute_job(Job job, Job_Flag flags)
 {
+    if (job.parameters.data)
+    {
+        void *data = allocate(&job_system_state.job_data_allocator, job.parameters.size, 0);
+        copy_memory(data, job.parameters.data, job.parameters.size);
+        job.parameters.data = data;
+    }
+
     Thread_State *least_worked_thread_state = nullptr;
     U32 least_work_count_so_far = HOPE_MAX_U32;
 
@@ -165,56 +171,58 @@ void wait_for_all_jobs_to_finish()
 {
     while (job_system_state.in_progress_job_count.load())
     {
-        // todo(amer): steal jobs or something...
-        // Thread_State *most_worked_thread_state = nullptr;
-        // U32 most_work_count_so_far = 0;
+        Thread_State *most_worked_thread_state = nullptr;
+        U32 most_work_count_so_far = 0;
 
-        // for (U32 thread_index = 0; thread_index < job_system_state.thread_count; thread_index++)
-        // {
-        //     Thread_State *thread_state = &job_system_state.thread_states[thread_index];
-        //     platform_lock_mutex(&thread_state->job_queue_mutex);
-        //     U32 job_count_in_queue = count(&thread_state->job_queue);
-        //     if (job_count_in_queue > 1 && job_count_in_queue > most_work_count_so_far)
-        //     {
-        //         most_worked_thread_state = thread_state;
-        //         most_work_count_so_far = job_count_in_queue;
-        //     }
-        //     platform_unlock_mutex(&thread_state->job_queue_mutex);
-        // }
-        // if (!most_worked_thread_state)
-        // {
-        //     continue;
-        // }
-        // HOPE_DebugPrintf(Core, Trace, "main thread stealing jobs\n");
-        // platform_lock_mutex(&most_worked_thread_state->job_queue_mutex);
+        for (U32 thread_index = 0; thread_index < job_system_state.thread_count; thread_index++)
+        {
+            Thread_State *thread_state = &job_system_state.thread_states[thread_index];
+            platform_lock_mutex(&thread_state->job_queue_mutex);
+            U32 job_count_in_queue = count(&thread_state->job_queue);
+            if (job_count_in_queue > 1 && job_count_in_queue > most_work_count_so_far)
+            {
+                most_worked_thread_state = thread_state;
+                most_work_count_so_far = job_count_in_queue;
+            }
+            platform_unlock_mutex(&thread_state->job_queue_mutex);
+        }
+        if (!most_worked_thread_state)
+        {
+            continue;
+        }
 
-        // if (!count(&most_worked_thread_state->job_queue))
-        // {
-        //     platform_unlock_mutex(&most_worked_thread_state->job_queue_mutex);
-        //     continue;
-        // }
+        platform_lock_mutex(&most_worked_thread_state->job_queue_mutex);
 
-        // // we don't actually wait here we just decrement the semaphore counter
-        // wait_for_semaphore(&most_worked_thread_state->job_queue_semaphore);
+        if (count(&most_worked_thread_state->job_queue) <= 1)
+        {
+            platform_unlock_mutex(&most_worked_thread_state->job_queue_mutex);
+            continue;
+        }
 
-        // Job job = {};
-        // bool peeked = peek(&most_worked_thread_state->job_queue, &job);
-        // HOPE_Assert(peeked);
-        // pop(&most_worked_thread_state->job_queue);
-        // platform_unlock_mutex(&most_worked_thread_state->job_queue_mutex);
-        // HOPE_Assert(job.proc);
+        // we don't actually wait here we just decrement the semaphore counter
+        wait_for_semaphore(&most_worked_thread_state->job_queue_semaphore);
 
-        // Temprary_Memory_Arena temprary_memory_arena = {};
-        // begin_temprary_memory_arena(&temprary_memory_arena, &job_system_state.arena);
-        // job.parameters.temprary_memory_arena = &temprary_memory_arena;
+        // todo(amer): manual poping from the back
+        Ring_Queue< Job > *job_queue = &most_worked_thread_state->job_queue;
+        HOPE_Assert(!empty(job_queue));
+        Job job = job_queue->data[(job_queue->write & job_queue->mask) - 1];
+        job_queue->write--;
 
-        // Job_Result result = job.proc(job.parameters);
-        // if (job.completed_proc)
-        // {
-        //     job.completed_proc(result);
-        // }
+        platform_unlock_mutex(&most_worked_thread_state->job_queue_mutex);
+        HOPE_Assert(job.proc);
 
-        // end_temprary_memory_arena(&temprary_memory_arena);
-        // job_system_state.in_progress_job_count.fetch_sub(1);
+        Temprary_Memory_Arena temprary_memory_arena = {};
+        begin_temprary_memory_arena(&temprary_memory_arena, &job_system_state.arena);
+        job.parameters.temprary_memory_arena = &temprary_memory_arena;
+
+        Job_Result result = job.proc(job.parameters);
+        if (job.completed_proc)
+        {
+            job.completed_proc(result);
+        }
+        end_temprary_memory_arena(&temprary_memory_arena);
+
+        deallocate(&job_system_state.job_data_allocator, job.parameters.data);
+        job_system_state.in_progress_job_count.fetch_sub(1);
     }
 }

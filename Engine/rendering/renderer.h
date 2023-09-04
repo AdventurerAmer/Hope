@@ -7,6 +7,8 @@
 #include "renderer_types.h"
 #include "camera.h"
 
+#include <atomic>
+
 enum RenderingAPI
 {
     RenderingAPI_Vulkan
@@ -42,28 +44,23 @@ struct Renderer_State
     U32 back_buffer_width;
     U32 back_buffer_height;
 
-    Mutex resource_mutex;
-
-    U32 texture_count;
+    std::atomic< U32 > texture_count;
     Texture *textures;
 
-    U32 material_count;
+    std::atomic< U32 > material_count;
     Material *materials;
 
-    U32 static_mesh_count;
+    std::atomic< U32 > static_mesh_count;
     Static_Mesh *static_meshes;
 
-    U32 shader_count;
+    std::atomic< U32 > shader_count;
     Shader *shaders;
 
-    U32 pipeline_state_count;
+    std::atomic< U32 > pipeline_state_count;
     Pipeline_State *pipeline_states;
 
-    Mutex node_mutex;
-
-    U32 scene_node_count;
+    std::atomic< U32 > scene_node_count;
     Scene_Node *scene_nodes;
-    Mutex scene_node_mutex;
 
     Shader *mesh_vertex_shader;
     Shader *mesh_fragment_shader;

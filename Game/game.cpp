@@ -39,7 +39,7 @@ init_game(Engine *engine)
                                            base_movement_speed,
                                            max_movement_speed, sensitivity_x, sensitivity_y);
     
-    game_state.sponza = engine->api.load_model_threaded(HOPE_StringLiteral("models/Sponza/Sponza.gltf"), renderer, renderer_state);
+    // game_state.sponza = engine->api.load_model_threaded(HOPE_StringLiteral("models/Sponza/Sponza.gltf"), renderer, renderer_state);
     game_state.flight_helmet = engine->api.load_model_threaded(HOPE_StringLiteral("models/FlightHelmet/FlightHelmet.gltf"), renderer, renderer_state);
     return true;
 }
@@ -131,7 +131,7 @@ on_update(Engine *engine, F32 delta_time)
         scene_data->projection = camera->projection;
 
         renderer->begin_frame(renderer_state, scene_data);
-        engine->api.render_scene_node(renderer, renderer_state, game_state.sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
+        // engine->api.render_scene_node(renderer, renderer_state, game_state.sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
         engine->api.render_scene_node(renderer, renderer_state, game_state.flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)));
         renderer->end_frame(renderer_state);
     }

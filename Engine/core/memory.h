@@ -38,6 +38,7 @@ struct Memory_Arena
 };
 
 Memory_Arena create_memory_arena(void *memory, Size size);
+Memory_Arena create_sub_arena(Memory_Arena *arena, Size size);
 
 void* allocate(Memory_Arena *arena,
                Size size, U16 alignment,

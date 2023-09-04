@@ -5,6 +5,8 @@
 #include "cvars.h"
 #include "job_system.h"
 
+#include <chrono>
+
 HOPE_CVarString(engine_name, "name of the engine", "Hope", "platform", CVarFlag_None);
 HOPE_CVarString(app_name, "name of the application", "Hope", "platform", CVarFlag_None);
 HOPE_CVarInt(window_mode, "window mode", Window_Mode::WINDOWED, "platform", CVarFlag_None);
@@ -130,7 +132,7 @@ void hock_engine_api(Engine_API *api)
 
 bool startup(Engine *engine, void *platform_state)
 {
-    U64 permenent_memory_size = HOPE_MegaBytes(512);
+    U64 permenent_memory_size = HOPE_GigaBytes(1);
     U64 transient_memory_size = HOPE_GigaBytes(1);
     Size required_memory_size = permenent_memory_size + transient_memory_size;
 
@@ -255,9 +257,15 @@ bool startup(Engine *engine, void *platform_state)
     scene_data->directional_light.color = { 1.0f, 1.0f, 1.0f, 1.0f };
     scene_data->directional_light.intensity = 1.0f;
 
+    auto start = std::chrono::steady_clock::now();
+
     bool game_initialized = game_code->init_game(engine);
     wait_for_all_jobs_to_finish();
     renderer->wait_for_gpu_to_finish_all_work(renderer_state);
+
+    auto end = std::chrono::steady_clock::now();
+    const std::chrono::duration< double > elapsed_seconds = end - start;
+    HOPE_DebugPrintf(Core, Trace, "assets loaded %.2f ms to finish\n", elapsed_seconds * 1000.0);
     return game_initialized;
 }
 

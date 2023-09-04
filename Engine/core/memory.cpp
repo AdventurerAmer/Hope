@@ -32,6 +32,18 @@ Memory_Arena create_memory_arena(void *memory, Size size)
     return result;
 }
 
+Memory_Arena create_sub_arena(Memory_Arena *arena, Size size)
+{
+    HOPE_Assert(arena);
+    HOPE_Assert(size);
+
+    Memory_Arena result = {};
+    result.base = AllocateArray(arena, U8, size);;
+    result.size = size;
+
+    return result;
+}
+
 HOPE_FORCE_INLINE static bool
 is_power_of_2(U16 value)
 {
@@ -146,14 +158,16 @@ remove_node(Free_List_Node *node)
     node->next->prev = node->prev;
 }
 
-static void
-merge(Free_List_Node *left, Free_List_Node *right)
+static bool merge(Free_List_Node *left, Free_List_Node *right)
 {
     if ((U8 *)left + left->size == (U8 *)right)
     {
         left->size += right->size;
         remove_node(right);
+        return true;
     }
+
+    return false;
 }
 
 void init_free_list_allocator(Free_List_Allocator *allocator,
@@ -202,6 +216,9 @@ void* allocate(Free_List_Allocator *allocator,
                Size size,
                U16 alignment)
 {
+    HOPE_Assert(allocator);
+    HOPE_Assert(size);
+
     platform_lock_mutex(&allocator->mutex);
 
     void *result = nullptr;
@@ -269,86 +286,96 @@ void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16
     Free_List_Allocation_Header &header = ((Free_List_Allocation_Header *)memory)[-1];
     HOPE_Assert(header.size >= 0);
     HOPE_Assert(header.offset >= 0);
+    HOPE_Assert(header.offset < allocator->size);
     HOPE_Assert(new_size != header.size);
 
-    // U8 *memory_node_address = ((U8 *)memory - header.offset);
+    platform_lock_mutex(&allocator->mutex);
+    U8 *memory_node_address = (U8 *)memory - header.offset;
+    U64 old_size = header.size - header.offset;
+
+    Free_List_Node *adjacent_node_after_memory = nullptr;
+    Free_List_Node *node_before_memory = &allocator->sentinal;
     
-    // Free_List_Node *adjacent_node_after_memory = nullptr;
-    // Free_List_Node *node_before_memory = &allocator->sentinal;
+    for (Free_List_Node *node = allocator->sentinal.next;
+         node != &allocator->sentinal;
+         node = node->next)
+    {
+        if ((U8 *)node < memory_node_address)
+        {
+            node_before_memory = node;
+        }
 
-    // for (Free_List_Node *node = allocator->sentinal.next;
-    //      node != &allocator->sentinal;
-    //      node = node->next)
-    // {
-    //     if ((U8 *)node < memory_node_address)
-    //     {
-    //         node_before_memory = node;
-    //     }
+        if (memory_node_address + header.size == (U8 *)node)
+        {
+            adjacent_node_after_memory = node;
+            break;
+        }
+    }
 
-    //     if (memory_node_address + header.size == (U8 *)node)
-    //     {
-    //         adjacent_node_after_memory = node;
-    //         break;
-    //     }
-    // }
+    if (new_size < old_size)
+    {
+        U64 amount = old_size - new_size;
 
-    // if (new_size < header.size)
-    // {
-    //     U64 amount = header.size - new_size;
+        if (adjacent_node_after_memory)
+        {
+            header.size = new_size + sizeof(Free_List_Allocation_Header);
 
-    //     if (adjacent_node_after_memory)
-    //     {
-    //         header.size = new_size;
-    //         Free_List_Node *prev = adjacent_node_after_memory->prev;
-    //         U64 new_node_size = adjacent_node_after_memory->size + amount;
-    //         Free_List_Node *new_node = (Free_List_Node *)((U8 *)adjacent_node_after_memory - amount);
-    //         remove_node(adjacent_node_after_memory);
-    //         insert_after(new_node, prev);
-    //     }
-    //     else
-    //     {
-    //         if (amount >= sizeof(Free_List_Node))
-    //         {
-    //             header.size = new_size;
-    //             Free_List_Node *new_node = (Free_List_Node *)((U8 *)memory + new_size);
-    //             new_node->size = amount;
-    //             insert_after(new_node, node_before_memory);
-    //         }
-    //     }
+            U64 adjacent_node_after_memory_size = adjacent_node_after_memory->size;
+            remove_node(adjacent_node_after_memory);
 
-    //     platform_unlock_mutex(&allocator->mutex);
-    //     return memory;
-    // }
-    // else
-    // {
-    //     if (adjacent_node_after_memory)
-    //     {
-    //         if (header.size + adjacent_node_after_memory->size >= new_size)
-    //         {
-    //             U64 remaining = (header.size + adjacent_node_after_memory->size) - new_size;
-    //             if (remaining >= sizeof(Free_List_Node))
-    //             {
-    //                 header.size = new_size;
-    //                 remove_node(adjacent_node_after_memory);
+            Free_List_Node *new_node = (Free_List_Node *)((U8 *)memory + new_size);
+            new_node->size = adjacent_node_after_memory_size + amount;
 
-    //                 Free_List_Node *new_node = (Free_List_Node *)((U8 *)memory + new_size);
-    //                 new_node->size = remaining;
-    //                 insert_after(new_node, node_before_memory);
-    //             }
-    //             else
-    //             {
-    //                 header.size += adjacent_node_after_memory->size;
-    //                 remove_node(adjacent_node_after_memory);
-    //             }
-    //         }
+            insert_after(new_node, node_before_memory);
+        }
+        else
+        {
+            if (amount >= sizeof(Free_List_Node))
+            {
+                header.size = new_size + sizeof(Free_List_Allocation_Header);
 
-    //         platform_unlock_mutex(&allocator->mutex);
-    //         return memory;
-    //     }
-    // }
+                Free_List_Node *new_node = (Free_List_Node *)((U8 *)memory_node_address + header.size);
+                new_node->size = amount;
+
+                insert_after(new_node, node_before_memory);
+            }
+        }
+
+        platform_unlock_mutex(&allocator->mutex);
+        return memory;
+    }
+    else
+    {
+        if (adjacent_node_after_memory)
+        {
+            if (new_size <= old_size + adjacent_node_after_memory->size)
+            {
+                U64 remaining = (old_size + adjacent_node_after_memory->size) - new_size;
+                if (remaining >= sizeof(Free_List_Node))
+                {
+                    header.size = new_size + sizeof(Free_List_Allocation_Header);
+                    remove_node(adjacent_node_after_memory);
+
+                    Free_List_Node *new_node = (Free_List_Node *)(memory_node_address + header.size);
+                    new_node->size = remaining;
+                    insert_after(new_node, node_before_memory);
+                }
+                else
+                {
+                    header.size += adjacent_node_after_memory->size;
+                    remove_node(adjacent_node_after_memory);
+                }
+
+                platform_unlock_mutex(&allocator->mutex);
+                return memory;
+            }
+        }
+    }
+
+    platform_unlock_mutex(&allocator->mutex);
 
     void *new_memory = allocate(allocator, new_size, alignment);
-    memcpy(new_memory, memory, header.size);
+    copy_memory(new_memory, memory, header.size);
     deallocate(allocator, memory);
 
     return new_memory;
@@ -358,6 +385,7 @@ void deallocate(Free_List_Allocator *allocator, void *memory)
 {
     if (!memory)
     {
+        // todo(amer): logging
         return;
     }
 

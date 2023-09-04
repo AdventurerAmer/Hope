@@ -88,12 +88,6 @@ bool pre_init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     renderer_state->shaders = AllocateArray(&engine->memory.transient_arena, Shader, MAX_SHADER_COUNT);
     renderer_state->pipeline_states = AllocateArray(&engine->memory.transient_arena, Pipeline_State, MAX_PIPELINE_STATE_COUNT);
 
-    bool resource_mutex_created = platform_create_mutex(&renderer_state->resource_mutex);
-    HOPE_Assert(resource_mutex_created);
-
-    bool node_mutex_created = platform_create_mutex(&renderer_state->node_mutex);
-    HOPE_Assert(node_mutex_created);
-
     bool render_commands_mutex_created = platform_create_mutex(&renderer_state->render_commands_mutex);
     HOPE_Assert(render_commands_mutex_created);
 
@@ -190,7 +184,6 @@ add_child_scene_node(Renderer_State *renderer_state,
     HOPE_Assert(renderer_state->scene_node_count < MAX_SCENE_NODE_COUNT);
     HOPE_Assert(parent);
 
-    platform_lock_mutex(&renderer_state->node_mutex);
     Scene_Node *node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
     node->parent = parent;
 
@@ -203,7 +196,7 @@ add_child_scene_node(Renderer_State *renderer_state,
     {
         parent->first_child = parent->last_child = node;
     }
-    platform_unlock_mutex(&renderer_state->node_mutex);
+
     return node;
 }
 
@@ -249,7 +242,7 @@ static Job_Result load_texture_job(const Job_Parameters &params)
 
     stbi_uc *pixels = stbi_load(path.data,
                                 &texture_width, &texture_height,
-                                &texture_channels, STBI_rgb_alpha); // @Leak
+                                &texture_channels, STBI_rgb_alpha);
     HOPE_Assert(pixels);
 
     bool texture_created = create_texture(job_data->texture, pixels, texture_width, texture_height, renderer, renderer_state);
@@ -317,14 +310,15 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path,
 
         if (platform_file_exists(texture_path.data))
         {
-            Load_Texture_Job_Data *load_texture_job_data = Allocate(renderer_state->transfer_allocator, Load_Texture_Job_Data); // @Leak
-            load_texture_job_data->path = texture->name;
-            load_texture_job_data->renderer = renderer;
-            load_texture_job_data->renderer_state = renderer_state;
-            load_texture_job_data->texture = texture;
+            Load_Texture_Job_Data load_texture_job_data = {};
+            load_texture_job_data.path = texture->name;
+            load_texture_job_data.renderer = renderer;
+            load_texture_job_data.renderer_state = renderer_state;
+            load_texture_job_data.texture = texture;
 
             Job job = {};
-            job.parameters.data = load_texture_job_data;
+            job.parameters.data = &load_texture_job_data;
+            job.parameters.size = sizeof(load_texture_job_data);
             job.proc = load_texture_job;
             execute_job(job);
         }
@@ -391,19 +385,18 @@ Job_Result load_model_job(const Job_Parameters &params)
 
 Scene_Node* load_model_threaded(const String &path, Renderer *renderer, Renderer_State *renderer_state)
 {
-    platform_lock_mutex(&renderer_state->node_mutex);
     Scene_Node *root_scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
-    platform_unlock_mutex(&renderer_state->node_mutex);
 
-    Load_Model_Job_Data *data = Allocate(renderer_state->transfer_allocator, Load_Model_Job_Data); // @Leak
-    data->path = path;
-    data->renderer = renderer;
-    data->renderer_state = renderer_state;
-    data->scene_node = root_scene_node;
+    Load_Model_Job_Data data = {};
+    data.path = path;
+    data.renderer = renderer;
+    data.renderer_state = renderer_state;
+    data.scene_node = root_scene_node;
 
     Job job = {};
     job.proc = load_model_job;
-    job.parameters.data = data;
+    job.parameters.data = &data;
+    job.parameters.size = sizeof(Load_Model_Job_Data);
     execute_job(job);
 
     return root_scene_node;
@@ -411,7 +404,6 @@ Scene_Node* load_model_threaded(const String &path, Renderer *renderer, Renderer
 
 // note(amer): https://github.com/deccer/CMake-Glfw-OpenGL-Template/blob/main/src/Project/ProjectApplication.cpp
 // thanks to this giga chad for the example
-
 bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena)
 {
     Read_Entire_File_Result result = read_entire_file(path.data, renderer_state->transfer_allocator);
@@ -504,7 +496,10 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
 
         Material_Descriptor desc = {};
         desc.pipeline_state = renderer_state->mesh_pipeline;
+
+        platform_lock_mutex(&renderer_state->render_commands_mutex);
         renderer->create_material(renderer_material, desc);
+        platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
         U32 *albedo_texture_index = (U32 *)get_property(renderer_material, HOPE_StringLiteral("albedo_texture_index"), ShaderDataType_U32);
         U32 *normal_texture_index = (U32 *)get_property(renderer_material, HOPE_StringLiteral("normal_texture_index"), ShaderDataType_U32);
@@ -614,7 +609,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
 
                     const auto *accessor = attribute->data;
                     const auto *view = accessor->buffer_view;
-                    U8* data_ptr = (U8*)view->buffer->data;
+                    U8 *data_ptr = (U8*)view->buffer->data;
 
                     switch (attribute->type)
                     {
@@ -706,16 +701,15 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
 
     end_temprary_memory_arena(&temprary_arena);
 
-    cgltf_free(model_data);
-    deallocate(renderer_state->transfer_allocator, buffer);
+    // cgltf_free(model_data);
+    // deallocate(renderer_state->transfer_allocator, buffer);
+
     return true;
 }
 
 Scene_Node *load_model(const String &path, Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena)
 {
-    platform_lock_mutex(&renderer_state->node_mutex);
     Scene_Node *root_scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
-    platform_unlock_mutex(&renderer_state->node_mutex);
     bool model_loaded = load_model(root_scene_node, path, renderer, renderer_state, arena);
     HOPE_Assert(model_loaded);
     return root_scene_node;
@@ -741,13 +735,9 @@ void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene
 
 Texture *allocate_texture(Renderer_State *renderer_state)
 {
-    platform_lock_mutex(&renderer_state->resource_mutex);
-
     HOPE_Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
     U32 texture_index = renderer_state->texture_count++;
     Texture *result = &renderer_state->textures[texture_index];
-
-    platform_unlock_mutex(&renderer_state->resource_mutex);
     return result;
 }
 
@@ -755,41 +745,33 @@ Material *allocate_material(Renderer_State *renderer_state)
 {
     HOPE_Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
 
-    platform_lock_mutex(&renderer_state->resource_mutex);
     U32 material_index = renderer_state->material_count++;
     Material *result = &renderer_state->materials[material_index];
 
-    platform_unlock_mutex(&renderer_state->resource_mutex);
     return result;
 }
 
 Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state)
 {
-    platform_lock_mutex(&renderer_state->resource_mutex);
     HOPE_Assert(renderer_state->static_mesh_count < MAX_STATIC_MESH_COUNT);
     U32 static_mesh_index = renderer_state->static_mesh_count++;
     Static_Mesh *result = &renderer_state->static_meshes[static_mesh_index];
-    platform_unlock_mutex(&renderer_state->resource_mutex);
     return result;
 }
 
 Shader *allocate_shader(Renderer_State *renderer_state)
 {
-    platform_lock_mutex(&renderer_state->resource_mutex);
     HOPE_Assert(renderer_state->shader_count < MAX_STATIC_MESH_COUNT);
     U32 shader_index = renderer_state->shader_count++;
     Shader *result = &renderer_state->shaders[shader_index];
-    platform_unlock_mutex(&renderer_state->resource_mutex);
     return result;
 }
 
 Pipeline_State *allocate_pipeline_state(Renderer_State *renderer_state)
 {
-    platform_lock_mutex(&renderer_state->resource_mutex);
     HOPE_Assert(renderer_state->pipeline_state_count < MAX_PIPELINE_STATE_COUNT);
     U32 pipline_state_index = renderer_state->pipeline_state_count++;
     Pipeline_State *result = &renderer_state->pipeline_states[pipline_state_index];
-    platform_unlock_mutex(&renderer_state->resource_mutex);
     return result;
 }
 
