@@ -18,9 +18,9 @@ Read_Entire_File_Result read_entire_file(const char *filepath, Allocator *alloca
     Open_File_Result open_file_result = platform_open_file(filepath, OpenFileFlag_Read);
     if (open_file_result.success)
     {
-        U8 *data = AllocateArray(allocator, U8, open_file_result.size);
+        U8 *data = HE_ALLOCATE_ARRAY(allocator, U8, open_file_result.size);
         bool read = platform_read_data_from_file(&open_file_result, 0, data, open_file_result.size);
-        HOPE_Assert(read);
+        HE_ASSERT(read);
         platform_close_file(&open_file_result);
 
         result.data = data;

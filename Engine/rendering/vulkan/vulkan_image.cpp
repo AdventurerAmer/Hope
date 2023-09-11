@@ -56,7 +56,7 @@ transtion_image_to_layout(Vulkan_Image *image,
     }
     else
     {
-        HOPE_Assert(false);
+        HE_ASSERT(false);
     }
 
     vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage,
@@ -96,7 +96,7 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     image_create_info.samples = samples;
     image_create_info.flags = 0;
 
-    HOPE_CheckVkResult(vkCreateImage(context->logical_device, &image_create_info,
+    HE_CHECK_VKRESULT(vkCreateImage(context->logical_device, &image_create_info,
                                      nullptr, &image->handle));
 
     VkMemoryRequirements memory_requirements = {};
@@ -108,7 +108,7 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
                                                                   memory_requirements,
                                                                   properties);
 
-    HOPE_CheckVkResult(vkAllocateMemory(context->logical_device, &memory_allocate_info,
+    HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info,
                                         nullptr, &image->memory));
 
     vkBindImageMemory(context->logical_device, image->handle, image->memory, 0);
@@ -127,7 +127,7 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     image_view_create_info.subresourceRange.levelCount = mip_levels;
     image_view_create_info.subresourceRange.baseArrayLayer = 0;
     image_view_create_info.subresourceRange.layerCount = 1;
-    HOPE_CheckVkResult(vkCreateImageView(context->logical_device, &image_view_create_info,
+    HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info,
                                          nullptr, &image->view));
 
     VkSamplerCreateInfo sampler_create_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
@@ -146,7 +146,7 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     sampler_create_info.mipLodBias = 0.0f;
     sampler_create_info.minLod = 0.0f;
     sampler_create_info.maxLod = (F32)image->mip_levels;
-    HOPE_CheckVkResult(vkCreateSampler(context->logical_device, &sampler_create_info, nullptr, &image->sampler));
+    HE_CHECK_VKRESULT(vkCreateSampler(context->logical_device, &sampler_create_info, nullptr, &image->sampler));
 
     return true;
 }
@@ -157,12 +157,12 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
                                     Vulkan_Buffer *buffer,
                                     U64 offset, U64 size)
 {
-    HOPE_Assert(context);
-    HOPE_Assert(image);
-    HOPE_Assert(width);
-    HOPE_Assert(height);
-    HOPE_Assert(buffer);
-    HOPE_Assert(size);
+    HE_ASSERT(context);
+    HE_ASSERT(image);
+    HE_ASSERT(width);
+    HE_ASSERT(height);
+    HE_ASSERT(buffer);
+    HE_ASSERT(size);
 
     VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     command_buffer_allocate_info.commandPool = context->graphics_command_pool;
@@ -213,7 +213,7 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
 
     VkFormatProperties format_properties;
     vkGetPhysicalDeviceFormatProperties(context->physical_device, image->format, &format_properties);
-    HOPE_Assert((format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT));
+    HE_ASSERT((format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT));
 
     U32 mip_width = width;
     U32 mip_height = height;

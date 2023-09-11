@@ -8,7 +8,7 @@ bool write_entire_file(const char *filepath, void *data, Size size)
         return false;
     }
     bool success = platform_write_data_to_file(&open_file_result, 0, data, size);
-    HOPE_Assert(success);
+    HE_ASSERT(success);
     platform_close_file(&open_file_result);
     return success;
 }

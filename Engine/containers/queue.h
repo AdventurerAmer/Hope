@@ -15,8 +15,8 @@ struct Ring_Queue
 template< typename T, typename Allocator >
 void init_ring_queue(Ring_Queue< T > *queue, U32 capacity, Allocator *allocator)
 {
-    HOPE_Assert((capacity & (capacity - 1)) == 0);
-    queue->data = AllocateArray(allocator, T, capacity);
+    HE_ASSERT((capacity & (capacity - 1)) == 0);
+    queue->data = HE_ALLOCATE_ARRAY(allocator, T, capacity);
     queue->capacity = capacity;
     queue->mask = capacity - 1;
     queue->write = 0;
@@ -57,7 +57,7 @@ bool push(Ring_Queue< T > *queue, const T &item)
 template< typename T >
 bool peek_front(Ring_Queue< T > *queue, T *out_datum)
 {
-    HOPE_Assert(out_datum);
+    HE_ASSERT(out_datum);
     if (empty(queue))
     {
         return false;
@@ -71,7 +71,7 @@ template < typename T >
 bool peek_back(Ring_Queue< T > *queue, T *out_datum)
 {
 
-    HOPE_Assert(out_datum);
+    HE_ASSERT(out_datum);
     if (empty(queue))
     {
         return false;
@@ -84,13 +84,13 @@ bool peek_back(Ring_Queue< T > *queue, T *out_datum)
 template< typename T >
 void pop_front(Ring_Queue< T > *queue)
 {
-    HOPE_Assert(!empty(queue));
+    HE_ASSERT(!empty(queue));
     queue->read++;
 }
 
 template< typename T >
 void pop_back(Ring_Queue< T > *queue)
 {
-    HOPE_Assert(!empty(queue));
+    HE_ASSERT(!empty(queue));
     queue->write--;
 }

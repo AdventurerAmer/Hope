@@ -1,9 +1,9 @@
 @platform
-:Pê©›ö Hope
-:xê©›ö Hope
-:˜ê©›ö 0
-:¸ê©›ö 1296
-:Øê©›ö 759
+:engine_name Hope
+:app_name Hope
+:window_width 1296
+:window_height 759
+:window_mode 0
 @renderer
-:H÷©›ö 1280
-:x÷©›ö 720
+:back_buffer_width 1280
+:back_buffer_height 720

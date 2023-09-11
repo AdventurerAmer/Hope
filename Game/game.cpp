@@ -13,8 +13,7 @@ struct Game_State
 
 static Game_State game_state;
 
-extern "C" HOPE_API bool
-init_game(Engine *engine)
+HE_API bool init_game(Engine *engine)
 {
 	Renderer *renderer = &engine->renderer;
 	Renderer_State *renderer_state = &engine->renderer_state;
@@ -39,13 +38,12 @@ init_game(Engine *engine)
                                            base_movement_speed,
                                            max_movement_speed, sensitivity_x, sensitivity_y);
     
-    // game_state.sponza = engine->api.load_model_threaded(HOPE_StringLiteral("models/Sponza/Sponza.gltf"), renderer, renderer_state);
-    game_state.flight_helmet = engine->api.load_model_threaded(HOPE_StringLiteral("models/FlightHelmet/FlightHelmet.gltf"), renderer, renderer_state);
+    // game_state.sponza = engine->api.load_model_threaded(HE_STRING_LITERAL("models/Sponza/Sponza.gltf"), renderer, renderer_state);
+    game_state.flight_helmet = engine->api.load_model_threaded(HE_STRING_LITERAL("models/FlightHelmet/FlightHelmet.gltf"), renderer, renderer_state);
     return true;
 }
 
-extern "C" HOPE_API void
-on_event(Engine *engine, Event event)
+HE_API void on_event(Engine *engine, Event event)
 {
 	switch (event.type)
 	{
@@ -88,8 +86,7 @@ on_event(Engine *engine, Event event)
 	}
 }
 
-extern "C" HOPE_API void
-on_update(Engine *engine, F32 delta_time)
+HE_API void on_update(Engine *engine, F32 delta_time)
 {
 	Input *input = &engine->input;
     Renderer *renderer = &engine->renderer;

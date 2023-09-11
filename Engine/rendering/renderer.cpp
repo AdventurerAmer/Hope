@@ -26,17 +26,13 @@ static Free_List_Allocator *_stbi_allocator;
 #include "core/platform.h"
 #include "core/cvars.h"
 
-#if HOPE_OS_WINDOWS
-#define HOPE_RHI_VULKAN
+#if HE_OS_WINDOWS
+#define HE_RHI_VULKAN
 #endif
 
-#ifdef HOPE_RHI_VULKAN
+#ifdef HE_RHI_VULKAN
 #include "rendering/vulkan/vulkan_renderer.h"
 #endif
-
-// todo(amer): this is going to be a percentage
-HOPE_CVarInt(back_buffer_width, "back buffer width", -1, "renderer", CVarFlag_None);
-HOPE_CVarInt(back_buffer_height, "back buffer height", -1, "renderer", CVarFlag_None);
 
 bool request_renderer(RenderingAPI rendering_api,
                       Renderer *renderer)
@@ -45,7 +41,7 @@ bool request_renderer(RenderingAPI rendering_api,
 
     switch (rendering_api)
     {
-#ifdef HOPE_RHI_VULKAN
+#ifdef HE_RHI_VULKAN
         case RenderingAPI_Vulkan:
         {
             renderer->init = &vulkan_renderer_init;
@@ -81,29 +77,23 @@ bool request_renderer(RenderingAPI rendering_api,
 bool pre_init_renderer_state(Renderer_State *renderer_state, Engine *engine)
 {
     renderer_state->engine = engine;
-    renderer_state->textures = AllocateArray(&engine->memory.transient_arena, Texture, MAX_TEXTURE_COUNT);
-    renderer_state->materials = AllocateArray(&engine->memory.transient_arena, Material, MAX_MATERIAL_COUNT);
-    renderer_state->static_meshes = AllocateArray(&engine->memory.transient_arena, Static_Mesh, MAX_STATIC_MESH_COUNT);
-    renderer_state->scene_nodes = AllocateArray(&engine->memory.transient_arena, Scene_Node, MAX_SCENE_NODE_COUNT);
-    renderer_state->shaders = AllocateArray(&engine->memory.transient_arena, Shader, MAX_SHADER_COUNT);
-    renderer_state->pipeline_states = AllocateArray(&engine->memory.transient_arena, Pipeline_State, MAX_PIPELINE_STATE_COUNT);
+    renderer_state->textures = HE_ALLOCATE_ARRAY(&engine->memory.transient_arena, Texture, MAX_TEXTURE_COUNT);
+    renderer_state->materials = HE_ALLOCATE_ARRAY(&engine->memory.transient_arena, Material, MAX_MATERIAL_COUNT);
+    renderer_state->static_meshes = HE_ALLOCATE_ARRAY(&engine->memory.transient_arena, Static_Mesh, MAX_STATIC_MESH_COUNT);
+    renderer_state->scene_nodes = HE_ALLOCATE_ARRAY(&engine->memory.transient_arena, Scene_Node, MAX_SCENE_NODE_COUNT);
+    renderer_state->shaders = HE_ALLOCATE_ARRAY(&engine->memory.transient_arena, Shader, MAX_SHADER_COUNT);
+    renderer_state->pipeline_states = HE_ALLOCATE_ARRAY(&engine->memory.transient_arena, Pipeline_State, MAX_PIPELINE_STATE_COUNT);
 
     bool render_commands_mutex_created = platform_create_mutex(&renderer_state->render_commands_mutex);
-    HOPE_Assert(render_commands_mutex_created);
+    HE_ASSERT(render_commands_mutex_created);
 
-    HOPE_CVarGetInt(back_buffer_width, "renderer");
-    HOPE_CVarGetInt(back_buffer_height, "renderer");
+    U32 &back_buffer_width = renderer_state->back_buffer_width;
+    U32 &back_buffer_height = renderer_state->back_buffer_height;
+    back_buffer_width = 1280;
+    back_buffer_height = 720;
 
-    if (*back_buffer_width == -1 || *back_buffer_height == -1)
-    {
-        // todo(amer): get video modes and pick highest one
-        *back_buffer_width = 1280;
-        *back_buffer_height = 720;
-    }
-
-    renderer_state->back_buffer_width = (U32)*back_buffer_width;
-    renderer_state->back_buffer_height = (U32)*back_buffer_height;
-
+    HE_DECLARE_CVAR("renderer", back_buffer_width, CVarFlag_None);
+    HE_DECLARE_CVAR("renderer", back_buffer_height, CVarFlag_None);
     return true;
 }
 
@@ -115,7 +105,7 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     Renderer *renderer = &engine->renderer;
     renderer_state->white_pixel_texture = allocate_texture(renderer_state);
 
-    U32 *white_pixel_data = Allocate(renderer_state->transfer_allocator, U32);
+    U32 *white_pixel_data = HE_ALLOCATE(renderer_state->transfer_allocator, U32); // @Leak
     *white_pixel_data = 0xFFFFFFFF;
 
     Texture_Descriptor white_pixel_descriptor = {};
@@ -126,9 +116,9 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     white_pixel_descriptor.mipmapping = false;
     renderer->create_texture(renderer_state->white_pixel_texture, white_pixel_descriptor);
 
-    U32 *normal_pixel_data = Allocate(renderer_state->transfer_allocator, U32);
+    U32 *normal_pixel_data = HE_ALLOCATE(renderer_state->transfer_allocator, U32); // @Leak
     *normal_pixel_data = 0xFFFF8080; // todo(amer): endianness
-    HOPE_Assert(HOPE_ARCH_X64);
+    HE_ASSERT(HE_ARCH_X64);
 
     Texture_Descriptor normal_pixel_descriptor = {};
     normal_pixel_descriptor.width = 1;
@@ -145,12 +135,6 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
 
 void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_state)
 {
-    HOPE_CVarGetInt(back_buffer_width, "renderer");
-    HOPE_CVarGetInt(back_buffer_height, "renderer");
-
-    *back_buffer_width = renderer_state->back_buffer_width;
-    *back_buffer_height = renderer_state->back_buffer_height;
-
     for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
     {
         renderer->destroy_texture(&renderer_state->textures[texture_index]);
@@ -181,8 +165,8 @@ Scene_Node*
 add_child_scene_node(Renderer_State *renderer_state,
                      Scene_Node *parent)
 {
-    HOPE_Assert(renderer_state->scene_node_count < MAX_SCENE_NODE_COUNT);
-    HOPE_Assert(parent);
+    HE_ASSERT(renderer_state->scene_node_count < MAX_SCENE_NODE_COUNT);
+    HE_ASSERT(parent);
 
     Scene_Node *node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
     node->parent = parent;
@@ -211,7 +195,7 @@ struct Load_Texture_Job_Data
 static bool create_texture(Texture *texture, void *pixels, U32 texture_width, U32 texture_height, Renderer *renderer, Renderer_State *renderer_state)
 {
     U64 data_size = texture_width * texture_height * sizeof(U32);
-    U32 *data = AllocateArray(renderer_state->transfer_allocator, U32, data_size); // @Leak
+    U32 *data = HE_ALLOCATE_ARRAY(renderer_state->transfer_allocator, U32, data_size); // @Leak
     memcpy(data, pixels, data_size);
 
     Texture_Descriptor descriptor = {};
@@ -223,7 +207,7 @@ static bool create_texture(Texture *texture, void *pixels, U32 texture_width, U3
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     bool texture_created = renderer->create_texture(texture, descriptor);
-    HOPE_Assert(texture_created);
+    HE_ASSERT(texture_created);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
     return true;
 }
@@ -243,10 +227,10 @@ static Job_Result load_texture_job(const Job_Parameters &params)
     stbi_uc *pixels = stbi_load(path.data,
                                 &texture_width, &texture_height,
                                 &texture_channels, STBI_rgb_alpha);
-    HOPE_Assert(pixels);
+    HE_ASSERT(pixels);
 
     bool texture_created = create_texture(job_data->texture, pixels, texture_width, texture_height, renderer, renderer_state);
-    HOPE_Assert(texture_created);
+    HE_ASSERT(texture_created);
     stbi_image_free(pixels);
 
     return Job_Result::SUCCEEDED;
@@ -258,6 +242,10 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path,
 {
     Temprary_Memory_Arena temprary_arena;
     begin_temprary_memory_arena(&temprary_arena, arena);
+    HE_DEFER
+    {
+        end_temprary_memory_arena(&temprary_arena);
+    };
 
     const cgltf_image *image = texture_view->texture->image;
 
@@ -267,36 +255,36 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path,
     if (texture_view->texture->image->uri)
     {
         char *uri = texture_view->texture->image->uri;
-        texture_path = format_string(temprary_arena.arena, "%.*s/%s", HOPE_ExpandString(&model_path), uri);
+        texture_path = format_string(temprary_arena.arena, "%.*s/%s", HE_EXPAND_STRING(model_path), uri);
     }
     else
     {
-        String texture_name = HOPE_String(texture_view->texture->image->name);
-        S64 dot_index = find_first_char_from_right(&texture_name, ".");
-        HOPE_Assert(dot_index != -1);
+        String texture_name = HE_STRING(texture_view->texture->image->name);
+        S64 dot_index = find_first_char_from_right(texture_name, ".");
+        HE_ASSERT(dot_index != -1);
 
-        String extension_to_append = HOPE_StringLiteral("");
-        String extension = sub_string(&texture_name, dot_index);
+        String extension_to_append = HE_STRING_LITERAL("");
+        String extension = sub_string(texture_name, dot_index);
 
         if (extension != ".png" &&
             extension != ".jpg")
         {
-            String mime_type = HOPE_String(image->mime_type);
+            String mime_type = HE_STRING(image->mime_type);
 
             if (mime_type == "image/png")
             {
-                extension_to_append = HOPE_StringLiteral(".png");
+                extension_to_append = HE_STRING_LITERAL(".png");
             }
             else if (mime_type == "image/jpg")
             {
-                extension_to_append = HOPE_StringLiteral(".jpg");
+                extension_to_append = HE_STRING_LITERAL(".jpg");
             }
         }
 
         texture_path = format_string(temprary_arena.arena, "%.*s/%.*s%s",
-                                     HOPE_ExpandString(&model_path),
-                                     HOPE_ExpandString(&texture_name),
-                                     HOPE_ExpandString(&extension_to_append));
+                                     HE_EXPAND_STRING(model_path),
+                                     HE_EXPAND_STRING(texture_name),
+                                     HE_EXPAND_STRING(extension_to_append));
     }
 
     S32 texture_index = find_texture(renderer_state,
@@ -304,7 +292,7 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path,
 
     if (texture_index == -1)
     {
-        HOPE_Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
+        HE_ASSERT(renderer_state->texture_count < MAX_TEXTURE_COUNT);
         texture = allocate_texture(renderer_state);
         texture->name = copy_string(texture_path.data, texture_path.count, &renderer_state->engine->memory.free_list_allocator);
 
@@ -338,9 +326,9 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path,
                                            &texture_width, &texture_height,
                                            &texture_channels, STBI_rgb_alpha);
 
-            HOPE_Assert(pixels);
+            HE_ASSERT(pixels);
             bool texture_created = create_texture(texture, pixels, texture_width, texture_height, renderer, renderer_state);
-            HOPE_Assert(texture_created);
+            HE_ASSERT(texture_created);
             stbi_image_free(pixels);
         }
     }
@@ -349,7 +337,6 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path,
         texture = &renderer_state->textures[texture_index];
     }
 
-    end_temprary_memory_arena(&temprary_arena);
     return texture;
 }
 
@@ -415,9 +402,9 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
 
     U8 *buffer = result.data;
 
-    S64 last_slash = find_first_char_from_right(&path, "\\/");
-    HOPE_Assert(last_slash != -1);
-    String model_path = sub_string(&path, 0, last_slash);
+    S64 last_slash = find_first_char_from_right(path, "\\/");
+    HE_ASSERT(last_slash != -1);
+    String model_path = sub_string(path, 0, last_slash);
 
     cgltf_options options = {};
     options.memory.alloc_func = _cgltf_alloc;
@@ -440,7 +427,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         cgltf_material *material = &model_data->materials[material_index];
         U64 material_hash = (U64)material;
 
-        HOPE_Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
+        HE_ASSERT(renderer_state->material_count < MAX_MATERIAL_COUNT);
         Material *renderer_material = allocate_material(renderer_state);
 
         if (material->name)
@@ -501,26 +488,26 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         renderer->create_material(renderer_material, desc);
         platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
-        U32 *albedo_texture_index = (U32 *)get_property(renderer_material, HOPE_StringLiteral("albedo_texture_index"), ShaderDataType_U32);
-        U32 *normal_texture_index = (U32 *)get_property(renderer_material, HOPE_StringLiteral("normal_texture_index"), ShaderDataType_U32);
+        U32 *albedo_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("albedo_texture_index"), ShaderDataType_U32);
+        U32 *normal_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("normal_texture_index"), ShaderDataType_U32);
         U32 *occlusion_roughness_metallic_texture_index = (U32 *)get_property(renderer_material,
-                                                                              HOPE_StringLiteral("occlusion_roughness_metallic_texture_index"),
+                                                                              HE_STRING_LITERAL("occlusion_roughness_metallic_texture_index"),
                                                                               ShaderDataType_U32);
 
         glm::vec3 *albedo_color = (glm::vec3 *)get_property(renderer_material,
-                                                            HOPE_StringLiteral("albedo_color"),
+                                                            HE_STRING_LITERAL("albedo_color"),
                                                             ShaderDataType_Vector3f);
 
         F32 *roughness_factor = (F32 *)get_property(renderer_material,
-                                                    HOPE_StringLiteral("roughness_factor"),
+                                                    HE_STRING_LITERAL("roughness_factor"),
                                                     ShaderDataType_F32);
 
         F32 *metallic_factor = (F32 *)get_property(renderer_material,
-                                                    HOPE_StringLiteral("metallic_factor"),
+                                                    HE_STRING_LITERAL("metallic_factor"),
                                                     ShaderDataType_F32);
 
         F32 *reflectance = (F32 *)get_property(renderer_material,
-                                               HOPE_StringLiteral("reflectance"),
+                                               HE_STRING_LITERAL("reflectance"),
                                                ShaderDataType_F32);
         
         *albedo_color = *(glm::vec3 *)material->pbr_metallic_roughness.base_color_factor;
@@ -559,6 +546,11 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
     Temprary_Memory_Arena temprary_arena = {};
     begin_temprary_memory_arena(&temprary_arena, arena);
 
+    HE_DEFER
+    {
+        end_temprary_memory_arena(&temprary_arena);
+    };
+
     Ring_Queue< Scene_Node_Bundle > nodes;
     init_ring_queue(&nodes, 4096, &temprary_arena);
 
@@ -590,22 +582,22 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
             for (U32 primitive_index = 0; primitive_index < node->mesh->primitives_count; primitive_index++)
             {
                 cgltf_primitive* primitive = &node->mesh->primitives[primitive_index];
-                HOPE_Assert(primitive->material);
+                HE_ASSERT(primitive->material);
                 cgltf_material* material = primitive->material;
 
                 U64 material_hash = (U64)material;
                 S32 material_index = find_material(renderer_state, material_hash);
-                HOPE_Assert(material_index != -1);
+                HE_ASSERT(material_index != -1);
 
                 Static_Mesh* static_mesh = allocate_static_mesh(renderer_state);
                 static_mesh->material = &renderer_state->materials[material_index];
 
-                HOPE_Assert(primitive->type == cgltf_primitive_type_triangles);
+                HE_ASSERT(primitive->type == cgltf_primitive_type_triangles);
 
                 for (U32 attribute_index = 0; attribute_index < primitive->attributes_count; attribute_index++)
                 {
                     cgltf_attribute* attribute = &primitive->attributes[attribute_index];
-                    HOPE_Assert(attribute->type != cgltf_attribute_type_invalid);
+                    HE_ASSERT(attribute->type != cgltf_attribute_type_invalid);
 
                     const auto *accessor = attribute->data;
                     const auto *view = accessor->buffer_view;
@@ -615,53 +607,53 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
                     {
                         case cgltf_attribute_type_position:
                         {
-                            HOPE_Assert(attribute->data->type == cgltf_type_vec3);
-                            HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                            HE_ASSERT(attribute->data->type == cgltf_type_vec3);
+                            HE_ASSERT(attribute->data->component_type == cgltf_component_type_r_32f);
 
                             position_count = u64_to_u32(attribute->data->count);
                             U64 stride = attribute->data->stride;
-                            HOPE_Assert(stride == sizeof(glm::vec3));
+                            HE_ASSERT(stride == sizeof(glm::vec3));
                             positions = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
                         } break;
 
                         case cgltf_attribute_type_normal:
                         {
-                            HOPE_Assert(attribute->data->type == cgltf_type_vec3);
-                            HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                            HE_ASSERT(attribute->data->type == cgltf_type_vec3);
+                            HE_ASSERT(attribute->data->component_type == cgltf_component_type_r_32f);
 
                             normal_count = u64_to_u32(attribute->data->count);
                             U64 stride = attribute->data->stride;
-                            HOPE_Assert(stride == sizeof(glm::vec3));
+                            HE_ASSERT(stride == sizeof(glm::vec3));
                             normals = (glm::vec3*)(data_ptr + view->offset + accessor->offset);
                         } break;
 
                         case cgltf_attribute_type_texcoord:
                         {
-                            HOPE_Assert(attribute->data->type == cgltf_type_vec2);
-                            HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                            HE_ASSERT(attribute->data->type == cgltf_type_vec2);
+                            HE_ASSERT(attribute->data->component_type == cgltf_component_type_r_32f);
 
                             uv_count = u64_to_u32(attribute->data->count);
                             U64 stride = attribute->data->stride;
-                            HOPE_Assert(stride == sizeof(glm::vec2));
+                            HE_ASSERT(stride == sizeof(glm::vec2));
                             uvs = (glm::vec2*)(data_ptr + view->offset + accessor->offset);
                         } break;
 
                         case cgltf_attribute_type_tangent:
                         {
-                            HOPE_Assert(attribute->data->type == cgltf_type_vec4);
-                            HOPE_Assert(attribute->data->component_type == cgltf_component_type_r_32f);
+                            HE_ASSERT(attribute->data->type == cgltf_type_vec4);
+                            HE_ASSERT(attribute->data->component_type == cgltf_component_type_r_32f);
                             tangent_count = u64_to_u32(attribute->data->count);
                             U64 stride = attribute->data->stride;
-                            HOPE_Assert(stride == sizeof(glm::vec4));
+                            HE_ASSERT(stride == sizeof(glm::vec4));
                             tangents = (glm::vec4*)(data_ptr + view->offset + accessor->offset);
                         } break;
                     }
                 }
 
                 // note(amer): we only support u16 indices for now.
-                HOPE_Assert(primitive->indices->type == cgltf_type_scalar);
-                HOPE_Assert(primitive->indices->component_type == cgltf_component_type_r_16u);
-                HOPE_Assert(primitive->indices->stride == sizeof(U16));
+                HE_ASSERT(primitive->indices->type == cgltf_type_scalar);
+                HE_ASSERT(primitive->indices->component_type == cgltf_component_type_r_16u);
+                HE_ASSERT(primitive->indices->stride == sizeof(U16));
 
                 index_count = u64_to_u32(primitive->indices->count);
                 const auto *accessor = primitive->indices;
@@ -669,9 +661,9 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
                 U8 *data_ptr = (U8*)view->buffer->data;
                 indices = (U16*)(data_ptr + view->offset + accessor->offset);
 
-                HOPE_Assert(position_count == normal_count);
-                HOPE_Assert(position_count == uv_count);
-                // HOPE_Assert(position_count == tangent_count);
+                HE_ASSERT(position_count == normal_count);
+                HE_ASSERT(position_count == uv_count);
+                // HE_ASSERT(position_count == tangent_count);
 
                 U32 vertex_count = position_count;
 
@@ -687,7 +679,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
                 platform_lock_mutex(&renderer_state->render_commands_mutex);
                 bool created = renderer->create_static_mesh(static_mesh, descriptor);
                 platform_unlock_mutex(&renderer_state->render_commands_mutex);
-                HOPE_Assert(created);
+                HE_ASSERT(created);
             }
         }
 
@@ -699,8 +691,6 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         }
     }
 
-    end_temprary_memory_arena(&temprary_arena);
-
     // cgltf_free(model_data);
     // deallocate(renderer_state->transfer_allocator, buffer);
 
@@ -711,7 +701,7 @@ Scene_Node *load_model(const String &path, Renderer *renderer, Renderer_State *r
 {
     Scene_Node *root_scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
     bool model_loaded = load_model(root_scene_node, path, renderer, renderer_state, arena);
-    HOPE_Assert(model_loaded);
+    HE_ASSERT(model_loaded);
     return root_scene_node;
 }
 
@@ -735,7 +725,7 @@ void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene
 
 Texture *allocate_texture(Renderer_State *renderer_state)
 {
-    HOPE_Assert(renderer_state->texture_count < MAX_TEXTURE_COUNT);
+    HE_ASSERT(renderer_state->texture_count < MAX_TEXTURE_COUNT);
     U32 texture_index = renderer_state->texture_count++;
     Texture *result = &renderer_state->textures[texture_index];
     return result;
@@ -743,7 +733,7 @@ Texture *allocate_texture(Renderer_State *renderer_state)
 
 Material *allocate_material(Renderer_State *renderer_state)
 {
-    HOPE_Assert(renderer_state->material_count < MAX_MATERIAL_COUNT);
+    HE_ASSERT(renderer_state->material_count < MAX_MATERIAL_COUNT);
 
     U32 material_index = renderer_state->material_count++;
     Material *result = &renderer_state->materials[material_index];
@@ -753,7 +743,7 @@ Material *allocate_material(Renderer_State *renderer_state)
 
 Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state)
 {
-    HOPE_Assert(renderer_state->static_mesh_count < MAX_STATIC_MESH_COUNT);
+    HE_ASSERT(renderer_state->static_mesh_count < MAX_STATIC_MESH_COUNT);
     U32 static_mesh_index = renderer_state->static_mesh_count++;
     Static_Mesh *result = &renderer_state->static_meshes[static_mesh_index];
     return result;
@@ -761,7 +751,7 @@ Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state)
 
 Shader *allocate_shader(Renderer_State *renderer_state)
 {
-    HOPE_Assert(renderer_state->shader_count < MAX_STATIC_MESH_COUNT);
+    HE_ASSERT(renderer_state->shader_count < MAX_STATIC_MESH_COUNT);
     U32 shader_index = renderer_state->shader_count++;
     Shader *result = &renderer_state->shaders[shader_index];
     return result;
@@ -769,7 +759,7 @@ Shader *allocate_shader(Renderer_State *renderer_state)
 
 Pipeline_State *allocate_pipeline_state(Renderer_State *renderer_state)
 {
-    HOPE_Assert(renderer_state->pipeline_state_count < MAX_PIPELINE_STATE_COUNT);
+    HE_ASSERT(renderer_state->pipeline_state_count < MAX_PIPELINE_STATE_COUNT);
     U32 pipline_state_index = renderer_state->pipeline_state_count++;
     Pipeline_State *result = &renderer_state->pipeline_states[pipline_state_index];
     return result;
@@ -792,70 +782,70 @@ U8 *get_property(Material *material, const String &name, ShaderDataType shader_d
 U32 index_of(Renderer_State *renderer_state, const Texture *texture)
 {
     U64 index = texture - renderer_state->textures;
-    HOPE_Assert(index < MAX_TEXTURE_COUNT);
+    HE_ASSERT(index < MAX_TEXTURE_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, const Material *material)
 {
     U64 index = material - renderer_state->materials;
-    HOPE_Assert(index < MAX_MATERIAL_COUNT);
+    HE_ASSERT(index < MAX_MATERIAL_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, const Static_Mesh *static_mesh)
 {
     U64 index = static_mesh - renderer_state->static_meshes;
-    HOPE_Assert(index < MAX_STATIC_MESH_COUNT);
+    HE_ASSERT(index < MAX_STATIC_MESH_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, const Shader *shader)
 {
     U64 index = shader - renderer_state->shaders;
-    HOPE_Assert(index < MAX_SHADER_COUNT);
+    HE_ASSERT(index < MAX_SHADER_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, const Pipeline_State *pipeline_state)
 {
     U64 index = pipeline_state - renderer_state->pipeline_states;
-    HOPE_Assert(index < MAX_SHADER_COUNT);
+    HE_ASSERT(index < MAX_SHADER_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Texture *texture)
 {
     U64 index = texture - renderer_state->textures;
-    HOPE_Assert(index < MAX_TEXTURE_COUNT);
+    HE_ASSERT(index < MAX_TEXTURE_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Material *material)
 {
     U64 index = material - renderer_state->materials;
-    HOPE_Assert(index < MAX_MATERIAL_COUNT);
+    HE_ASSERT(index < MAX_MATERIAL_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Static_Mesh *static_mesh)
 {
     U64 index = static_mesh - renderer_state->static_meshes;
-    HOPE_Assert(index < MAX_STATIC_MESH_COUNT);
+    HE_ASSERT(index < MAX_STATIC_MESH_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Shader *shader)
 {
     U64 index = shader - renderer_state->shaders;
-    HOPE_Assert(index < MAX_SHADER_COUNT);
+    HE_ASSERT(index < MAX_SHADER_COUNT);
     return u64_to_u32(index);
 }
 
 U32 index_of(Renderer_State *renderer_state, Pipeline_State *pipeline_state)
 {
     U64 index = pipeline_state - renderer_state->pipeline_states;
-    HOPE_Assert(index < MAX_SHADER_COUNT);
+    HE_ASSERT(index < MAX_SHADER_COUNT);
     return u64_to_u32(index);
 }
 
@@ -915,7 +905,7 @@ U32 get_size_of_shader_data_type(ShaderDataType shader_data_type)
 
         default:
         {
-            HOPE_Assert(!"unsupported type");
+            HE_ASSERT(!"unsupported type");
         } break;
     }
 

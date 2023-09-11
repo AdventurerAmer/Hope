@@ -4,14 +4,9 @@
 #include "debugging.h"
 #include "cvars.h"
 #include "job_system.h"
+#include "containers/hash_map.h"
 
 #include <chrono>
-
-HOPE_CVarString(engine_name, "name of the engine", "Hope", "platform", CVarFlag_None);
-HOPE_CVarString(app_name, "name of the application", "Hope", "platform", CVarFlag_None);
-HOPE_CVarInt(window_mode, "window mode", Window_Mode::WINDOWED, "platform", CVarFlag_None);
-HOPE_CVarInt(window_width, "window width", -1, "platform", CVarFlag_None);
-HOPE_CVarInt(window_height, "window height", -1, "platform", CVarFlag_None);
 
 #include <imgui.h>
 
@@ -132,8 +127,8 @@ void hock_engine_api(Engine_API *api)
 
 bool startup(Engine *engine, void *platform_state)
 {
-    U64 permenent_memory_size = HOPE_GigaBytes(1);
-    U64 transient_memory_size = HOPE_GigaBytes(1);
+    U64 permenent_memory_size = HE_GIGA(1);
+    U64 transient_memory_size = HE_GIGA(1);
     Size required_memory_size = permenent_memory_size + transient_memory_size;
 
     void *memory = platform_allocate_memory(required_memory_size);
@@ -154,19 +149,14 @@ bool startup(Engine *engine, void *platform_state)
 
     init_free_list_allocator(&engine->memory.free_list_allocator,
                              &engine->memory.transient_arena,
-                             HOPE_MegaBytes(512));
+                             HE_MEGA(512));
 
     init_cvars("config.cvars", engine);
 
-    HOPE_CVarGetInt(window_mode, "platform");
-    HOPE_CVarGetString(app_name, "platform");
-    HOPE_CVarGetInt(window_width, "platform");
-    HOPE_CVarGetInt(window_height, "platform");
+#ifndef HE_SHIPPING
 
-#ifndef HOPE_SHIPPING
-
-    U64 debug_state_arena_size = HOPE_MegaBytes(64);
-    U8 *debug_state_arena_data = AllocateArray(&engine->memory.permanent_arena, U8, debug_state_arena_size);
+    U64 debug_state_arena_size = HE_MEGA(64);
+    U8 *debug_state_arena_data = HE_ALLOCATE_ARRAY(&engine->memory.permanent_arena, U8, debug_state_arena_size);
     global_debug_state.arena = create_memory_arena(debug_state_arena_data, debug_state_arena_size);
 
     Logger* logger = &global_debug_state.main_logger;
@@ -181,31 +171,44 @@ bool startup(Engine *engine, void *platform_state)
 
     Dynamic_Library game_code_dll = {};
     bool game_code_loaded = platform_load_dynamic_library(&game_code_dll, "../bin/Game.dll"); // note(amer): hard coding dynamic library extension (.dll)
-    HOPE_Assert(game_code_loaded);
+    HE_ASSERT(game_code_loaded);
 
     Game_Code *game_code = &engine->game_code;
     game_code->init_game = (Init_Game_Proc)platform_get_proc_address(&game_code_dll, "init_game");
     game_code->on_event  = (On_Event_Proc)platform_get_proc_address(&game_code_dll, "on_event");
     game_code->on_update = (On_Update_Proc)platform_get_proc_address(&game_code_dll, "on_update");
-    HOPE_Assert(game_code->init_game);
-    HOPE_Assert(game_code->on_event);
-    HOPE_Assert(game_code->on_update);
+    HE_ASSERT(game_code->init_game);
+    HE_ASSERT(game_code->on_event);
+    HE_ASSERT(game_code->on_update);
 
     hock_engine_api(&engine->api);
 
     engine->show_cursor = false;
     engine->lock_cursor = false;
     engine->platform_state = platform_state;
+    engine->name = HE_STRING_LITERAL("Hope");
+    engine->app_name = HE_STRING_LITERAL("Hope");
 
-    if (*window_width == -1 || *window_height == -1)
-    {
-        // note(amer): video modes
-        *window_width = 1296;
-        *window_height = 759;
-    }
+    String &engine_name = engine->name;
+    String &app_name = engine->app_name;
+
+    HE_DECLARE_CVAR("platform", engine_name, CVarFlag_None);
+    HE_DECLARE_CVAR("platform", app_name, CVarFlag_None);
 
     Window *window = &engine->window;
-    bool window_created = platform_create_window(window, app_name->data, (U32)*window_width, (U32)*window_height, (Window_Mode)*window_mode);
+    window->width = 1296;
+    window->height = 759;
+    window->mode = Window_Mode::WINDOWED;
+
+    U32 &window_width = window->width;
+    U32 &window_height = window->height;
+    U8 &window_mode = (U8 &)window->mode;
+
+    HE_DECLARE_CVAR("platform", window_width, CVarFlag_None);
+    HE_DECLARE_CVAR("platform", window_height, CVarFlag_None);
+    HE_DECLARE_CVAR("platform", window_mode, CVarFlag_None);
+
+    bool window_created = platform_create_window(window, app_name.data, (U32)window_width, (U32)window_height, (Window_Mode)window_mode);
 
     if (!window_created)
     {
@@ -219,7 +222,7 @@ bool startup(Engine *engine, void *platform_state)
     }
 
     bool job_system_inited = init_job_system(engine);
-    HOPE_Assert(job_system_inited);
+    HE_ASSERT(job_system_inited);
 
     init_imgui(engine);
 
@@ -265,7 +268,7 @@ bool startup(Engine *engine, void *platform_state)
 
     auto end = std::chrono::steady_clock::now();
     const std::chrono::duration< double > elapsed_seconds = end - start;
-    HOPE_DebugPrintf(Core, Trace, "assets loaded %.2f ms to finish\n", elapsed_seconds * 1000.0);
+    HE_LOG(Core, Trace, "assets loaded %.2f ms to finish\n", elapsed_seconds * 1000.0);
     return game_initialized;
 }
 
@@ -300,7 +303,7 @@ void game_loop(Engine *engine, F32 delta_time)
     ImGui::Text("Intensity");
     ImGui::SameLine();
 
-    ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, HOPE_MAX_F32);
+    ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, HE_MAX_F32);
 
     ImGui::End();
 
@@ -310,15 +313,6 @@ void game_loop(Engine *engine, F32 delta_time)
 
 void shutdown(Engine *engine)
 {
-    HOPE_CVarGetInt(window_mode, "platform");
-    HOPE_CVarGetInt(window_width, "platform");
-    HOPE_CVarGetInt(window_height, "platform");
-
-    Window *window = &engine->window;
-    *window_mode = (S64)window->mode;
-    *window_width = window->width;
-    *window_height = window->height;
-
     Renderer *renderer = &engine->renderer;
     Renderer_State *renderer_state = &engine->renderer_state;
     renderer->wait_for_gpu_to_finish_all_work(renderer_state);
@@ -331,7 +325,7 @@ void shutdown(Engine *engine)
     platform_shutdown_imgui();
     ImGui::DestroyContext();
 
-#ifndef HOPE_SHIPPING
+#ifndef HE_SHIPPING
     Logger *logger = &global_debug_state.main_logger;
     deinit_logger(logger);
 #endif

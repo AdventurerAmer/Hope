@@ -52,7 +52,7 @@ static void win32_get_window_size(U32 client_width, U32 client_height, U32 *widt
     rect.bottom = client_height;
 
     BOOL success = AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
-    HOPE_Assert(success != 0);
+    HE_ASSERT(success != 0);
 
     *width = rect.right - rect.left;
     *height = rect.bottom - rect.top;
@@ -148,7 +148,7 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
     return result;
 }
 
-HOPE_FORCE_INLINE static void
+HE_FORCE_INLINE static void
 win32_handle_mouse_input(Event *event, MSG message)
 {
     event->type = EventType_Mouse;
@@ -215,19 +215,19 @@ INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command
     window_class.hCursor = NULL;
     window_class.hIcon = NULL; // todo(amer): icons
     ATOM success = RegisterClassA(&window_class);
-    HOPE_Assert(success != 0);
+    HE_ASSERT(success != 0);
 
     bool started = startup(engine, &win32_platform_state);
-    HOPE_Assert(started);
+    HE_ASSERT(started);
 
     engine->is_running = started;
 
     LARGE_INTEGER performance_frequency;
-    HOPE_Assert(QueryPerformanceFrequency(&performance_frequency));
+    HE_ASSERT(QueryPerformanceFrequency(&performance_frequency));
     S64 counts_per_second = performance_frequency.QuadPart;
 
     LARGE_INTEGER last_counter;
-    HOPE_Assert(QueryPerformanceCounter(&last_counter));
+    HE_ASSERT(QueryPerformanceCounter(&last_counter));
 
     Win32_Window_State *win32_window_state = (Win32_Window_State *)engine->window.platform_window_state;
     HWND window_handle = win32_window_state->handle;
@@ -237,7 +237,7 @@ INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command
     while (engine->is_running)
     {
         LARGE_INTEGER current_counter;
-        HOPE_Assert(QueryPerformanceCounter(&current_counter));
+        HE_ASSERT(QueryPerformanceCounter(&current_counter));
 
         S64 elapsed_counts = current_counter.QuadPart - last_counter.QuadPart;
         F64 elapsed_time = (F64)elapsed_counts / (F64)counts_per_second;
@@ -434,13 +434,13 @@ INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command
 
 void* platform_allocate_memory(U64 size)
 {
-    HOPE_Assert(size);
+    HE_ASSERT(size);
     return VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 }
 
 void platform_deallocate_memory(void *memory)
 {
-    HOPE_Assert(memory);
+    HE_ASSERT(memory);
     VirtualFree(memory, 0, MEM_RELEASE);
 }
 
@@ -499,7 +499,7 @@ void platform_set_window_mode(Window *window, Window_Mode window_mode)
 
     if (window_mode == Window_Mode::FULLSCREEN)
     {
-        HOPE_Assert((style & WS_OVERLAPPEDWINDOW));
+        HE_ASSERT((style & WS_OVERLAPPEDWINDOW));
 
         MONITORINFO monitor_info = { sizeof(MONITORINFO) };
         HMONITOR monitor = MonitorFromWindow(window_handle, MONITOR_DEFAULTTOPRIMARY);
@@ -569,7 +569,7 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
     {
         LARGE_INTEGER file_size = {};
         BOOL success = GetFileSizeEx(file_handle, &file_size);
-        HOPE_Assert(success);
+        HE_ASSERT(success);
 
         result.handle = file_handle;
         result.size = file_size.QuadPart;
@@ -581,7 +581,7 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
 
 bool platform_read_data_from_file(const Open_File_Result *open_file_result, U64 offset, void *data, U64 size)
 {
-    HOPE_Assert(open_file_result->handle != INVALID_HANDLE_VALUE);
+    HE_ASSERT(open_file_result->handle != INVALID_HANDLE_VALUE);
 
     OVERLAPPED overlapped = {};
     overlapped.Offset = u64_to_u32(offset & 0xFFFFFFFF);
@@ -596,7 +596,7 @@ bool platform_read_data_from_file(const Open_File_Result *open_file_result, U64 
 
 bool platform_write_data_to_file(const Open_File_Result *open_file_result, U64 offset, void *data, U64 size)
 {
-    HOPE_Assert(open_file_result->handle != INVALID_HANDLE_VALUE);
+    HE_ASSERT(open_file_result->handle != INVALID_HANDLE_VALUE);
 
     OVERLAPPED overlapped = {};
     overlapped.Offset = u64_to_u32(offset & 0xFFFFFFFF);
@@ -611,7 +611,7 @@ bool platform_write_data_to_file(const Open_File_Result *open_file_result, U64 o
 
 bool platform_close_file(Open_File_Result *open_file_result)
 {
-    HOPE_Assert(open_file_result->handle != INVALID_HANDLE_VALUE);
+    HE_ASSERT(open_file_result->handle != INVALID_HANDLE_VALUE);
     bool result = CloseHandle(open_file_result->handle) != 0;
     open_file_result->handle = nullptr;
     return result;
@@ -635,13 +635,13 @@ bool platform_load_dynamic_library(Dynamic_Library *dynamic_library, const char 
 
 void *platform_get_proc_address(Dynamic_Library *dynamic_library, const char *proc_name)
 {
-    HOPE_Assert(dynamic_library->platform_dynamic_library_state);
+    HE_ASSERT(dynamic_library->platform_dynamic_library_state);
     return GetProcAddress((HMODULE)dynamic_library->platform_dynamic_library_state, proc_name);
 }
 
 bool platform_unload_dynamic_library(Dynamic_Library *dynamic_library)
 {
-    HOPE_Assert(dynamic_library->platform_dynamic_library_state);
+    HE_ASSERT(dynamic_library->platform_dynamic_library_state);
     return FreeLibrary((HMODULE)dynamic_library->platform_dynamic_library_state) == 0;
 }
 
@@ -658,7 +658,7 @@ void* platform_create_vulkan_surface(Engine *engine, void *instance, const void 
 
     VkSurfaceKHR surface = 0;
     VkResult result = vkCreateWin32SurfaceKHR((VkInstance)instance, &surface_create_info, (VkAllocationCallbacks *)allocator_callbacks, &surface);
-    HOPE_Assert(result == VK_SUCCESS);
+    HE_ASSERT(result == VK_SUCCESS);
     return surface;
 }
 
@@ -668,8 +668,8 @@ void* platform_create_vulkan_surface(Engine *engine, void *instance, const void 
 
 bool platform_create_and_start_thread(Thread *thread, Thread_Proc thread_proc, void *params, const char *name)
 {
-    HOPE_Assert(thread);
-    HOPE_Assert(thread_proc);
+    HE_ASSERT(thread);
+    HE_ASSERT(thread_proc);
 
     DWORD thread_id;
     HANDLE thread_handle = CreateThread(NULL, 0, thread_proc, params, 0, &thread_id);
@@ -678,18 +678,18 @@ bool platform_create_and_start_thread(Thread *thread, Thread_Proc thread_proc, v
         return false;
     }
 
-#ifndef HOPE_SHIPPING
+#ifndef HE_SHIPPING
     if (name)
     {
         wchar_t wide_name[256];
         U64 count = string_length(name);
-        HOPE_Assert(count <= 255);
+        HE_ASSERT(count <= 255);
 
         int result = MultiByteToWideChar(CP_OEMCP, 0, name, -1, wide_name, u64_to_u32(count + 1));
-        HOPE_Assert(result);
+        HE_ASSERT(result);
 
         HRESULT hresult = SetThreadDescription(thread_handle, wide_name);
-        HOPE_Assert(!FAILED(hresult));
+        HE_ASSERT(!FAILED(hresult));
     }
 #endif
 
@@ -767,7 +767,7 @@ static int imgui_platform_create_vk_surface(ImGuiViewport *vp, ImU64 vk_inst, co
 
     VkSurfaceKHR surface = 0;
     VkResult result = vkCreateWin32SurfaceKHR((VkInstance)vk_inst, &surface_create_info, (VkAllocationCallbacks *)vk_allocators, (VkSurfaceKHR *)out_vk_surface);
-    HOPE_Assert(result == VK_SUCCESS);
+    HE_ASSERT(result == VK_SUCCESS);
 
     return (int)result;
 }

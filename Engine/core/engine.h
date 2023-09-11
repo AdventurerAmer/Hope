@@ -72,6 +72,9 @@ struct Engine
     Game_Memory memory;
     Game_Code game_code;
 
+    String name;
+    String app_name;
+
     bool is_running;
     bool is_minimized;
     bool show_cursor;

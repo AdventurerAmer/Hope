@@ -4,112 +4,141 @@
 #include "engine.h"
 #include "file_system.h"
 #include "containers/string.h"
-
-#include <unordered_map> // todo(amer): remove std::unordered_map
-#include <vector> // todo(amer): remove std::vector
-
-union CVar_Data
-{
-    S64 s64;
-    F64 f64;
-    String string;
-};
+#include "containers/dynamic_array.h"
 
 struct CVar
 {
     String name;
-    String description;
+    CVar_Type type;
+
+    bool is_declared;
+    String value;
+    void *memory;
 
     CVar_Flags flags;
-    CVar_Type type;
-    CVar_Data value;
 };
 
-struct CVars_Category
+struct CVar_Category
 {
-    const char *name;
-    std::vector< CVar > cvars;
+    String name;
+    Dynamic_Array< CVar, Free_List_Allocator > vars;
 };
 
 struct CVars_State
 {
     const char *filepath;
-    std::unordered_map< U64, CVars_Category > category_to_cvars;
+
+    Memory_Arena *arena;
+    Free_List_Allocator *allocator;
+
+    Dynamic_Array< CVar_Category, Free_List_Allocator > categories;
 };
 
 static CVars_State cvars_state;
 
+static CVar_Category* find_or_append_category(const String &name, bool should_append = true)
+{
+    auto &categories = cvars_state.categories;
+
+    for (U32 category_index = 0; category_index < categories.count; category_index++)
+    {
+        if (categories[category_index].name == name)
+        {
+            return &categories[category_index];
+        }
+    }
+
+    if (should_append)
+    {
+        CVar_Category category = {};
+        category.name = copy_string(name, cvars_state.arena);
+        init(&category.vars, cvars_state.allocator);
+
+        append(&categories, category);
+        return &back(&categories);
+    }
+
+    return nullptr;
+}
+
+static CVar* find_or_append_cvar(CVar_Category *category, const String &name, bool should_append = true)
+{
+    auto &vars = category->vars;
+
+    for (U32 var_index = 0; var_index < vars.count; var_index++)
+    {
+        if (vars[var_index].name == name)
+        {
+            return &vars[var_index];
+        }
+    }
+
+    if (should_append)
+    {
+        CVar var = {};
+        var.name = copy_string(name, cvars_state.arena);
+        append(&vars, var);
+        return &back(&vars);
+    }
+
+    return nullptr;
+}
+
 bool init_cvars(const char *filepath, Engine *engine)
 {
+    Memory_Arena *arena = &engine->memory.permanent_arena;
+    Free_List_Allocator *allocator = &engine->memory.free_list_allocator;
+
     cvars_state.filepath = filepath;
+    cvars_state.arena = arena;
+    cvars_state.allocator = allocator;
+
+    init(&cvars_state.categories, allocator);
+
+    auto &categories = cvars_state.categories;
 
     Temprary_Memory_Arena temprary_arena = {};
     begin_temprary_memory_arena(&temprary_arena, &engine->memory.transient_arena);
 
+    HE_DEFER
+    {
+        end_temprary_memory_arena(&temprary_arena);
+    };
+
     Read_Entire_File_Result result = read_entire_file(filepath, &temprary_arena);
 
-    std::vector< CVar > *cvars = nullptr;
+    CVar_Category *category = nullptr;
 
     if (result.success)
     {
         String str = { (char *)result.data, result.size };
+
         while (true)
         {
-            S64 new_line_index = find_first_char_from_left(&str, "\n");
+            S64 new_line_index = find_first_char_from_left(str, "\n");
             if (new_line_index == -1 || str.count == 0)
             {
                 break;
             }
-            String line = sub_string(&str, 0, new_line_index);
+            String line = sub_string(str, 0, new_line_index);
 
             if (line.data[0] == '@')
             {
-                String category = sub_string(&line, 1);
-                auto it = cvars_state.category_to_cvars.find(hash(&category));
-                HOPE_Assert(it != cvars_state.category_to_cvars.end());
-                cvars = &it->second.cvars;
+                String category_name = sub_string(line, 1);
+                category = find_or_append_category(category_name);
             }
             else if (line.data[0] == ':')
             {
-                String cvar_name_value_pair = sub_string(&line, 1);
+                String cvar_name_value_pair = sub_string(line, 1);
 
-                S64 space = find_first_char_from_left(&cvar_name_value_pair, " ");
-                HOPE_Assert(space != -1);
+                S64 space = find_first_char_from_left(cvar_name_value_pair, " ");
+                HE_ASSERT(space != -1);
 
-                String cvar_name = sub_string(&cvar_name_value_pair, 0, space);
-                String cvar_value = sub_string(&cvar_name_value_pair, space + 1);
+                String name = sub_string(cvar_name_value_pair, 0, space);
+                String value = sub_string(cvar_name_value_pair, space + 1);
 
-                for (CVar &cvar : *cvars)
-                {
-                    if (cvar_name == cvar.name)
-                    {
-                        switch (cvar.type)
-                        {
-                            case CVarType_Int:
-                            {
-                                String temp = copy_string(cvar_value.data,
-                                                          cvar_value.count,
-                                                          &temprary_arena);
-                                cvar.value.s64 = atoll(temp.data);
-                            } break;
-
-                            case CVarType_Float:
-                            {
-                                String temp = copy_string(cvar_value.data,
-                                                          cvar_value.count,
-                                                          &temprary_arena);
-                                cvar.value.f64 = atof(temp.data);
-                            } break;
-
-                            case CVarType_String:
-                            {
-                                cvar.value.string = copy_string(cvar_value.data,
-                                                                cvar_value.count,
-                                                                &engine->memory.free_list_allocator);
-                            } break;
-                        }
-                    }
-                }
+                CVar *var = find_or_append_cvar(category, name);
+                var->value = copy_string(value, allocator);
             }
 
             str.data += new_line_index + 1;
@@ -117,39 +146,84 @@ bool init_cvars(const char *filepath, Engine *engine)
         }
     }
 
-    end_temprary_memory_arena(&temprary_arena);
     return false;
 }
 
 void deinit_cvars(Engine *engine)
 {
+    auto &categories = cvars_state.categories;
+
     Temprary_Memory_Arena temprary_arena = {};
     begin_temprary_memory_arena(&temprary_arena, &engine->memory.transient_arena);
 
     String_Builder string_builder = {};
     begin_string_builder(&string_builder, temprary_arena.arena);
 
-    for (const auto &[hash, category] : cvars_state.category_to_cvars)
+    for (U32 category_index = 0; category_index < categories.count; category_index++)
     {
-        push(&string_builder, "@%s\n", category.name);
+        CVar_Category &category = categories[category_index];
 
-        for (const auto &cvar : category.cvars)
+        append(&string_builder, "@%.*s\n", HE_EXPAND_STRING(category.name));
+
+        for (U32 var_index = 0; var_index < category.vars.count; var_index++)
         {
-            switch (cvar.type)
+            CVar &var = category.vars[var_index];
+            switch (var.type)
             {
-                case CVarType_Int:
+                case CVar_Type::S8:
                 {
-                    push(&string_builder, ":%s %lld\n", cvar.name, cvar.value.s64);
+                    append(&string_builder, ":%.*s %d\n", HE_EXPAND_STRING(var.name), *(S8 *)var.memory);
                 } break;
 
-                case CVarType_Float:
+                case CVar_Type::S16:
                 {
-                    push(&string_builder, ":%s %f\n", cvar.name, cvar.value.f64);
+                    append(&string_builder, ":%.*s %d\n", HE_EXPAND_STRING(var.name), *(S16 *)var.memory);
                 } break;
 
-                case CVarType_String:
+                case CVar_Type::S32:
                 {
-                    push(&string_builder, ":%s %.*s\n", cvar.name, HOPE_ExpandString(&cvar.value.string));
+                    append(&string_builder, ":%.*s %d\n", HE_EXPAND_STRING(var.name), *(S32 *)var.memory);
+                } break;
+
+                case CVar_Type::S64:
+                {
+                    append(&string_builder, ":%.*s %lld\n", HE_EXPAND_STRING(var.name), *(S64 *)var.memory);
+                } break;
+
+                case CVar_Type::BOOL:
+                case CVar_Type::U8:
+                {
+                    append(&string_builder, ":%.*s %u\n", HE_EXPAND_STRING(var.name), *(U8 *)var.memory);
+                } break;
+
+                case CVar_Type::U16:
+                {
+                    append(&string_builder, ":%.*s %u\n", HE_EXPAND_STRING(var.name), *(U16 *)var.memory);
+                } break;
+
+                case CVar_Type::U32:
+                {
+                    append(&string_builder, ":%.*s %u\n", HE_EXPAND_STRING(var.name), *(U32 *)var.memory);
+                } break;
+
+                case CVar_Type::U64:
+                {
+                    append(&string_builder, ":%.*s %llu\n", HE_EXPAND_STRING(var.name), *(U64 *)var.memory);
+                } break;
+
+                case CVar_Type::F32:
+                {
+                    append(&string_builder, ":%.*s %f\n", HE_EXPAND_STRING(var.name), *(F32 *)var.memory);
+                } break;
+
+                case CVar_Type::F64:
+                {
+                    append(&string_builder, ":%.*s %f\n", HE_EXPAND_STRING(var.name), *(F64 *)var.memory);
+                } break;
+
+                case CVar_Type::STRING:
+                {
+                    append(&string_builder, ":%.*s %.*s\n", HE_EXPAND_STRING(var.name), HE_EXPAND_STRING(*(String *)var.memory));
                 } break;
             }
         }
@@ -157,118 +231,165 @@ void deinit_cvars(Engine *engine)
 
     String str = end_string_builder(&string_builder);
     bool success = write_entire_file(cvars_state.filepath, (void *)str.data, str.count);
-    HOPE_Assert(success);
+    HE_ASSERT(success);
     end_temprary_memory_arena(&temprary_arena);
 }
 
-static void* declare_cvar(const char *name,
-                          const char *description,
-                          CVar_Type type,
-                          CVar_Data default_value,
-                          U64 category_hash,
-                          const char *category,
-                          CVar_Flags flags)
+static void declare_cvar(const String &category_name, const String &cvar_name, void *memory, CVar_Type type, CVar_Flags flags)
 {
-    CVars_Category &cvars_category = cvars_state.category_to_cvars[category_hash];
-    cvars_category.name = category;
+    CVar_Category *category = find_or_append_category(category_name);
+    CVar *var = find_or_append_cvar(category, cvar_name);
+    var->type = type;
+    var->flags = flags;
+    var->memory = memory;
+    var->is_declared = true;
 
-    std::vector< CVar > &cvars = cvars_category.cvars;
-    cvars.push_back(CVar {});
-    CVar &cvar = cvars.back();
-
-    cvar.name = HOPE_String(name);
-    cvar.description = HOPE_String(description);
-    cvar.type = type;
-    cvar.flags = flags;
-    cvar.value = default_value;
-
-    switch (type)
+    bool is_var_in_config_file = var->value.count != 0;
+    if (is_var_in_config_file)
     {
-        case CVarType_Int:
+        switch (type)
         {
-            return &cvar.value.s64;
-        } break;
-
-        case CVarType_Float:
-        {
-            return &cvar.value.f64;
-        } break;
-
-        case CVarType_String:
-        {
-            return &cvar.value.string;
-        } break;
-    }
-
-    return nullptr;
-}
-
-
-void* declare_cvar(const char *name,
-                   const char *description,
-                   S64 default_value,
-                   U64 category_hash,
-                   const char *category,
-                   CVar_Flags flags)
-{
-    CVar_Data data = {};
-    data.s64 = default_value;
-    return declare_cvar(name, description, CVarType_Int, data, category_hash, category, flags);
-}
-
-void* declare_cvar(const char *name,
-                   const char *description,
-                   F64 default_value,
-                   U64 category_hash,
-                   const char *category,
-                   CVar_Flags flags)
-{
-    CVar_Data data = {};
-    data.f64 = default_value;
-    return declare_cvar(name, description, CVarType_Float, data, category_hash, category, flags);
-}
-
-void* declare_cvar(const char *name,
-                   const char *description,
-                   const char *default_value,
-                   U64 category_hash,
-                   const char *category,
-                   CVar_Flags flags)
-{
-    CVar_Data data = {};
-    data.string = { default_value, string_length(default_value) };
-    return declare_cvar(name, description, CVarType_String, data, category_hash, category, flags);
-}
-
-void *get_cvar(const char *name, U64 category, CVar_Type type)
-{
-    auto it = cvars_state.category_to_cvars.find(category);
-    HOPE_Assert(it != cvars_state.category_to_cvars.end());
-    std::vector< CVar > &cvars = it->second.cvars;
-    for (CVar &cvar : cvars)
-    {
-        if (cvar.name == name)
-        {
-            HOPE_Assert(type == cvar.type);
-            switch (type)
+            case CVar_Type::S8:
             {
-                case CVarType_Int:
-                {
-                    return &cvar.value.s64;
-                } break;
+                S32 value = atoi(var->value.data);
+                HE_ASSERT(value >= HE_MIN_S8 && value <= HE_MAX_S8);
+                *(S8 *)var->memory = (S8)value;
+            } break;
 
-                case CVarType_Float:
-                {
-                    return &cvar.value.f64;
-                } break;
+            case CVar_Type::S16:
+            {
+                S32 value = atoi(var->value.data);
+                HE_ASSERT(value >= HE_MIN_S16 && value <= HE_MAX_S16);
+                *(S16 *)var->memory = (S16)value;
+            } break;
 
-                case CVarType_String:
-                {
-                    return &cvar.value.string;
-                } break;
-            }
+            case CVar_Type::S32:
+            {
+                *(S32 *)var->memory = (S32)atoi(var->value.data);
+            } break;
+
+            case CVar_Type::S64:
+            {
+                *(S64 *)var->memory = (S64)atoll(var->value.data);
+            } break;
+
+            case CVar_Type::BOOL:
+            case CVar_Type::U8:
+            {
+                S32 value = atoi(var->value.data);
+                HE_ASSERT(value >= 0 && value <= HE_MAX_U8);
+                *(U8 *)var->memory = (U8)value;
+            } break;
+
+            case CVar_Type::U16:
+            {
+                S32 value = atoi(var->value.data);
+                HE_ASSERT(value >= 0 && value <= HE_MAX_U16);
+                *(U16 *)var->memory = (U16)value;
+            } break;
+
+            case CVar_Type::U32:
+            {
+                S64 value = atoll(var->value.data);
+                HE_ASSERT(value >= 0 && value <= HE_MAX_U32);
+                *(U32 *)var->memory = (U32)atoll(var->value.data);
+            } break;
+
+            case CVar_Type::U64:
+            {
+                S64 value = atoll(var->value.data);
+                HE_ASSERT(value >= 0);
+                *(U64*)var->memory = (U64)value;
+            } break;
+
+            case CVar_Type::F32:
+            {
+                *(F32 *)var->memory = (F32)atof(var->value.data);
+            } break;
+
+            case CVar_Type::F64:
+            {
+                *(F64 *)var->memory = atof(var->value.data);
+            } break;
+
+            case CVar_Type::STRING:
+            {
+                *(String *)var->memory = var->value;
+            } break;
         }
     }
+}
 
-    return nullptr;
+void declare_cvar(const char *category, const char *name, U8 *memory, CVar_Flags flags)
+{
+    declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::U8, flags);
+}
+
+void declare_cvar(const char *category, const char *name, U16 *memory, CVar_Flags flags)
+{
+    declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::U16, flags);
+}
+
+void declare_cvar(const char *category, const char *name, U32 *memory, CVar_Flags flags)
+{
+    declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::U32, flags);
+}
+
+void declare_cvar(const char *category, const char *name, U64 *memory, CVar_Flags flags)
+{
+    declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::U64, flags);
+}
+
+void declare_cvar(const char *category, const char *name, S8 *memory, CVar_Flags flags)
+{
+    declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::S8, flags);
+}
+
+void declare_cvar(const char *category, const char *name, S16 *memory, CVar_Flags flags)
+{
+    declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::S16, flags);
+}
+
+void declare_cvar(const char *category, const char *name, S32 *memory, CVar_Flags flags)
+{
+    declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::S32, flags);
+}
+
+void declare_cvar(const char *category, const char *name, S64 *memory, CVar_Flags flags)
+{
+    declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::S64, flags);
+}
+
+void declare_cvar(const char *category, const char *name, F32 *memory, CVar_Flags flags)
+{
+    declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::F32, flags);
+}
+
+void declare_cvar(const char *category, const char *name, F64 *memory, CVar_Flags flags)
+{
+    declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::F64, flags);
+}
+
+void declare_cvar(const char *category, const char *name, String *memory, CVar_Flags flags)
+{
+    declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::STRING, flags);
+}
+
+void* get_cvar(const String &category_name, const String &cvar_name)
+{
+    bool should_append = false;
+
+    CVar_Category *category = find_or_append_category(category_name, should_append);
+    if (!category)
+    {
+        return nullptr;
+    }
+
+    CVar *var = find_or_append_cvar(category, cvar_name, should_append);
+    if (!var || !var->is_declared)
+    {
+        return nullptr;
+    }
+
+    return var->memory;
 }

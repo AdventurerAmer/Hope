@@ -3,19 +3,28 @@
 #include "defines.h"
 #include "platform.h"
 
-#define HOPE_KiloBytes(A) (U64(1024) * (A))
-#define HOPE_MegaBytes(A) (U64(1024) * HOPE_KiloBytes((A)))
-#define HOPE_GigaBytes(A) (U64(1024) * HOPE_MegaBytes((A)))
-#define HOPE_TeraBytes(A) (U64(1024) * HOPE_GigaBytes((A)))
+#define HE_KILO(x) (1024llu * (x))
+#define HE_MEGA(x) (1024llu * 1024llu * (x))
+#define HE_GIGA(x) (1024llu * 1024llu * 1024llu * (x))
+#define HE_TERA(x) (1024llu * 1024llu * 1024llu * 1024llu * (x))
 
-#define Allocate(AllocatorPointer, Type)\
-(Type *)allocate((AllocatorPointer), sizeof(Type), 0)
+#define HE_ALLOCATE(allocator_pointer, type)\
+(type *)allocate((allocator_pointer), sizeof(type), 1)
 
-#define AllocateAligned(AllocatorPointer, Type)\
-(Type *)allocate((AllocatorPointer), sizeof(Type), alignof(Type))
+#define HE_ALLOCATE_ALIGNED(allocator_pointer, type)\
+(type *)allocate((allocator_pointer), sizeof(type), alignof(type))
 
-#define AllocateArray(AllocatorPointer, Type, Count)\
-(Type *)allocate((AllocatorPointer), sizeof(Type) * (Count), alignof(Type))
+#define HE_ALLOCATE_ARRAY(allocator_pointer, type, count)\
+(type *)allocate((allocator_pointer), sizeof(type) * (count), alignof(type))
+
+#define HE_REALLOCATE(allocator_pointer, memory, type)\
+(type *)reallocate((allocator_pointer), (memory), sizeof(type), 1)
+
+#define HE_REALLOCATE_ALIGNED(allocator_pointer, type)\
+(type *)reallocate((allocator_pointer), sizeof(type), alignof(type))
+
+#define HE_REALLOCATE_ARRAY(allocator_pointer, memory, type, count)\
+(type *)reallocate((allocator_pointer), memory, sizeof(type) * (count), alignof(type))
 
 void zero_memory(void *memory, Size size);
 void copy_memory(void *dst, const void *src, Size size);
@@ -32,17 +41,19 @@ struct Memory_Arena
     Size size;
     Size offset;
 
-#ifndef HOPE_SHIPPING
-    Temprary_Memory_Arena *current_temprary_owner;
+    Size last_padding;
+    Size last_offset;
+
+#ifndef HE_SHIPPING
+    Temprary_Memory_Arena *parent;
 #endif
 };
 
 Memory_Arena create_memory_arena(void *memory, Size size);
 Memory_Arena create_sub_arena(Memory_Arena *arena, Size size);
 
-void* allocate(Memory_Arena *arena,
-               Size size, U16 alignment,
-               Temprary_Memory_Arena *parent = nullptr);
+void* allocate(Memory_Arena *arena, Size size, U16 alignment, Temprary_Memory_Arena *parent = nullptr);
+void* reallocate(Memory_Arena *arena, void *memory, Size new_size, U16 alignment, Temprary_Memory_Arena *parent = nullptr);
 
 //
 // Temprary Memory Arena
@@ -53,42 +64,24 @@ struct Temprary_Memory_Arena
     Memory_Arena *arena;
     Size offset;
 
-#ifndef HOPE_SHIPPING
+#ifndef HE_SHIPPING
     Temprary_Memory_Arena *parent;
 #endif
 };
 
-void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena,
-                                 Memory_Arena *arena);
+void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena, Memory_Arena *arena);
 
-HOPE_FORCE_INLINE static void*
-allocate(Temprary_Memory_Arena *temprary_arena, Size size, U16 alignment)
+HE_FORCE_INLINE static void* allocate(Temprary_Memory_Arena *temprary_arena, Size size, U16 alignment)
 {
     return allocate(temprary_arena->arena, size, alignment, temprary_arena);
 }
 
-void end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena);
-
-//
-// Scoped Temprary Memory Arena
-//
-
-struct Scoped_Temprary_Memory_Arena
+HE_FORCE_INLINE static void* reallocate(Temprary_Memory_Arena *temprary_arena, void *memory, Size new_size, U16 alignment)
 {
-    Temprary_Memory_Arena temprary_arena;
-
-    Scoped_Temprary_Memory_Arena(Memory_Arena *arena);
-    ~Scoped_Temprary_Memory_Arena();
-};
-
-HOPE_FORCE_INLINE static void*
-allocate(Scoped_Temprary_Memory_Arena *scoped_temprary_memory_arena, Size size, U16 alignment)
-{
-    return allocate(scoped_temprary_memory_arena->temprary_arena.arena,
-                    size,
-                    alignment,
-                    &scoped_temprary_memory_arena->temprary_arena);
+    return reallocate(temprary_arena->arena, memory, new_size, alignment, temprary_arena);
 }
+
+void end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena);
 
 //
 // Free List Allocator
@@ -108,17 +101,12 @@ struct Free_List_Allocator
     U8 *base;
     Size size;
     Size used;
-    Mutex mutex;
     Free_List_Node sentinal;
+    Mutex mutex;
 };
 
-void init_free_list_allocator(Free_List_Allocator *allocator,
-                              Memory_Arena *arena,
-                              Size size);
-
-void init_free_list_allocator(Free_List_Allocator *allocator,
-                              void *memory,
-                              Size size);
+void init_free_list_allocator(Free_List_Allocator *allocator, Memory_Arena *arena, Size size);
+void init_free_list_allocator(Free_List_Allocator *allocator, void *memory, Size size);
 
 void* allocate(Free_List_Allocator *allocator, Size size, U16 alignment);
 void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16 alignment);

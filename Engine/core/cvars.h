@@ -2,60 +2,51 @@
 
 #include "containers/string.h"
 
-enum CVar_Type
+enum class CVar_Type
 {
-    CVarType_Int,
-    CVarType_Float,
-    CVarType_String
+    NONE,
+
+    BOOL,
+
+    U8,
+    U16,
+    U32,
+    U64,
+
+    S8,
+    S16,
+    S32,
+    S64,
+
+    F32,
+    F64,
+
+    STRING
 };
 
+// todo(amer): cvar flags and imgui
 enum CVar_Flags
 {
-    CVarFlag_None      = 0 << 0,
-    CVarFlag_NoEdit    = 1 << 0,
-    CVarFlag_CheckBox  = 1 << 1,
+    CVarFlag_None = 0 << 0,
 };
 
 bool init_cvars(const char *filepath, struct Engine *engine);
 void deinit_cvars(struct Engine *engine);
 
-void* declare_cvar(const char *name,
-                   const char *description,
-                   S64 default_value,
-                   U64 category_hash,
-                   const char *category,
-                   CVar_Flags flags);
+void declare_cvar(const char *category, const char *name, U8 *memory, CVar_Flags flags);
+void declare_cvar(const char *category, const char *name, U16 *memory, CVar_Flags flags);
+void declare_cvar(const char *category, const char *name, U32 *memory, CVar_Flags flags);
+void declare_cvar(const char *category, const char *name, U64 *memory, CVar_Flags flags);
 
-void* declare_cvar(const char *name,
-                   const char *description,
-                   F64 default_value,
-                   U64 category_hash,
-                   const char *category,
-                   CVar_Flags flags);
+void declare_cvar(const char *category, const char *name, S8 *memory, CVar_Flags flags);
+void declare_cvar(const char *category, const char *name, S16 *memory, CVar_Flags flags);
+void declare_cvar(const char *category, const char *name, S32 *memory, CVar_Flags flags);
+void declare_cvar(const char *category, const char *name, S64 *memory, CVar_Flags flags);
 
-void* declare_cvar(const char *name,
-                   const char *description,
-                   const char *default_value,
-                   U64 category_hash,
-                   const char *category,
-                   CVar_Flags flags);
+void declare_cvar(const char *category, const char *name, F32 *memory, CVar_Flags flags);
+void declare_cvar(const char *category, const char *name, F64 *memory, CVar_Flags flags);
+void declare_cvar(const char *category, const char *name, String *memory, CVar_Flags flags);
 
-void *get_cvar(const char *name, U64 category, CVar_Type type);
+void *get_cvar(const char *category, const char *name);
 
-#define HOPE_CVarInt(Name, Description, DefaultValue, Category, Flags)\
-    S64 *config_##Name = (S64 *)declare_cvar(HOPE_Stringify(Name), Description, (S64)DefaultValue, compile_time_string_hash(Category), Category, Flags)
-
-#define HOPE_CVarFloat(Name, Description, DefaultValue, Category, Flags)\
-    F64 *config_##Name = (F64 *)declare_cvar(HOPE_Stringify(Name), Description, (F64)DefaultValue, compile_time_string_hash(Category), Category, Flags)
-
-#define HOPE_CVarString(Name, Description, DefaultValue, Category, Flags)\
-    String *config_##Name = (String *)declare_cvar(HOPE_Stringify(Name), Description, DefaultValue, compile_time_string_hash(Category), Category, Flags)
-
-#define HOPE_CVarGetInt(Name, Category)\
-    S64 *Name = (S64 *)get_cvar(HOPE_Stringify(Name), compile_time_string_hash(Category), CVarType_Int)
-
-#define HOPE_CVarGetFloat(Name, Category)\
-    F64 *Name = (F64 *)get_cvar(HOPE_Stringify(Name), compile_time_string_hash(Category), CVarType_Float)
-
-#define HOPE_CVarGetString(Name, Category)\
-    String *Name = (String *)get_cvar(HOPE_Stringify(Name), compile_time_string_hash(Category), CVarType_String)
+#define HE_DECLARE_CVAR(category, name, flags) declare_cvar(category, HE_STRINGIFY(name), &name, flags)

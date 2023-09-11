@@ -14,16 +14,16 @@ extern Debug_State global_debug_state;
 #define HE_LOGGING 1
 #if HE_LOGGING
 
-#define HOPE_DebugPrintf(channel, verbosity, format, ...) debug_printf(\
-&global_debug_state.main_logger,\
-HOPE_Glue(Channel_, channel),\
-HOPE_Glue(Verbosity_, verbosity),\
-&global_debug_state.arena,\
-"[" HOPE_Stringify(channel) "-" HOPE_Stringify(verbosity) "]: " format,\
-__VA_ARGS__)
+#define HE_LOG(channel, verbosity, format, ...)\
+    log(&global_debug_state.main_logger,\
+        HE_GLUE(Channel_, channel),\
+        HE_GLUE(Verbosity_, verbosity),\
+        &global_debug_state.arena,\
+        "[" HE_STRINGIFY(channel) "-" HE_STRINGIFY(verbosity) "]: " format,\
+        __VA_ARGS__)
 
 #else
 
-#define HOPE_DebugPrintf(channel, verbosity, format, ...)
+#define HE_LOG(channel, verbosity, format, ...)
 
 #endif

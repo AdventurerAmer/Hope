@@ -13,6 +13,19 @@
 #include <glm/ext/scalar_constants.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#define HE_GRAPHICS_DEBUGGING 1
+#define HE_MAX_FRAMES_IN_FLIGHT 3
+#define HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
+#define HE_MAX_DESCRIPTOR_SET_COUNT 4
+#define HE_MAX_OBJECT_DATA_COUNT UINT16_MAX
+#define HE_MAX_DESCRIPTOR_SET_COUNT 4
+#define HE_PIPELINE_CACHE_FILENAME "shaders/bin/pipeline.cache"
+
+#ifdef HE_SHIPPING
+#undef HE_GRAPHICS_DEBUGGING
+#define HE_GRAPHICS_DEBUGGING 0
+#endif
+
 enum ShaderDataType
 {
     ShaderDataType_Bool,

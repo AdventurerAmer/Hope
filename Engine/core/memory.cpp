@@ -1,18 +1,18 @@
-#include <string.h>
-
 #include "memory.h"
+
+#include <string.h>
 
 void zero_memory(void *memory, Size size)
 {
-    HOPE_Assert(memory);
+    HE_ASSERT(memory);
     memset(memory, 0, size);
 }
 
 void copy_memory(void *dst, const void *src, Size size)
 {
-    HOPE_Assert(dst);
-    HOPE_Assert(src);
-    HOPE_Assert(size);
+    HE_ASSERT(dst);
+    HE_ASSERT(src);
+    HE_ASSERT(size);
     memcpy(dst, src, size);
 }
 
@@ -22,8 +22,8 @@ void copy_memory(void *dst, const void *src, Size size)
 
 Memory_Arena create_memory_arena(void *memory, Size size)
 {
-    HOPE_Assert(memory);
-    HOPE_Assert(size);
+    HE_ASSERT(memory);
+    HE_ASSERT(size);
 
     Memory_Arena result = {};
     result.base = (U8 *)memory;
@@ -34,31 +34,29 @@ Memory_Arena create_memory_arena(void *memory, Size size)
 
 Memory_Arena create_sub_arena(Memory_Arena *arena, Size size)
 {
-    HOPE_Assert(arena);
-    HOPE_Assert(size);
+    HE_ASSERT(arena);
+    HE_ASSERT(size);
 
     Memory_Arena result = {};
-    result.base = AllocateArray(arena, U8, size);;
+    result.base = HE_ALLOCATE_ARRAY(arena, U8, size);
     result.size = size;
 
     return result;
 }
 
-HOPE_FORCE_INLINE static bool
-is_power_of_2(U16 value)
+HE_FORCE_INLINE static bool is_power_of_2(U16 value)
 {
     return (value & (value - 1)) == 0;
 }
 
-static Size
-get_number_of_bytes_to_align_address(Size address, U16 alignment)
+static Size get_number_of_bytes_to_align_address(Size address, U16 alignment)
 {
     // todo(amer): branchless version daddy
     Size result = 0;
 
-    if (alignment != 0)
+    if (alignment)
     {
-        HOPE_Assert(is_power_of_2(alignment));
+        HE_ASSERT(is_power_of_2(alignment));
         Size modulo = address & (alignment - 1);
 
         if (modulo != 0)
@@ -66,80 +64,80 @@ get_number_of_bytes_to_align_address(Size address, U16 alignment)
             result = alignment - modulo;
         }
     }
+
     return result;
 }
 
-void* allocate(Memory_Arena *arena,
-               Size size, U16 alignment,
-               Temprary_Memory_Arena *parent)
+void* allocate(Memory_Arena *arena, Size size, U16 alignment, Temprary_Memory_Arena *parent)
 {
-    HOPE_Assert(arena);
-    HOPE_Assert(size);
-    HOPE_Assert(arena->current_temprary_owner == parent);
+    HE_ASSERT(arena);
+    HE_ASSERT(size);
+    HE_ASSERT(arena->parent == parent);
 
     void *result = 0;
     U8 *cursor = arena->base + arena->offset;
     Size padding = get_number_of_bytes_to_align_address((Size)cursor, alignment);
-    HOPE_Assert(arena->offset + size + padding <= arena->size);
+    HE_ASSERT(arena->offset + size + padding <= arena->size);
     result = cursor + padding;
+    arena->last_padding = padding;
+    arena->last_offset = arena->offset;
     arena->offset += padding + size;
     return result;
+}
+
+void* reallocate(Memory_Arena *arena, void *memory, Size new_size, U16 alignment, Temprary_Memory_Arena *parent)
+{
+    HE_ASSERT(arena);
+    HE_ASSERT(memory);
+    HE_ASSERT(new_size);
+    HE_ASSERT(arena->parent == parent);
+
+    if (!memory)
+    {
+        HE_ASSERT(arena->base + arena->last_offset + arena->last_padding == memory);
+        arena->offset = arena->last_offset;
+    }
+
+    return allocate(arena, new_size, alignment, parent);
 }
 
 //
 // Temprary Memory Arena
 //
 
-void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena,
-                                 Memory_Arena *arena)
+void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena, Memory_Arena *arena)
 {
-    HOPE_Assert(temprary_memory_arena);
-    HOPE_Assert(arena);
+    HE_ASSERT(temprary_memory_arena);
+    HE_ASSERT(arena);
 
     temprary_memory_arena->arena = arena;
     temprary_memory_arena->offset = arena->offset;
 
-#ifndef HOPE_SHIPPING
-    temprary_memory_arena->parent = arena->current_temprary_owner;
-    arena->current_temprary_owner = temprary_memory_arena;
+#ifndef HE_SHIPPING
+    temprary_memory_arena->parent = arena->parent;
+    arena->parent = temprary_memory_arena;
 #endif
 }
 
-void
-end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena)
+void end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena)
 {
     Memory_Arena *arena = temprary_arena->arena;
-    HOPE_Assert(arena);
+    HE_ASSERT(arena);
 
     arena->offset = temprary_arena->offset;
-    arena->current_temprary_owner = temprary_arena->parent;
+    arena->parent = temprary_arena->parent;
 
-#ifndef HOPE_SHIPPING
+#ifndef HE_SHIPPING
     temprary_arena->arena = nullptr;
     temprary_arena->offset = 0;
 #endif
 }
 
 //
-// Scoped Temprary Memory Arena
-//
-
-Scoped_Temprary_Memory_Arena::Scoped_Temprary_Memory_Arena(Memory_Arena *arena)
-{
-    begin_temprary_memory_arena(&temprary_arena, arena);
-}
-
-Scoped_Temprary_Memory_Arena::~Scoped_Temprary_Memory_Arena()
-{
-    end_temprary_memory_arena(&temprary_arena);
-}
-
-//
 // Free List Allocator
 //
 
-static void
-insert_after(Free_List_Node *node, Free_List_Node *before)
+HE_FORCE_INLINE static void insert_after(Free_List_Node *node, Free_List_Node *before)
 {
     node->next = before->next;
     node->prev = before;
@@ -148,11 +146,10 @@ insert_after(Free_List_Node *node, Free_List_Node *before)
     before->next = node;
 }
 
-static void
-remove_node(Free_List_Node *node)
+HE_FORCE_INLINE static void remove_node(Free_List_Node *node)
 {
-    HOPE_Assert(node->next);
-    HOPE_Assert(node->prev);
+    HE_ASSERT(node->next);
+    HE_ASSERT(node->prev);
 
     node->prev->next = node->next;
     node->next->prev = node->prev;
@@ -170,12 +167,10 @@ static bool merge(Free_List_Node *left, Free_List_Node *right)
     return false;
 }
 
-void init_free_list_allocator(Free_List_Allocator *allocator,
-                              void *memory,
-                              Size size)
+void init_free_list_allocator(Free_List_Allocator *allocator, void *memory, Size size)
 {
-    HOPE_Assert(allocator);
-    HOPE_Assert(size >= sizeof(Free_List_Node));
+    HE_ASSERT(allocator);
+    HE_ASSERT(size >= sizeof(Free_List_Node));
 
     allocator->base = (U8 *)memory;
     allocator->size = size;
@@ -186,7 +181,7 @@ void init_free_list_allocator(Free_List_Allocator *allocator,
     allocator->sentinal.size = 0;
 
     bool mutex_created = platform_create_mutex(&allocator->mutex);
-    HOPE_Assert(mutex_created);
+    HE_ASSERT(mutex_created);
 
     Free_List_Node *first_free_node = (Free_List_Node *)allocator->base;
     first_free_node->size = size;
@@ -194,12 +189,10 @@ void init_free_list_allocator(Free_List_Allocator *allocator,
     insert_after(first_free_node, &allocator->sentinal);
 }
 
-void init_free_list_allocator(Free_List_Allocator *allocator,
-                              Memory_Arena *arena,
-                              Size size)
+void init_free_list_allocator(Free_List_Allocator *allocator, Memory_Arena *arena, Size size)
 {
-    HOPE_Assert(arena);
-    U8 *base = AllocateArray(arena, U8, size);
+    HE_ASSERT(arena);
+    U8 *base = HE_ALLOCATE_ARRAY(arena, U8, size);
     init_free_list_allocator(allocator, base, size);
 }
 
@@ -212,12 +205,10 @@ struct Free_List_Allocation_Header
 
 static_assert(sizeof(Free_List_Allocation_Header) == sizeof(Free_List_Node));
 
-void* allocate(Free_List_Allocator *allocator,
-               Size size,
-               U16 alignment)
+void* allocate(Free_List_Allocator *allocator, Size size, U16 alignment)
 {
-    HOPE_Assert(allocator);
-    HOPE_Assert(size);
+    HE_ASSERT(allocator);
+    HE_ASSERT(size);
 
     platform_lock_mutex(&allocator->mutex);
 
@@ -232,8 +223,7 @@ void* allocate(Free_List_Allocator *allocator,
         if (offset < sizeof(Free_List_Allocation_Header))
         {
             node_address += sizeof(Free_List_Allocation_Header);
-            offset = sizeof(Free_List_Allocation_Header) + get_number_of_bytes_to_align_address(node_address,
-                                                                                                alignment);
+            offset = sizeof(Free_List_Allocation_Header) + get_number_of_bytes_to_align_address(node_address, alignment);
         }
 
         Size allocation_size = offset + size;
@@ -266,7 +256,7 @@ void* allocate(Free_List_Allocator *allocator,
         }
     }
 
-    HOPE_Assert(result);
+    HE_ASSERT(result);
     // zero_memory(result, size);
     platform_unlock_mutex(&allocator->mutex);
     return result;
@@ -279,15 +269,15 @@ void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16
         return allocate(allocator, new_size, alignment);
     }
 
-    HOPE_Assert(allocator);
-    HOPE_Assert(memory >= allocator->base && memory <= allocator->base + allocator->size);
-    HOPE_Assert(new_size);
+    HE_ASSERT(allocator);
+    HE_ASSERT(memory >= allocator->base && memory <= allocator->base + allocator->size);
+    HE_ASSERT(new_size);
 
     Free_List_Allocation_Header &header = ((Free_List_Allocation_Header *)memory)[-1];
-    HOPE_Assert(header.size >= 0);
-    HOPE_Assert(header.offset >= 0);
-    HOPE_Assert(header.offset < allocator->size);
-    HOPE_Assert(new_size != header.size);
+    HE_ASSERT(header.size >= 0);
+    HE_ASSERT(header.offset >= 0);
+    HE_ASSERT(header.offset < allocator->size);
+    HE_ASSERT(new_size != header.size);
 
     platform_lock_mutex(&allocator->mutex);
     U8 *memory_node_address = (U8 *)memory - header.offset;
@@ -385,18 +375,22 @@ void deallocate(Free_List_Allocator *allocator, void *memory)
 {
     if (!memory)
     {
-        // todo(amer): logging
         return;
     }
 
     platform_lock_mutex(&allocator->mutex);
 
-    HOPE_Assert(allocator);
-    HOPE_Assert(memory >= allocator->base && memory <= allocator->base + allocator->size);
+    HE_DEFER
+    {
+        platform_unlock_mutex(&allocator->mutex);
+    };
+
+    HE_ASSERT(allocator);
+    HE_ASSERT(memory >= allocator->base && memory <= allocator->base + allocator->size);
 
     Free_List_Allocation_Header header = ((Free_List_Allocation_Header *)memory)[-1];
-    HOPE_Assert(header.size >= 0);
-    HOPE_Assert(header.offset >= 0);
+    HE_ASSERT(header.size >= 0);
+    HE_ASSERT(header.offset >= 0);
 
     allocator->used -= header.size;
 
@@ -406,7 +400,6 @@ void deallocate(Free_List_Allocator *allocator, void *memory)
     if (allocator->sentinal.next == &allocator->sentinal)
     {
         insert_after(new_node, &allocator->sentinal);
-        platform_unlock_mutex(&allocator->mutex);
         return;
     }
 
@@ -435,6 +428,4 @@ void deallocate(Free_List_Allocator *allocator, void *memory)
             break;
         }
     }
-
-    platform_unlock_mutex(&allocator->mutex);
 }

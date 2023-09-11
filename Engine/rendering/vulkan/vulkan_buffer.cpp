@@ -5,9 +5,9 @@ bool create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
                    U64 size, VkBufferUsageFlags usage_flags,
                    VkMemoryPropertyFlags memory_property_flags)
 {
-    HOPE_Assert(buffer);
-    HOPE_Assert(context);
-    HOPE_Assert(size);
+    HE_ASSERT(buffer);
+    HE_ASSERT(context);
+    HE_ASSERT(size);
 
     VkBufferCreateInfo buffer_create_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     buffer_create_info.size = size;
@@ -15,22 +15,22 @@ bool create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
     buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     buffer_create_info.flags = 0;
 
-    HOPE_CheckVkResult(vkCreateBuffer(context->logical_device, &buffer_create_info, nullptr, &buffer->handle));
+    HE_CHECK_VKRESULT(vkCreateBuffer(context->logical_device, &buffer_create_info, nullptr, &buffer->handle));
 
     VkMemoryRequirements memory_requirements = {};
     vkGetBufferMemoryRequirements(context->logical_device, buffer->handle, &memory_requirements);
 
     S32 memory_type_index = find_memory_type_index(context, memory_requirements, memory_property_flags);
-    HOPE_Assert(memory_type_index != -1);
+    HE_ASSERT(memory_type_index != -1);
 
     VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
     memory_allocate_info.allocationSize = memory_requirements.size;
     memory_allocate_info.memoryTypeIndex = memory_type_index;
 
-    HOPE_CheckVkResult(vkAllocateMemory(context->logical_device, &memory_allocate_info,
+    HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info,
                                         nullptr, &buffer->memory));
 
-    HOPE_CheckVkResult(vkBindBufferMemory(context->logical_device,
+    HE_CHECK_VKRESULT(vkBindBufferMemory(context->logical_device,
                                           buffer->handle, buffer->memory, 0));
 
     if ((memory_property_flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
@@ -46,10 +46,10 @@ void copy_data_to_buffer_from_buffer(Vulkan_Context *context,
                                      Vulkan_Buffer *src, U64 src_offset,
                                      U64 size)
 {
-    HOPE_Assert(context);
-    HOPE_Assert(dst);
-    HOPE_Assert(src);
-    HOPE_Assert(size);
+    HE_ASSERT(context);
+    HE_ASSERT(dst);
+    HE_ASSERT(src);
+    HE_ASSERT(size);
 
     VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     command_buffer_allocate_info.commandPool = context->transfer_command_pool;

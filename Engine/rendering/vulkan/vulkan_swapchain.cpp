@@ -17,11 +17,11 @@ init_swapchain_support(Vulkan_Context *context,
                                          &swapchain_support->surface_format_count,
                                          nullptr);
 
-    HOPE_Assert(swapchain_support->surface_format_count);
+    HE_ASSERT(swapchain_support->surface_format_count);
 
-    swapchain_support->surface_formats = AllocateArray(arena,
-                                                       VkSurfaceFormatKHR,
-                                                       swapchain_support->surface_format_count);
+    swapchain_support->surface_formats = HE_ALLOCATE_ARRAY(arena,
+                                                           VkSurfaceFormatKHR,
+                                                           swapchain_support->surface_format_count);
 
     vkGetPhysicalDeviceSurfaceFormatsKHR(context->physical_device,
                                          context->surface,
@@ -34,11 +34,11 @@ init_swapchain_support(Vulkan_Context *context,
                                               &swapchain_support->present_mode_count,
                                               nullptr);
 
-    HOPE_Assert(swapchain_support->present_mode_count);
+    HE_ASSERT(swapchain_support->present_mode_count);
 
-    swapchain_support->present_modes = AllocateArray(arena,
-                                                     VkPresentModeKHR,
-                                                     swapchain_support->present_mode_count);
+    swapchain_support->present_modes = HE_ALLOCATE_ARRAY(arena,
+                                                         VkPresentModeKHR,
+                                                         swapchain_support->present_mode_count);
 
     vkGetPhysicalDeviceSurfacePresentModesKHR(context->physical_device,
                                               context->surface,
@@ -101,11 +101,11 @@ create_swapchain(Vulkan_Context *context,
                  VkPresentModeKHR present_mode,
                  Vulkan_Swapchain *swapchain)
 {
-    HOPE_Assert(context);
-    HOPE_Assert(width);
-    HOPE_Assert(height);
-    HOPE_Assert(min_image_count);
-    HOPE_Assert(swapchain);
+    HE_ASSERT(context);
+    HE_ASSERT(width);
+    HE_ASSERT(height);
+    HE_ASSERT(min_image_count);
+    HE_ASSERT(swapchain);
     
     const Vulkan_Swapchain_Support *swapchain_support = &context->swapchain_support;
     VkColorSpaceKHR image_color_space = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
@@ -115,11 +115,11 @@ create_swapchain(Vulkan_Context *context,
                                               context->surface,
                                               &surface_capabilities);
 
-    width = HOPE_Clamp(width,
+    width = HE_CLAMP(width,
                   surface_capabilities.minImageExtent.width,
                   surface_capabilities.maxImageExtent.width);
 
-    height = HOPE_Clamp(height,
+    height = HE_CLAMP(height,
                    surface_capabilities.minImageExtent.height,
                    surface_capabilities.maxImageExtent.height);
 
@@ -142,11 +142,11 @@ create_swapchain(Vulkan_Context *context,
         }
     }
 
-    min_image_count = HOPE_Max(min_image_count, surface_capabilities.minImageCount);
+    min_image_count = HE_MAX(min_image_count, surface_capabilities.minImageCount);
 
     if (surface_capabilities.maxImageCount)
     {
-        min_image_count = HOPE_Min(min_image_count, surface_capabilities.maxImageCount);
+        min_image_count = HE_MIN(min_image_count, surface_capabilities.maxImageCount);
     }
 
     VkExtent2D extent = { width, height };
@@ -163,7 +163,7 @@ create_swapchain(Vulkan_Context *context,
     }
     else
     {
-        HOPE_Assert(false);
+        HE_ASSERT(false);
     }
 
     VkSwapchainCreateInfoKHR swapchain_create_info =
@@ -193,25 +193,25 @@ create_swapchain(Vulkan_Context *context,
         swapchain_create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     }
 
-    HOPE_Assert(swapchain->handle == VK_NULL_HANDLE);
-    HOPE_CheckVkResult(vkCreateSwapchainKHR(context->logical_device,
+    HE_ASSERT(swapchain->handle == VK_NULL_HANDLE);
+    HE_CHECK_VKRESULT(vkCreateSwapchainKHR(context->logical_device,
                                             &swapchain_create_info,
                                             nullptr,
                                             &swapchain->handle));
 
-    HOPE_CheckVkResult(vkGetSwapchainImagesKHR(context->logical_device,
+    HE_CHECK_VKRESULT(vkGetSwapchainImagesKHR(context->logical_device,
                                                swapchain->handle,
                                                &swapchain->image_count,
                                                nullptr));
 
-    swapchain->images = AllocateArray(context->allocator,
+    swapchain->images = HE_ALLOCATE_ARRAY(context->allocator,
                                       VkImage, swapchain->image_count);
-    swapchain->image_views = AllocateArray(context->allocator,
+    swapchain->image_views = HE_ALLOCATE_ARRAY(context->allocator,
                                            VkImageView, swapchain->image_count);
-    swapchain->frame_buffers = AllocateArray(context->allocator,
+    swapchain->frame_buffers = HE_ALLOCATE_ARRAY(context->allocator,
                                              VkFramebuffer, swapchain->image_count);
 
-    HOPE_CheckVkResult(vkGetSwapchainImagesKHR(context->logical_device,
+    HE_CHECK_VKRESULT(vkGetSwapchainImagesKHR(context->logical_device,
                                                swapchain->handle,
                                                &swapchain->image_count,
                                                swapchain->images));
@@ -233,7 +233,7 @@ create_swapchain(Vulkan_Context *context,
         image_view_create_info.subresourceRange.baseArrayLayer = 0;
         image_view_create_info.subresourceRange.layerCount = 1;
 
-        HOPE_CheckVkResult(vkCreateImageView(context->logical_device,
+        HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device,
                                              &image_view_create_info,
                                              nullptr,
                                              &swapchain->image_views[image_index]));
@@ -279,12 +279,12 @@ create_swapchain(Vulkan_Context *context,
 
         if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
         {
-            frame_buffer_create_info.attachmentCount = HOPE_ArrayCount(image_views_msaa);
+            frame_buffer_create_info.attachmentCount = HE_ARRAYCOUNT(image_views_msaa);
             frame_buffer_create_info.pAttachments = image_views_msaa;
         }
         else
         {
-            frame_buffer_create_info.attachmentCount = HOPE_ArrayCount(image_views);
+            frame_buffer_create_info.attachmentCount = HE_ARRAYCOUNT(image_views);
             frame_buffer_create_info.pAttachments = image_views;
         }
 
@@ -292,7 +292,7 @@ create_swapchain(Vulkan_Context *context,
         frame_buffer_create_info.height = swapchain->height;
         frame_buffer_create_info.layers = 1;
 
-        HOPE_CheckVkResult(vkCreateFramebuffer(context->logical_device,
+        HE_CHECK_VKRESULT(vkCreateFramebuffer(context->logical_device,
                                                &frame_buffer_create_info,
                                                nullptr,
                                                &swapchain->frame_buffers[image_index]));

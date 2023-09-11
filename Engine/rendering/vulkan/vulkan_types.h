@@ -16,28 +16,17 @@
 #include "core/platform.h"
 #include "rendering/renderer_types.h"
 
-// todo(amer): move to renderer.h
-#define HOPE_VULKAN_DEBUGGING 1
-#define HOPE_MAX_FRAMES_IN_FLIGHT 3
-#define HOPE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
-#define HOPE_MAX_DESCRIPTOR_SET_COUNT 4
+#if HE_GRAPHICS_DEBUGGING
 
-#ifdef HOPE_SHIPPING
-#undef HOPE_VULKAN_DEBUGGING
-#define HOPE_VULKAN_DEBUGGING 0
-#endif
-
-#if HOPE_VULKAN_DEBUGGING
-
-#define HOPE_CheckVkResult(VulkanFunctionCall)\
+#define HE_CHECK_VKRESULT(vulkan_function_call)\
 {\
-    VkResult vk_result = VulkanFunctionCall;\
-    HOPE_Assert(vk_result == VK_SUCCESS);\
+    VkResult result = vulkan_function_call;\
+    HE_ASSERT(result == VK_SUCCESS);\
 }
 
 #else
 
-#define HOPE_CheckVkResult(VulkanFunctionCall) VulkanFunctionCall
+#define HE_CHECK_VKRESULT(vulkan_function_call) vulkan_function_call
 
 #endif
 
@@ -72,13 +61,13 @@ struct Vulkan_Shader
 {
     VkShaderModule handle;
     VkShaderStageFlagBits stage;
-    Vulkan_Descriptor_Set sets[HOPE_MAX_DESCRIPTOR_SET_COUNT];
+    Vulkan_Descriptor_Set descriptor_sets[HE_MAX_DESCRIPTOR_SET_COUNT];
 };
 
 struct Vulkan_Pipeline_State
 {
     U32 descriptor_set_layout_count;
-    VkDescriptorSetLayout descriptor_set_layouts[HOPE_MAX_DESCRIPTOR_SET_COUNT];
+    VkDescriptorSetLayout descriptor_set_layouts[HE_MAX_DESCRIPTOR_SET_COUNT];
 
     VkPipelineLayout layout;
     VkPipeline handle;
@@ -117,8 +106,8 @@ struct Vulkan_Swapchain
 
 struct Vulkan_Material
 {
-    Vulkan_Buffer buffers[HOPE_MAX_FRAMES_IN_FLIGHT];
-    VkDescriptorSet descriptor_sets[HOPE_MAX_FRAMES_IN_FLIGHT];
+    Vulkan_Buffer buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    VkDescriptorSet descriptor_sets[HE_MAX_FRAMES_IN_FLIGHT];
 };
 
 struct Vulkan_Static_Mesh
@@ -126,10 +115,6 @@ struct Vulkan_Static_Mesh
     S32 first_vertex;
     U32 first_index;
 };
-
-#define MAX_OBJECT_DATA_COUNT UINT16_MAX
-#define MAX_DESCRIPTOR_SET_COUNT 4
-#define PIPELINE_CACHE_FILENAME "shaders/bin/pipeline.cache"
 
 struct Engine;
 
@@ -161,21 +146,21 @@ struct Vulkan_Context
 
     VkPipelineCache pipeline_cache;
 
-    VkSemaphore image_available_semaphores[HOPE_MAX_FRAMES_IN_FLIGHT];
-    VkSemaphore rendering_finished_semaphores[HOPE_MAX_FRAMES_IN_FLIGHT];
-    VkFence frame_in_flight_fences[HOPE_MAX_FRAMES_IN_FLIGHT];
+    VkSemaphore image_available_semaphores[HE_MAX_FRAMES_IN_FLIGHT];
+    VkSemaphore rendering_finished_semaphores[HE_MAX_FRAMES_IN_FLIGHT];
+    VkFence frame_in_flight_fences[HE_MAX_FRAMES_IN_FLIGHT];
 
-    Vulkan_Buffer globals_uniform_buffers[HOPE_MAX_FRAMES_IN_FLIGHT];
+    Vulkan_Buffer globals_uniform_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
-    Vulkan_Buffer object_storage_buffers[HOPE_MAX_FRAMES_IN_FLIGHT];
+    Vulkan_Buffer object_storage_buffers[HE_MAX_FRAMES_IN_FLIGHT];
     Object_Data *object_data_base;
     U32 object_data_count;
 
     VkDescriptorPool descriptor_pool;
-    VkDescriptorSet descriptor_sets[MAX_DESCRIPTOR_SET_COUNT][HOPE_MAX_FRAMES_IN_FLIGHT];
+    VkDescriptorSet descriptor_sets[HE_MAX_DESCRIPTOR_SET_COUNT][HE_MAX_FRAMES_IN_FLIGHT];
 
     VkCommandPool graphics_command_pool;
-    VkCommandBuffer graphics_command_buffers[HOPE_MAX_FRAMES_IN_FLIGHT];
+    VkCommandBuffer graphics_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
     VkCommandPool transfer_command_pool;
     Vulkan_Buffer transfer_buffer;
@@ -205,7 +190,7 @@ struct Vulkan_Context
 
     VkDescriptorPool imgui_descriptor_pool;
 
-#if HOPE_VULKAN_DEBUGGING
+#if HE_GRAPHICS_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;
 #endif
 };

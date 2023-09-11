@@ -69,4 +69,4 @@ void disable_channel(Logger *logger, Channel channel);
 
 void disable_all_channels(Logger *logger);
 
-void debug_printf(Logger *logger, Channel channel, Verbosity verobisty, struct Memory_Arena *arena, const char *format, ...);
+void log(Logger *logger, Channel channel, Verbosity verobisty, struct Memory_Arena *arena, const char *format, ...);

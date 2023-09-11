@@ -2,7 +2,7 @@
 
 #include "defines.h"
 
-#if HOPE_OS_WINDOWS
+#if HE_OS_WINDOWS
 #include "platform/win32_input_codes.h"
 #endif
 
@@ -13,13 +13,13 @@ enum Input_State : U8
     InputState_Held = 2,
 };
 
-#define MAX_KEY_STATES 1024
-#define MAX_BUTTON_STATES 64
+#define HE_MAX_KEY_STATES 1024
+#define HE_MAX_BUTTON_STATES 64
 
 struct Input
 {
-    Input_State key_states[MAX_KEY_STATES];
-    Input_State button_states[MAX_BUTTON_STATES];
+    Input_State key_states[HE_MAX_KEY_STATES];
+    Input_State button_states[HE_MAX_BUTTON_STATES];
 
     U16 prev_mouse_x;
     U16 prev_mouse_y;

@@ -96,7 +96,7 @@ void disable_all_channels(Logger *logger)
     logger->channel_mask = 0;
 }
 
-void debug_printf(Logger *logger, Channel channel, Verbosity verbosity, Memory_Arena *arena, const char *format, ...)
+void log(Logger *logger, Channel channel, Verbosity verbosity, Memory_Arena *arena, const char *format, ...)
 {
     Temprary_Memory_Arena temprary_arena;
     begin_temprary_memory_arena(&temprary_arena, arena);

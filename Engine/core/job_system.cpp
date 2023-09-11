@@ -46,7 +46,7 @@ unsigned long execute_thread_work(void *params)
     while (true)
     {
         bool signaled = wait_for_semaphore(job_queue_semaphore);
-        HOPE_Assert(signaled);
+        HE_ASSERT(signaled);
 
         platform_lock_mutex(job_queue_mutex);
 
@@ -59,8 +59,8 @@ unsigned long execute_thread_work(void *params)
         Job job = {};
         bool peeked = peek_front(job_queue, &job);
         platform_unlock_mutex(job_queue_mutex);
-        HOPE_Assert(peeked);
-        HOPE_Assert(job.proc);
+        HE_ASSERT(peeked);
+        HE_ASSERT(job.proc);
 
         Temprary_Memory_Arena temprary_memory_arena = {};
         begin_temprary_memory_arena(&temprary_memory_arena, &thread_state->arena);
@@ -86,36 +86,36 @@ bool init_job_system(Engine *engine)
 {
     Memory_Arena *arena = &engine->memory.permanent_arena;
 
-    init_free_list_allocator(&job_system_state.job_data_allocator, arena, HOPE_MegaBytes(32));
-    job_system_state.arena = create_sub_arena(arena, HOPE_MegaBytes(32));
+    init_free_list_allocator(&job_system_state.job_data_allocator, arena, HE_MEGA(32));
+    job_system_state.arena = create_sub_arena(arena, HE_MEGA(32));
 
     U32 thread_count = platform_get_thread_count();
-    HOPE_Assert(thread_count);
+    HE_ASSERT(thread_count);
 
     job_system_state.running.store(true);
     job_system_state.in_progress_job_count.store(0);
     job_system_state.thread_count = thread_count;
-    job_system_state.thread_states = AllocateArray(arena, Thread_State, thread_count);
+    job_system_state.thread_states = HE_ALLOCATE_ARRAY(arena, Thread_State, thread_count);
 
     for (U32 thread_index = 0; thread_index < thread_count; thread_index++)
     {
         Thread_State *thread_state = &job_system_state.thread_states[thread_index];
         thread_state->thread_index = thread_index;
 
-        thread_state->arena = create_sub_arena(arena, HOPE_MegaBytes(32));
+        thread_state->arena = create_sub_arena(arena, HE_MEGA(32));
 
         init_ring_queue(&thread_state->job_queue, JOB_COUNT_PER_THREAD, arena);
 
         bool job_queue_semaphore_created = platform_create_semaphore(&thread_state->job_queue_semaphore);
-        HOPE_Assert(job_queue_semaphore_created);
+        HE_ASSERT(job_queue_semaphore_created);
 
         bool job_queue_mutex_created = platform_create_mutex(&thread_state->job_queue_mutex);
-        HOPE_Assert(job_queue_mutex_created);
+        HE_ASSERT(job_queue_mutex_created);
 
         thread_state->job_flags = JobFlag_GeneralPurpose;
 
         bool thread_created_and_started = platform_create_and_start_thread(&thread_state->thread, execute_thread_work, thread_state, "HopeWorkerThread");
-        HOPE_Assert(thread_created_and_started);
+        HE_ASSERT(thread_created_and_started);
     }
 
     return true;
@@ -131,13 +131,13 @@ void execute_job(Job job, Job_Flag flags)
 {
     if (job.parameters.data)
     {
-        void *data = allocate(&job_system_state.job_data_allocator, job.parameters.size, 0);
+        void *data = allocate(&job_system_state.job_data_allocator, job.parameters.size, 1);
         copy_memory(data, job.parameters.data, job.parameters.size);
         job.parameters.data = data;
     }
 
     Thread_State *least_worked_thread_state = nullptr;
-    U32 least_work_count_so_far = HOPE_MAX_U32;
+    U32 least_work_count_so_far = HE_MAX_U32;
 
     for (U32 thread_index = 0; thread_index < job_system_state.thread_count; thread_index++)
     {
@@ -155,16 +155,16 @@ void execute_job(Job job, Job_Flag flags)
         }
     }
 
-    HOPE_Assert(least_worked_thread_state);
+    HE_ASSERT(least_worked_thread_state);
     job_system_state.in_progress_job_count.fetch_add(1);
 
     platform_lock_mutex(&least_worked_thread_state->job_queue_mutex);
     bool pushed = push(&least_worked_thread_state->job_queue, job);
-    HOPE_Assert(pushed);
+    HE_ASSERT(pushed);
     platform_unlock_mutex(&least_worked_thread_state->job_queue_mutex);
 
     bool signaled = signal_semaphore(&least_worked_thread_state->job_queue_semaphore);
-    HOPE_Assert(signaled);
+    HE_ASSERT(signaled);
 }
 
 void wait_for_all_jobs_to_finish()
@@ -203,13 +203,12 @@ void wait_for_all_jobs_to_finish()
         // effectivly 
         wait_for_semaphore(&most_worked_thread_state->job_queue_semaphore);
 
-        // todo(amer): manual poping from the back
         Ring_Queue< Job > *job_queue = &most_worked_thread_state->job_queue;
         Job job = {};
         bool peeked = peek_back(job_queue, &job);
         pop_back(job_queue);
         platform_unlock_mutex(&most_worked_thread_state->job_queue_mutex);
-        HOPE_Assert(job.proc);
+        HE_ASSERT(job.proc);
 
         Temprary_Memory_Arena temprary_memory_arena = {};
         begin_temprary_memory_arena(&temprary_memory_arena, &job_system_state.arena);
