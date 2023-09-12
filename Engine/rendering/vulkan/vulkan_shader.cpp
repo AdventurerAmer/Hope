@@ -5,9 +5,11 @@
 #include "core/debugging.h"
 #include "core/engine.h"
 #include "core/file_system.h"
+#include "containers/dynamic_array.h"
 
 #include <initializer_list>
-#include <vector>
+
+static Vulkan_Context *vulkan_context;
 
 enum ShaderEntityKind
 {
@@ -49,10 +51,10 @@ struct SPIRV_Struct_Member
 struct SPIRV_Shader_Struct
 {
     String name;
-    std::vector< Shader_Struct_Member > members;
+    Dynamic_Array< Shader_Struct_Member > members;
 };
 
-struct Shader_Entity
+struct SPIRV_Entity
 {
     String name;
 
@@ -63,7 +65,7 @@ struct Shader_Entity
     SpvStorageClass storage_class = SpvStorageClassMax;
     SpvDecoration decoration = SpvDecorationMax;
 
-    std::vector< SPIRV_Struct_Member > members;
+    Dynamic_Array< SPIRV_Struct_Member > members;
 
     S32 component_count = -1;
     S32 element_count = -1;
@@ -78,7 +80,7 @@ struct Shader_Entity
     ShaderDataType data_type;
 };
 
-static void parse_int(Shader_Entity &entity, const U32 *instruction)
+static void parse_int(SPIRV_Entity &entity, const U32 *instruction)
 {
     entity.kind = ShaderEntityKind_Type;
     entity.type = ShaderEntityType_Int;
@@ -148,7 +150,7 @@ static void parse_int(Shader_Entity &entity, const U32 *instruction)
     }
 }
 
-static void parse_float(Shader_Entity &entity, const U32* instruction)
+static void parse_float(SPIRV_Entity &entity, const U32* instruction)
 {
     entity.kind = ShaderEntityKind_Type;
     entity.type = ShaderEntityType_Float;
@@ -172,7 +174,7 @@ static void parse_float(Shader_Entity &entity, const U32* instruction)
     }
 }
 
-static void set_descriptor_type(VkDescriptorSetLayoutBinding &binding, const Shader_Entity &shader_entity)
+static void set_descriptor_type(VkDescriptorSetLayoutBinding &binding, const SPIRV_Entity &shader_entity)
 {
     switch (shader_entity.type)
     {
@@ -195,11 +197,11 @@ static void set_descriptor_type(VkDescriptorSetLayoutBinding &binding, const Sha
     }
 }
 
-U32 parse_struct(const Shader_Entity &entity,
-                 std::vector< SPIRV_Shader_Struct > &structs,
-                 std::vector< Shader_Entity > &ids)
+U32 parse_struct(const SPIRV_Entity &entity,
+                 Dynamic_Array< SPIRV_Shader_Struct > &structs,
+                 SPIRV_Entity *ids)
 {
-    for (U32 struct_index = 0; struct_index < structs.size(); struct_index++)
+    for (U32 struct_index = 0; struct_index < structs.count; struct_index++)
     {
         if (entity.name == structs[struct_index].name)
         {
@@ -210,8 +212,8 @@ U32 parse_struct(const Shader_Entity &entity,
     SPIRV_Shader_Struct struct_;
     struct_.name = entity.name;
     
-    U32 member_count = u64_to_u32(entity.members.size());
-    struct_.members.resize(member_count);
+    U32 member_count = entity.members.count;
+    init(&struct_.members, vulkan_context->allocator, member_count);
 
     for (U32 member_index = 0; member_index < member_count; member_index++)
     {
@@ -220,7 +222,7 @@ U32 parse_struct(const Shader_Entity &entity,
         member.name = spirv_struct_member.name;
         member.offset = spirv_struct_member.offset;
 
-        Shader_Entity &spirv_struct_member_type = ids[spirv_struct_member.id_of_type];
+        SPIRV_Entity &spirv_struct_member_type = ids[spirv_struct_member.id_of_type];
         member.data_type = spirv_struct_member_type.data_type;
         
         if (spirv_struct_member_type.type == ShaderEntityType_Array)
@@ -229,7 +231,7 @@ U32 parse_struct(const Shader_Entity &entity,
             member.array_element_count = spirv_struct_member_type.element_count;
             if (spirv_struct_member_type.data_type == ShaderDataType_Struct)
             {
-                const Shader_Entity &array_type = ids[spirv_struct_member_type.id_of_type];
+                const SPIRV_Entity &array_type = ids[spirv_struct_member_type.id_of_type];
                 member.struct_index = parse_struct(array_type, structs, ids);
             }
         }
@@ -239,12 +241,17 @@ U32 parse_struct(const Shader_Entity &entity,
         }
     }
 
-    structs.push_back(struct_);
-    return u64_to_u32(structs.size() - 1);
+    append(&structs, struct_);
+    return u64_to_u32(structs.count - 1);
 }
 
 bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
 {
+    if (!vulkan_context)
+    {
+        vulkan_context = context;
+    }
+
     Memory_Arena *arena = &context->engine->memory.transient_arena;
     
     Temprary_Memory_Arena temp_arena = {};
@@ -271,7 +278,11 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
 
     U32 id_count = words[3];
 
-    std::vector< Shader_Entity > ids(id_count);
+    SPIRV_Entity *ids = HE_ALLOCATE_ARRAY(&temp_arena, SPIRV_Entity, id_count);
+    for (U32 id_index = 0; id_index < id_count; id_index++)
+    {
+        ids[id_index] = SPIRV_Entity {};
+    }
 
     const U32 *instruction = &words[5];
 
@@ -285,27 +296,33 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             case SpvOpName:
             {
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
 
                 // note(amer): not proper utf8 paring here keep the shaders in english please.
                 // english mother fucker english do you speak it !!!!!.
                 const char *name = (const char*)(instruction + 2);
-                entity.name = copy_string(name, string_length(name), context->allocator);
+                entity.name = copy_string(HE_STRING(name), context->allocator);
             } break;
 
             case SpvOpMemberName:
             {
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
 
                 U32 member_index = instruction[2];
-                if (member_index >= entity.members.size())
+
+                if (!entity.members.data)
                 {
-                    entity.members.push_back(SPIRV_Struct_Member {});
+                    init(&entity.members, context->allocator);
+                }
+
+                if (member_index >= entity.members.count)
+                {
+                    append(&entity.members, SPIRV_Struct_Member {});
                 }
                 SPIRV_Struct_Member &member = entity.members[member_index];
                 const char *name = (const char*)(instruction + 3);
-                member.name = copy_string(name, string_length(name), context->allocator);
+                member.name = copy_string(HE_STRING(name), context->allocator);
             } break;
 
             case SpvOpEntryPoint:
@@ -322,13 +339,18 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
                     {
                         vulkan_shader->stage = VK_SHADER_STAGE_FRAGMENT_BIT;
                     } break;
+
+                    default:
+                    {
+                        HE_ASSERT(!"unsupported");
+                    } break;
                 }
             } break;
 
             case SpvOpDecorate:
             {
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
 
                 SpvDecoration decoration = (SpvDecoration)instruction[2];
                 entity.decoration = decoration;
@@ -359,12 +381,12 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             case SpvOpMemberDecorate:
             {
                 U32 id = instruction[1];
-                Shader_Entity &struct_entity = ids[id];
+                SPIRV_Entity &struct_entity = ids[id];
                 U32 member_index = instruction[2];
 
-                if (member_index >= struct_entity.members.size())
+                if (member_index >= struct_entity.members.count)
                 {
-                    struct_entity.members.push_back(SPIRV_Struct_Member{});
+                    append(&struct_entity.members, SPIRV_Struct_Member{});
                 }
 
                 SPIRV_Struct_Member &member = struct_entity.members[member_index];
@@ -382,7 +404,7 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             case SpvOpConstant:
             {
                 U32 id = instruction[2];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
                 entity.id_of_type = instruction[1];
                 entity.value = instruction[3];
                 if (count == 5)
@@ -396,7 +418,7 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             {
                 HE_ASSERT(count <= 4);
                 U32 id = instruction[2];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
 
                 entity.kind = ShaderEntityKind_Variable;
                 entity.id_of_type = instruction[1];
@@ -406,7 +428,7 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             case SpvOpTypeBool:
             {
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
                 entity.kind = ShaderEntityKind_Type;
                 entity.type = ShaderEntityType_Bool;
                 entity.data_type = ShaderDataType_Bool;
@@ -416,7 +438,7 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             {
                 HE_ASSERT(count <= 4);
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
                 parse_int(entity, instruction);
             }  break;
 
@@ -424,7 +446,7 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             {
                 HE_ASSERT(count <= 3);
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
                 parse_float(entity, instruction);
             } break;
 
@@ -432,12 +454,12 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             {
                 HE_ASSERT(count <= 4);
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
                 entity.kind = ShaderEntityKind_Type;
                 entity.type = ShaderEntityType_Vector;
                 entity.id_of_type = instruction[2];
                 entity.component_count = instruction[3];
-                const Shader_Entity& type_entity = ids[entity.id_of_type];
+                const SPIRV_Entity& type_entity = ids[entity.id_of_type];
                 if (type_entity.type == ShaderEntityType_Float)
                 {
                     if (entity.component_count == 2)
@@ -459,12 +481,12 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             {
                 HE_ASSERT(count <= 4);
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
                 entity.kind = ShaderEntityKind_Type;
                 entity.type = ShaderEntityType_Matrix;
                 entity.id_of_type = instruction[2];
                 entity.component_count = instruction[3];
-                const Shader_Entity &vector_type_entity = ids[ids[entity.id_of_type].id_of_type];
+                const SPIRV_Entity &vector_type_entity = ids[ids[entity.id_of_type].id_of_type];
                 if (entity.component_count == 3)
                 {
                     entity.data_type = ShaderDataType_Matrix3f;
@@ -479,7 +501,7 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             {
                 HE_ASSERT(count <= 4);
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
                 entity.kind = ShaderEntityKind_Type;
                 entity.type = ShaderEntityType_Pointer;
                 entity.storage_class = SpvStorageClass(instruction[2]);
@@ -489,7 +511,7 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             case SpvOpTypeForwardPointer:
             {
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
                 entity.kind = ShaderEntityKind_Type;
                 entity.type = ShaderEntityType_Pointer;
                 entity.storage_class = SpvStorageClass(instruction[2]);
@@ -498,7 +520,7 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             case SpvOpTypeStruct:
             {
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
                 entity.kind = ShaderEntityKind_Type;
                 entity.type = ShaderEntityType_Struct;
                 entity.data_type = ShaderDataType_Struct;
@@ -513,25 +535,25 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             case SpvOpTypeArray:
             {
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
                 entity.kind = ShaderEntityKind_Type;
                 entity.type = ShaderEntityType_Array;
                 entity.id_of_type = instruction[2];
-                const Shader_Entity &type_entity = ids[entity.id_of_type];
+                const SPIRV_Entity &type_entity = ids[entity.id_of_type];
                 entity.data_type = type_entity.data_type;
                 U32 length_id = instruction[3];
-                Shader_Entity &length = ids[length_id];
+                SPIRV_Entity &length = ids[length_id];
                 entity.element_count = u64_to_u32(length.value);
             } break;
 
             case SpvOpTypeRuntimeArray:
             {
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
                 entity.kind = ShaderEntityKind_Type;
                 entity.type = ShaderEntityType_Array;
                 entity.id_of_type = instruction[2];
-                const Shader_Entity &type_entity = ids[entity.id_of_type];
+                const SPIRV_Entity &type_entity = ids[entity.id_of_type];
                 entity.data_type = type_entity.data_type;
                 entity.element_count = HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
             } break;
@@ -540,7 +562,7 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
             {
                 HE_ASSERT(count <= 3);
                 U32 id = instruction[1];
-                Shader_Entity &entity = ids[id];
+                SPIRV_Entity &entity = ids[id];
                 entity.kind = ShaderEntityKind_Type;
                 entity.type = ShaderEntityType_SampledImage;
                 entity.id_of_type = instruction[2];
@@ -550,13 +572,37 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
         instruction += count;
     }
 
-    std::vector< VkDescriptorSetLayoutBinding > sets[HE_MAX_DESCRIPTOR_SET_COUNT];
-    std::vector< Shader_Input_Variable > inputs;
-    std::vector< Shader_Output_Variable > outputs;
-    std::vector< SPIRV_Shader_Struct > structs;
+    Dynamic_Array< VkDescriptorSetLayoutBinding > sets[HE_MAX_DESCRIPTOR_SET_COUNT];
 
-    for (const Shader_Entity &entity : ids)
+    for (U32 set_layout_binding_index = 0; set_layout_binding_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_layout_binding_index++)
     {
+        init(&sets[set_layout_binding_index], context->allocator);
+    }
+
+    Dynamic_Array< Shader_Input_Variable > inputs;
+    init(&inputs, context->allocator);
+
+    Dynamic_Array< Shader_Output_Variable > outputs;
+    init(&outputs, context->allocator);
+
+    Dynamic_Array< SPIRV_Shader_Struct > structs;
+    init(&structs, context->allocator);
+
+    HE_DEFER
+    {
+        for (U32 set_layout_binding_index = 0; set_layout_binding_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_layout_binding_index++)
+        {
+            deinit(&sets[set_layout_binding_index]);
+        }
+        deinit(&inputs);
+        deinit(&outputs);
+        deinit(&structs);
+    };
+
+    for (U32 entity_index = 0; entity_index < id_count; entity_index++)
+    {
+        const SPIRV_Entity &entity = ids[entity_index];
+
         if (entity.kind == ShaderEntityKind_Variable)
         {
             switch (entity.storage_class)
@@ -567,18 +613,18 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
                     HE_ASSERT(entity.set >= 0 && entity.set < HE_MAX_DESCRIPTOR_SET_COUNT);
 
                     auto &set = sets[entity.set];
-                    set.push_back(VkDescriptorSetLayoutBinding {});
-                    VkDescriptorSetLayoutBinding &descriptor_set_layout_binding = set.back();
+                    append(&set, VkDescriptorSetLayoutBinding {});
+                    VkDescriptorSetLayoutBinding &descriptor_set_layout_binding = back(&set);
 
                     descriptor_set_layout_binding.binding = entity.binding;
                     descriptor_set_layout_binding.stageFlags = vulkan_shader->stage;
 
-                    const Shader_Entity &uniform = ids[ ids[ entity.id_of_type ].id_of_type ];
+                    const SPIRV_Entity &uniform = ids[ ids[ entity.id_of_type ].id_of_type ];
 
                     if (uniform.type == ShaderEntityType_Array)
                     {
                         descriptor_set_layout_binding.descriptorCount = uniform.element_count;
-                        const Shader_Entity &element_type = ids[uniform.id_of_type];
+                        const SPIRV_Entity &element_type = ids[uniform.id_of_type];
                         set_descriptor_type(descriptor_set_layout_binding, element_type);
                     }
                     else if (uniform.type == ShaderEntityType_Struct)
@@ -591,27 +637,27 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
 
                 case SpvStorageClassInput:
                 {
-                    const Shader_Entity &type_entity = ids[ ids[ entity.id_of_type ].id_of_type ];
+                    const SPIRV_Entity &type_entity = ids[ ids[ entity.id_of_type ].id_of_type ];
                     if (entity.location != -1)
                     {
                         Shader_Input_Variable input = {};
                         input.name = entity.name;
                         input.location = entity.location;
                         input.data_type = type_entity.data_type;
-                        inputs.push_back(input);
+                        append(&inputs, input);
                     }
                 } break;
 
                 case SpvStorageClassOutput:
                 {
-                    const Shader_Entity &type_entity = ids[ ids [ entity.id_of_type ].id_of_type ];
+                    const SPIRV_Entity &type_entity = ids[ ids [ entity.id_of_type ].id_of_type ];
                     if (entity.location != -1)
                     {
                         Shader_Output_Variable output = {};
                         output.name = entity.name;
                         output.location = entity.location;
                         output.data_type = type_entity.data_type;
-                        outputs.push_back(output);
+                        append(&outputs, output);
                     }
                 }
             }
@@ -632,7 +678,7 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
 
     for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
     {
-        U32 binding_count = u64_to_u32(sets[set_index].size());
+        U32 binding_count = sets[set_index].count;
         if (!binding_count)
         {
             continue;
@@ -647,13 +693,13 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
         }
     }
 
-    U32 input_count = u64_to_u32(inputs.size());
+    U32 input_count = inputs.count;
     Shader_Input_Variable *input_variables = HE_ALLOCATE_ARRAY(arena, Shader_Input_Variable, input_count);
-    memcpy(input_variables, inputs.data(), sizeof(Shader_Input_Variable) * input_count);
+    memcpy(input_variables, inputs.data, sizeof(Shader_Input_Variable) * input_count);
 
-    U32 output_count = u64_to_u32(outputs.size());
+    U32 output_count = outputs.count;
     Shader_Output_Variable *output_variables = HE_ALLOCATE_ARRAY(arena, Shader_Output_Variable, input_count);
-    memcpy(output_variables, outputs.data(), sizeof(Shader_Output_Variable) * output_count);
+    memcpy(output_variables, outputs.data, sizeof(Shader_Output_Variable) * output_count);
 
     shader->input_count = input_count;
     shader->inputs = input_variables;
@@ -661,7 +707,7 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
     shader->output_count = output_count;
     shader->outputs = output_variables;
 
-    U32 struct_count = u64_to_u32(structs.size());
+    U32 struct_count = structs.count;
     Shader_Struct *shader_structs = HE_ALLOCATE_ARRAY(arena, Shader_Struct, struct_count);
 
     for (U32 struct_index = 0; struct_index < struct_count; struct_index++)
@@ -670,10 +716,10 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
         Shader_Struct *shader_struct = &shader_structs[struct_index];
         shader_struct->name = spirv_struct.name;
         
-        U32 member_count = u64_to_u32(spirv_struct.members.size());
+        U32 member_count = spirv_struct.members.count;
         shader_struct->member_count = member_count;
         shader_struct->members = HE_ALLOCATE_ARRAY(arena, Shader_Struct_Member, member_count);
-        copy_memory(shader_struct->members, spirv_struct.members.data(), sizeof(Shader_Struct_Member) * member_count);
+        copy_memory(shader_struct->members, spirv_struct.members.data, sizeof(Shader_Struct_Member) * member_count);
     }
 
     shader->struct_count = struct_count;
@@ -688,11 +734,10 @@ void destroy_shader(Shader *shader, Vulkan_Context *context)
     vkDestroyShaderModule(context->logical_device, vulkan_shader->handle, nullptr);
 }
 
-static void
-combine_stage_flags_or_add_binding_if_not_found(std::vector<VkDescriptorSetLayoutBinding> &set,
-                                                const VkDescriptorSetLayoutBinding &descriptor_set_layout_binding)
+static void combine_stage_flags_or_add_binding_if_not_found(Dynamic_Array< VkDescriptorSetLayoutBinding > &set,
+                                                            const VkDescriptorSetLayoutBinding &descriptor_set_layout_binding)
 {
-    U32 binding_count = u64_to_u32(set.size());
+    U32 binding_count = set.count;
     for (U32 binding_index = 0; binding_index < binding_count; binding_index++)
     {
         if (set[binding_index].binding == descriptor_set_layout_binding.binding)
@@ -701,7 +746,7 @@ combine_stage_flags_or_add_binding_if_not_found(std::vector<VkDescriptorSetLayou
             return;
         }
     }
-    set.push_back(descriptor_set_layout_binding);
+    append(&set, descriptor_set_layout_binding);
 }
 
 static VkFormat get_format_from_shader_data_type(ShaderDataType shader_data_type)
@@ -754,14 +799,30 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
     pipeline_state->shaders = shaders_;
 
     Vulkan_Pipeline_State *pipeline = context->pipeline_states + index_of(&context->engine->renderer_state, pipeline_state);
-    std::vector< VkPipelineShaderStageCreateInfo > shader_stage_create_infos(shaders.size()); // todo(amer): remove std::vector
+    Dynamic_Array< VkPipelineShaderStageCreateInfo > shader_stage_create_infos;
+    init(&shader_stage_create_infos, context->allocator, u64_to_u32(shaders.size()));
 
-    std::vector< VkDescriptorSetLayoutBinding > sets[HE_MAX_DESCRIPTOR_SET_COUNT]; // todo(amer): remove std::vector
+    Dynamic_Array< VkDescriptorSetLayoutBinding > sets[HE_MAX_DESCRIPTOR_SET_COUNT];
+    for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
+    {
+        auto &set = sets[set_index];
+        init(&set, context->allocator);
+    }
+
     U32 shader_index = 0;
 
     bool is_using_vertex_shader = false;
-    std::vector< VkVertexInputBindingDescription > vertex_input_binding_descriptions; // todo(amer): remove std::vector
-    std::vector< VkVertexInputAttributeDescription > vertex_input_attribute_descriptions; // todo(amer): remove std::vector
+    Dynamic_Array< VkVertexInputBindingDescription > vertex_input_binding_descriptions;
+    init(&vertex_input_binding_descriptions, context->allocator);
+
+    Dynamic_Array< VkVertexInputAttributeDescription > vertex_input_attribute_descriptions;
+    init(&vertex_input_attribute_descriptions, context->allocator);
+
+    HE_DEFER
+    {
+        deinit(&vertex_input_binding_descriptions);
+        deinit(&vertex_input_attribute_descriptions);
+    };
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info =
         { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
@@ -780,8 +841,8 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
         {
             is_using_vertex_shader = true;
 
-            vertex_input_binding_descriptions.resize(shader->input_count);
-            vertex_input_attribute_descriptions.resize(shader->input_count);
+            set_count(&vertex_input_binding_descriptions, shader->input_count);
+            set_count(&vertex_input_attribute_descriptions, shader->input_count);
 
             for (U32 input_variable_index = 0; input_variable_index < shader->input_count; input_variable_index++)
             {
@@ -798,10 +859,10 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
                 vertex_attribute->offset = 0;
             }
 
-            vertex_input_state_create_info.vertexBindingDescriptionCount = u64_to_u32(vertex_input_binding_descriptions.size());
-            vertex_input_state_create_info.pVertexBindingDescriptions = vertex_input_binding_descriptions.data();
-            vertex_input_state_create_info.vertexAttributeDescriptionCount = u64_to_u32(vertex_input_attribute_descriptions.size());
-            vertex_input_state_create_info.pVertexAttributeDescriptions = vertex_input_attribute_descriptions.data();
+            vertex_input_state_create_info.vertexBindingDescriptionCount = vertex_input_binding_descriptions.count;
+            vertex_input_state_create_info.pVertexBindingDescriptions = vertex_input_binding_descriptions.data;
+            vertex_input_state_create_info.vertexAttributeDescriptionCount = vertex_input_attribute_descriptions.count;
+            vertex_input_state_create_info.pVertexAttributeDescriptions = vertex_input_attribute_descriptions.data;
         }
 
         for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
@@ -821,7 +882,7 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
 
     for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
     {
-        bool is_first_empty_set = sets[set_index].size() == 0;
+        bool is_first_empty_set = sets[set_index].count == 0;
         if (is_first_empty_set)
         {
             set_count = set_index;
@@ -833,22 +894,29 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
 
     for (U32 set_index = 0; set_index < set_count; set_index++)
     {
-        const std::vector< VkDescriptorSetLayoutBinding > &set = sets[set_index];
+        const Dynamic_Array< VkDescriptorSetLayoutBinding > &set = sets[set_index];
 
-        const U32 binding_count = u64_to_u32(set.size());
-        std::vector< VkDescriptorBindingFlags > layout_bindings_flags(set.size(), VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT |
-            VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT);
+        const U32 binding_count = set.count;
+
+        Dynamic_Array< VkDescriptorBindingFlags > layout_bindings_flags;
+        init(&layout_bindings_flags, context->allocator, set.count);
+        HE_DEFER { deinit(&layout_bindings_flags); };
+
+        for (U32 binidng_index = 0; binidng_index < set.count; binidng_index++)
+        {
+            layout_bindings_flags[binidng_index] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT|VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT;
+        }
 
         VkDescriptorSetLayoutBindingFlagsCreateInfoEXT extended_descriptor_set_layout_create_info =
         { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT };
         extended_descriptor_set_layout_create_info.bindingCount = binding_count;
-        extended_descriptor_set_layout_create_info.pBindingFlags = layout_bindings_flags.data();
+        extended_descriptor_set_layout_create_info.pBindingFlags = layout_bindings_flags.data;
 
         VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info =
             { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
 
         descriptor_set_layout_create_info.bindingCount = binding_count;
-        descriptor_set_layout_create_info.pBindings = set.data();
+        descriptor_set_layout_create_info.pBindings = set.data;
         descriptor_set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         descriptor_set_layout_create_info.pNext = &extended_descriptor_set_layout_create_info;
 
@@ -965,8 +1033,8 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
 
     VkGraphicsPipelineCreateInfo graphics_pipeline_create_info =
         { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-    graphics_pipeline_create_info.stageCount = u64_to_u32(shader_stage_create_infos.size());
-    graphics_pipeline_create_info.pStages = shader_stage_create_infos.data();
+    graphics_pipeline_create_info.stageCount = shader_stage_create_infos.count;
+    graphics_pipeline_create_info.pStages = shader_stage_create_infos.data;
 
     if (is_using_vertex_shader)
     {
@@ -987,8 +1055,8 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
     graphics_pipeline_create_info.basePipelineIndex = -1;
 
     HE_CHECK_VKRESULT(vkCreateGraphicsPipelines(context->logical_device, context->pipeline_cache,
-                                                 1, &graphics_pipeline_create_info,
-                                                 nullptr, &pipeline->handle));
+                                                1, &graphics_pipeline_create_info,
+                                                nullptr, &pipeline->handle));
 
     return true;
 }
@@ -1009,6 +1077,4 @@ void destroy_pipeline(Pipeline_State *pipeline_state, Vulkan_Context *context)
 
     vkDestroyPipelineLayout(context->logical_device, pipeline->layout, nullptr);
     vkDestroyPipeline(context->logical_device, pipeline->handle, nullptr);
-
-    deallocate(context->allocator, pipeline_state->shaders);
 }

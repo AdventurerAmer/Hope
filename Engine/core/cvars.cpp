@@ -21,7 +21,7 @@ struct CVar
 struct CVar_Category
 {
     String name;
-    Dynamic_Array< CVar, Free_List_Allocator > vars;
+    Dynamic_Array< CVar > vars;
 };
 
 struct CVars_State
@@ -31,7 +31,7 @@ struct CVars_State
     Memory_Arena *arena;
     Free_List_Allocator *allocator;
 
-    Dynamic_Array< CVar_Category, Free_List_Allocator > categories;
+    Dynamic_Array< CVar_Category > categories;
 };
 
 static CVars_State cvars_state;

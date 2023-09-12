@@ -265,7 +265,7 @@ struct Defer_Block
     }
 };
 
-#define HE_DEFER Defer_Block __defer_block_##__COUNTER__ = [&]
+#define HE_DEFER Defer_Block HE_GLUE(defer_block_, __COUNTER__) = [&]()
 
 HE_FORCE_INLINE U32 u64_to_u32(U64 value)
 {

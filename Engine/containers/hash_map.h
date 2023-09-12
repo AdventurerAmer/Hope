@@ -10,7 +10,7 @@ enum class Slot_State : U8
     DELETED
 };
 
-template< typename Key_Type, typename Value_Type, typename Allocator >
+template< typename Key_Type, typename Value_Type >
 struct Hash_Map
 {
     void *memory;
@@ -21,15 +21,12 @@ struct Hash_Map
 
     U32 capacity;
     U32 count;
-
-    Allocator *allocator;
 };
 
 template< typename Key_Type, typename Value_Type, typename Allocator >
-void init(Hash_Map< Key_Type, Value_Type, Allocator > *hash_map, Allocator *allocator, U32 capacity)
+void init(Hash_Map< Key_Type, Value_Type > *hash_map, Allocator *allocator, U32 capacity)
 {
     HE_ASSERT(hash_map);
-    HE_ASSERT(allocator);
     HE_ASSERT(capacity);
 
     if ((capacity & (capacity - 1)) != 0)
@@ -53,21 +50,12 @@ void init(Hash_Map< Key_Type, Value_Type, Allocator > *hash_map, Allocator *allo
     hash_map->values = (Value_Type*)(memory + (sizeof(Slot_State) + sizeof(Key_Type)) * capacity);
     hash_map->capacity = capacity;
     hash_map->count = 0;
-    hash_map->allocator = allocator;
 }
 
-template< typename Key_Type, typename Value_Type, typename Allocator >
-void deinit(Hash_Map< Key_Type, Value_Type, Allocator > *hash_map)
+template< typename Key_Type, typename Value_Type >
+S32 find(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, U32 *out_insert_index)
 {
     HE_ASSERT(hash_map);
-    deallocate(hash_map->allocator, hash_map->memory);
-}
-
-template< typename Key_Type, typename Value_Type, typename Allocator >
-S32 find(Hash_Map< Key_Type, Value_Type, Allocator > *hash_map, const Key_Type &key, U32 *out_insert_index)
-{
-    HE_ASSERT(hash_map);
-    HE_ASSERT(hash_map->count < hash_map->capacity);
 
     U32 slot_index = hash(key) & (hash_map->capacity - 1);
     U32 start_slot = slot_index;
@@ -112,9 +100,11 @@ S32 find(Hash_Map< Key_Type, Value_Type, Allocator > *hash_map, const Key_Type &
     return -1;
 }
 
-template< typename Key_Type, typename Value_Type, typename Allocator >
-void insert(Hash_Map< Key_Type, Value_Type, Allocator > *hash_map, const Key_Type &key, const Value_Type &value)
+template< typename Key_Type, typename Value_Type >
+void insert(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, const Value_Type &value)
 {
+    HE_ASSERT(hash_map->count < hash_map->capacity);
+
     S32 insert_index = -1;
     S32 slot_index = find(hash_map, key, &insert_index);
     if (slot_index != -1)
@@ -131,8 +121,8 @@ void insert(Hash_Map< Key_Type, Value_Type, Allocator > *hash_map, const Key_Typ
     }
 }
 
-template< typename Key_Type, typename Value_Type, typename Allocator >
-void remove(Hash_Map< Key_Type, Value_Type, Allocator > *hash_map, const Key_Type &key)
+template< typename Key_Type, typename Value_Type >
+void remove(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key)
 {
     HE_ASSERT(hash_map);
     HE_ASSERT(hash_map->count);
