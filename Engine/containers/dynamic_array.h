@@ -11,11 +11,7 @@ struct Dynamic_Array
     T *data;
     U32 count;
     U32 capacity;
-
-    // todo(amer): using Free_List_Allocator for now
-    // not sure if we are going to have alot of allocators
-    // to justify a Allocator interface
-    Free_List_Allocator *allocator;
+    Allocator allocator;
 
     HE_FORCE_INLINE T& operator[](U32 index)
     {
@@ -54,12 +50,14 @@ void deinit(Dynamic_Array< T > *dynamic_array)
     HE_ASSERT(dynamic_array);
     HE_ASSERT(dynamic_array->data);
 
-    deallocate(dynamic_array->allocator, dynamic_array->data);
-
+    std::visit([&](auto &&allocator)
+    {
+       deallocate(allocator, dynamic_array->data);
+    }, dynamic_array->allocator);
+    
     dynamic_array->data = nullptr;
     dynamic_array->count = 0;
     dynamic_array->capacity = 0;
-    dynamic_array->allocator = nullptr;
 }
 
 template< typename T >
@@ -72,7 +70,10 @@ void set_capacity(Dynamic_Array< T > *dynamic_array, U32 new_capacity)
         new_capacity = dynamic_array->capacity ? dynamic_array->capacity * 2 : HE_DEFAULT_DYNAMIC_ARRAY_INITIAL_CAPACITY;
     }
 
-    dynamic_array->data = HE_REALLOCATE_ARRAY(dynamic_array->allocator, dynamic_array->data, T, new_capacity);
+    std::visit([&](auto &&allocator)
+    {
+       dynamic_array->data = HE_REALLOCATE_ARRAY(allocator, dynamic_array->data, T, new_capacity);
+    }, dynamic_array->allocator);
     dynamic_array->capacity = new_capacity;
 }
 

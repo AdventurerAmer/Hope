@@ -21,6 +21,8 @@ struct Hash_Map
 
     U32 capacity;
     U32 count;
+
+    Allocator *allocator;
 };
 
 template< typename Key_Type, typename Value_Type, typename Allocator >
@@ -50,6 +52,16 @@ void init(Hash_Map< Key_Type, Value_Type > *hash_map, Allocator *allocator, U32 
     hash_map->values = (Value_Type*)(memory + (sizeof(Slot_State) + sizeof(Key_Type)) * capacity);
     hash_map->capacity = capacity;
     hash_map->count = 0;
+    hash_map->allocator = allocator;
+}
+
+template< typename Key_Type, typename Value_Type >
+void deinit(Hash_Map< Key_Type, Value_Type > *hash_map)
+{
+    std::visit([&](auto &&allocator)
+    {
+        deallocate(allocator, hash_map->memory);
+    }, hash_map->allocator);
 }
 
 template< typename Key_Type, typename Value_Type >

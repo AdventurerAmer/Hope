@@ -104,7 +104,7 @@ bool init_job_system(Engine *engine)
 
         thread_state->arena = create_sub_arena(arena, HE_MEGA(32));
 
-        init_ring_queue(&thread_state->job_queue, JOB_COUNT_PER_THREAD, arena);
+        init(&thread_state->job_queue, JOB_COUNT_PER_THREAD, arena);
 
         bool job_queue_semaphore_created = platform_create_semaphore(&thread_state->job_queue_semaphore);
         HE_ASSERT(job_queue_semaphore_created);

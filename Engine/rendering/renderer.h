@@ -4,6 +4,8 @@
 #include "core/platform.h"
 #include "core/job_system.h"
 
+#include "containers/resource_pool.h"
+
 #include "renderer_types.h"
 #include "camera.h"
 
@@ -36,6 +38,13 @@ struct Scene_Data
 
     Directional_Light directional_light;
 };
+
+using Texture_Handle = Resource_Handle< Texture >;
+using Shader_Handle = Resource_Handle< Shader >;
+using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
+
+using Material_Handle = Resource_Handle< Material >;
+using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;
 
 struct Renderer_State
 {
@@ -98,14 +107,12 @@ struct Renderer
     void (*end_frame)(struct Renderer_State *renderer_state);
 
     bool (*create_texture)(Texture *texture, const Texture_Descriptor &descriptor);
-
     void (*destroy_texture)(Texture *texture);
 
     bool (*create_shader)(Shader *shader, const Shader_Descriptor &descriptor);
     void (*destroy_shader)(Shader *shader);
 
     bool (*create_pipeline_state)(Pipeline_State *pipeline_state, const Pipeline_State_Descriptor &descriptor);
-
     void (*destroy_pipeline_state)(Pipeline_State *pipeline_state);
 
     bool (*create_static_mesh)(Static_Mesh *static_mesh, const Static_Mesh_Descriptor &descriptor);

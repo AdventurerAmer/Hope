@@ -552,7 +552,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
     };
 
     Ring_Queue< Scene_Node_Bundle > nodes;
-    init_ring_queue(&nodes, 4096, &temprary_arena);
+    init(&nodes, 4096, &temprary_arena);
 
     for (U32 node_index = 0; node_index < model_data->nodes_count; node_index++)
     {

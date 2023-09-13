@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/defines.h"
+#include "core/memory.h"
 
 template< typename T >
 struct Ring_Queue
@@ -10,10 +11,12 @@ struct Ring_Queue
     U32 mask;
     U32 write;
     U32 read;
+
+    Allocator allocator;
 };
 
 template< typename T, typename Allocator >
-void init_ring_queue(Ring_Queue< T > *queue, U32 capacity, Allocator *allocator)
+void init(Ring_Queue< T > *queue, U32 capacity, Allocator *allocator)
 {
     HE_ASSERT((capacity & (capacity - 1)) == 0);
     queue->data = HE_ALLOCATE_ARRAY(allocator, T, capacity);
@@ -21,6 +24,15 @@ void init_ring_queue(Ring_Queue< T > *queue, U32 capacity, Allocator *allocator)
     queue->mask = capacity - 1;
     queue->write = 0;
     queue->read = 0;
+    queue->allocator = allocator;
+}
+
+template< typename T >
+void deinit(Ring_Queue< T > *queue)
+{
+    std::visit([&](auto &&allocator) {
+        deallocate(allocator, queue->data);
+    }, queue->allocator);
 }
 
 template< typename T >

@@ -101,6 +101,11 @@ void* reallocate(Memory_Arena *arena, void *memory, Size new_size, U16 alignment
     return allocate(arena, new_size, alignment, parent);
 }
 
+void deallocate(Memory_Arena *arena, void *memory)
+{
+    HE_ASSERT(false);
+}
+
 //
 // Temprary Memory Arena
 //

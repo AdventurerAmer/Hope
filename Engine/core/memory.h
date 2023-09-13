@@ -3,6 +3,8 @@
 #include "defines.h"
 #include "platform.h"
 
+#include <variant>
+
 #define HE_KILO(x) (1024llu * (x))
 #define HE_MEGA(x) (1024llu * 1024llu * (x))
 #define HE_GIGA(x) (1024llu * 1024llu * 1024llu * (x))
@@ -54,6 +56,7 @@ Memory_Arena create_sub_arena(Memory_Arena *arena, Size size);
 
 void* allocate(Memory_Arena *arena, Size size, U16 alignment, Temprary_Memory_Arena *parent = nullptr);
 void* reallocate(Memory_Arena *arena, void *memory, Size new_size, U16 alignment, Temprary_Memory_Arena *parent = nullptr);
+void deallocate(Memory_Arena *arena, void *memory);
 
 //
 // Temprary Memory Arena
@@ -79,6 +82,11 @@ HE_FORCE_INLINE static void* allocate(Temprary_Memory_Arena *temprary_arena, Siz
 HE_FORCE_INLINE static void* reallocate(Temprary_Memory_Arena *temprary_arena, void *memory, Size new_size, U16 alignment)
 {
     return reallocate(temprary_arena->arena, memory, new_size, alignment, temprary_arena);
+}
+
+HE_FORCE_INLINE static void deallocate(Temprary_Memory_Arena *temprary_arena, void *memory)
+{
+    deallocate(temprary_arena->arena, memory);
 }
 
 void end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena);
@@ -111,3 +119,5 @@ void init_free_list_allocator(Free_List_Allocator *allocator, void *memory, Size
 void* allocate(Free_List_Allocator *allocator, Size size, U16 alignment);
 void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16 alignment);
 void deallocate(Free_List_Allocator *allocator, void *memory);
+
+typedef std::variant< Memory_Arena *, Temprary_Memory_Arena *, Free_List_Allocator * > Allocator;
