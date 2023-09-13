@@ -245,19 +245,20 @@ U32 parse_struct(const SPIRV_Entity &entity,
     return u64_to_u32(structs.count - 1);
 }
 
-bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
+bool load_shader(Shader_Handle shader_handle, const char *path, Vulkan_Context *context)
 {
     if (!vulkan_context)
     {
         vulkan_context = context;
     }
 
+    Shader *shader = get(&context->engine->renderer_state.shaders, shader_handle);
+    Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
+
     Memory_Arena *arena = &context->engine->memory.transient_arena;
     
     Temprary_Memory_Arena temp_arena = {};
     begin_temprary_memory_arena(&temp_arena, arena);
-
-    Vulkan_Shader *vulkan_shader = context->shaders + index_of(&context->engine->renderer_state, shader);
 
     Read_Entire_File_Result result = read_entire_file(path, &temp_arena);
 
@@ -728,9 +729,9 @@ bool load_shader(Shader *shader, const char *path, Vulkan_Context *context)
     return true;
 }
 
-void destroy_shader(Shader *shader, Vulkan_Context *context)
+void destroy_shader(Shader_Handle shader_handle, Vulkan_Context *context)
 {
-    Vulkan_Shader *vulkan_shader = context->shaders + index_of(&context->engine->renderer_state, shader);
+    Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
     vkDestroyShaderModule(context->logical_device, vulkan_shader->handle, nullptr);
 }
 
@@ -783,22 +784,24 @@ static VkFormat get_format_from_shader_data_type(ShaderDataType shader_data_type
     return VK_FORMAT_UNDEFINED;
 }
 
-bool create_graphics_pipeline(Pipeline_State *pipeline_state,
-                              const std::initializer_list< const Shader * > &shaders,
+bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,
+                              const std::initializer_list< Shader_Handle > &shaders,
                               VkRenderPass render_pass,
                               Vulkan_Context *context)
 {
+    Pipeline_State *pipeline_state = get(&context->engine->renderer_state.pipeline_states, pipeline_state_handle);
+
     U32 shader_count = (U32)shaders.size();
-    Shader **shaders_ = HE_ALLOCATE_ARRAY(context->allocator, Shader *, shader_count);
+    Shader_Handle *shaders_ = HE_ALLOCATE_ARRAY(context->allocator, Shader_Handle, shader_count);
     U32 shader_index_ = 0;
-    for (const Shader *shader : shaders)
+    for (Shader_Handle shader : shaders)
     {
-        shaders_[shader_index_++] = const_cast< Shader * >(shader);
+        shaders_[shader_index_++] = shader;
     }
     pipeline_state->shader_count = shader_count;
     pipeline_state->shaders = shaders_;
 
-    Vulkan_Pipeline_State *pipeline = context->pipeline_states + index_of(&context->engine->renderer_state, pipeline_state);
+    Vulkan_Pipeline_State *pipeline = &context->pipeline_states[pipeline_state_handle.index];
     Dynamic_Array< VkPipelineShaderStageCreateInfo > shader_stage_create_infos;
     init(&shader_stage_create_infos, context->allocator, u64_to_u32(shaders.size()));
 
@@ -827,9 +830,10 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
     VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info =
         { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 
-    for (const Shader *shader : shaders)
+    for (Shader_Handle shader_handle : shaders)
     {
-        Vulkan_Shader *vulkan_shader = context->shaders + index_of(&context->engine->renderer_state, shader);
+        Shader *shader = get(&context->engine->renderer_state.shaders, shader_handle);
+        Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
 
         VkPipelineShaderStageCreateInfo &pipeline_stage_create_info = shader_stage_create_infos[shader_index++];
         pipeline_stage_create_info.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1061,12 +1065,11 @@ bool create_graphics_pipeline(Pipeline_State *pipeline_state,
     return true;
 }
 
-void destroy_pipeline(Pipeline_State *pipeline_state, Vulkan_Context *context)
+void destroy_pipeline(Pipeline_State_Handle pipeline_state_handle, Vulkan_Context *context)
 {
-    HE_ASSERT(pipeline_state);
     HE_ASSERT(context);
 
-    Vulkan_Pipeline_State *pipeline = context->pipeline_states + index_of(&context->engine->renderer_state, pipeline_state);
+    Vulkan_Pipeline_State *pipeline = &context->pipeline_states[pipeline_state_handle.index];
 
     for (U32 set_index = 0; set_index < pipeline->descriptor_set_layout_count; set_index++)
     {

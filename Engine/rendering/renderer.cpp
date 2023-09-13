@@ -77,12 +77,15 @@ bool request_renderer(RenderingAPI rendering_api,
 bool pre_init_renderer_state(Renderer_State *renderer_state, Engine *engine)
 {
     renderer_state->engine = engine;
-    renderer_state->textures = HE_ALLOCATE_ARRAY(&engine->memory.transient_arena, Texture, MAX_TEXTURE_COUNT);
-    renderer_state->materials = HE_ALLOCATE_ARRAY(&engine->memory.transient_arena, Material, MAX_MATERIAL_COUNT);
-    renderer_state->static_meshes = HE_ALLOCATE_ARRAY(&engine->memory.transient_arena, Static_Mesh, MAX_STATIC_MESH_COUNT);
-    renderer_state->scene_nodes = HE_ALLOCATE_ARRAY(&engine->memory.transient_arena, Scene_Node, MAX_SCENE_NODE_COUNT);
-    renderer_state->shaders = HE_ALLOCATE_ARRAY(&engine->memory.transient_arena, Shader, MAX_SHADER_COUNT);
-    renderer_state->pipeline_states = HE_ALLOCATE_ARRAY(&engine->memory.transient_arena, Pipeline_State, MAX_PIPELINE_STATE_COUNT);
+    Memory_Arena *arena = &engine->memory.transient_arena;
+
+    init(&renderer_state->textures, arena, MAX_TEXTURE_COUNT);
+    init(&renderer_state->materials,  arena, MAX_MATERIAL_COUNT);
+    init(&renderer_state->static_meshes, arena, MAX_STATIC_MESH_COUNT);
+    init(&renderer_state->shaders, arena, MAX_SHADER_COUNT);
+    init(&renderer_state->pipeline_states, arena, MAX_PIPELINE_STATE_COUNT);
+
+    renderer_state->scene_nodes = HE_ALLOCATE_ARRAY(arena, Scene_Node, MAX_SCENE_NODE_COUNT);
 
     bool render_commands_mutex_created = platform_create_mutex(&renderer_state->render_commands_mutex);
     HE_ASSERT(render_commands_mutex_created);
@@ -103,7 +106,7 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     _stbi_allocator = &engine->memory.free_list_allocator;
 
     Renderer *renderer = &engine->renderer;
-    renderer_state->white_pixel_texture = allocate_texture(renderer_state);
+    renderer_state->white_pixel_texture = aquire_handle(&renderer_state->textures);
 
     U32 *white_pixel_data = HE_ALLOCATE(renderer_state->transfer_allocator, U32); // @Leak
     *white_pixel_data = 0xFFFFFFFF;
@@ -127,37 +130,56 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     normal_pixel_descriptor.format = TextureFormat_RGBA;
     normal_pixel_descriptor.mipmapping = false;
 
-    renderer_state->normal_pixel_texture = allocate_texture(renderer_state);
+    renderer_state->normal_pixel_texture = aquire_handle(&renderer_state->textures);
     renderer->create_texture(renderer_state->normal_pixel_texture, normal_pixel_descriptor);
-
     return true;
 }
 
 void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_state)
 {
-    for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
+    for (S32 texture_index = 0; texture_index < (S32)renderer_state->textures.capacity; texture_index++)
     {
-        renderer->destroy_texture(&renderer_state->textures[texture_index]);
+        if (!renderer_state->textures.is_allocated[texture_index])
+        {
+            continue;
+        }
+        renderer->destroy_texture({ texture_index, renderer_state->textures.generations[texture_index] });
     }
 
-    for (U32 material_index = 0; material_index < renderer_state->material_count; material_index++)
+    for (S32 material_index = 0; material_index < (S32)renderer_state->materials.capacity; material_index++)
     {
-        renderer->destroy_material(&renderer_state->materials[material_index]);
+        if (!renderer_state->materials.is_allocated[material_index])
+        {
+            continue;
+        }
+        renderer->destroy_material({ material_index, renderer_state->materials.generations[material_index] });
     }
 
-    for (U32 static_mesh_index = 0; static_mesh_index < renderer_state->static_mesh_count; static_mesh_index++)
+    for (S32 static_mesh_index = 0; static_mesh_index < (S32)renderer_state->static_meshes.capacity; static_mesh_index++)
     {
-        renderer->destroy_static_mesh(&renderer_state->static_meshes[static_mesh_index]);
+        if (!renderer_state->static_meshes.is_allocated[static_mesh_index])
+        {
+            continue;
+        }
+        renderer->destroy_static_mesh({ static_mesh_index, renderer_state->static_meshes.generations[static_mesh_index] });
     }
 
-    for (U32 shader_index = 0; shader_index < renderer_state->shader_count; shader_index++)
+    for (S32 shader_index = 0; shader_index < (S32)renderer_state->shaders.capacity; shader_index++)
     {
-        renderer->destroy_shader(&renderer_state->shaders[shader_index]);
+        if (!renderer_state->shaders.is_allocated[shader_index])
+        {
+            continue;
+        }
+        renderer->destroy_shader({ shader_index, renderer_state->shaders.generations[shader_index] });
     }
 
-    for (U32 pipeline_state_index = 0; pipeline_state_index < renderer_state->pipeline_state_count; pipeline_state_index++)
+    for (S32 pipeline_state_index = 0; pipeline_state_index < (S32)renderer_state->pipeline_states.count; pipeline_state_index++)
     {
-        renderer->destroy_pipeline_state(&renderer_state->pipeline_states[pipeline_state_index]);
+        if (!renderer_state->pipeline_states.is_allocated[pipeline_state_index])
+        {
+            continue;
+        }
+        renderer->destroy_pipeline_state({ pipeline_state_index, renderer_state->pipeline_states.generations[pipeline_state_index] });
     }
 }
 
@@ -189,10 +211,10 @@ struct Load_Texture_Job_Data
     String path;
     Renderer *renderer;
     Renderer_State *renderer_state;
-    Texture *texture;
+    Texture_Handle texture_handle;
 };
 
-static bool create_texture(Texture *texture, void *pixels, U32 texture_width, U32 texture_height, Renderer *renderer, Renderer_State *renderer_state)
+static bool create_texture(Texture_Handle texture_handle, void *pixels, U32 texture_width, U32 texture_height, Renderer *renderer, Renderer_State *renderer_state)
 {
     U64 data_size = texture_width * texture_height * sizeof(U32);
     U32 *data = HE_ALLOCATE_ARRAY(renderer_state->transfer_allocator, U32, data_size); // @Leak
@@ -206,7 +228,7 @@ static bool create_texture(Texture *texture, void *pixels, U32 texture_width, U3
     descriptor.mipmapping = true;
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
-    bool texture_created = renderer->create_texture(texture, descriptor);
+    bool texture_created = renderer->create_texture(texture_handle, descriptor);
     HE_ASSERT(texture_created);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
     return true;
@@ -229,14 +251,14 @@ static Job_Result load_texture_job(const Job_Parameters &params)
                                 &texture_channels, STBI_rgb_alpha);
     HE_ASSERT(pixels);
 
-    bool texture_created = create_texture(job_data->texture, pixels, texture_width, texture_height, renderer, renderer_state);
+    bool texture_created = create_texture(job_data->texture_handle, pixels, texture_width, texture_height, renderer, renderer_state);
     HE_ASSERT(texture_created);
     stbi_image_free(pixels);
 
     return Job_Result::SUCCEEDED;
 }
 
-static Texture*
+static Texture_Handle
 cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path,
                    Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena)
 {
@@ -250,7 +272,7 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path,
     const cgltf_image *image = texture_view->texture->image;
 
     String texture_path = {};
-    Texture *texture = nullptr;
+    Texture_Handle texture_handle = {};
 
     if (texture_view->texture->image->uri)
     {
@@ -287,13 +309,11 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path,
                                      HE_EXPAND_STRING(extension_to_append));
     }
 
-    S32 texture_index = find_texture(renderer_state,
-                                     texture_path);
-
-    if (texture_index == -1)
+    Texture_Handle found_texture_handle = find_texture(renderer_state, texture_path);
+    if (!is_valid_handle(&renderer_state->textures, found_texture_handle))
     {
-        HE_ASSERT(renderer_state->texture_count < MAX_TEXTURE_COUNT);
-        texture = allocate_texture(renderer_state);
+        texture_handle = aquire_handle(&renderer_state->textures);
+        Texture *texture = get(&renderer_state->textures, texture_handle);
         texture->name = copy_string(texture_path.data, texture_path.count, &renderer_state->engine->memory.free_list_allocator);
 
         if (platform_file_exists(texture_path.data))
@@ -302,7 +322,7 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path,
             load_texture_job_data.path = texture->name;
             load_texture_job_data.renderer = renderer;
             load_texture_job_data.renderer_state = renderer_state;
-            load_texture_job_data.texture = texture;
+            load_texture_job_data.texture_handle = texture_handle;
 
             Job job = {};
             job.parameters.data = &load_texture_job_data;
@@ -327,17 +347,17 @@ cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path,
                                            &texture_channels, STBI_rgb_alpha);
 
             HE_ASSERT(pixels);
-            bool texture_created = create_texture(texture, pixels, texture_width, texture_height, renderer, renderer_state);
+            bool texture_created = create_texture(texture_handle, pixels, texture_width, texture_height, renderer, renderer_state);
             HE_ASSERT(texture_created);
             stbi_image_free(pixels);
         }
     }
     else
     {
-        texture = &renderer_state->textures[texture_index];
+        texture_handle = found_texture_handle;
     }
 
-    return texture;
+    return texture_handle;
 }
 
 static void* _cgltf_alloc(void* user, cgltf_size size)
@@ -427,8 +447,9 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         cgltf_material *material = &model_data->materials[material_index];
         U64 material_hash = (U64)material;
 
-        HE_ASSERT(renderer_state->material_count < MAX_MATERIAL_COUNT);
-        Material *renderer_material = allocate_material(renderer_state);
+        HE_ASSERT(renderer_state->materials.count < MAX_MATERIAL_COUNT);
+        Material_Handle material_handle = aquire_handle(&renderer_state->materials);
+        Material *renderer_material = get(&renderer_state->materials, material_handle);
 
         if (material->name)
         {
@@ -438,9 +459,9 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         }
         renderer_material->hash = material_hash;
 
-        Texture *albedo = nullptr;
-        Texture *normal = nullptr;
-        Texture *metallic_roughness = nullptr;
+        Texture_Handle albedo = {};
+        Texture_Handle normal = {};
+        Texture_Handle metallic_roughness = {};
 
         if (material->has_pbr_metallic_roughness)
         {
@@ -482,10 +503,10 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         }
 
         Material_Descriptor desc = {};
-        desc.pipeline_state = renderer_state->mesh_pipeline;
+        desc.pipeline_state_handle = renderer_state->mesh_pipeline;
 
         platform_lock_mutex(&renderer_state->render_commands_mutex);
-        renderer->create_material(renderer_material, desc);
+        renderer->create_material(material_handle, desc);
         platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
         U32 *albedo_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("albedo_texture_index"), ShaderDataType_U32);
@@ -514,9 +535,9 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         *roughness_factor = material->pbr_metallic_roughness.roughness_factor;
         *metallic_factor = material->pbr_metallic_roughness.metallic_factor;
         *reflectance = 0.04f;
-        *albedo_texture_index = index_of(renderer_state, albedo);
-        *normal_texture_index = index_of(renderer_state, normal);
-        *occlusion_roughness_metallic_texture_index = index_of(renderer_state, metallic_roughness);
+        *albedo_texture_index = albedo.index;
+        *normal_texture_index = normal.index;
+        *occlusion_roughness_metallic_texture_index = metallic_roughness.index;
     }
 
     U32 position_count = 0;
@@ -576,21 +597,21 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
 
         if (node->mesh)
         {
-            scene_node->start_mesh_index = renderer_state->static_mesh_count;
+            scene_node->start_mesh_index = renderer_state->static_meshes.count;
             scene_node->static_mesh_count += u64_to_u32(node->mesh->primitives_count);
 
             for (U32 primitive_index = 0; primitive_index < node->mesh->primitives_count; primitive_index++)
             {
-                cgltf_primitive* primitive = &node->mesh->primitives[primitive_index];
+                cgltf_primitive *primitive = &node->mesh->primitives[primitive_index];
                 HE_ASSERT(primitive->material);
                 cgltf_material* material = primitive->material;
 
                 U64 material_hash = (U64)material;
-                S32 material_index = find_material(renderer_state, material_hash);
-                HE_ASSERT(material_index != -1);
+                Material_Handle material_handle = find_material(renderer_state, material_hash);
 
-                Static_Mesh* static_mesh = allocate_static_mesh(renderer_state);
-                static_mesh->material = &renderer_state->materials[material_index];
+                Static_Mesh_Handle static_mesh_handle = aquire_handle(&renderer_state->static_meshes);
+                Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
+                static_mesh->material_handle = material_handle;
 
                 HE_ASSERT(primitive->type == cgltf_primitive_type_triangles);
 
@@ -677,7 +698,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
                 descriptor.index_count = index_count;
 
                 platform_lock_mutex(&renderer_state->render_commands_mutex);
-                bool created = renderer->create_static_mesh(static_mesh, descriptor);
+                bool created = renderer->create_static_mesh(static_mesh_handle, descriptor);
                 platform_unlock_mutex(&renderer_state->render_commands_mutex);
                 HE_ASSERT(created);
             }
@@ -713,56 +734,14 @@ void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene
          static_mesh_index < scene_node->static_mesh_count;
          static_mesh_index++)
     {
-        Static_Mesh *static_mesh = renderer_state->static_meshes + scene_node->start_mesh_index + static_mesh_index;
-        renderer->submit_static_mesh(renderer_state, static_mesh, transform);
+        U32 mesh_index = scene_node->start_mesh_index + static_mesh_index;
+        renderer->submit_static_mesh(renderer_state, { (S32)mesh_index, renderer_state->static_meshes.generations[mesh_index] }, transform);
     }
 
     for (Scene_Node *node = scene_node->first_child; node; node = node->next_sibling)
     {
         render_scene_node(renderer, renderer_state, node, transform);
     }
-}
-
-Texture *allocate_texture(Renderer_State *renderer_state)
-{
-    HE_ASSERT(renderer_state->texture_count < MAX_TEXTURE_COUNT);
-    U32 texture_index = renderer_state->texture_count++;
-    Texture *result = &renderer_state->textures[texture_index];
-    return result;
-}
-
-Material *allocate_material(Renderer_State *renderer_state)
-{
-    HE_ASSERT(renderer_state->material_count < MAX_MATERIAL_COUNT);
-
-    U32 material_index = renderer_state->material_count++;
-    Material *result = &renderer_state->materials[material_index];
-
-    return result;
-}
-
-Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state)
-{
-    HE_ASSERT(renderer_state->static_mesh_count < MAX_STATIC_MESH_COUNT);
-    U32 static_mesh_index = renderer_state->static_mesh_count++;
-    Static_Mesh *result = &renderer_state->static_meshes[static_mesh_index];
-    return result;
-}
-
-Shader *allocate_shader(Renderer_State *renderer_state)
-{
-    HE_ASSERT(renderer_state->shader_count < MAX_STATIC_MESH_COUNT);
-    U32 shader_index = renderer_state->shader_count++;
-    Shader *result = &renderer_state->shaders[shader_index];
-    return result;
-}
-
-Pipeline_State *allocate_pipeline_state(Renderer_State *renderer_state)
-{
-    HE_ASSERT(renderer_state->pipeline_state_count < MAX_PIPELINE_STATE_COUNT);
-    U32 pipline_state_index = renderer_state->pipeline_state_count++;
-    Pipeline_State *result = &renderer_state->pipeline_states[pipline_state_index];
-    return result;
 }
 
 U8 *get_property(Material *material, const String &name, ShaderDataType shader_datatype)
@@ -779,102 +758,42 @@ U8 *get_property(Material *material, const String &name, ShaderDataType shader_d
     return nullptr;
 }
 
-U32 index_of(Renderer_State *renderer_state, const Texture *texture)
+Texture_Handle find_texture(Renderer_State *renderer_state, const String &name)
 {
-    U64 index = texture - renderer_state->textures;
-    HE_ASSERT(index < MAX_TEXTURE_COUNT);
-    return u64_to_u32(index);
-}
-
-U32 index_of(Renderer_State *renderer_state, const Material *material)
-{
-    U64 index = material - renderer_state->materials;
-    HE_ASSERT(index < MAX_MATERIAL_COUNT);
-    return u64_to_u32(index);
-}
-
-U32 index_of(Renderer_State *renderer_state, const Static_Mesh *static_mesh)
-{
-    U64 index = static_mesh - renderer_state->static_meshes;
-    HE_ASSERT(index < MAX_STATIC_MESH_COUNT);
-    return u64_to_u32(index);
-}
-
-U32 index_of(Renderer_State *renderer_state, const Shader *shader)
-{
-    U64 index = shader - renderer_state->shaders;
-    HE_ASSERT(index < MAX_SHADER_COUNT);
-    return u64_to_u32(index);
-}
-
-U32 index_of(Renderer_State *renderer_state, const Pipeline_State *pipeline_state)
-{
-    U64 index = pipeline_state - renderer_state->pipeline_states;
-    HE_ASSERT(index < MAX_SHADER_COUNT);
-    return u64_to_u32(index);
-}
-
-U32 index_of(Renderer_State *renderer_state, Texture *texture)
-{
-    U64 index = texture - renderer_state->textures;
-    HE_ASSERT(index < MAX_TEXTURE_COUNT);
-    return u64_to_u32(index);
-}
-
-U32 index_of(Renderer_State *renderer_state, Material *material)
-{
-    U64 index = material - renderer_state->materials;
-    HE_ASSERT(index < MAX_MATERIAL_COUNT);
-    return u64_to_u32(index);
-}
-
-U32 index_of(Renderer_State *renderer_state, Static_Mesh *static_mesh)
-{
-    U64 index = static_mesh - renderer_state->static_meshes;
-    HE_ASSERT(index < MAX_STATIC_MESH_COUNT);
-    return u64_to_u32(index);
-}
-
-U32 index_of(Renderer_State *renderer_state, Shader *shader)
-{
-    U64 index = shader - renderer_state->shaders;
-    HE_ASSERT(index < MAX_SHADER_COUNT);
-    return u64_to_u32(index);
-}
-
-U32 index_of(Renderer_State *renderer_state, Pipeline_State *pipeline_state)
-{
-    U64 index = pipeline_state - renderer_state->pipeline_states;
-    HE_ASSERT(index < MAX_SHADER_COUNT);
-    return u64_to_u32(index);
-}
-
-S32 find_texture(Renderer_State *renderer_state, const String &name)
-{
-    for (U32 texture_index = 0; texture_index < renderer_state->texture_count; texture_index++)
+    for (S32 texture_index = 0; texture_index < (S32)renderer_state->textures.capacity; texture_index++)
     {
-        Texture *texture = &renderer_state->textures[texture_index];
+        if (!renderer_state->textures.is_allocated[texture_index])
+        {
+            continue;
+        }
+
+        Texture *texture = &renderer_state->textures.data[texture_index];
         if (texture->name == name)
         {
-            return texture_index;
+            return { texture_index, renderer_state->textures.generations[texture_index] };
         }
     }
-    return -1;
+
+    return Resource_Pool< Texture >::invalid_handle;
 }
 
-S32 find_material(Renderer_State *renderer_state, U64 hash)
+Material_Handle find_material(Renderer_State *renderer_state, U64 hash)
 {
-    for (U32 material_index = 0; material_index < renderer_state->material_count; material_index++)
+    for (S32 material_index = 0; material_index < (S32)renderer_state->materials.capacity; material_index++)
     {
-        Material *material = &renderer_state->materials[material_index];
+        if (!renderer_state->materials.is_allocated[material_index])
+        {
+            continue;
+        }
+
+        Material *material = &renderer_state->materials.data[material_index];
         if (material->hash == hash)
         {
-            return material_index;
+            return { material_index, renderer_state->materials.generations[material_index] };
         }
     }
-    return -1;
+    return Resource_Pool< Material >::invalid_handle;
 }
-
 
 U32 get_size_of_shader_data_type(ShaderDataType shader_data_type)
 {

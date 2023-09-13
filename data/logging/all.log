@@ -1,4 +1,4 @@
-[Core-Trace]: assets loaded 669.99 ms to finish
+[Core-Trace]: assets loaded 681.38 ms to finish
 
 elineVertexInputStateCreateInfo-pVertexBindingDescriptions-00616 ] | MessageID = 0x6ef6a930 | vkCreateGraphicsPipelines: parameter pCreateInfo[0].pVertexInputState->pVertexBindingDescription[1].binding (0) is already in pVertexBindingDescription[0] The Vulkan spec states: All elements of pVertexBindingDescriptions must describe distinct binding numbers (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-VkPipelineVertexInputStateCreateInfo-pVertexBindingDescriptions-00616)
 member of each element of pImageInfo must not be VK_NULL_HANDLE (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-VkWriteDescriptorSet-descriptorType-02997)

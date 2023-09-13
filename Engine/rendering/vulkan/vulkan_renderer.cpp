@@ -877,19 +877,19 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     }
 
     Renderer_State *renderer_state = &context->engine->renderer_state;
-    renderer_state->mesh_vertex_shader = allocate_shader(renderer_state);
+    renderer_state->mesh_vertex_shader = aquire_handle(&renderer_state->shaders);
     bool shader_loaded = load_shader(renderer_state->mesh_vertex_shader,
                                      "shaders/bin/mesh.vert.spv",
                                      context);
     HE_ASSERT(shader_loaded);
 
-    renderer_state->mesh_fragment_shader = allocate_shader(renderer_state);
+    renderer_state->mesh_fragment_shader = aquire_handle(&renderer_state->shaders);
     shader_loaded = load_shader(renderer_state->mesh_fragment_shader,
                                 "shaders/bin/mesh.frag.spv",
                                 context);
     HE_ASSERT(shader_loaded);
 
-    renderer_state->mesh_pipeline = allocate_pipeline_state(renderer_state);
+    renderer_state->mesh_pipeline = aquire_handle(&renderer_state->pipeline_states);
     bool pipeline_created = create_graphics_pipeline(renderer_state->mesh_pipeline,
                                                      { renderer_state->mesh_vertex_shader,
                                                      renderer_state->mesh_fragment_shader },
@@ -989,7 +989,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
              frame_index < HE_MAX_FRAMES_IN_FLIGHT;
              frame_index++)
         {
-            Vulkan_Pipeline_State *mesh_pipeline = context->pipeline_states + index_of(renderer_state, renderer_state->mesh_pipeline);
+            Vulkan_Pipeline_State *mesh_pipeline = &context->pipeline_states[renderer_state->mesh_pipeline.index];
             level0_descriptor_set_layouts[frame_index] = mesh_pipeline->descriptor_set_layouts[0];
         }
 
@@ -1052,7 +1052,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
              frame_index < HE_MAX_FRAMES_IN_FLIGHT;
              frame_index++)
         {
-            Vulkan_Pipeline_State *mesh_pipeline = context->pipeline_states + index_of(renderer_state, renderer_state->mesh_pipeline);
+            Vulkan_Pipeline_State *mesh_pipeline = &context->pipeline_states[renderer_state->mesh_pipeline.index];
             level1_descriptor_set_layouts[frame_index] = mesh_pipeline->descriptor_set_layouts[1];
         }
 
@@ -1309,12 +1309,15 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     VkDescriptorImageInfo descriptor_image_infos[MAX_TEXTURE_COUNT] = {};
 
     for (U32 texture_index = 0;
-         texture_index < renderer_state->texture_count;
+         texture_index < renderer_state->textures.capacity;
          texture_index++)
     {
-        Texture *texture = &renderer_state->textures[texture_index];
-        Vulkan_Image *vulkan_image = context->textures + index_of(renderer_state, texture);
-
+        if (!renderer_state->textures.is_allocated[texture_index])
+        {
+            continue;
+        }
+        Texture *texture = &renderer_state->textures.data[texture_index];
+        Vulkan_Image *vulkan_image = &context->textures[texture_index];
         descriptor_image_infos[texture_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         descriptor_image_infos[texture_index].imageView = vulkan_image->view;
         descriptor_image_infos[texture_index].sampler = vulkan_image->sampler;
@@ -1325,7 +1328,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     write_descriptor_set.dstBinding = 0;
     write_descriptor_set.dstArrayElement = 0;
     write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write_descriptor_set.descriptorCount = renderer_state->texture_count;
+    write_descriptor_set.descriptorCount = renderer_state->textures.count;
     write_descriptor_set.pImageInfo = descriptor_image_infos;
 
     vkUpdateDescriptorSets(context->logical_device, 1, &write_descriptor_set, 0, nullptr);
@@ -1336,7 +1339,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
         context->descriptor_sets[1][current_frame_in_flight_index]
     };
 
-    Vulkan_Pipeline_State *mesh_pipeline = context->pipeline_states + index_of(renderer_state, renderer_state->mesh_pipeline);
+    Vulkan_Pipeline_State *mesh_pipeline = &context->pipeline_states[renderer_state->mesh_pipeline.index];
 
     vkCmdBindDescriptorSets(command_buffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -1380,8 +1383,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
                          context->index_buffer.handle, 0, VK_INDEX_TYPE_UINT16);
 }
 
-void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
-                                        const struct Static_Mesh *static_mesh, const glm::mat4 &transform)
+void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state, Static_Mesh_Handle static_mesh_handle, const glm::mat4 &transform)
 {
     Vulkan_Context *context = &vulkan_context;
     HE_ASSERT(context->object_data_count < HE_MAX_OBJECT_DATA_COUNT);
@@ -1391,15 +1393,16 @@ void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state,
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
     VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
 
-    Vulkan_Static_Mesh *vulkan_static_mesh = context->static_meshes + index_of(renderer_state, static_mesh);
+    Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
 
-    Material *material = static_mesh->material;
-    Vulkan_Material *vulkan_material = context->materials + index_of(renderer_state, material);
+    Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
+    Material *material = get(&renderer_state->materials, static_mesh->material_handle);
+    Vulkan_Material *vulkan_material = &context->materials[static_mesh->material_handle.index];
 
     Vulkan_Buffer *material_buffer = &vulkan_material->buffers[current_frame_in_flight_index];
     copy_memory(material_buffer->data, material->data, material->size);
 
-    Vulkan_Pipeline_State *vulkan_pipeline_state = context->pipeline_states + index_of(renderer_state, material->pipeline_state);
+    Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[material->pipeline_state_handle.index];
     vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_pipeline_state->handle);
 
     VkDescriptorSet descriptor_sets[] =
@@ -1504,10 +1507,11 @@ void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
     }
 }
 
-bool vulkan_renderer_create_texture(Texture *texture, const Texture_Descriptor &descriptor)
+bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Image *image = context->textures + index_of(&context->engine->renderer_state, texture);
+    Texture *texture = get(&context->engine->renderer_state.textures, texture_handle);
+    Vulkan_Image *image = &context->textures[texture_handle.index];
 
     HE_ASSERT(descriptor.format == TextureFormat_RGBA); // todo(amer): only supporting RGBA for now.
     create_image(image, context, descriptor.width, descriptor.height,
@@ -1528,49 +1532,51 @@ bool vulkan_renderer_create_texture(Texture *texture, const Texture_Descriptor &
     return true;
 }
 
-void vulkan_renderer_destroy_texture(Texture *texture)
+void vulkan_renderer_destroy_texture(Texture_Handle texture_handle)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Image *vulkan_image = context->textures + index_of(&context->engine->renderer_state, texture);
+    Vulkan_Image *vulkan_image = &context->textures[texture_handle.index];
     destroy_image(vulkan_image, &vulkan_context);
 }
 
-bool vulkan_renderer_create_shader(Shader *shader, const Shader_Descriptor &descriptor)
+bool vulkan_renderer_create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    bool loaded = load_shader(shader, descriptor.path, context);
+    bool loaded = load_shader(shader_handle, descriptor.path, context);
     return loaded;
 }
 
-void vulkan_renderer_destroy_shader(Shader *shader)
+void vulkan_renderer_destroy_shader(Shader_Handle shader_handle)
 {
     Vulkan_Context *context = &vulkan_context;
-    destroy_shader(shader, context);
+    destroy_shader(shader_handle, context);
 }
 
-bool vulkan_renderer_create_pipeline_state(Pipeline_State *pipeline_state, const Pipeline_State_Descriptor &descriptor)
+bool vulkan_renderer_create_pipeline_state(Pipeline_State_Handle pipeline_state_handle, const Pipeline_State_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    return create_graphics_pipeline(pipeline_state, descriptor.shaders, context->render_pass, context);
+    return create_graphics_pipeline(pipeline_state_handle, descriptor.shaders, context->render_pass, context);
 }
 
-void vulkan_renderer_destroy_pipeline_state(Pipeline_State *pipeline_state)
+void vulkan_renderer_destroy_pipeline_state(Pipeline_State_Handle pipeline_state_handle)
 {
     Vulkan_Context *context = &vulkan_context;
-    destroy_pipeline(pipeline_state, context);
+    destroy_pipeline(pipeline_state_handle, context);
 }
 
 
-bool vulkan_renderer_create_material(Material *material, const Material_Descriptor &descriptor)
+bool vulkan_renderer_create_material(Material_Handle material_handle, const Material_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Material *vulkan_material = context->materials + index_of(&context->engine->renderer_state, material);
-    Vulkan_Pipeline_State *vulkan_pipeline_state = context->pipeline_states + index_of(&context->engine->renderer_state, descriptor.pipeline_state);
+    Material *material = get(&context->engine->renderer_state.materials, material_handle);
+    Vulkan_Material *vulkan_material = &context->materials[material_handle.index];
+    Pipeline_State *pipeline_state = get(&context->engine->renderer_state.pipeline_states, descriptor.pipeline_state_handle);
+    Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[descriptor.pipeline_state_handle.index];
     Shader_Struct *properties = nullptr;
 
-    for (U32 shader_index = 0; shader_index < descriptor.pipeline_state->shader_count; shader_index++)
+    for (U32 shader_index = 0; shader_index < pipeline_state->shader_count; shader_index++)
     {
-        Shader *shader = descriptor.pipeline_state->shaders[shader_index];
+        Shader *shader = get(&context->engine->renderer_state.shaders, pipeline_state->shaders[shader_index]);
         for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
         {
             Shader_Struct *shader_struct = &shader->structs[struct_index];
@@ -1634,7 +1640,7 @@ bool vulkan_renderer_create_material(Material *material, const Material_Descript
                                write_descriptor_sets, 0, nullptr);
     }
 
-    material->pipeline_state = descriptor.pipeline_state;
+    material->pipeline_state_handle = descriptor.pipeline_state_handle;
     material->data = HE_ALLOCATE_ARRAY(context->allocator, U8, size);
     material->size = size;
 
@@ -1643,19 +1649,20 @@ bool vulkan_renderer_create_material(Material *material, const Material_Descript
     return true;
 }
 
-void vulkan_renderer_destroy_material(Material *material)
+void vulkan_renderer_destroy_material(Material_Handle material_handle)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Material *vulkan_material = context->materials + index_of(&context->engine->renderer_state, material);
+    Vulkan_Material *vulkan_material = &context->materials[material_handle.index];
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
         destroy_buffer(&vulkan_material->buffers[frame_index], context->logical_device);
     }
 }
 
-bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, const Static_Mesh_Descriptor &descriptor)
+bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
+    Static_Mesh *static_mesh = get(&context->engine->renderer_state.static_meshes, static_mesh_handle);
 
     U64 position_size = descriptor.vertex_count * sizeof(glm::vec3);
     U64 normal_size = descriptor.vertex_count * sizeof(glm::vec3);
@@ -1667,7 +1674,7 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, const Static_M
     static_mesh->index_count = descriptor.index_count;
     static_mesh->vertex_count = descriptor.vertex_count;
 
-    Vulkan_Static_Mesh *vulkan_static_mesh = context->static_meshes + index_of(&context->engine->renderer_state, static_mesh);
+    Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
 
     U64 position_offset = (U8 *)descriptor.positions - context->transfer_allocator.base;
     U64 normal_offset = (U8*)descriptor.normals - context->transfer_allocator.base;
@@ -1694,9 +1701,8 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh *static_mesh, const Static_M
     return true;
 }
 
-void vulkan_renderer_destroy_static_mesh(Static_Mesh *static_mesh)
+void vulkan_renderer_destroy_static_mesh(Static_Mesh_Handle static_mesh_handle)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Static_Mesh *vulkan_static_mesh = context->static_meshes + index_of(&context->engine->renderer_state, static_mesh);
     // todo(amer): static mesh allocator...
 }

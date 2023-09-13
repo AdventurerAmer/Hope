@@ -4,8 +4,6 @@
 #include "core/platform.h"
 #include "core/job_system.h"
 
-#include "containers/resource_pool.h"
-
 #include "renderer_types.h"
 #include "camera.h"
 
@@ -39,13 +37,6 @@ struct Scene_Data
     Directional_Light directional_light;
 };
 
-using Texture_Handle = Resource_Handle< Texture >;
-using Shader_Handle = Resource_Handle< Shader >;
-using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
-
-using Material_Handle = Resource_Handle< Material >;
-using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;
-
 struct Renderer_State
 {
     struct Engine *engine;
@@ -53,30 +44,21 @@ struct Renderer_State
     U32 back_buffer_width;
     U32 back_buffer_height;
 
-    std::atomic< U32 > texture_count;
-    Texture *textures;
-
-    std::atomic< U32 > material_count;
-    Material *materials;
-
-    std::atomic< U32 > static_mesh_count;
-    Static_Mesh *static_meshes;
-
-    std::atomic< U32 > shader_count;
-    Shader *shaders;
-
-    std::atomic< U32 > pipeline_state_count;
-    Pipeline_State *pipeline_states;
+    Resource_Pool< Texture > textures;
+    Resource_Pool< Shader > shaders;
+    Resource_Pool< Pipeline_State > pipeline_states;
+    Resource_Pool< Material > materials;
+    Resource_Pool< Static_Mesh > static_meshes;
 
     std::atomic< U32 > scene_node_count;
     Scene_Node *scene_nodes;
 
-    Shader *mesh_vertex_shader;
-    Shader *mesh_fragment_shader;
-    Pipeline_State *mesh_pipeline;
+    Shader_Handle mesh_vertex_shader;
+    Shader_Handle mesh_fragment_shader;
+    Pipeline_State_Handle mesh_pipeline;
 
-    Texture *white_pixel_texture;
-    Texture *normal_pixel_texture;
+    Texture_Handle white_pixel_texture;
+    Texture_Handle normal_pixel_texture;
 
     Scene_Data scene_data;
 
@@ -103,23 +85,23 @@ struct Renderer
     void (*on_resize)(struct Renderer_State *renderer_state, U32 width, U32 height);
 
     void (*begin_frame)(struct Renderer_State *renderer_state, const Scene_Data *scene_data);
-    void (*submit_static_mesh)(struct Renderer_State *renderer_state, const struct Static_Mesh *mesh, const glm::mat4 &transfom);
+    void (*submit_static_mesh)(struct Renderer_State *renderer_state, Static_Mesh_Handle static_mesh_handle, const glm::mat4 &transfom);
     void (*end_frame)(struct Renderer_State *renderer_state);
 
-    bool (*create_texture)(Texture *texture, const Texture_Descriptor &descriptor);
-    void (*destroy_texture)(Texture *texture);
+    bool (*create_texture)(Texture_Handle texture, const Texture_Descriptor &descriptor);
+    void (*destroy_texture)(Texture_Handle texture);
 
-    bool (*create_shader)(Shader *shader, const Shader_Descriptor &descriptor);
-    void (*destroy_shader)(Shader *shader);
+    bool (*create_shader)(Shader_Handle shader_handle, const Shader_Descriptor &descriptor);
+    void (*destroy_shader)(Shader_Handle shader_handle);
 
-    bool (*create_pipeline_state)(Pipeline_State *pipeline_state, const Pipeline_State_Descriptor &descriptor);
-    void (*destroy_pipeline_state)(Pipeline_State *pipeline_state);
+    bool (*create_pipeline_state)(Pipeline_State_Handle pipeline_state_handle, const Pipeline_State_Descriptor &descriptor);
+    void (*destroy_pipeline_state)(Pipeline_State_Handle pipeline_state_handle);
 
-    bool (*create_static_mesh)(Static_Mesh *static_mesh, const Static_Mesh_Descriptor &descriptor);
-    void (*destroy_static_mesh)(Static_Mesh *static_mesh);
+    bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
+    void (*destroy_static_mesh)(Static_Mesh_Handle static_mesh_handle);
 
-    bool (*create_material)(Material *material, const Material_Descriptor &descriptor);
-    void (*destroy_material)(Material *material);
+    bool (*create_material)(Material_Handle material_handle, const Material_Descriptor &descriptor);
+    void (*destroy_material)(Material_Handle material_handle);
 
     void (*imgui_new_frame)();
 };
@@ -131,35 +113,16 @@ Scene_Node *add_child_scene_node(Renderer_State *renderer_state,
 
 bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena);
 
-Scene_Node* load_model(const String &path, Renderer *renderer,
-                       Renderer_State *renderer_state, Memory_Arena *arena);
+Scene_Node* load_model(const String &path, Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena);
 
 Scene_Node* load_model_threaded(const String &path, Renderer *renderer, Renderer_State *renderer_state);
 
 void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene_Node *scene_node, const glm::mat4 &transform);
 
-Texture *allocate_texture(Renderer_State *renderer_state);
-Material *allocate_material(Renderer_State *renderer_state);
-Static_Mesh *allocate_static_mesh(Renderer_State *renderer_state);
-Shader *allocate_shader(Renderer_State *renderer_state);
-Pipeline_State *allocate_pipeline_state(Renderer_State *renderer_state);
-
 U8 *get_property(Material *material, const String &name, ShaderDataType shader_datatype);
 
-U32 index_of(Renderer_State *renderer_state, Texture *texture);
-U32 index_of(Renderer_State *renderer_state, Material *material);
-U32 index_of(Renderer_State *renderer_state, Static_Mesh *static_mesh);
-U32 index_of(Renderer_State *renderer_state, Shader *shader);
-U32 index_of(Renderer_State *renderer_state, Pipeline_State *pipeline_state);
-
-U32 index_of(Renderer_State *renderer_state, const Texture *texture);
-U32 index_of(Renderer_State *renderer_state, const Material *material);
-U32 index_of(Renderer_State *renderer_state, const Static_Mesh *static_mesh);
-U32 index_of(Renderer_State *renderer_state, const Shader *shader);
-U32 index_of(Renderer_State *renderer_state, const Pipeline_State *pipeline_state);
-
-S32 find_texture(Renderer_State *renderer_state, const String &name);
-S32 find_material(Renderer_State *renderer_state, U64 hash);
+Texture_Handle find_texture(Renderer_State *renderer_state, const String &name);
+Material_Handle find_material(Renderer_State *renderer_state, U64 hash);
 
 inline glm::vec4 sRGB_to_linear(const glm::vec4 &color)
 {

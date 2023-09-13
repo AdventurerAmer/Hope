@@ -2,6 +2,7 @@
 
 #include "core/defines.h"
 #include "containers/string.h"
+#include "containers/resource_pool.h"
 
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -88,6 +89,8 @@ struct Texture
     U32 height;
 };
 
+using Texture_Handle = Resource_Handle< Texture >;
+
 struct Shader_Input_Variable
 {
     String name;
@@ -142,9 +145,11 @@ struct Shader
     Shader_Struct *structs;
 };
 
+using Shader_Handle = Resource_Handle< Shader >;
+
 struct Pipeline_State_Descriptor
 {
-    std::initializer_list< const Shader * > shaders;
+    std::initializer_list< Shader_Handle > shaders;
 };
 
 struct Pipeline_State
@@ -152,12 +157,14 @@ struct Pipeline_State
     String name;
 
     U32 shader_count;
-    Shader **shaders;
+    Shader_Handle *shaders;
 };
+
+using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
 
 struct Material_Descriptor
 {
-    Pipeline_State *pipeline_state;
+    Pipeline_State_Handle pipeline_state_handle;
 };
 
 struct Material
@@ -166,13 +173,15 @@ struct Material
 
     U64 hash; // todo(amer): temprary
 
-    Pipeline_State *pipeline_state;
+    Pipeline_State_Handle pipeline_state_handle;
 
     U8 *data;
     U64 size;
 
     Shader_Struct *properties;
 };
+
+using Material_Handle = Resource_Handle< Material >;
 
 struct Static_Mesh_Descriptor
 {
@@ -192,8 +201,11 @@ struct Static_Mesh
 
     U16 vertex_count;
     U32 index_count;
-    Material *material;
+
+    Material_Handle material_handle;
 };
+
+using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;
 
 struct Scene_Node
 {
