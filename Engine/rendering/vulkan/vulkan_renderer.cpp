@@ -32,10 +32,7 @@ vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
     return VK_FALSE;
 }
 
-S32
-find_memory_type_index(Vulkan_Context *context,
-                       VkMemoryRequirements memory_requirements,
-                       VkMemoryPropertyFlags memory_property_flags)
+S32 find_memory_type_index(Vulkan_Context *context, VkMemoryRequirements memory_requirements,VkMemoryPropertyFlags memory_property_flags)
 {
     S32 result = -1;
 
@@ -323,17 +320,20 @@ init_imgui(Vulkan_Context *context)
     return true;
 }
 
-static bool
-init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
+static bool init_vulkan(Vulkan_Context *context, Engine *engine)
 {
     context->engine = engine;
     context->allocator = &engine->memory.free_list_allocator;
 
-    context->textures = HE_ALLOCATE_ARRAY(arena, Vulkan_Image, MAX_TEXTURE_COUNT);
-    context->materials = HE_ALLOCATE_ARRAY(arena, Vulkan_Material, MAX_MATERIAL_COUNT);
-    context->static_meshes = HE_ALLOCATE_ARRAY(arena, Vulkan_Static_Mesh, MAX_STATIC_MESH_COUNT);
-    context->shaders = HE_ALLOCATE_ARRAY(arena, Vulkan_Shader, MAX_SHADER_COUNT);
-    context->pipeline_states = HE_ALLOCATE_ARRAY(arena, Vulkan_Pipeline_State, MAX_PIPELINE_STATE_COUNT);
+    Memory_Arena *arena = &engine->memory.permanent_arena;
+    context->arena = create_sub_arena(arena, HE_MEGA(32));
+    context->buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Buffer, HE_MAX_BUFFER_COUNT);
+    context->textures = HE_ALLOCATE_ARRAY(arena, Vulkan_Image, HE_MAX_TEXTURE_COUNT);
+    context->samplers = HE_ALLOCATE_ARRAY(arena, Vulkan_Sampler, HE_MAX_SAMPLER_COUNT);
+    context->materials = HE_ALLOCATE_ARRAY(arena, Vulkan_Material, HE_MAX_MATERIAL_COUNT);
+    context->static_meshes = HE_ALLOCATE_ARRAY(arena, Vulkan_Static_Mesh, HE_MAX_STATIC_MESH_COUNT);
+    context->shaders = HE_ALLOCATE_ARRAY(arena, Vulkan_Shader, HE_MAX_SHADER_COUNT);
+    context->pipeline_states = HE_ALLOCATE_ARRAY(arena, Vulkan_Pipeline_State, HE_MAX_PIPELINE_STATE_COUNT);
 
     const char *required_instance_extensions[] =
     {
@@ -352,8 +352,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
     U32 driver_api_version = 0;
 
     // vkEnumerateInstanceVersion requires at least vulkan 1.1
-    auto enumerate_instance_version = (PFN_vkEnumerateInstanceVersion)
-        vkGetInstanceProcAddr(nullptr, "vkEnumerateInstanceVersion");
+    auto enumerate_instance_version = (PFN_vkEnumerateInstanceVersion)vkGetInstanceProcAddr(nullptr, "vkEnumerateInstanceVersion");
 
     if (enumerate_instance_version)
     {
@@ -427,9 +426,7 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                                                     context->instance);
     HE_ASSERT(context->surface);
 
-    VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features =
-        { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
-
+    VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
     descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing = VK_TRUE;
     descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing = VK_TRUE;
     descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing = VK_TRUE;
@@ -926,45 +923,6 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
                                            &transfer_command_pool_create_info,
                                            nullptr, &context->transfer_command_pool));
 
-    // todo(amer): temprary
-    U64 max_vertex_count = 1'000'000;
-    U64 position_size = max_vertex_count * sizeof(glm::vec3);
-    create_buffer(&context->position_buffer, context, position_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    U64 normal_size = max_vertex_count * sizeof(glm::vec3);
-    create_buffer(&context->normal_buffer, context, normal_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    U64 uv_size = max_vertex_count * sizeof(glm::vec2);
-    create_buffer(&context->uv_buffer, context, uv_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    U64 tangent_size = max_vertex_count * sizeof(glm::vec4);
-    create_buffer(&context->tangent_buffer, context, tangent_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    context->max_vertex_count = max_vertex_count;
-
-    U64 index_size = HE_MEGA(128);
-    create_buffer(&context->index_buffer, context, index_size,
-                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    create_buffer(&context->transfer_buffer, context, HE_GIGA(2),
-                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    init_free_list_allocator(&context->transfer_allocator, context->transfer_buffer.data, context->transfer_buffer.size);
-    renderer_state->transfer_allocator = &context->transfer_allocator;
-
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        Vulkan_Buffer *global_uniform_buffer = &context->globals_uniform_buffers[frame_index];
-        create_buffer(global_uniform_buffer, context, sizeof(Globals),
-                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-        Vulkan_Buffer *object_storage_buffer = &context->object_storage_buffers[frame_index];
-        create_buffer(object_storage_buffer, context, sizeof(Object_Data) * HE_MAX_OBJECT_DATA_COUNT,
-                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    }
-
     VkDescriptorPoolSize descriptor_pool_sizes[] = {
         { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT },
         { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT },
@@ -1001,47 +959,6 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
         HE_CHECK_VKRESULT(vkAllocateDescriptorSets(context->logical_device,
                                                     &descriptor_set_allocation_info,
                                                     context->descriptor_sets[0]));
-
-        for (U32 frame_index = 0;
-             frame_index < HE_MAX_FRAMES_IN_FLIGHT;
-             frame_index++)
-        {
-            VkDescriptorBufferInfo globals_uniform_buffer_descriptor_info = {};
-            globals_uniform_buffer_descriptor_info.buffer = context->globals_uniform_buffers[frame_index].handle;
-            globals_uniform_buffer_descriptor_info.offset = 0;
-            globals_uniform_buffer_descriptor_info.range = sizeof(Globals);
-
-            VkWriteDescriptorSet globals_uniform_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            globals_uniform_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
-            globals_uniform_buffer_write_descriptor_set.dstBinding = 0;
-            globals_uniform_buffer_write_descriptor_set.dstArrayElement = 0;
-            globals_uniform_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            globals_uniform_buffer_write_descriptor_set.descriptorCount = 1;
-            globals_uniform_buffer_write_descriptor_set.pBufferInfo = &globals_uniform_buffer_descriptor_info;
-
-            VkDescriptorBufferInfo object_data_storage_buffer_descriptor_info = {};
-            object_data_storage_buffer_descriptor_info.buffer = context->object_storage_buffers[frame_index].handle;
-            object_data_storage_buffer_descriptor_info.offset = 0;
-            object_data_storage_buffer_descriptor_info.range = sizeof(Object_Data) * HE_MAX_OBJECT_DATA_COUNT;
-
-            VkWriteDescriptorSet object_data_storage_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            object_data_storage_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
-            object_data_storage_buffer_write_descriptor_set.dstBinding = 1;
-            object_data_storage_buffer_write_descriptor_set.dstArrayElement = 0;
-            object_data_storage_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            object_data_storage_buffer_write_descriptor_set.descriptorCount = 1;
-            object_data_storage_buffer_write_descriptor_set.pBufferInfo = &object_data_storage_buffer_descriptor_info;
-
-            VkWriteDescriptorSet write_descriptor_sets[] =
-            {
-                globals_uniform_buffer_write_descriptor_set,
-                object_data_storage_buffer_write_descriptor_set
-            };
-
-            vkUpdateDescriptorSets(context->logical_device,
-                                   HE_ARRAYCOUNT(write_descriptor_sets),
-                                   write_descriptor_sets, 0, nullptr);
-        }
     }
 
     // set 1
@@ -1074,21 +991,9 @@ init_vulkan(Vulkan_Context *context, Engine *engine, Memory_Arena *arena)
          sync_primitive_index < HE_MAX_FRAMES_IN_FLIGHT;
          sync_primitive_index++)
     {
-        HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device,
-                                             &semaphore_create_info,
-                                             nullptr,
-                                             &context->image_available_semaphores[sync_primitive_index]));
-
-        HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device,
-                                             &semaphore_create_info,
-                                             nullptr,
-                                             &context->rendering_finished_semaphores[sync_primitive_index]));
-
-
-        HE_CHECK_VKRESULT(vkCreateFence(context->logical_device,
-                                         &fence_create_info,
-                                         nullptr,
-                                         &context->frame_in_flight_fences[sync_primitive_index]));
+        HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &semaphore_create_info, nullptr, &context->image_available_semaphores[sync_primitive_index]));
+        HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &semaphore_create_info, nullptr, &context->rendering_finished_semaphores[sync_primitive_index]));
+        HE_CHECK_VKRESULT(vkCreateFence(context->logical_device, &fence_create_info, nullptr, &context->frame_in_flight_fences[sync_primitive_index]));
     }
 
     context->current_frame_in_flight_index = 0;
@@ -1107,32 +1012,14 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDestroyDescriptorPool(context->logical_device, context->imgui_descriptor_pool, nullptr);
 
     ImGui_ImplVulkan_Shutdown();
-
-    destroy_buffer(&context->transfer_buffer, context->logical_device);
-    destroy_buffer(&context->position_buffer, context->logical_device);
-    destroy_buffer(&context->normal_buffer, context->logical_device);
-    destroy_buffer(&context->uv_buffer, context->logical_device);
-    destroy_buffer(&context->tangent_buffer, context->logical_device);
-    destroy_buffer(&context->index_buffer, context->logical_device);
-
+    
     for (U32 frame_index = 0;
          frame_index < HE_MAX_FRAMES_IN_FLIGHT;
          frame_index++)
     {
-        destroy_buffer(&context->globals_uniform_buffers[frame_index], context->logical_device);
-        destroy_buffer(&context->object_storage_buffers[frame_index], context->logical_device);
-
-        vkDestroySemaphore(context->logical_device,
-                           context->image_available_semaphores[frame_index],
-                           nullptr);
-
-        vkDestroySemaphore(context->logical_device,
-                           context->rendering_finished_semaphores[frame_index],
-                           nullptr);
-
-        vkDestroyFence(context->logical_device,
-                       context->frame_in_flight_fences[frame_index],
-                       nullptr);
+        vkDestroySemaphore(context->logical_device, context->image_available_semaphores[frame_index], nullptr);
+        vkDestroySemaphore(context->logical_device, context->rendering_finished_semaphores[frame_index], nullptr);
+        vkDestroyFence(context->logical_device, context->frame_in_flight_fences[frame_index], nullptr);
     }
 
     vkDestroyCommandPool(context->logical_device, context->graphics_command_pool, nullptr);
@@ -1178,31 +1065,26 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDestroyInstance(context->instance, nullptr);
 }
 
-bool vulkan_renderer_init(Renderer_State *renderer_state,
-                          Engine *engine,
-                          Memory_Arena *arena)
+bool vulkan_renderer_init(Engine *engine)
 {
-    (void)renderer_state;
-    return init_vulkan(&vulkan_context, engine, arena);
+    return init_vulkan(&vulkan_context, engine);
 }
 
-void vulkan_renderer_wait_for_gpu_to_finish_all_work(struct Renderer_State *renderer_state)
+void vulkan_renderer_wait_for_gpu_to_finish_all_work()
 {
     vkDeviceWaitIdle(vulkan_context.logical_device);
 }
 
-void vulkan_renderer_deinit(Renderer_State *renderer_state)
+void vulkan_renderer_deinit()
 {
-    (void)renderer_state;
     deinit_vulkan(&vulkan_context);
 }
 
-void vulkan_renderer_on_resize(Renderer_State *renderer_state,
-                               U32 width,
-                               U32 height)
+void vulkan_renderer_on_resize(U32 width, U32 height)
 {
     if (width != 0 && height != 0)
     {
+        Renderer_State *renderer_state = &vulkan_context.engine->renderer_state;
         renderer_state->back_buffer_width = width;
         renderer_state->back_buffer_height = height;
 
@@ -1219,26 +1101,31 @@ void vulkan_renderer_imgui_new_frame()
     ImGui_ImplVulkan_NewFrame();
 }
 
-void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Scene_Data *scene_data)
+void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
 {
     Vulkan_Context *context = &vulkan_context;
+    Renderer_State *renderer_state = &context->engine->renderer_state;
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
 
     vkWaitForFences(context->logical_device,
                     1, &context->frame_in_flight_fences[current_frame_in_flight_index],
                     VK_TRUE, UINT64_MAX);
 
+    begin_temprary_memory_arena(&context->frame_arena, &context->arena);
+
     Globals globals = {};
     globals.view = scene_data->view;
     globals.projection = scene_data->projection;
     globals.projection[1][1] *= -1;
     globals.directional_light_direction = glm::vec4(scene_data->directional_light.direction, 0.0f);
-    globals.directional_light_color = sRGB_to_linear(scene_data->directional_light.color) * scene_data->directional_light.intensity;
+    globals.directional_light_color = srgb_to_linear(scene_data->directional_light.color) * scene_data->directional_light.intensity;
 
-    Vulkan_Buffer *global_uniform_buffer = &context->globals_uniform_buffers[current_frame_in_flight_index];
+    Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[current_frame_in_flight_index]);
     memcpy(global_uniform_buffer->data, &globals, sizeof(Globals));
 
-    context->object_data_base = (Object_Data *)context->object_storage_buffers[current_frame_in_flight_index].data;
+    Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[current_frame_in_flight_index]);
+
+    context->object_data_base = (Object_Data *)object_data_storage_buffer->data;
     context->object_data_count = 0;
 
     U32 width = renderer_state->back_buffer_width;
@@ -1286,8 +1173,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     command_buffer_begin_info.flags = 0;
     command_buffer_begin_info.pInheritanceInfo = 0;
 
-    vkBeginCommandBuffer(command_buffer,
-                         &command_buffer_begin_info);
+    vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
 
     VkClearValue clear_values[3] = {};
     clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
@@ -1302,25 +1188,84 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     render_pass_begin_info.clearValueCount = HE_ARRAYCOUNT(clear_values);
     render_pass_begin_info.pClearValues = clear_values;
 
-    vkCmdBeginRenderPass(command_buffer,
-                         &render_pass_begin_info,
-                         VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRenderPass(command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
-    VkDescriptorImageInfo descriptor_image_infos[MAX_TEXTURE_COUNT] = {};
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        Vulkan_Buffer *globals_uniform_buffer = &context->buffers[renderer_state->globals_uniform_buffers[frame_index].index];
+
+        VkDescriptorBufferInfo globals_uniform_buffer_descriptor_info = {};
+        globals_uniform_buffer_descriptor_info.buffer = globals_uniform_buffer->handle;
+        globals_uniform_buffer_descriptor_info.offset = 0;
+        globals_uniform_buffer_descriptor_info.range = sizeof(Globals);
+
+        VkWriteDescriptorSet globals_uniform_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        globals_uniform_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
+        globals_uniform_buffer_write_descriptor_set.dstBinding = 0;
+        globals_uniform_buffer_write_descriptor_set.dstArrayElement = 0;
+        globals_uniform_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        globals_uniform_buffer_write_descriptor_set.descriptorCount = 1;
+        globals_uniform_buffer_write_descriptor_set.pBufferInfo = &globals_uniform_buffer_descriptor_info;
+
+        Vulkan_Buffer *object_data_storage_buffer = &context->buffers[renderer_state->object_data_storage_buffers[frame_index].index];
+
+        VkDescriptorBufferInfo object_data_storage_buffer_descriptor_info = {};
+        object_data_storage_buffer_descriptor_info.buffer = object_data_storage_buffer->handle;
+        object_data_storage_buffer_descriptor_info.offset = 0;
+        object_data_storage_buffer_descriptor_info.range = sizeof(Object_Data) * HE_MAX_OBJECT_DATA_COUNT;
+
+        VkWriteDescriptorSet object_data_storage_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        object_data_storage_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
+        object_data_storage_buffer_write_descriptor_set.dstBinding = 1;
+        object_data_storage_buffer_write_descriptor_set.dstArrayElement = 0;
+        object_data_storage_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        object_data_storage_buffer_write_descriptor_set.descriptorCount = 1;
+        object_data_storage_buffer_write_descriptor_set.pBufferInfo = &object_data_storage_buffer_descriptor_info;
+
+        VkWriteDescriptorSet write_descriptor_sets[] =
+        {
+            globals_uniform_buffer_write_descriptor_set,
+            object_data_storage_buffer_write_descriptor_set
+        };
+
+        vkUpdateDescriptorSets(context->logical_device,
+                                HE_ARRAYCOUNT(write_descriptor_sets),
+                                write_descriptor_sets, 0, nullptr);
+    }
+
+    VkDescriptorImageInfo *descriptor_image_infos = HE_ALLOCATE_ARRAY(&context->frame_arena, VkDescriptorImageInfo, HE_MAX_TEXTURE_COUNT);
+    Vulkan_Sampler *default_sampler = &context->samplers[renderer_state->default_sampler.index];
 
     for (U32 texture_index = 0;
          texture_index < renderer_state->textures.capacity;
          texture_index++)
     {
-        if (!renderer_state->textures.is_allocated[texture_index])
+        Texture *texture = nullptr;
+        Vulkan_Image *vulkan_image = nullptr;
+
+        if (renderer_state->textures.is_allocated[texture_index])
         {
-            continue;
+            texture = &renderer_state->textures.data[texture_index];
+            vulkan_image = &context->textures[texture_index];
         }
-        Texture *texture = &renderer_state->textures.data[texture_index];
-        Vulkan_Image *vulkan_image = &context->textures[texture_index];
+        else
+        {
+            texture = &renderer_state->textures.data[renderer_state->white_pixel_texture.index];
+            vulkan_image = &context->textures[renderer_state->white_pixel_texture.index];
+        }
+
+        if (texture->data)
+        {
+            if (vkWaitForFences(context->logical_device, 1, &vulkan_image->is_loaded, VK_FALSE, 0) == VK_SUCCESS)
+            {
+                deallocate(&renderer_state->transfer_allocator, texture->data);
+                texture->data = nullptr;
+            }
+        }
+
         descriptor_image_infos[texture_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         descriptor_image_infos[texture_index].imageView = vulkan_image->view;
-        descriptor_image_infos[texture_index].sampler = vulkan_image->sampler;
+        descriptor_image_infos[texture_index].sampler = default_sampler->handle;
     }
 
     VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -1328,7 +1273,7 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     write_descriptor_set.dstBinding = 0;
     write_descriptor_set.dstArrayElement = 0;
     write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write_descriptor_set.descriptorCount = renderer_state->textures.count;
+    write_descriptor_set.descriptorCount = renderer_state->textures.capacity;
     write_descriptor_set.pImageInfo = descriptor_image_infos;
 
     vkUpdateDescriptorSets(context->logical_device, 1, &write_descriptor_set, 0, nullptr);
@@ -1355,37 +1300,70 @@ void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const Sc
     viewport.height = (F32)context->swapchain.height;
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(command_buffer,
-                     0, 1, &viewport);
+    vkCmdSetViewport(command_buffer, 0, 1, &viewport);
 
     VkRect2D scissor = {};
     scissor.offset.x = 0;
     scissor.offset.y = 0;
     scissor.extent.width = context->swapchain.width;
     scissor.extent.height = context->swapchain.height;
-    vkCmdSetScissor(command_buffer,
-                    0, 1, &scissor);
+    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
+    Vulkan_Buffer *position_buffer = &context->buffers[renderer_state->position_buffer.index];
+    Vulkan_Buffer *normal_buffer = &context->buffers[renderer_state->normal_buffer.index];
+    Vulkan_Buffer *uv_buffer = &context->buffers[renderer_state->uv_buffer.index];
+    Vulkan_Buffer *tangent_buffer = &context->buffers[renderer_state->tangent_buffer.index];
+
+    // todo(amer): this should be outside
     VkBuffer vertex_buffers[] =
     {
-        context->position_buffer.handle,
-        context->normal_buffer.handle,
-        context->uv_buffer.handle,
-        context->tangent_buffer.handle
+        position_buffer->handle,
+        normal_buffer->handle,
+        uv_buffer->handle,
+        tangent_buffer->handle
     };
 
     VkDeviceSize offsets[] = { 0, 0, 0, 0 };
-
-    vkCmdBindVertexBuffers(command_buffer,
-                           0, HE_ARRAYCOUNT(vertex_buffers), vertex_buffers, offsets);
-
-    vkCmdBindIndexBuffer(command_buffer,
-                         context->index_buffer.handle, 0, VK_INDEX_TYPE_UINT16);
+    vkCmdBindVertexBuffers(command_buffer, 0, HE_ARRAYCOUNT(vertex_buffers), vertex_buffers, offsets);
+    
+    Vulkan_Buffer *index_buffer = &context->buffers[renderer_state->index_buffer.index];
+    vkCmdBindIndexBuffer(command_buffer, index_buffer->handle, 0, VK_INDEX_TYPE_UINT16);
 }
 
-void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state, Static_Mesh_Handle static_mesh_handle, const glm::mat4 &transform)
+void vulkan_renderer_set_vertex_buffers(Buffer_Handle *vertex_buffer_handles, U64 *offsets, U32 count)
 {
     Vulkan_Context *context = &vulkan_context;
+
+    U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
+
+    VkBuffer *vulkan_vertex_buffers = HE_ALLOCATE_ARRAY(&context->frame_arena, VkBuffer, count);
+    for (U32 vertex_buffer_index = 0; vertex_buffer_index < count; vertex_buffer_index++)
+    {
+        Buffer_Handle vertex_buffer_handle = vertex_buffer_handles[vertex_buffer_index];
+        Vulkan_Buffer *vulkan_vertex_buffer = &context->buffers[vertex_buffer_handle.index];
+        vulkan_vertex_buffers[vertex_buffer_index] = vulkan_vertex_buffer->handle;
+    }
+
+    vkCmdBindVertexBuffers(command_buffer, 0, count, vulkan_vertex_buffers, offsets);
+}
+
+void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 offset)
+{
+    Vulkan_Context *context = &vulkan_context;
+
+    U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
+
+    Vulkan_Buffer *vulkan_index_buffer = &context->buffers[index_buffer_handle.index];
+    vkCmdBindIndexBuffer(command_buffer, vulkan_index_buffer->handle, offset, VK_INDEX_TYPE_UINT16);
+}
+
+void vulkan_renderer_submit_static_mesh(Static_Mesh_Handle static_mesh_handle, const glm::mat4 &transform)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+
     HE_ASSERT(context->object_data_count < HE_MAX_OBJECT_DATA_COUNT);
     U32 object_data_index = context->object_data_count++;
     Object_Data *object_data = &context->object_data_base[object_data_index];
@@ -1426,9 +1404,11 @@ void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state, S
                      first_index, first_vertex, start_instance);
 }
 
-void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
+void vulkan_renderer_end_frame()
 {
     Vulkan_Context *context = &vulkan_context;
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+
     U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
     VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
 
@@ -1505,30 +1485,34 @@ void vulkan_renderer_end_frame(struct Renderer_State *renderer_state)
     {
         context->current_frame_in_flight_index = 0;
     }
+
+    end_temprary_memory_arena(&context->frame_arena);
 }
 
 bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Texture *texture = get(&context->engine->renderer_state.textures, texture_handle);
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Texture *texture = get(&renderer_state->textures, texture_handle);
     Vulkan_Image *image = &context->textures[texture_handle.index];
 
-    HE_ASSERT(descriptor.format == TextureFormat_RGBA); // todo(amer): only supporting RGBA for now.
+    HE_ASSERT(descriptor.format == Texture_Format::RGBA); // todo(amer): only supporting RGBA for now.
     create_image(image, context, descriptor.width, descriptor.height,
                  VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
                  VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
                  VK_IMAGE_ASPECT_COLOR_BIT,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, descriptor.mipmapping);
-
+    
     // todo(amer): only supporting RGBA for now.
     U64 size = (U64)descriptor.width * (U64)descriptor.height * sizeof(U32);
-    U64 transfered_data_offset = (U8 *)descriptor.data - context->transfer_allocator.base;
-
-    copy_data_to_image_from_buffer(context, image, descriptor.width, descriptor.height, &context->transfer_buffer,
-                                   transfered_data_offset, size);
+    U64 transfered_data_offset = (U8 *)descriptor.data - renderer_state->transfer_allocator.base;
+    
+    Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
+    copy_data_to_image_from_buffer(context, image, descriptor.width, descriptor.height, transfer_buffer, transfered_data_offset, size);
 
     texture->width = descriptor.width;
     texture->height = descriptor.height;
+    texture->data = descriptor.data;
     return true;
 }
 
@@ -1537,6 +1521,94 @@ void vulkan_renderer_destroy_texture(Texture_Handle texture_handle)
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Image *vulkan_image = &context->textures[texture_handle.index];
     destroy_image(vulkan_image, &vulkan_context);
+}
+
+static VkSamplerAddressMode get_address_mode(Address_Mode address_mode)
+{
+    switch (address_mode)
+    {
+        case Address_Mode::REPEAT: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        case Address_Mode::CLAMP: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported address mode");
+        } break;
+    }
+
+    return VK_SAMPLER_ADDRESS_MODE_MAX_ENUM;
+}
+
+static VkFilter get_filter(Filter filter)
+{
+    switch (filter)
+    {
+        case Filter::NEAREST: return VK_FILTER_NEAREST;
+        case Filter::LINEAR: return VK_FILTER_LINEAR;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported filter");
+        } break;
+    }
+
+    return VK_FILTER_MAX_ENUM;
+}
+
+static VkSamplerMipmapMode get_mipmap_mode(Filter filter)
+{
+    switch (filter)
+    {
+        case Filter::NEAREST: return VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        case Filter::LINEAR: return VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported filter");
+        } break;
+    }
+
+    return VK_SAMPLER_MIPMAP_MODE_MAX_ENUM;
+}
+
+bool vulkan_renderer_create_sampler(Sampler_Handle sampler_handle, const Sampler_Descriptor &descriptor)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Sampler *sampler = get(&context->engine->renderer_state.samplers, sampler_handle);
+    Vulkan_Sampler *vulkan_sampler = &context->samplers[sampler_handle.index];
+
+    VkSamplerCreateInfo sampler_create_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+    sampler_create_info.minFilter = get_filter(descriptor.min_filter);
+    sampler_create_info.magFilter = get_filter(descriptor.mag_filter);
+    sampler_create_info.addressModeU = get_address_mode(descriptor.address_mode_u);
+    sampler_create_info.addressModeV = get_address_mode(descriptor.address_mode_v);
+    sampler_create_info.addressModeW = get_address_mode(descriptor.address_mode_w);
+    sampler_create_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    sampler_create_info.unnormalizedCoordinates = VK_FALSE;
+    sampler_create_info.compareEnable = VK_FALSE;
+    sampler_create_info.compareOp = VK_COMPARE_OP_ALWAYS;
+    sampler_create_info.mipmapMode = get_mipmap_mode(descriptor.mip_filter);
+    sampler_create_info.mipLodBias = 0.0f;
+    sampler_create_info.minLod = 0.0f;
+    sampler_create_info.maxLod = 16.0f;
+
+    if (descriptor.anisotropic_filtering)
+    {
+        sampler_create_info.anisotropyEnable = VK_TRUE;
+        sampler_create_info.maxAnisotropy = context->physical_device_properties.limits.maxSamplerAnisotropy;
+    }
+
+    HE_CHECK_VKRESULT(vkCreateSampler(context->logical_device, &sampler_create_info, nullptr, &vulkan_sampler->handle));
+    sampler->descriptor = descriptor;
+    return true;
+}
+
+void vulkan_renderer_destroy_sampler(Sampler_Handle sampler_handle)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Sampler *sampler = get(&context->engine->renderer_state.samplers, sampler_handle);
+    Vulkan_Sampler *vulkan_sampler = &context->samplers[sampler_handle.index];
+    vkDestroySampler(context->logical_device, vulkan_sampler->handle, nullptr);
 }
 
 bool vulkan_renderer_create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descriptor)
@@ -1563,7 +1635,6 @@ void vulkan_renderer_destroy_pipeline_state(Pipeline_State_Handle pipeline_state
     Vulkan_Context *context = &vulkan_context;
     destroy_pipeline(pipeline_state_handle, context);
 }
-
 
 bool vulkan_renderer_create_material(Material_Handle material_handle, const Material_Descriptor &descriptor)
 {
@@ -1612,8 +1683,8 @@ bool vulkan_renderer_create_material(Material_Handle material_handle, const Mate
     descriptor_set_allocation_info.pSetLayouts = level2_descriptor_set_layouts;
 
     HE_CHECK_VKRESULT(vkAllocateDescriptorSets(context->logical_device,
-                                                &descriptor_set_allocation_info,
-                                                vulkan_material->descriptor_sets));
+                                               &descriptor_set_allocation_info,
+                                               vulkan_material->descriptor_sets));
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
@@ -1659,10 +1730,90 @@ void vulkan_renderer_destroy_material(Material_Handle material_handle)
     }
 }
 
+static VkBufferUsageFlags get_buffer_usage(Buffer_Usage usage)
+{
+    switch (usage)
+    {
+        case Buffer_Usage::TRANSFER: return 0;
+        case Buffer_Usage::VERTEX:   return VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        case Buffer_Usage::INDEX:    return VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+        case Buffer_Usage::UNIFORM:  return VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        case Buffer_Usage::STORAGE:  return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        default:
+        {
+            HE_ASSERT(!"unsupported buffer usage");
+        } break;
+    }
+
+    return VK_BUFFER_USAGE_FLAG_BITS_MAX_ENUM;
+}
+
+bool vulkan_renderer_create_buffer(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor)
+{
+    HE_ASSERT(descriptor.size);
+    Vulkan_Context *context = &vulkan_context;
+
+    Buffer *buffer = get(&context->engine->renderer_state.buffers, buffer_handle);
+    Vulkan_Buffer *vulkan_buffer = &context->buffers[buffer_handle.index];
+
+    VkBufferUsageFlags usage = get_buffer_usage(descriptor.usage);
+    VkMemoryPropertyFlags memory_property_flags = 0;
+
+    if (descriptor.is_device_local)
+    {
+        usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        memory_property_flags |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    }
+    else
+    {
+        usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        memory_property_flags |= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+
+    VkBufferCreateInfo buffer_create_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    buffer_create_info.size = descriptor.size;
+    buffer_create_info.usage = usage;
+    buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    buffer_create_info.flags = 0;
+
+    HE_CHECK_VKRESULT(vkCreateBuffer(context->logical_device, &buffer_create_info, nullptr, &vulkan_buffer->handle));
+
+    VkMemoryRequirements memory_requirements = {};
+    vkGetBufferMemoryRequirements(context->logical_device, vulkan_buffer->handle, &memory_requirements);
+
+    S32 memory_type_index = find_memory_type_index(context, memory_requirements, memory_property_flags);
+    HE_ASSERT(memory_type_index != -1);
+
+    VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+    memory_allocate_info.allocationSize = memory_requirements.size;
+    memory_allocate_info.memoryTypeIndex = memory_type_index;
+
+    HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info, nullptr, &vulkan_buffer->memory));
+    HE_CHECK_VKRESULT(vkBindBufferMemory(context->logical_device, vulkan_buffer->handle, vulkan_buffer->memory, 0));
+
+    if ((memory_property_flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+    {
+        vkMapMemory(context->logical_device, vulkan_buffer->memory, 0, descriptor.size, 0, &buffer->data);
+    }
+
+    buffer->size = memory_requirements.size;
+    return true;
+}
+
+void vulkan_renderer_destroy_buffer(Buffer_Handle buffer_handle)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Buffer *vulkan_buffer = &context->buffers[buffer_handle.index];
+
+    vkFreeMemory(context->logical_device, vulkan_buffer->memory, nullptr);
+    vkDestroyBuffer(context->logical_device, vulkan_buffer->handle, nullptr);
+}
+
 bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Static_Mesh *static_mesh = get(&context->engine->renderer_state.static_meshes, static_mesh_handle);
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
 
     U64 position_size = descriptor.vertex_count * sizeof(glm::vec3);
     U64 normal_size = descriptor.vertex_count * sizeof(glm::vec3);
@@ -1670,39 +1821,93 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     U64 tangent_size = descriptor.vertex_count * sizeof(glm::vec4);
     U64 index_size = descriptor.index_count * sizeof(U16);
 
-    HE_ASSERT(context->vertex_count + descriptor.vertex_count <= context->max_vertex_count);
+    HE_ASSERT(renderer_state->vertex_count + descriptor.vertex_count <= renderer_state->max_vertex_count);
     static_mesh->index_count = descriptor.index_count;
     static_mesh->vertex_count = descriptor.vertex_count;
 
     Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
 
-    U64 position_offset = (U8 *)descriptor.positions - context->transfer_allocator.base;
-    U64 normal_offset = (U8*)descriptor.normals - context->transfer_allocator.base;
-    U64 uv_offset = (U8*)descriptor.uvs - context->transfer_allocator.base;
-    U64 tangent_offset = (U8*)descriptor.tangents - context->transfer_allocator.base;
+    VkFenceCreateInfo fence_create_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    HE_CHECK_VKRESULT(vkCreateFence(context->logical_device, &fence_create_info, nullptr, &vulkan_static_mesh->is_loaded));
 
-    U64 indicies_offset = (U8 *)descriptor.indices - context->transfer_allocator.base;
+    U64 position_offset = (U8 *)descriptor.positions - renderer_state->transfer_allocator.base;
+    U64 normal_offset = (U8 *)descriptor.normals - renderer_state->transfer_allocator.base;
+    U64 uv_offset = (U8 *)descriptor.uvs - renderer_state->transfer_allocator.base;
+    U64 tangent_offset = (U8 *)descriptor.tangents - renderer_state->transfer_allocator.base;
+    U64 indicies_offset = (U8 *)descriptor.indices - renderer_state->transfer_allocator.base;
 
-    copy_data_to_buffer_from_buffer(context, &context->position_buffer, context->vertex_count * sizeof(glm::vec3), &context->transfer_buffer, position_offset, position_size);
+    VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    command_buffer_allocate_info.commandPool = context->transfer_command_pool;
+    command_buffer_allocate_info.commandBufferCount = 1;
+    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-    copy_data_to_buffer_from_buffer(context, &context->normal_buffer, context->vertex_count * sizeof(glm::vec3), &context->transfer_buffer, normal_offset, normal_size);
+    VkCommandBuffer command_buffer = {};
+    vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer); // @Leak
+    vkResetCommandBuffer(command_buffer, 0);
 
-    copy_data_to_buffer_from_buffer(context, &context->uv_buffer, context->vertex_count * sizeof(glm::vec2), &context->transfer_buffer, uv_offset, uv_size);
+    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    command_buffer_begin_info.flags = 0;
+    command_buffer_begin_info.pInheritanceInfo = 0;
 
-    copy_data_to_buffer_from_buffer(context, &context->tangent_buffer, context->vertex_count * sizeof(glm::vec4), &context->transfer_buffer, tangent_offset, position_size);
+    vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
 
-    copy_data_to_buffer_from_buffer(context, &context->index_buffer, context->index_offset, &context->transfer_buffer, indicies_offset, index_size);
+    Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
+    Vulkan_Buffer *position_buffer = &context->buffers[renderer_state->position_buffer.index];
+    Vulkan_Buffer *normal_buffer = &context->buffers[renderer_state->normal_buffer.index];
+    Vulkan_Buffer *uv_buffer = &context->buffers[renderer_state->uv_buffer.index];
+    Vulkan_Buffer *tangent_buffer = &context->buffers[renderer_state->tangent_buffer.index];
 
-    vulkan_static_mesh->first_vertex = (S32)u64_to_u32(context->vertex_count);
-    vulkan_static_mesh->first_index = u64_to_u32(context->index_offset / sizeof(U16));
+    VkBufferCopy position_copy_region = {};
+    position_copy_region.srcOffset = position_offset;
+    position_copy_region.dstOffset = renderer_state->vertex_count * sizeof(glm::vec3);
+    position_copy_region.size = position_size;
+    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, position_buffer->handle, 1, &position_copy_region);
 
-    context->vertex_count += descriptor.vertex_count;
-    context->index_offset += index_size;
+    VkBufferCopy normal_copy_region = {};
+    normal_copy_region.srcOffset = normal_offset;
+    normal_copy_region.dstOffset = renderer_state->vertex_count * sizeof(glm::vec3);
+    normal_copy_region.size = normal_size;
+    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, normal_buffer->handle, 1, &normal_copy_region);
+
+    VkBufferCopy uv_copy_region = {};
+    uv_copy_region.srcOffset = uv_offset;
+    uv_copy_region.dstOffset = renderer_state->vertex_count * sizeof(glm::vec2);
+    uv_copy_region.size = uv_size;
+    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, uv_buffer->handle, 1, &uv_copy_region);
+
+    VkBufferCopy tangent_copy_region = {};
+    tangent_copy_region.srcOffset = tangent_offset;
+    tangent_copy_region.dstOffset = renderer_state->vertex_count * sizeof(glm::vec4);
+    tangent_copy_region.size = tangent_size;
+    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, tangent_buffer->handle, 1, &tangent_copy_region);
+
+    Vulkan_Buffer *index_buffer = &context->buffers[renderer_state->index_buffer.index];
+
+    VkBufferCopy index_copy_region = {};
+    index_copy_region.srcOffset = indicies_offset;
+    index_copy_region.dstOffset = renderer_state->index_offset;
+    index_copy_region.size = index_size;
+    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, index_buffer->handle, 1, &index_copy_region);
+
+    vkEndCommandBuffer(command_buffer);
+
+    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffer;
+    vkQueueSubmit(context->transfer_queue, 1, &submit_info, vulkan_static_mesh->is_loaded);
+
+    vulkan_static_mesh->first_vertex = (S32)u64_to_u32(renderer_state->vertex_count);
+    vulkan_static_mesh->first_index = u64_to_u32(renderer_state->index_offset / sizeof(U16));
+
+    renderer_state->vertex_count += descriptor.vertex_count;
+    renderer_state->index_offset += index_size;
     return true;
 }
 
+// todo(amer): static mesh allocator...
 void vulkan_renderer_destroy_static_mesh(Static_Mesh_Handle static_mesh_handle)
 {
     Vulkan_Context *context = &vulkan_context;
-    // todo(amer): static mesh allocator...
+    Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
+    vkDestroyFence(context->logical_device, vulkan_static_mesh->is_loaded, nullptr);
 }

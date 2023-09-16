@@ -7,23 +7,24 @@ S32 find_memory_type_index(Vulkan_Context *context,
                            VkMemoryRequirements memory_requirements,
                            VkMemoryPropertyFlags memory_property_flags);
 
-bool vulkan_renderer_init(struct Renderer_State *renderer_state,
-                          struct Engine *engine,
-                          struct Memory_Arena *arena);
+bool vulkan_renderer_init(struct Engine *engine);
+void vulkan_renderer_deinit();
 
-void vulkan_renderer_deinit(struct Renderer_State *renderer_state);
+void vulkan_renderer_wait_for_gpu_to_finish_all_work();
 
-void vulkan_renderer_wait_for_gpu_to_finish_all_work(struct Renderer_State *renderer_state);
-
-void vulkan_renderer_on_resize(struct Renderer_State *renderer_state, U32 width, U32 height);
+void vulkan_renderer_on_resize(U32 width, U32 height);
 
 bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture_Descriptor &descriptor);
-
 void vulkan_renderer_destroy_texture(Texture_Handle texture_handle);
 
-bool vulkan_renderer_create_material(Material_Handle material_handle, const Material_Descriptor &descriptor);
+bool vulkan_renderer_create_sampler(Sampler_Handle sampler_handle, const Sampler_Descriptor &descriptor);
+void vulkan_renderer_destroy_sampler(Sampler_Handle sampler_handle);
 
+bool vulkan_renderer_create_material(Material_Handle material_handle, const Material_Descriptor &descriptor);
 void vulkan_renderer_destroy_material(Material_Handle material_handle);
+
+bool vulkan_renderer_create_buffer(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor);
+void vulkan_renderer_destroy_buffer(Buffer_Handle buffer_handle);
 
 bool vulkan_renderer_create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descriptor);
 void vulkan_renderer_destroy_shader(Shader_Handle shader_handle);
@@ -34,8 +35,12 @@ void vulkan_renderer_destroy_pipeline_state(Pipeline_State_Handle pipeline_state
 bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
 void vulkan_renderer_destroy_static_mesh(Static_Mesh_Handle static_mesh_handle);
 
-void vulkan_renderer_begin_frame(struct Renderer_State *renderer_state, const struct Scene_Data *scene_data);
-void vulkan_renderer_submit_static_mesh(struct Renderer_State *renderer_state, Static_Mesh_Handle static_mesh_handle, const glm::mat4 &transform);
-void vulkan_renderer_end_frame(struct Renderer_State *renderer_state);
+void vulkan_renderer_begin_frame(const struct Scene_Data *scene_data);
+
+void vulkan_renderer_set_vertex_buffers(Buffer_Handle *vertex_buffer_handles, U64 *offsets, U32 count);
+void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 offset);
+
+void vulkan_renderer_submit_static_mesh(Static_Mesh_Handle static_mesh_handle, const glm::mat4 &transform);
+void vulkan_renderer_end_frame();
 
 void vulkan_renderer_imgui_new_frame();

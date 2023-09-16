@@ -27,11 +27,8 @@ bool create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
     memory_allocate_info.allocationSize = memory_requirements.size;
     memory_allocate_info.memoryTypeIndex = memory_type_index;
 
-    HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info,
-                                        nullptr, &buffer->memory));
-
-    HE_CHECK_VKRESULT(vkBindBufferMemory(context->logical_device,
-                                          buffer->handle, buffer->memory, 0));
+    HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info, nullptr, &buffer->memory));
+    HE_CHECK_VKRESULT(vkBindBufferMemory(context->logical_device, buffer->handle, buffer->memory, 0));
 
     if ((memory_property_flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
     {
@@ -41,50 +38,7 @@ bool create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
     return true;
 }
 
-void copy_data_to_buffer_from_buffer(Vulkan_Context *context,
-                                     Vulkan_Buffer *dst, U64 dst_offset,
-                                     Vulkan_Buffer *src, U64 src_offset,
-                                     U64 size)
-{
-    HE_ASSERT(context);
-    HE_ASSERT(dst);
-    HE_ASSERT(src);
-    HE_ASSERT(size);
-
-    VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    command_buffer_allocate_info.commandPool = context->transfer_command_pool;
-    command_buffer_allocate_info.commandBufferCount = 1;
-    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-
-    VkCommandBuffer command_buffer = {};
-    vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
-    vkResetCommandBuffer(command_buffer, 0);
-
-    VkCommandBufferBeginInfo command_buffer_begin_info =
-        { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    command_buffer_begin_info.flags = 0;
-    command_buffer_begin_info.pInheritanceInfo = 0;
-
-    vkBeginCommandBuffer(command_buffer,
-                         &command_buffer_begin_info);
-
-    VkBufferCopy copy_region = {};
-    copy_region.srcOffset = src_offset;
-    copy_region.dstOffset = dst_offset;
-    copy_region.size = size;
-
-    vkCmdCopyBuffer(command_buffer, src->handle, dst->handle, 1, &copy_region);
-    vkEndCommandBuffer(command_buffer);
-
-    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffer;
-
-    vkQueueSubmit(context->transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
-}
-
-void destroy_buffer(Vulkan_Buffer *buffer,
-                    VkDevice logical_device)
+void destroy_buffer(Vulkan_Buffer *buffer, VkDevice logical_device)
 {
     vkFreeMemory(logical_device, buffer->memory, nullptr);
     vkDestroyBuffer(logical_device, buffer->handle, nullptr);

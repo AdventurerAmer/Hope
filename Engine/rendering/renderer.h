@@ -14,13 +14,15 @@ enum RenderingAPI
     RenderingAPI_Vulkan
 };
 
-#define MAX_TEXTURE_COUNT 4096
-#define MAX_MATERIAL_COUNT 4096
-#define MAX_STATIC_MESH_COUNT 4096
-#define MAX_SHADER_COUNT 4096
-#define MAX_PIPELINE_STATE_COUNT 4096
-#define MAX_SCENE_NODE_COUNT 4096
-#define GAMMA 2.2f
+#define HE_MAX_BUFFER_COUNT 4096
+#define HE_MAX_TEXTURE_COUNT 4096
+#define HE_MAX_SAMPLER_COUNT 4096
+#define HE_MAX_MATERIAL_COUNT 4096
+#define HE_MAX_STATIC_MESH_COUNT 4096
+#define HE_MAX_SHADER_COUNT 4096
+#define HE_MAX_PIPELINE_STATE_COUNT 4096
+#define HE_MAX_SCENE_NODE_COUNT 4096
+#define HE_GAMMA 2.2f
 
 struct Directional_Light
 {
@@ -44,7 +46,9 @@ struct Renderer_State
     U32 back_buffer_width;
     U32 back_buffer_height;
 
+    Resource_Pool< Buffer > buffers;
     Resource_Pool< Texture > textures;
+    Resource_Pool< Sampler > samplers;
     Resource_Pool< Shader > shaders;
     Resource_Pool< Pipeline_State > pipeline_states;
     Resource_Pool< Material > materials;
@@ -60,9 +64,27 @@ struct Renderer_State
     Texture_Handle white_pixel_texture;
     Texture_Handle normal_pixel_texture;
 
+    Sampler_Handle default_sampler;
+
+    Buffer_Handle globals_uniform_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    Buffer_Handle object_data_storage_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    U32 object_data_count;
+
+    Buffer_Handle transfer_buffer;
+
+    U64 max_vertex_count;
+    U64 vertex_count;
+    Buffer_Handle position_buffer;
+    Buffer_Handle normal_buffer;
+    Buffer_Handle uv_buffer;
+    Buffer_Handle tangent_buffer;
+
+    Buffer_Handle index_buffer;
+    U64 index_offset;
+
     Scene_Data scene_data;
 
-    struct Free_List_Allocator *transfer_allocator;
+    Free_List_Allocator transfer_allocator;
 
     Mutex render_commands_mutex;
 };
@@ -75,21 +97,27 @@ void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_s
 
 struct Renderer
 {
-    bool (*init)(struct Renderer_State *renderer_state,
-                 struct Engine *engine,
-                 struct Memory_Arena *arena);
+    bool (*init)(struct Engine *engine);
+    void (*deinit)();
 
-    void (*wait_for_gpu_to_finish_all_work)(struct Renderer_State *renderer_state);
-    void (*deinit)(struct Renderer_State *renderer_state);
+    void (*wait_for_gpu_to_finish_all_work)();
 
-    void (*on_resize)(struct Renderer_State *renderer_state, U32 width, U32 height);
+    void (*on_resize)(U32 width, U32 height);
 
-    void (*begin_frame)(struct Renderer_State *renderer_state, const Scene_Data *scene_data);
-    void (*submit_static_mesh)(struct Renderer_State *renderer_state, Static_Mesh_Handle static_mesh_handle, const glm::mat4 &transfom);
-    void (*end_frame)(struct Renderer_State *renderer_state);
+    void (*begin_frame)(const Scene_Data *scene_data);
+    void (*set_vertex_buffers)(Buffer_Handle *vertex_buffer_handles, U64 *offsets, U32 count);
+    void (*set_index_buffer)(Buffer_Handle index_buffer_handle, U64 offset);
+    void (*submit_static_mesh)(Static_Mesh_Handle static_mesh_handle, const glm::mat4 &transfom);
+    void (*end_frame)();
 
-    bool (*create_texture)(Texture_Handle texture, const Texture_Descriptor &descriptor);
-    void (*destroy_texture)(Texture_Handle texture);
+    bool (*create_buffer)(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor);
+    void (*destroy_buffer)(Buffer_Handle buffer_handle);
+
+    bool (*create_texture)(Texture_Handle texture_handle, const Texture_Descriptor &descriptor);
+    void (*destroy_texture)(Texture_Handle texture_handle);
+
+    bool (*create_sampler)(Sampler_Handle sampler_handle, const Sampler_Descriptor &descriptor);
+    void (*destroy_sampler)(Sampler_Handle sampler_handle);
 
     bool (*create_shader)(Shader_Handle shader_handle, const Shader_Descriptor &descriptor);
     void (*destroy_shader)(Shader_Handle shader_handle);
@@ -108,8 +136,7 @@ struct Renderer
 
 bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);
 
-Scene_Node *add_child_scene_node(Renderer_State *renderer_state,
-                                 Scene_Node *parent);
+Scene_Node *add_child_scene_node(Renderer_State *renderer_state, Scene_Node *parent);
 
 bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena);
 
@@ -124,14 +151,14 @@ U8 *get_property(Material *material, const String &name, ShaderDataType shader_d
 Texture_Handle find_texture(Renderer_State *renderer_state, const String &name);
 Material_Handle find_material(Renderer_State *renderer_state, U64 hash);
 
-inline glm::vec4 sRGB_to_linear(const glm::vec4 &color)
+HE_FORCE_INLINE glm::vec4 srgb_to_linear(const glm::vec4 &color)
 {
-    return glm::pow(color, glm::vec4(GAMMA));
+    return glm::pow(color, glm::vec4(HE_GAMMA));
 }
 
-inline glm::vec4 linear_to_sRGB(const glm::vec4 &color)
+HE_FORCE_INLINE glm::vec4 linear_to_srgb(const glm::vec4 &color)
 {
-    return glm::pow(color, glm::vec4(1.0f / GAMMA));
+    return glm::pow(color, glm::vec4(1.0f / HE_GAMMA));
 }
 
 U32 get_size_of_shader_data_type(ShaderDataType shader_data_type);

@@ -239,16 +239,13 @@ bool startup(Engine *engine, void *platform_state)
         return false;
     }
 
-    bool renderer_inited = renderer->init(&engine->renderer_state,
-                                          engine,
-                                          &engine->memory.permanent_arena);
+    bool renderer_inited = renderer->init(engine);
     if (!renderer_inited)
     {
         return false;
     }
 
-    bool renderer_state_inited = init_renderer_state(renderer_state,
-                                                     engine);
+    bool renderer_state_inited = init_renderer_state(renderer_state, engine);
     if (!renderer_state_inited)
     {
         return false;
@@ -263,7 +260,7 @@ bool startup(Engine *engine, void *platform_state)
 
     bool game_initialized = game_code->init_game(engine);
     wait_for_all_jobs_to_finish();
-    renderer->wait_for_gpu_to_finish_all_work(renderer_state);
+    renderer->wait_for_gpu_to_finish_all_work();
 
     auto end = std::chrono::steady_clock::now();
     const std::chrono::duration< double > elapsed_seconds = end - start;
@@ -314,10 +311,10 @@ void shutdown(Engine *engine)
 {
     Renderer *renderer = &engine->renderer;
     Renderer_State *renderer_state = &engine->renderer_state;
-    renderer->wait_for_gpu_to_finish_all_work(renderer_state);
+    renderer->wait_for_gpu_to_finish_all_work();
 
     deinit_renderer_state(renderer, renderer_state);
-    renderer->deinit(renderer_state);
+    renderer->deinit();
 
     deinit_job_system();
 

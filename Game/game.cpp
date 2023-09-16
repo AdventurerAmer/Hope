@@ -127,9 +127,9 @@ HE_API void on_update(Engine *engine, F32 delta_time)
         scene_data->view = camera->view;
         scene_data->projection = camera->projection;
 
-        renderer->begin_frame(renderer_state, scene_data);
+        renderer->begin_frame(scene_data);
         // engine->api.render_scene_node(renderer, renderer_state, game_state.sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
         engine->api.render_scene_node(renderer, renderer_state, game_state.flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)));
-        renderer->end_frame(renderer_state);
+        renderer->end_frame();
     }
 }

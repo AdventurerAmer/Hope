@@ -27,6 +27,106 @@
 #define HE_GRAPHICS_DEBUGGING 0
 #endif
 
+//
+// Buffer
+//
+
+enum class Buffer_Usage : U8
+{
+    TRANSFER,
+    VERTEX,
+    INDEX,
+    UNIFORM,
+    STORAGE,
+};
+
+struct Buffer_Descriptor
+{
+    U64 size;
+    Buffer_Usage usage;
+    bool is_device_local;
+};
+
+struct Buffer
+{
+    String name;
+
+    U64 size;
+    void *data;
+};
+
+using Buffer_Handle = Resource_Handle< Buffer >;
+
+//
+// Texture
+//
+enum class Texture_Format
+{
+    RGBA
+};
+
+struct Texture_Descriptor
+{
+    U32 width;
+    U32 height;
+    void *data;
+    Texture_Format format;
+    bool mipmapping;
+};
+
+struct Texture
+{
+    String name;
+
+    U32 width;
+    U32 height;
+
+    void *data;
+};
+
+using Texture_Handle = Resource_Handle< Texture >;
+
+//
+// Sampler
+//
+
+enum class Filter : U8
+{
+    NEAREST,
+    LINEAR
+};
+
+enum class Address_Mode : U8
+{
+    REPEAT,
+    CLAMP
+};
+
+struct Sampler_Descriptor
+{
+    Address_Mode address_mode_u = Address_Mode::REPEAT;
+    Address_Mode address_mode_v = Address_Mode::REPEAT;
+    Address_Mode address_mode_w = Address_Mode::REPEAT;
+
+    Filter min_filter = Filter::NEAREST;
+    Filter mag_filter = Filter::NEAREST;
+    Filter mip_filter = Filter::NEAREST;
+
+    bool anisotropic_filtering = true;
+};
+
+struct Sampler
+{
+    String name;
+    Sampler_Descriptor descriptor;
+};
+
+using Sampler_Handle = Resource_Handle< Sampler >;
+
+//
+// Shader
+//
+
 enum ShaderDataType
 {
     ShaderDataType_Bool,
@@ -58,39 +158,6 @@ enum ShaderDataType
     ShaderDataType_Array,
 };
 
-struct Vertex
-{
-    glm::vec3 position;
-    glm::vec3 normal;
-    glm::vec3 tangent;
-    glm::vec3 bitangent;
-    glm::vec2 uv;
-};
-
-enum TextureFormat
-{
-    TextureFormat_RGBA
-};
-
-struct Texture_Descriptor
-{
-    U32 width;
-    U32 height;
-    void *data;
-    TextureFormat format;
-    bool mipmapping;
-};
-
-struct Texture
-{
-    String name;
-
-    U32 width;
-    U32 height;
-};
-
-using Texture_Handle = Resource_Handle< Texture >;
-
 struct Shader_Input_Variable
 {
     String name;
@@ -110,9 +177,9 @@ struct Shader_Struct_Member
     String name;
 
     ShaderDataType data_type;
-    U32 offset;
+    U32 offset = 0;
 
-    bool is_array;
+    bool is_array = false;
     S32 array_element_count = -1;
 
     S32 struct_index = -1;
@@ -162,6 +229,10 @@ struct Pipeline_State
 
 using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
 
+//
+// Material
+//
+
 struct Material_Descriptor
 {
     Pipeline_State_Handle pipeline_state_handle;
@@ -183,6 +254,10 @@ struct Material
 
 using Material_Handle = Resource_Handle< Material >;
 
+//
+// Mesh
+//
+
 struct Static_Mesh_Descriptor
 {
     U16 vertex_count;
@@ -202,6 +277,9 @@ struct Static_Mesh
     U16 vertex_count;
     U32 index_count;
 
+    void *data0;
+    void *data1;
+
     Material_Handle material_handle;
 };
 
@@ -209,6 +287,8 @@ using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;
 
 struct Scene_Node
 {
+    String name;
+
     Scene_Node *parent;
     Scene_Node *first_child;
     Scene_Node *last_child;
@@ -220,6 +300,7 @@ struct Scene_Node
     glm::mat4 transform;
 };
 
+// todo(amer): hardcoding per object data and globals layouts here
 struct Object_Data
 {
     glm::mat4 model;

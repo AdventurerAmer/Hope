@@ -133,9 +133,7 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
 
             if (engine->renderer.on_resize)
             {
-                engine->renderer.on_resize(&engine->renderer_state,
-                                           client_width,
-                                           client_height);
+                engine->renderer.on_resize(client_width, client_height);
             }
         } break;
 

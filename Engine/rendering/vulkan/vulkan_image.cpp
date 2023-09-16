@@ -3,6 +3,8 @@
 
 #include "vulkan_image.h"
 #include "vulkan_renderer.h"
+
+#include "core/engine.h"
 #include "core/memory.h"
 
 static void
@@ -96,20 +98,16 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     image_create_info.samples = samples;
     image_create_info.flags = 0;
 
-    HE_CHECK_VKRESULT(vkCreateImage(context->logical_device, &image_create_info,
-                                     nullptr, &image->handle));
+    HE_CHECK_VKRESULT(vkCreateImage(context->logical_device, &image_create_info, nullptr, &image->handle));
 
     VkMemoryRequirements memory_requirements = {};
     vkGetImageMemoryRequirements(context->logical_device, image->handle, &memory_requirements);
 
     VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
     memory_allocate_info.allocationSize = memory_requirements.size;
-    memory_allocate_info.memoryTypeIndex = find_memory_type_index(context,
-                                                                  memory_requirements,
-                                                                  properties);
+    memory_allocate_info.memoryTypeIndex = find_memory_type_index(context, memory_requirements, properties);
 
-    HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info,
-                                        nullptr, &image->memory));
+    HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info, nullptr, &image->memory));
 
     vkBindImageMemory(context->logical_device, image->handle, image->memory, 0);
     image->mip_levels = mip_levels;
@@ -127,26 +125,10 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     image_view_create_info.subresourceRange.levelCount = mip_levels;
     image_view_create_info.subresourceRange.baseArrayLayer = 0;
     image_view_create_info.subresourceRange.layerCount = 1;
-    HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info,
-                                         nullptr, &image->view));
+    HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, nullptr, &image->view));
 
-    VkSamplerCreateInfo sampler_create_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
-    sampler_create_info.minFilter = VK_FILTER_LINEAR;
-    sampler_create_info.magFilter = VK_FILTER_LINEAR;
-    sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_create_info.anisotropyEnable = VK_TRUE;
-    sampler_create_info.maxAnisotropy = context->physical_device_properties.limits.maxSamplerAnisotropy;
-    sampler_create_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-    sampler_create_info.unnormalizedCoordinates = VK_FALSE;
-    sampler_create_info.compareEnable = VK_FALSE;
-    sampler_create_info.compareOp = VK_COMPARE_OP_ALWAYS;
-    sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    sampler_create_info.mipLodBias = 0.0f;
-    sampler_create_info.minLod = 0.0f;
-    sampler_create_info.maxLod = (F32)image->mip_levels;
-    HE_CHECK_VKRESULT(vkCreateSampler(context->logical_device, &sampler_create_info, nullptr, &image->sampler));
+    VkFenceCreateInfo fence_create_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    HE_CHECK_VKRESULT(vkCreateFence(context->logical_device, &fence_create_info, nullptr, &image->is_loaded));
 
     return true;
 }
@@ -170,7 +152,7 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
     command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
     VkCommandBuffer command_buffer = {};
-    vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
+    vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer); // @Leak
     vkResetCommandBuffer(command_buffer, 0);
 
     VkCommandBufferBeginInfo command_buffer_begin_info =
@@ -199,8 +181,9 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
     region.imageOffset = { 0, 0, 0 };
     region.imageExtent = { width, height, 1 };
 
-    vkCmdCopyBufferToImage(command_buffer, context->transfer_buffer.handle,
-                           image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
+    vkCmdCopyBufferToImage(command_buffer, transfer_buffer->handle, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
     barrier.image = image->handle;
@@ -240,9 +223,8 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
         blit.srcSubresource.baseArrayLayer = 0;
         blit.srcSubresource.layerCount = 1;
 
-        U32 new_mip_width = mip_width > 1 ? mip_width / 2 : 1;
-        U32 new_mip_height = mip_height > 1 ? mip_height / 2 : 1;
-
+        U32 new_mip_width = mip_width > 1 ? (mip_width / 2) : 1;
+        U32 new_mip_height = mip_height > 1 ? (mip_height / 2) : 1;
         mip_width = new_mip_width;
         mip_height = new_mip_height;
 
@@ -289,14 +271,14 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &command_buffer;
 
-    vkQueueSubmit(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+    HE_CHECK_VKRESULT(vkResetFences(context->logical_device, 1, &image->is_loaded));
+    vkQueueSubmit(context->graphics_queue, 1, &submit_info, image->is_loaded);
 }
 
-void
-destroy_image(Vulkan_Image *image, Vulkan_Context *context)
+void destroy_image(Vulkan_Image *image, Vulkan_Context *context)
 {
     vkDestroyImageView(context->logical_device, image->view, nullptr);
     vkFreeMemory(context->logical_device, image->memory, nullptr);
     vkDestroyImage(context->logical_device, image->handle, nullptr);
-    vkDestroySampler(context->logical_device, image->sampler, nullptr);
+    vkDestroyFence(context->logical_device, image->is_loaded, nullptr);
 }

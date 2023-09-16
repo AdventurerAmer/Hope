@@ -34,13 +34,18 @@ struct Vulkan_Image
 {
     VkImage handle;
     VkDeviceMemory memory;
+    U64 size;
     VkImageView view;
     VkFormat format;
     U32 mip_levels;
-    void *data;
-    U64 size;
 
-    VkSampler sampler;
+    void *data;
+    VkFence is_loaded;
+};
+
+struct Vulkan_Sampler
+{
+    VkSampler handle;
 };
 
 struct Vulkan_Buffer
@@ -114,6 +119,8 @@ struct Vulkan_Static_Mesh
 {
     S32 first_vertex;
     U32 first_index;
+
+    VkFence is_loaded;
 };
 
 struct Engine;
@@ -121,6 +128,8 @@ struct Engine;
 struct Vulkan_Context
 {
     Engine *engine;
+    Memory_Arena arena;
+    Temprary_Memory_Arena frame_arena;
 
     VkInstance instance;
 
@@ -150,12 +159,6 @@ struct Vulkan_Context
     VkSemaphore rendering_finished_semaphores[HE_MAX_FRAMES_IN_FLIGHT];
     VkFence frame_in_flight_fences[HE_MAX_FRAMES_IN_FLIGHT];
 
-    Vulkan_Buffer globals_uniform_buffers[HE_MAX_FRAMES_IN_FLIGHT];
-
-    Vulkan_Buffer object_storage_buffers[HE_MAX_FRAMES_IN_FLIGHT];
-    Object_Data *object_data_base;
-    U32 object_data_count;
-
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet descriptor_sets[HE_MAX_DESCRIPTOR_SET_COUNT][HE_MAX_FRAMES_IN_FLIGHT];
 
@@ -163,30 +166,23 @@ struct Vulkan_Context
     VkCommandBuffer graphics_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
     VkCommandPool transfer_command_pool;
-    Vulkan_Buffer transfer_buffer;
-
-    U64 max_vertex_count;
-    U64 vertex_count;
-    Vulkan_Buffer position_buffer;
-    Vulkan_Buffer normal_buffer;
-    Vulkan_Buffer uv_buffer;
-    Vulkan_Buffer tangent_buffer;
-
-    Vulkan_Buffer index_buffer;
-    U64 index_offset;
 
     U32 frames_in_flight;
     U32 current_frame_in_flight_index;
     U32 current_swapchain_image_index;
 
+    Vulkan_Buffer *buffers;
     Vulkan_Image *textures;
+    Vulkan_Sampler *samplers;
     Vulkan_Material *materials;
     Vulkan_Static_Mesh *static_meshes;
     Vulkan_Shader *shaders;
     Vulkan_Pipeline_State *pipeline_states;
 
+    Object_Data *object_data_base;
+    U32 object_data_count;
+
     Free_List_Allocator *allocator;
-    Free_List_Allocator transfer_allocator;
 
     VkDescriptorPool imgui_descriptor_pool;
 
