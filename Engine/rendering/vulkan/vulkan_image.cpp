@@ -105,7 +105,7 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
 
     VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
     memory_allocate_info.allocationSize = memory_requirements.size;
-    memory_allocate_info.memoryTypeIndex = find_memory_type_index(context, memory_requirements, properties);
+    memory_allocate_info.memoryTypeIndex = find_memory_type_index(memory_requirements, properties);
 
     HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info, nullptr, &image->memory));
 

@@ -19,7 +19,6 @@
 #define HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
 #define HE_MAX_DESCRIPTOR_SET_COUNT 4
 #define HE_MAX_OBJECT_DATA_COUNT UINT16_MAX
-#define HE_MAX_DESCRIPTOR_SET_COUNT 4
 #define HE_PIPELINE_CACHE_FILENAME "shaders/bin/pipeline.cache"
 
 #ifdef HE_SHIPPING
@@ -51,6 +50,7 @@ struct Buffer
 {
     String name;
 
+    Buffer_Usage usage;
     U64 size;
     void *data;
 };
@@ -124,51 +124,105 @@ struct Sampler
 using Sampler_Handle = Resource_Handle< Sampler >;
 
 //
+// Bind Group
+//
+
+enum class Binding_Type : U8
+{
+    UNIFORM_BUFFER,
+    STORAGE_BUFFER,
+    COMBINED_IMAGE_SAMPLER
+};
+
+struct Binding
+{
+    Binding_Type type;
+    U32 number;
+    U32 count;
+    U32 stage_flags;
+};
+
+struct Bind_Group_Layout_Descriptor
+{
+    U32 binding_count;
+    Binding *bindings;
+};
+
+struct Bind_Group_Layout
+{
+    Bind_Group_Layout_Descriptor descriptor;
+};
+
+using Bind_Group_Layout_Handle = Resource_Handle< Bind_Group_Layout >;
+
+struct Bind_Group_Descriptor
+{
+    Bind_Group_Layout_Handle layout;
+};
+
+struct Bind_Group
+{
+    Bind_Group_Descriptor descriptor;
+};
+
+using Bind_Group_Handle = Resource_Handle< Bind_Group >;
+
+struct Update_Binding_Descriptor
+{
+    U32 binding_number;
+
+    U32 element_index;
+    U32 count;
+
+    Buffer_Handle *buffers;
+    Texture_Handle *textures;
+    Sampler_Handle *samplers;
+};
+
+//
 // Shader
 //
 
-enum ShaderDataType
+enum class Shader_Data_Type
 {
-    ShaderDataType_Bool,
+    BOOL,
 
-    ShaderDataType_S8,
-    ShaderDataType_S16,
-    ShaderDataType_S32,
-    ShaderDataType_S64,
+    S8,
+    S16,
+    S32,
+    S64,
+    U8,
+    U16,
+    U32,
+    U64,
+    F16,
+    F32,
+    F64,
 
-    ShaderDataType_U8,
-    ShaderDataType_U16,
-    ShaderDataType_U32,
-    ShaderDataType_U64,
+    VECTOR2F,
+    VECTOR3F,
+    VECTOR4F,
 
-    ShaderDataType_F16,
-    ShaderDataType_F32,
-    ShaderDataType_F64,
+    MATRIX3F,
+    MATRIX4F,
 
-    ShaderDataType_Vector2f,
-    ShaderDataType_Vector3f,
-    ShaderDataType_Vector4f,
+    COMBINED_IMAGE_SAMPLER,
 
-    ShaderDataType_Matrix3f,
-    ShaderDataType_Matrix4f,
-
-    ShaderDataType_CombinedImageSampler,
-
-    ShaderDataType_Struct,
-    ShaderDataType_Array,
+    STRUCT,
+    ARRAY,
 };
 
 struct Shader_Input_Variable
 {
     String name;
-    ShaderDataType data_type;
+    Shader_Data_Type data_type;
     U32 location;
 };
 
 struct Shader_Output_Variable
 {
     String name;
-    ShaderDataType data_type;
+    Shader_Data_Type data_type;
     U32 location;
 };
 
@@ -176,7 +230,7 @@ struct Shader_Struct_Member
 {
     String name;
 
-    ShaderDataType data_type;
+    Shader_Data_Type data_type;
     U32 offset = 0;
 
     bool is_array = false;
@@ -198,9 +252,18 @@ struct Shader_Descriptor
     const char *path;
 };
 
+enum class Shader_Stage : U8
+{
+    VERTEX,
+    FRAGMENT
+};
+
 struct Shader
 {
     String name;
+
+    Bind_Group_Layout_Descriptor sets[HE_MAX_DESCRIPTOR_SET_COUNT];
+    Shader_Stage stage;
 
     U32 input_count;
     Shader_Input_Variable *inputs;
@@ -214,17 +277,33 @@ struct Shader
 
 using Shader_Handle = Resource_Handle< Shader >;
 
-struct Pipeline_State_Descriptor
+struct Shader_Group_Descriptor
 {
     std::initializer_list< Shader_Handle > shaders;
+};
+
+struct Shader_Group
+{
+    String name;
+
+    U32 shader_count;
+    Shader_Handle *shaders;
+
+    Bind_Group_Layout_Handle bind_group_layouts[HE_MAX_DESCRIPTOR_SET_COUNT];
+};
+
+using Shader_Group_Handle = Resource_Handle< Shader_Group >;
+
+struct Pipeline_State_Descriptor
+{
+    Shader_Group_Handle shader_group;
 };
 
 struct Pipeline_State
 {
     String name;
 
-    U32 shader_count;
-    Shader_Handle *shaders;
+    Shader_Group_Handle shader_group;
 };
 
 using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
@@ -248,8 +327,10 @@ struct Material
 
     U8 *data;
     U64 size;
-
     Shader_Struct *properties;
+
+    Buffer_Handle buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    Bind_Group_Handle bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
 };
 
 using Material_Handle = Resource_Handle< Material >;
@@ -300,7 +381,7 @@ struct Scene_Node
     glm::mat4 transform;
 };
 
-// todo(amer): hardcoding per object data and globals layouts here
+// todo(amer): @HardCoding per object data and globals layouts here
 struct Object_Data
 {
     glm::mat4 model;
@@ -318,7 +399,7 @@ struct Globals
     alignas(16) glm::vec3 directional_light_color;
 };
 
-static_assert(offsetof(Globals, view) == 0);
-static_assert(offsetof(Globals, projection) == 64);
-static_assert(offsetof(Globals, directional_light_direction) == 128);
-static_assert(offsetof(Globals, directional_light_color) == 144);
+static_assert( offsetof(Globals, view) == 0 );
+static_assert( offsetof(Globals, projection) == 64 );
+static_assert( offsetof(Globals, directional_light_direction) == 128 );
+static_assert( offsetof(Globals, directional_light_color) == 144 );

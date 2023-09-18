@@ -56,25 +56,28 @@ struct Vulkan_Buffer
     U64 size;
 };
 
-struct Vulkan_Descriptor_Set
-{
-    U32 binding_count;
-    VkDescriptorSetLayoutBinding *bindings;
-};
-
 struct Vulkan_Shader
 {
     VkShaderModule handle;
-    VkShaderStageFlagBits stage;
-    Vulkan_Descriptor_Set descriptor_sets[HE_MAX_DESCRIPTOR_SET_COUNT];
+};
+
+struct Vulkan_Bind_Group_Layout
+{
+    VkDescriptorSetLayout handle;
+};
+
+struct Vulkan_Shader_Group
+{
+    VkPipelineLayout pipeline_layout;
+};
+
+struct Vulkan_Bind_Group
+{
+    VkDescriptorSet handle;
 };
 
 struct Vulkan_Pipeline_State
 {
-    U32 descriptor_set_layout_count;
-    VkDescriptorSetLayout descriptor_set_layouts[HE_MAX_DESCRIPTOR_SET_COUNT];
-
-    VkPipelineLayout layout;
     VkPipeline handle;
 };
 
@@ -123,11 +126,9 @@ struct Vulkan_Static_Mesh
     VkFence is_loaded;
 };
 
-struct Engine;
-
 struct Vulkan_Context
 {
-    Engine *engine;
+    struct Engine *engine;
     Memory_Arena arena;
     Temprary_Memory_Arena frame_arena;
 
@@ -174,10 +175,13 @@ struct Vulkan_Context
     Vulkan_Buffer *buffers;
     Vulkan_Image *textures;
     Vulkan_Sampler *samplers;
+    Vulkan_Shader *shaders;
+    Vulkan_Shader_Group *shader_groups;
+    Vulkan_Pipeline_State *pipeline_states;
+    Vulkan_Bind_Group_Layout *bind_group_layouts;
+    Vulkan_Bind_Group *bind_groups;
     Vulkan_Material *materials;
     Vulkan_Static_Mesh *static_meshes;
-    Vulkan_Shader *shaders;
-    Vulkan_Pipeline_State *pipeline_states;
 
     Object_Data *object_data_base;
     U32 object_data_count;

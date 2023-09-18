@@ -20,8 +20,12 @@ enum RenderingAPI
 #define HE_MAX_MATERIAL_COUNT 4096
 #define HE_MAX_STATIC_MESH_COUNT 4096
 #define HE_MAX_SHADER_COUNT 4096
+#define HE_MAX_SHADER_GROUP_COUNT 4096
 #define HE_MAX_PIPELINE_STATE_COUNT 4096
+#define HE_MAX_BIND_GROUP_LAYOUT_COUNT 4096
+#define HE_MAX_BIND_GROUP_COUNT 4096
 #define HE_MAX_SCENE_NODE_COUNT 4096
+
 #define HE_GAMMA 2.2f
 
 struct Directional_Light
@@ -50,7 +54,10 @@ struct Renderer_State
     Resource_Pool< Texture > textures;
     Resource_Pool< Sampler > samplers;
     Resource_Pool< Shader > shaders;
+    Resource_Pool< Shader_Group > shader_groups;
     Resource_Pool< Pipeline_State > pipeline_states;
+    Resource_Pool< Bind_Group_Layout > bind_group_layouts;
+    Resource_Pool< Bind_Group > bind_groups;
     Resource_Pool< Material > materials;
     Resource_Pool< Static_Mesh > static_meshes;
 
@@ -59,6 +66,7 @@ struct Renderer_State
 
     Shader_Handle mesh_vertex_shader;
     Shader_Handle mesh_fragment_shader;
+    Shader_Group_Handle mesh_shader_group;
     Pipeline_State_Handle mesh_pipeline;
 
     Texture_Handle white_pixel_texture;
@@ -122,8 +130,18 @@ struct Renderer
     bool (*create_shader)(Shader_Handle shader_handle, const Shader_Descriptor &descriptor);
     void (*destroy_shader)(Shader_Handle shader_handle);
 
+    bool (*create_shader_group)(Shader_Group_Handle shader_group_handle, const Shader_Group_Descriptor &descriptor);
+    void (*destroy_shader_group)(Shader_Group_Handle shader_group_handle);
+
     bool (*create_pipeline_state)(Pipeline_State_Handle pipeline_state_handle, const Pipeline_State_Descriptor &descriptor);
     void (*destroy_pipeline_state)(Pipeline_State_Handle pipeline_state_handle);
+
+    bool (*create_bind_group_layout)(Bind_Group_Layout_Handle bind_group_layout_handle, const Bind_Group_Layout_Descriptor &descriptor);
+    void (*destroy_bind_group_layout)(Bind_Group_Layout_Handle bind_group_layout_handle);
+
+    bool (*create_bind_group)(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor);
+    void (*update_bind_group)(Bind_Group_Handle bind_group_handle, const Update_Binding_Descriptor *update_binding_descriptors, U32 update_binding_descriptor_count);
+    void (*destroy_bind_group)(Bind_Group_Handle bind_group_handle);
 
     bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
     void (*destroy_static_mesh)(Static_Mesh_Handle static_mesh_handle);
@@ -146,7 +164,10 @@ Scene_Node* load_model_threaded(const String &path, Renderer *renderer, Renderer
 
 void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene_Node *scene_node, const glm::mat4 &transform);
 
-U8 *get_property(Material *material, const String &name, ShaderDataType shader_datatype);
+Material_Handle create_material(Renderer_State *renderer_state, const Material_Descriptor &descriptor);
+void destroy_material(Material_Handle material_handle);
+
+U8 *get_property(Material *material, const String &name, Shader_Data_Type data_type);
 
 Texture_Handle find_texture(Renderer_State *renderer_state, const String &name);
 Material_Handle find_material(Renderer_State *renderer_state, U64 hash);
@@ -161,4 +182,4 @@ HE_FORCE_INLINE glm::vec4 linear_to_srgb(const glm::vec4 &color)
     return glm::pow(color, glm::vec4(1.0f / HE_GAMMA));
 }
 
-U32 get_size_of_shader_data_type(ShaderDataType shader_data_type);
+U32 get_size_of_shader_data_type(Shader_Data_Type data_type);

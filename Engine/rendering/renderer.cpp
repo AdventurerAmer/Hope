@@ -62,6 +62,13 @@ bool request_renderer(RenderingAPI rendering_api,
             renderer->destroy_shader = &vulkan_renderer_destroy_shader;
             renderer->create_pipeline_state = &vulkan_renderer_create_pipeline_state;
             renderer->destroy_pipeline_state = &vulkan_renderer_destroy_pipeline_state;
+            renderer->create_shader_group = &vulkan_renderer_create_shader_group;
+            renderer->destroy_shader_group = &vulkan_renderer_destroy_shader_group;
+            renderer->create_bind_group_layout = &vulkan_renderer_create_bind_group_layout;
+            renderer->destroy_bind_group_layout = &vulkan_renderer_destroy_bind_group_layout;
+            renderer->create_bind_group = &vulkan_renderer_create_bind_group;
+            renderer->update_bind_group = &vulkan_renderer_update_bind_group;
+            renderer->destroy_bind_group = &vulkan_renderer_destroy_bind_group;
             renderer->begin_frame = &vulkan_renderer_begin_frame;
             renderer->set_vertex_buffers = &vulkan_renderer_set_vertex_buffers;
             renderer->set_index_buffer = &vulkan_renderer_set_index_buffer;
@@ -88,10 +95,13 @@ bool pre_init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     init(&renderer_state->buffers, arena, HE_MAX_BUFFER_COUNT);
     init(&renderer_state->textures, arena, HE_MAX_TEXTURE_COUNT);
     init(&renderer_state->samplers, arena, HE_MAX_SAMPLER_COUNT);
+    init(&renderer_state->shaders, arena, HE_MAX_SHADER_COUNT);
+    init(&renderer_state->shader_groups, arena, HE_MAX_SHADER_GROUP_COUNT);
+    init(&renderer_state->pipeline_states, arena, HE_MAX_PIPELINE_STATE_COUNT);
+    init(&renderer_state->bind_group_layouts, arena, HE_MAX_BIND_GROUP_LAYOUT_COUNT);
+    init(&renderer_state->bind_groups, arena, HE_MAX_BIND_GROUP_COUNT);
     init(&renderer_state->materials,  arena, HE_MAX_MATERIAL_COUNT);
     init(&renderer_state->static_meshes, arena, HE_MAX_STATIC_MESH_COUNT);
-    init(&renderer_state->shaders, arena, HE_MAX_SHADER_COUNT);
-    init(&renderer_state->pipeline_states, arena, HE_MAX_PIPELINE_STATE_COUNT);
 
     renderer_state->scene_nodes = HE_ALLOCATE_ARRAY(arena, Scene_Node, HE_MAX_SCENE_NODE_COUNT);
 
@@ -281,6 +291,24 @@ void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_s
         renderer->destroy_shader({ shader_index, renderer_state->shaders.generations[shader_index] });
     }
 
+    for (S32 shader_group_index = 0; shader_group_index < (S32)renderer_state->shader_groups.capacity; shader_group_index++)
+    {
+        if (!renderer_state->shader_groups.is_allocated[shader_group_index])
+        {
+            continue;
+        }
+        renderer->destroy_shader_group({ shader_group_index, renderer_state->shader_groups.generations[shader_group_index] });
+    }
+
+    for (S32 bind_group_layout_index = 0; bind_group_layout_index < (S32)renderer_state->bind_group_layouts.capacity; bind_group_layout_index++)
+    {
+        if (!renderer_state->bind_group_layouts.is_allocated[bind_group_layout_index])
+        {
+            continue;
+        }
+        renderer->destroy_bind_group_layout({ bind_group_layout_index, renderer_state->bind_group_layouts.generations[bind_group_layout_index] });
+    }
+
     for (S32 pipeline_state_index = 0; pipeline_state_index < (S32)renderer_state->pipeline_states.count; pipeline_state_index++)
     {
         if (!renderer_state->pipeline_states.is_allocated[pipeline_state_index])
@@ -291,9 +319,7 @@ void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_s
     }
 }
 
-Scene_Node*
-add_child_scene_node(Renderer_State *renderer_state,
-                     Scene_Node *parent)
+Scene_Node* add_child_scene_node(Renderer_State *renderer_state, Scene_Node *parent)
 {
     HE_ASSERT(renderer_state->scene_node_count < HE_MAX_SCENE_NODE_COUNT);
     HE_ASSERT(parent);
@@ -364,9 +390,7 @@ static Job_Result load_texture_job(const Job_Parameters &params)
     return Job_Result::SUCCEEDED;
 }
 
-static Texture_Handle
-cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path,
-                   Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena)
+static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path, Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena)
 {
     Temprary_Memory_Arena temprary_arena;
     begin_temprary_memory_arena(&temprary_arena, arena);
@@ -615,13 +639,13 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         renderer->create_material(material_handle, desc);
         platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
-        U32 *albedo_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("albedo_texture_index"), ShaderDataType_U32);
-        U32 *normal_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("normal_texture_index"), ShaderDataType_U32);
-        U32 *orm_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("occlusion_roughness_metallic_texture_index"), ShaderDataType_U32);
-        glm::vec3 *albedo_color = (glm::vec3 *)get_property(renderer_material, HE_STRING_LITERAL("albedo_color"), ShaderDataType_Vector3f);
-        F32 *roughness_factor = (F32 *)get_property(renderer_material, HE_STRING_LITERAL("roughness_factor"), ShaderDataType_F32);
-        F32 *metallic_factor = (F32 *)get_property(renderer_material, HE_STRING_LITERAL("metallic_factor"), ShaderDataType_F32);
-        F32 *reflectance = (F32 *)get_property(renderer_material, HE_STRING_LITERAL("reflectance"), ShaderDataType_F32);
+        U32 *albedo_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("albedo_texture_index"), Shader_Data_Type::U32);
+        U32 *normal_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("normal_texture_index"), Shader_Data_Type::U32);
+        U32 *orm_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("occlusion_roughness_metallic_texture_index"), Shader_Data_Type::U32);
+        glm::vec3 *albedo_color = (glm::vec3 *)get_property(renderer_material, HE_STRING_LITERAL("albedo_color"), Shader_Data_Type::VECTOR3F);
+        F32 *roughness_factor = (F32 *)get_property(renderer_material, HE_STRING_LITERAL("roughness_factor"), Shader_Data_Type::F32);
+        F32 *metallic_factor = (F32 *)get_property(renderer_material, HE_STRING_LITERAL("metallic_factor"), Shader_Data_Type::F32);
+        F32 *reflectance = (F32 *)get_property(renderer_material, HE_STRING_LITERAL("reflectance"), Shader_Data_Type::F32);
         *albedo_color = *(glm::vec3 *)material->pbr_metallic_roughness.base_color_factor;
         *roughness_factor = material->pbr_metallic_roughness.roughness_factor;
         *metallic_factor = material->pbr_metallic_roughness.metallic_factor;
@@ -833,13 +857,22 @@ void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene
     }
 }
 
-U8 *get_property(Material *material, const String &name, ShaderDataType shader_datatype)
+Material_Handle create_material(Renderer_State *renderer_state, const Material_Descriptor &descriptor)
+{
+    return { -1 };
+}
+
+void destroy_material(Material_Handle material_handle)
+{
+}
+
+U8 *get_property(Material *material, const String &name, Shader_Data_Type data_type)
 {
     Shader_Struct *properties = material->properties;
     for (U32 member_index = 0; member_index < properties->member_count; member_index++)
     {
         Shader_Struct_Member *member = &properties->members[member_index];
-        if (name == member->name && member->data_type == shader_datatype)
+        if (name == member->name && member->data_type == data_type)
         {
             return material->data + member->offset;
         }
@@ -884,32 +917,32 @@ Material_Handle find_material(Renderer_State *renderer_state, U64 hash)
     return Resource_Pool< Material >::invalid_handle;
 }
 
-U32 get_size_of_shader_data_type(ShaderDataType shader_data_type)
+U32 get_size_of_shader_data_type(Shader_Data_Type data_type)
 {
-    switch (shader_data_type)
+    switch (data_type)
     {
-        case ShaderDataType_Bool: return 1;
+        case Shader_Data_Type::BOOL: return 1;
 
-        case ShaderDataType_S8: return 1;
-        case ShaderDataType_S16: return 2;
-        case ShaderDataType_S32: return 4;
-        case ShaderDataType_S64: return 8;
+        case Shader_Data_Type::S8: return 1;
+        case Shader_Data_Type::S16: return 2;
+        case Shader_Data_Type::S32: return 4;
+        case Shader_Data_Type::S64: return 8;
 
-        case ShaderDataType_U8: return 1;
-        case ShaderDataType_U16: return 2;
-        case ShaderDataType_U32: return 4;
-        case ShaderDataType_U64: return 8;
+        case Shader_Data_Type::U8: return 1;
+        case Shader_Data_Type::U16: return 2;
+        case Shader_Data_Type::U32: return 4;
+        case Shader_Data_Type::U64: return 8;
 
-        case ShaderDataType_F16: return 2;
-        case ShaderDataType_F32: return 4;
-        case ShaderDataType_F64: return 8;
+        case Shader_Data_Type::F16: return 2;
+        case Shader_Data_Type::F32: return 4;
+        case Shader_Data_Type::F64: return 8;
 
-        case ShaderDataType_Vector2f: return 2 * 4;
-        case ShaderDataType_Vector3f: return 3 * 4;
-        case ShaderDataType_Vector4f: return 4 * 4;
+        case Shader_Data_Type::VECTOR2F: return 2 * 4;
+        case Shader_Data_Type::VECTOR3F: return 3 * 4;
+        case Shader_Data_Type::VECTOR4F: return 4 * 4;
 
-        case ShaderDataType_Matrix3f: return 9 * 4;
-        case ShaderDataType_Matrix4f: return 16 * 4;
+        case Shader_Data_Type::MATRIX3F: return 9 * 4;
+        case Shader_Data_Type::MATRIX4F: return 16 * 4;
 
         default:
         {
