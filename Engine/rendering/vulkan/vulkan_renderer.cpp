@@ -325,7 +325,6 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
     context->pipeline_states = HE_ALLOCATE_ARRAY(arena, Vulkan_Pipeline_State, HE_MAX_PIPELINE_STATE_COUNT);
     context->bind_group_layouts = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group_Layout, HE_MAX_BIND_GROUP_LAYOUT_COUNT);
     context->bind_groups = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group, HE_MAX_BIND_GROUP_COUNT);
-    context->materials = HE_ALLOCATE_ARRAY(arena, Vulkan_Material, HE_MAX_MATERIAL_COUNT);
     context->static_meshes = HE_ALLOCATE_ARRAY(arena, Vulkan_Static_Mesh, HE_MAX_STATIC_MESH_COUNT);
 
     const char *required_instance_extensions[] =
@@ -1344,9 +1343,8 @@ void vulkan_renderer_submit_static_mesh(Static_Mesh_Handle static_mesh_handle, c
 
     Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
     Material *material = get(&renderer_state->materials, static_mesh->material_handle);
-    Vulkan_Material *vulkan_material = &context->materials[static_mesh->material_handle.index];
-
-    Vulkan_Buffer *material_buffer = &vulkan_material->buffers[current_frame_in_flight_index];
+    
+    Buffer *material_buffer = get(&renderer_state->buffers, material->buffers[current_frame_in_flight_index]);
     copy_memory(material_buffer->data, material->data, material->size);
 
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle);
@@ -1357,7 +1355,7 @@ void vulkan_renderer_submit_static_mesh(Static_Mesh_Handle static_mesh_handle, c
 
     VkDescriptorSet descriptor_sets[] =
     {
-        vulkan_material->descriptor_sets[current_frame_in_flight_index]
+        context->bind_groups[ material->bind_groups[current_frame_in_flight_index].index ].handle,
     };
 
     vkCmdBindDescriptorSets(command_buffer,
@@ -1887,97 +1885,6 @@ void vulkan_renderer_destroy_bind_group(Bind_Group_Handle bind_group_handle)
     vkFreeDescriptorSets(context->logical_device, context->descriptor_pool, 1, &bind_group->handle);
 }
 
-bool vulkan_renderer_create_material(Material_Handle material_handle, const Material_Descriptor &descriptor)
-{
-    Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = &context->engine->renderer_state;
-    Material *material = get(&renderer_state->materials, material_handle);
-    Vulkan_Material *vulkan_material = &context->materials[material_handle.index];
-    Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle);
-    Shader_Group *shader_group = get(&renderer_state->shader_groups, pipeline_state->shader_group);
-
-    Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[pipeline_state->shader_group.index];
-    Shader_Struct *properties = nullptr;
-
-    for (U32 shader_index = 0; shader_index < shader_group->shader_count; shader_index++)
-    {
-        Shader *shader = get(&context->engine->renderer_state.shaders, shader_group->shaders[shader_index]);
-        for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
-        {
-            Shader_Struct *shader_struct = &shader->structs[struct_index];
-            if (shader_struct->name == "Material_Properties")
-            {
-                properties = shader_struct;
-                break;
-            }
-        }
-    }
-
-    HE_ASSERT(properties);
-
-    Shader_Struct_Member *last_member = &properties->members[properties->member_count - 1];
-    U32 last_member_size = get_size_of_shader_data_type(last_member->data_type);
-    U32 size = last_member->offset + last_member_size;
-
-    VkDescriptorSetLayout level2_descriptor_set_layouts[HE_MAX_FRAMES_IN_FLIGHT] = {};
-
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        Vulkan_Buffer *buffer = &vulkan_material->buffers[frame_index];
-        create_buffer(buffer, context, size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        Bind_Group_Layout_Handle bind_group_layout = shader_group->bind_group_layouts[2];
-        Vulkan_Bind_Group_Layout *vulkan_bind_group_layout = &context->bind_group_layouts[bind_group_layout.index];
-        level2_descriptor_set_layouts[frame_index] = vulkan_bind_group_layout->handle;
-    }
-
-    VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-    descriptor_set_allocation_info.descriptorPool = context->descriptor_pool;
-    descriptor_set_allocation_info.descriptorSetCount = HE_MAX_FRAMES_IN_FLIGHT;
-    descriptor_set_allocation_info.pSetLayouts = level2_descriptor_set_layouts;
-
-    HE_CHECK_VKRESULT(vkAllocateDescriptorSets(context->logical_device, &descriptor_set_allocation_info, vulkan_material->descriptor_sets));
-
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        VkDescriptorBufferInfo material_uniform_buffer_descriptor_info = {};
-        material_uniform_buffer_descriptor_info.buffer = vulkan_material->buffers[frame_index].handle;
-        material_uniform_buffer_descriptor_info.offset = 0;
-        material_uniform_buffer_descriptor_info.range = size;
-
-        VkWriteDescriptorSet material_uniform_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        material_uniform_buffer_write_descriptor_set.dstSet = vulkan_material->descriptor_sets[frame_index];
-        material_uniform_buffer_write_descriptor_set.dstBinding = 0;
-        material_uniform_buffer_write_descriptor_set.dstArrayElement = 0;
-        material_uniform_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        material_uniform_buffer_write_descriptor_set.descriptorCount = 1;
-        material_uniform_buffer_write_descriptor_set.pBufferInfo = &material_uniform_buffer_descriptor_info;
-
-        VkWriteDescriptorSet write_descriptor_sets[] =
-        {
-            material_uniform_buffer_write_descriptor_set,
-        };
-
-        vkUpdateDescriptorSets(context->logical_device, HE_ARRAYCOUNT(write_descriptor_sets), write_descriptor_sets, 0, nullptr);
-    }
-
-    material->pipeline_state_handle = descriptor.pipeline_state_handle;
-    material->data = HE_ALLOCATE_ARRAY(context->allocator, U8, size);
-    material->size = size;
-    material->properties = properties;
-
-    return true;
-}
-
-void vulkan_renderer_destroy_material(Material_Handle material_handle)
-{
-    Vulkan_Context *context = &vulkan_context;
-    Vulkan_Material *vulkan_material = &context->materials[material_handle.index];
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        destroy_buffer(&vulkan_material->buffers[frame_index], context->logical_device);
-    }
-}
-
 static VkBufferUsageFlags get_buffer_usage(Buffer_Usage usage)
 {
     switch (usage)
@@ -2045,7 +1952,7 @@ bool vulkan_renderer_create_buffer(Buffer_Handle buffer_handle, const Buffer_Des
     }
 
     buffer->usage = descriptor.usage;
-    buffer->size = memory_requirements.size;
+    buffer->size = descriptor.size;
     return true;
 }
 

@@ -342,6 +342,7 @@ using Material_Handle = Resource_Handle< Material >;
 struct Static_Mesh_Descriptor
 {
     U16 vertex_count;
+
     glm::vec3 *positions;
     glm::vec3 *normals;
     glm::vec2 *uvs;

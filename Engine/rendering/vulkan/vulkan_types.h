@@ -112,12 +112,6 @@ struct Vulkan_Swapchain
     Vulkan_Image depth_stencil_attachment;
 };
 
-struct Vulkan_Material
-{
-    Vulkan_Buffer buffers[HE_MAX_FRAMES_IN_FLIGHT];
-    VkDescriptorSet descriptor_sets[HE_MAX_FRAMES_IN_FLIGHT];
-};
-
 struct Vulkan_Static_Mesh
 {
     S32 first_vertex;
@@ -180,7 +174,6 @@ struct Vulkan_Context
     Vulkan_Pipeline_State *pipeline_states;
     Vulkan_Bind_Group_Layout *bind_group_layouts;
     Vulkan_Bind_Group *bind_groups;
-    Vulkan_Material *materials;
     Vulkan_Static_Mesh *static_meshes;
 
     Object_Data *object_data_base;

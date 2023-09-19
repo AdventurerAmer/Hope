@@ -146,9 +146,6 @@ struct Renderer
     bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
     void (*destroy_static_mesh)(Static_Mesh_Handle static_mesh_handle);
 
-    bool (*create_material)(Material_Handle material_handle, const Material_Descriptor &descriptor);
-    void (*destroy_material)(Material_Handle material_handle);
-
     void (*imgui_new_frame)();
 };
 
@@ -164,7 +161,7 @@ Scene_Node* load_model_threaded(const String &path, Renderer *renderer, Renderer
 
 void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene_Node *scene_node, const glm::mat4 &transform);
 
-Material_Handle create_material(Renderer_State *renderer_state, const Material_Descriptor &descriptor);
+Material_Handle create_material(Renderer_State *renderer_state, Renderer *renderer, const Material_Descriptor &descriptor);
 void destroy_material(Material_Handle material_handle);
 
 U8 *get_property(Material *material, const String &name, Shader_Data_Type data_type);

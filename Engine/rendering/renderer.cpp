@@ -56,8 +56,6 @@ bool request_renderer(RenderingAPI rendering_api,
             renderer->destroy_sampler = &vulkan_renderer_destroy_sampler;
             renderer->create_static_mesh = &vulkan_renderer_create_static_mesh;
             renderer->destroy_static_mesh = &vulkan_renderer_destroy_static_mesh;
-            renderer->create_material = &vulkan_renderer_create_material;
-            renderer->destroy_material = &vulkan_renderer_destroy_material;
             renderer->create_shader = &vulkan_renderer_create_shader;
             renderer->destroy_shader = &vulkan_renderer_destroy_shader;
             renderer->create_pipeline_state = &vulkan_renderer_create_pipeline_state;
@@ -236,7 +234,6 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
 void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_state)
 {
     // todo(amer): clean this...
-
     for (S32 buffer_index = 0; buffer_index < (S32)renderer_state->buffers.capacity; buffer_index++)
     {
         if (!renderer_state->buffers.is_allocated[buffer_index])
@@ -262,15 +259,6 @@ void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_s
             continue;
         }
         renderer->destroy_sampler({ sampler_index, renderer_state->samplers.generations[sampler_index] });
-    }
-
-    for (S32 material_index = 0; material_index < (S32)renderer_state->materials.capacity; material_index++)
-    {
-        if (!renderer_state->materials.is_allocated[material_index])
-        {
-            continue;
-        }
-        renderer->destroy_material({ material_index, renderer_state->materials.generations[material_index] });
     }
 
     for (S32 static_mesh_index = 0; static_mesh_index < (S32)renderer_state->static_meshes.capacity; static_mesh_index++)
@@ -578,7 +566,14 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         U64 material_hash = (U64)material;
 
         HE_ASSERT(renderer_state->materials.count < HE_MAX_MATERIAL_COUNT);
-        Material_Handle material_handle = aquire_handle(&renderer_state->materials);
+
+        Material_Descriptor material_descriptor = {};
+        material_descriptor.pipeline_state_handle = renderer_state->mesh_pipeline;
+
+        platform_lock_mutex(&renderer_state->render_commands_mutex);
+        Material_Handle material_handle = create_material(renderer_state, renderer, material_descriptor);
+        platform_unlock_mutex(&renderer_state->render_commands_mutex);
+
         Material *renderer_material = get(&renderer_state->materials, material_handle);
 
         if (material->name)
@@ -631,13 +626,6 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         {
             normal = renderer_state->normal_pixel_texture;
         }
-
-        Material_Descriptor desc = {};
-        desc.pipeline_state_handle = renderer_state->mesh_pipeline;
-
-        platform_lock_mutex(&renderer_state->render_commands_mutex);
-        renderer->create_material(material_handle, desc);
-        platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
         U32 *albedo_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("albedo_texture_index"), Shader_Data_Type::U32);
         U32 *normal_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("normal_texture_index"), Shader_Data_Type::U32);
@@ -857,13 +845,84 @@ void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene
     }
 }
 
-Material_Handle create_material(Renderer_State *renderer_state, const Material_Descriptor &descriptor)
+Material_Handle create_material(Renderer_State *renderer_state, Renderer *renderer, const Material_Descriptor &descriptor)
 {
-    return { -1 };
+    Material_Handle material_handle = aquire_handle(&renderer_state->materials);
+    Material *material = get(&renderer_state->materials, material_handle);
+    Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, descriptor.pipeline_state_handle);
+    Shader_Group *shader_group = get(&renderer_state->shader_groups, pipeline_state->shader_group);
+
+    Shader_Struct *properties = nullptr;
+
+    for (U32 shader_index = 0; shader_index < shader_group->shader_count; shader_index++)
+    {
+        Shader *shader = get(&renderer_state->shaders, shader_group->shaders[shader_index]);
+        for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
+        {
+            Shader_Struct *shader_struct = &shader->structs[struct_index];
+            if (shader_struct->name == "Material_Properties")
+            {
+                properties = shader_struct;
+                break;
+            }
+        }
+    }
+
+    HE_ASSERT(properties);
+
+    Shader_Struct_Member *last_member = &properties->members[properties->member_count - 1];
+    U32 last_member_size = get_size_of_shader_data_type(last_member->data_type);
+    U32 size = last_member->offset + last_member_size;
+
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        material->buffers[frame_index] = aquire_handle(&renderer_state->buffers);
+
+        Buffer_Descriptor buffer_descriptor = {};
+        buffer_descriptor.usage = Buffer_Usage::UNIFORM;
+        buffer_descriptor.size = size;
+        buffer_descriptor.is_device_local = false;
+
+        renderer->create_buffer(material->buffers[frame_index], buffer_descriptor);
+    }
+
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        material->bind_groups[frame_index] = aquire_handle(&renderer_state->bind_groups);
+
+        Bind_Group_Descriptor bind_group_descriptor = {};
+        bind_group_descriptor.layout = shader_group->bind_group_layouts[2]; // todo(amer): Hardcoding
+        renderer->create_bind_group(material->bind_groups[frame_index], bind_group_descriptor);
+
+        Update_Binding_Descriptor update_binding_descriptor = {};
+        update_binding_descriptor.binding_number = 0;
+        update_binding_descriptor.element_index = 0;
+        update_binding_descriptor.count = 1;
+        update_binding_descriptor.buffers = &material->buffers[frame_index];
+
+        renderer->update_bind_group(material->bind_groups[frame_index], &update_binding_descriptor, 1);
+    }
+
+    material->pipeline_state_handle = descriptor.pipeline_state_handle;
+    material->data = HE_ALLOCATE_ARRAY(&renderer_state->engine->memory.free_list_allocator, U8, size);
+    material->size = size;
+    material->properties = properties;
+
+    return material_handle;
 }
 
-void destroy_material(Material_Handle material_handle)
+void destroy_material(Renderer_State *renderer_state, Renderer *renderer, Material_Handle material_handle)
 {
+    Material *material = get(&renderer_state->materials, material_handle);
+
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        renderer->destroy_buffer(material->buffers[frame_index]);
+        renderer->destroy_bind_group(material->bind_groups[frame_index]);
+    }
+
+    deallocate(&renderer_state->engine->memory.free_list_allocator, material->data);
+    release_handle(&renderer_state->materials, material_handle);
 }
 
 U8 *get_property(Material *material, const String &name, Shader_Data_Type data_type)

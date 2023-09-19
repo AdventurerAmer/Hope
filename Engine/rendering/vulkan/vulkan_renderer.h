@@ -18,9 +18,6 @@ void vulkan_renderer_destroy_texture(Texture_Handle texture_handle);
 bool vulkan_renderer_create_sampler(Sampler_Handle sampler_handle, const Sampler_Descriptor &descriptor);
 void vulkan_renderer_destroy_sampler(Sampler_Handle sampler_handle);
 
-bool vulkan_renderer_create_material(Material_Handle material_handle, const Material_Descriptor &descriptor);
-void vulkan_renderer_destroy_material(Material_Handle material_handle);
-
 bool vulkan_renderer_create_buffer(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor);
 void vulkan_renderer_destroy_buffer(Buffer_Handle buffer_handle);
 
