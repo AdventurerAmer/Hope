@@ -218,8 +218,7 @@ create_swapchain(Vulkan_Context *context,
 
     for (U32 image_index = 0; image_index < swapchain->image_count; image_index++)
     {
-        VkImageViewCreateInfo image_view_create_info =
-            { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        VkImageViewCreateInfo image_view_create_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
         image_view_create_info.image = swapchain->images[image_index];
         image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
         image_view_create_info.format = swapchain->image_format;
@@ -245,7 +244,7 @@ create_swapchain(Vulkan_Context *context,
     {
         create_image(&swapchain->color_attachment, context,
                      width, height, swapchain->image_format, VK_IMAGE_TILING_OPTIMAL,
-                     VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                     VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
                      VK_IMAGE_ASPECT_COLOR_BIT,
                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                      mipmapping, context->msaa_samples);
@@ -258,6 +257,7 @@ create_swapchain(Vulkan_Context *context,
                  VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapping,
                  context->msaa_samples);
+
 
     for (U32 image_index = 0; image_index < swapchain->image_count; image_index++)
     {

@@ -14,6 +14,8 @@
 #include <glm/ext/scalar_constants.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <atomic>
+
 #define HE_GRAPHICS_DEBUGGING 1
 #define HE_MAX_FRAMES_IN_FLIGHT 3
 #define HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
@@ -62,7 +64,9 @@ using Buffer_Handle = Resource_Handle< Buffer >;
 //
 enum class Texture_Format
 {
-    RGBA
+    R8G8B8A8_SRGB,
+
+    DEPTH_F32_STENCIL_U8
 };
 
 struct Texture_Descriptor
@@ -309,6 +313,64 @@ struct Pipeline_State
 using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
 
 //
+// Render Pass
+//
+
+enum class Attachment_Operation : U8
+{
+    DONT_CARE,
+    LOAD,
+    CLEAR
+};
+
+struct Attachment_Info
+{
+    Texture_Format format;
+    U32 sample_count = 1;
+    Attachment_Operation operation = Attachment_Operation::DONT_CARE;
+};
+
+struct Render_Pass_Descriptor
+{
+    std::initializer_list< Attachment_Info > color_attachments;
+    std::initializer_list< Attachment_Info > depth_stencil_attachments;
+    Attachment_Operation stencil_operation = Attachment_Operation::DONT_CARE;
+};
+
+struct Render_Pass
+{
+    String name;
+    Render_Pass_Descriptor descriptor;
+};
+
+using Render_Pass_Handle = Resource_Handle< Render_Pass >;
+
+// Frame Buffer
+
+struct Frame_Buffer_Descriptor
+{
+    U32 width;
+    U32 height;
+
+    std::initializer_list< Texture_Handle > attachments;
+
+    Render_Pass_Handle render_pass;
+};
+
+struct Frame_Buffer
+{
+    U32 width;
+    U32 height;
+
+    U32 attachment_count;
+    Texture_Handle *attachments;
+
+    Render_Pass_Handle render_pass;
+};
+
+using Frame_Buffer_Handle = Resource_Handle< Frame_Buffer >;
+
+//
 // Material
 //
 
@@ -376,8 +438,8 @@ struct Scene_Node
     Scene_Node *last_child;
     Scene_Node *next_sibling;
 
-    U32 start_mesh_index;
-    U32 static_mesh_count;
+    S32 start_mesh_index = -1;
+    U32 static_mesh_count = 0;
 
     glm::mat4 transform;
 };

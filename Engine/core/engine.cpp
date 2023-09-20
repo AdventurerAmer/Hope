@@ -119,7 +119,6 @@ void hock_engine_api(Engine_API *api)
     api->init_fps_camera_controller = &init_fps_camera_controller;
     api->control_camera = &control_camera;
     api->update_camera = &update_camera;
-    api->load_model = &load_model;
     api->load_model_threaded = &load_model_threaded;
     api->render_scene_node = &render_scene_node;
 }
@@ -272,6 +271,7 @@ void game_loop(Engine *engine, F32 delta_time)
 {
     imgui_new_frame(engine);
 
+    Renderer *renderer = &engine->renderer;
     Renderer_State *renderer_state = &engine->renderer_state;
     Scene_Data *scene_data = &renderer_state->scene_data;
     Directional_Light *directional_light = &scene_data->directional_light;
@@ -305,6 +305,81 @@ void game_loop(Engine *engine, F32 delta_time)
 
     Game_Code *game_code = &engine->game_code;
     game_code->on_update(engine, delta_time);
+
+    begin_temprary_memory_arena(&renderer_state->frame_arena, &renderer_state->arena);
+
+    U32 current_frame_in_flight_index = renderer_state->current_frame_in_flight_index;
+
+    Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[current_frame_in_flight_index]);
+    renderer_state->object_data_base = (Object_Data *)object_data_storage_buffer->data;
+    renderer_state->object_data_count = 0;
+
+    renderer->begin_frame(scene_data);
+
+    Buffer_Handle vertex_buffers[] =
+    {
+        renderer_state->position_buffer,
+        renderer_state->normal_buffer,
+        renderer_state->uv_buffer,
+        renderer_state->tangent_buffer
+    };
+
+    U64 offsets[] =
+    {
+        0,
+        0,
+        0,
+        0
+    };
+
+    renderer->set_vertex_buffers(vertex_buffers, offsets, HE_ARRAYCOUNT(vertex_buffers));
+    renderer->set_index_buffer(renderer_state->index_buffer, 0);
+
+    U32 texture_count = renderer_state->textures.capacity;
+    Texture_Handle *textures = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Texture_Handle, texture_count);
+    Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Sampler_Handle, texture_count);
+
+    for (S32 texture_index = 0; texture_index < (S32)texture_count; texture_index++)
+    {
+        if (renderer_state->textures.is_allocated[texture_index])
+        {
+            textures[texture_index] = { texture_index, renderer_state->textures.generations[texture_index] };
+        }
+        else
+        {
+            textures[texture_index] = renderer_state->white_pixel_texture;
+        }
+
+        samplers[texture_index] = renderer_state->default_sampler;
+    }
+
+    Update_Binding_Descriptor update_textures_binding_descriptor = {};
+    update_textures_binding_descriptor.binding_number = 0;
+    update_textures_binding_descriptor.element_index = 0;
+    update_textures_binding_descriptor.count = texture_count;
+    update_textures_binding_descriptor.textures = textures;
+    update_textures_binding_descriptor.samplers = samplers;
+    renderer->update_bind_group(renderer_state->per_render_pass_bind_groups[current_frame_in_flight_index], &update_textures_binding_descriptor, 1);
+
+    Bind_Group_Handle bind_groups[] =
+    {
+        renderer_state->per_frame_bind_groups[current_frame_in_flight_index],
+        renderer_state->per_render_pass_bind_groups[current_frame_in_flight_index]
+    };
+
+    // todo(amer): i don't like mesh_shader_group here...
+    renderer->set_bind_groups(0, bind_groups, HE_ARRAYCOUNT(bind_groups), renderer_state->mesh_shader_group);
+
+    render_scene_node(renderer, renderer_state, renderer_state->root_scene_node, glm::mat4(1.0f));
+    renderer->end_frame();
+
+    renderer_state->current_frame_in_flight_index++;
+    if (renderer_state->current_frame_in_flight_index == renderer_state->frames_in_flight)
+    {
+        renderer_state->current_frame_in_flight_index = 0;
+    }
+
+    end_temprary_memory_arena(&renderer_state->frame_arena);
 }
 
 void shutdown(Engine *engine)

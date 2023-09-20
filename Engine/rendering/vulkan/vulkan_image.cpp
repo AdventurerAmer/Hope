@@ -115,8 +115,7 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     image->format = format;
     image->data = nullptr;
 
-    VkImageViewCreateInfo image_view_create_info =
-        { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    VkImageViewCreateInfo image_view_create_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
     image_view_create_info.image = image->handle;
     image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
     image_view_create_info.format = format;
@@ -129,7 +128,6 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
 
     VkFenceCreateInfo fence_create_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     HE_CHECK_VKRESULT(vkCreateFence(context->logical_device, &fence_create_info, nullptr, &image->is_loaded));
-
     return true;
 }
 

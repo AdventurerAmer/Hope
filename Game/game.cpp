@@ -6,9 +6,6 @@ struct Game_State
 {
 	Camera camera;
 	FPS_Camera_Controller camera_controller;
-
-    Scene_Node *sponza;
-	Scene_Node *flight_helmet;
 };
 
 static Game_State game_state;
@@ -24,12 +21,12 @@ HE_API bool init_game(Engine *engine)
 	F32 fov = 45.0f;
 	F32 near = 0.1f;
 	F32 far = 1000.0f;
-	engine->api.init_camera(camera, { 0.0f, 2.0f, 5.0f }, camera_rotation, aspect_ratio, fov, near, far);
+	engine->api.init_camera(camera, { 0.0f, 0.0f, 1.0f }, camera_rotation, aspect_ratio, fov, near, far);
 
     FPS_Camera_Controller *camera_controller = &game_state.camera_controller;
     F32 rotation_speed = 45.0f;
-    F32 base_movement_speed = 20.0f;
-    F32 max_movement_speed = 40.0f;
+    F32 base_movement_speed = 5.0f;
+    F32 max_movement_speed = 10.0f;
 	F32 sensitivity_x = 1.0f;
 	F32 sensitivity_y = 1.0f;
 
@@ -37,9 +34,8 @@ HE_API bool init_game(Engine *engine)
                                            rotation_speed,
                                            base_movement_speed,
                                            max_movement_speed, sensitivity_x, sensitivity_y);
-    
-    // game_state.sponza = engine->api.load_model_threaded(HE_STRING_LITERAL("models/Sponza/Sponza.gltf"), renderer, renderer_state);
-    game_state.flight_helmet = engine->api.load_model_threaded(HE_STRING_LITERAL("models/FlightHelmet/FlightHelmet.gltf"), renderer, renderer_state);
+
+    engine->api.load_model_threaded(HE_STRING_LITERAL("models/FlightHelmet/FlightHelmet.gltf"), renderer, renderer_state);
     return true;
 }
 
@@ -110,10 +106,7 @@ HE_API void on_update(Engine *engine, F32 delta_time)
     if (camera_controller_input.can_control)
     {
         engine->lock_cursor = true;
-        engine->api.control_camera(camera_controller,
-                                   camera,
-                                   camera_controller_input,
-                                   delta_time);
+        engine->api.control_camera(camera_controller, camera, camera_controller_input, delta_time);
     }
     else
     {
@@ -123,13 +116,7 @@ HE_API void on_update(Engine *engine, F32 delta_time)
     if (!engine->is_minimized)
     {
         Scene_Data *scene_data = &renderer_state->scene_data;
-
         scene_data->view = camera->view;
         scene_data->projection = camera->projection;
-
-        renderer->begin_frame(scene_data);
-        // engine->api.render_scene_node(renderer, renderer_state, game_state.sponza, glm::scale(glm::mat4(1.0f), glm::vec3(20.0f)));
-        engine->api.render_scene_node(renderer, renderer_state, game_state.flight_helmet, glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)));
-        renderer->end_frame();
     }
 }

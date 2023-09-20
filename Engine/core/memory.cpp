@@ -82,6 +82,7 @@ void* allocate(Memory_Arena *arena, Size size, U16 alignment, Temprary_Memory_Ar
     arena->last_padding = padding;
     arena->last_offset = arena->offset;
     arena->offset += padding + size;
+    zero_memory(result, size);
     return result;
 }
 
@@ -262,7 +263,7 @@ void* allocate(Free_List_Allocator *allocator, Size size, U16 alignment)
     }
 
     HE_ASSERT(result);
-    // zero_memory(result, size);
+    zero_memory(result, size);
     platform_unlock_mutex(&allocator->mutex);
     return result;
 }

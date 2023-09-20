@@ -35,7 +35,14 @@ void vulkan_renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle bind_gro
 
 bool vulkan_renderer_create_bind_group(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor);
 void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Update_Binding_Descriptor *update_binding_descriptors, U32 update_binding_descriptor_count);
+void vulkan_renderer_set_bind_groups(U32 first_bind_group, Bind_Group_Handle *bind_group_handles, U32 count, Shader_Group_Handle shader_group);
 void vulkan_renderer_destroy_bind_group(Bind_Group_Handle bind_group_handle);
+
+bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor);
+void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle);
+
+bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor);
+void vulkan_renderer_destroy_frame_buffer(Frame_Buffer_Handle frame_buffer_handle);
 
 bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
 void vulkan_renderer_destroy_static_mesh(Static_Mesh_Handle static_mesh_handle);

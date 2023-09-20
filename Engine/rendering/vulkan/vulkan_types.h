@@ -81,6 +81,11 @@ struct Vulkan_Pipeline_State
     VkPipeline handle;
 };
 
+struct Vulkan_Frame_Buffer
+{
+    VkFramebuffer handle;
+};
+
 struct Vulkan_Swapchain_Support
 {
     U32 surface_format_count;
@@ -112,19 +117,24 @@ struct Vulkan_Swapchain
     Vulkan_Image depth_stencil_attachment;
 };
 
+struct Vulkan_Render_Pass
+{
+    VkRenderPass handle;
+};
+
 struct Vulkan_Static_Mesh
 {
     S32 first_vertex;
     U32 first_index;
-
     VkFence is_loaded;
 };
 
 struct Vulkan_Context
 {
     struct Engine *engine;
+
     Memory_Arena arena;
-    Temprary_Memory_Arena frame_arena;
+    Free_List_Allocator *allocator;
 
     VkInstance instance;
 
@@ -155,15 +165,13 @@ struct Vulkan_Context
     VkFence frame_in_flight_fences[HE_MAX_FRAMES_IN_FLIGHT];
 
     VkDescriptorPool descriptor_pool;
-    VkDescriptorSet descriptor_sets[HE_MAX_DESCRIPTOR_SET_COUNT][HE_MAX_FRAMES_IN_FLIGHT];
 
     VkCommandPool graphics_command_pool;
     VkCommandBuffer graphics_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    VkCommandBuffer command_buffer;
 
     VkCommandPool transfer_command_pool;
 
-    U32 frames_in_flight;
-    U32 current_frame_in_flight_index;
     U32 current_swapchain_image_index;
 
     Vulkan_Buffer *buffers;
@@ -174,12 +182,9 @@ struct Vulkan_Context
     Vulkan_Pipeline_State *pipeline_states;
     Vulkan_Bind_Group_Layout *bind_group_layouts;
     Vulkan_Bind_Group *bind_groups;
+    Vulkan_Render_Pass *render_passes;
+    Vulkan_Frame_Buffer *frame_buffers;
     Vulkan_Static_Mesh *static_meshes;
-
-    Object_Data *object_data_base;
-    U32 object_data_count;
-
-    Free_List_Allocator *allocator;
 
     VkDescriptorPool imgui_descriptor_pool;
 

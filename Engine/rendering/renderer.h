@@ -18,6 +18,8 @@ enum RenderingAPI
 #define HE_MAX_TEXTURE_COUNT 4096
 #define HE_MAX_SAMPLER_COUNT 4096
 #define HE_MAX_MATERIAL_COUNT 4096
+#define HE_MAX_RENDER_PASS_COUNT 4096
+#define HE_MAX_FRAME_BUFFER_COUNT 4096
 #define HE_MAX_STATIC_MESH_COUNT 4096
 #define HE_MAX_SHADER_COUNT 4096
 #define HE_MAX_SHADER_GROUP_COUNT 4096
@@ -47,6 +49,9 @@ struct Renderer_State
 {
     struct Engine *engine;
 
+    Memory_Arena arena;
+    Temprary_Memory_Arena frame_arena;
+
     U32 back_buffer_width;
     U32 back_buffer_height;
 
@@ -58,16 +63,23 @@ struct Renderer_State
     Resource_Pool< Pipeline_State > pipeline_states;
     Resource_Pool< Bind_Group_Layout > bind_group_layouts;
     Resource_Pool< Bind_Group > bind_groups;
+    Resource_Pool< Render_Pass > render_passes;
+    Resource_Pool< Frame_Buffer > frame_buffers;
     Resource_Pool< Material > materials;
     Resource_Pool< Static_Mesh > static_meshes;
 
     std::atomic< U32 > scene_node_count;
     Scene_Node *scene_nodes;
 
+    Scene_Node *root_scene_node;
+
     Shader_Handle mesh_vertex_shader;
     Shader_Handle mesh_fragment_shader;
     Shader_Group_Handle mesh_shader_group;
     Pipeline_State_Handle mesh_pipeline;
+
+    Bind_Group_Handle per_frame_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
+    Bind_Group_Handle per_render_pass_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
 
     Texture_Handle white_pixel_texture;
     Texture_Handle normal_pixel_texture;
@@ -75,7 +87,9 @@ struct Renderer_State
     Sampler_Handle default_sampler;
 
     Buffer_Handle globals_uniform_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+
     Buffer_Handle object_data_storage_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    Object_Data *object_data_base;
     U32 object_data_count;
 
     Buffer_Handle transfer_buffer;
@@ -93,6 +107,9 @@ struct Renderer_State
     Scene_Data scene_data;
 
     Free_List_Allocator transfer_allocator;
+
+    U32 frames_in_flight;
+    U32 current_frame_in_flight_index;
 
     Mutex render_commands_mutex;
 };
@@ -141,6 +158,7 @@ struct Renderer
 
     bool (*create_bind_group)(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor);
     void (*update_bind_group)(Bind_Group_Handle bind_group_handle, const Update_Binding_Descriptor *update_binding_descriptors, U32 update_binding_descriptor_count);
+    void (*set_bind_groups)(U32 first_bind_group, Bind_Group_Handle *bind_group_handles, U32 count, Shader_Group_Handle shader_group);
     void (*destroy_bind_group)(Bind_Group_Handle bind_group_handle);
 
     bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
@@ -154,8 +172,6 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);
 Scene_Node *add_child_scene_node(Renderer_State *renderer_state, Scene_Node *parent);
 
 bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena);
-
-Scene_Node* load_model(const String &path, Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena);
 
 Scene_Node* load_model_threaded(const String &path, Renderer *renderer, Renderer_State *renderer_state);
 

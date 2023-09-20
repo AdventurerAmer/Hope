@@ -325,6 +325,8 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
     context->pipeline_states = HE_ALLOCATE_ARRAY(arena, Vulkan_Pipeline_State, HE_MAX_PIPELINE_STATE_COUNT);
     context->bind_group_layouts = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group_Layout, HE_MAX_BIND_GROUP_LAYOUT_COUNT);
     context->bind_groups = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group, HE_MAX_BIND_GROUP_COUNT);
+    context->render_passes = HE_ALLOCATE_ARRAY(arena, Vulkan_Render_Pass, HE_MAX_RENDER_PASS_COUNT);
+    context->frame_buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Frame_Buffer, HE_MAX_FRAME_BUFFER_COUNT);
     context->static_meshes = HE_ALLOCATE_ARRAY(arena, Vulkan_Static_Mesh, HE_MAX_STATIC_MESH_COUNT);
 
     const char *required_instance_extensions[] =
@@ -691,8 +693,8 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
 
     VkFormat image_formats[] =
     {
-        VK_FORMAT_B8G8R8A8_SRGB,
-        VK_FORMAT_R8G8B8A8_SRGB
+        VK_FORMAT_R8G8B8A8_SRGB,
+        VK_FORMAT_B8G8R8A8_SRGB
     };
 
     VkFormat depth_stencil_formats[] =
@@ -759,7 +761,6 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
     attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-
     VkAttachmentReference color_attachment_ref = {};
     color_attachment_ref.attachment = 0;
     color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -793,17 +794,13 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
 
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|
-                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dependency.srcAccessMask = 0;
 
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|
-                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|
-                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-    VkRenderPassCreateInfo render_pass_create_info =
-        { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+    VkRenderPassCreateInfo render_pass_create_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
     if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
     {
         render_pass_create_info.attachmentCount = HE_ARRAYCOUNT(attachments_msaa);
@@ -821,16 +818,14 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
     render_pass_create_info.dependencyCount = 1;
     render_pass_create_info.pDependencies = &dependency;
 
-    HE_CHECK_VKRESULT(vkCreateRenderPass(context->logical_device,
-                                          &render_pass_create_info,
-                                          nullptr, &context->render_pass));
+    HE_CHECK_VKRESULT(vkCreateRenderPass(context->logical_device, &render_pass_create_info, nullptr, &context->render_pass));
 
     VkPresentModeKHR present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
     U32 min_image_count = HE_MAX_FRAMES_IN_FLIGHT;
     U32 width = (U32)engine->window.width;
     U32 height = (U32)engine->window.height;
-    bool swapchain_created = create_swapchain(context, width, height,
-                                              min_image_count, present_mode, &context->swapchain);
+
+    bool swapchain_created = create_swapchain(context, width, height, min_image_count, present_mode, &context->swapchain);
     HE_ASSERT(swapchain_created);
 
     {
@@ -849,43 +844,18 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
         if (result.success)
         {
             VkPipelineCacheHeaderVersionOne *pipeline_cache_header = (VkPipelineCacheHeaderVersionOne *)result.data;
-            if (pipeline_cache_header->deviceID == context->physical_device_properties.deviceID &&
-                pipeline_cache_header->vendorID == context->physical_device_properties.vendorID)
+            if (pipeline_cache_header->deviceID == context->physical_device_properties.deviceID && pipeline_cache_header->vendorID == context->physical_device_properties.vendorID)
             {
                 pipeline_cache_data = result.data;
                 pipeline_cache_size = result.size;
             }
         }
 
-        VkPipelineCacheCreateInfo pipeline_cache_create_info
-            = { VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
+        VkPipelineCacheCreateInfo pipeline_cache_create_info = { VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
         pipeline_cache_create_info.initialDataSize = pipeline_cache_size;
         pipeline_cache_create_info.pInitialData = pipeline_cache_data;
-        HE_CHECK_VKRESULT(vkCreatePipelineCache(context->logical_device, &pipeline_cache_create_info,
-                                                 nullptr, &context->pipeline_cache));
+        HE_CHECK_VKRESULT(vkCreatePipelineCache(context->logical_device, &pipeline_cache_create_info, nullptr, &context->pipeline_cache));
     }
-
-    Renderer_State *renderer_state = &context->engine->renderer_state;
-    renderer_state->mesh_vertex_shader = aquire_handle(&renderer_state->shaders);
-    bool shader_loaded = load_shader(renderer_state->mesh_vertex_shader,
-                                     "shaders/bin/mesh.vert.spv",
-                                     context);
-    HE_ASSERT(shader_loaded);
-
-    renderer_state->mesh_fragment_shader = aquire_handle(&renderer_state->shaders);
-    shader_loaded = load_shader(renderer_state->mesh_fragment_shader,
-                                "shaders/bin/mesh.frag.spv",
-                                context);
-    HE_ASSERT(shader_loaded);
-
-    renderer_state->mesh_shader_group = aquire_handle(&renderer_state->shader_groups);
-    Shader_Group_Descriptor shader_group_descriptor = {};
-    shader_group_descriptor.shaders = { renderer_state->mesh_vertex_shader, renderer_state->mesh_fragment_shader };
-    vulkan_renderer_create_shader_group(renderer_state->mesh_shader_group, shader_group_descriptor);
-
-    renderer_state->mesh_pipeline = aquire_handle(&renderer_state->pipeline_states);
-    bool pipeline_created = create_graphics_pipeline(renderer_state->mesh_pipeline, renderer_state->mesh_shader_group, context->render_pass, context);
-    HE_ASSERT(pipeline_created);
 
     VkCommandPoolCreateInfo graphics_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
 
@@ -901,8 +871,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
     graphics_command_buffer_allocate_info.commandBufferCount = HE_MAX_FRAMES_IN_FLIGHT;
     HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &graphics_command_buffer_allocate_info, context->graphics_command_buffers));
 
-    VkCommandPoolCreateInfo transfer_command_pool_create_info
-        = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    VkCommandPoolCreateInfo transfer_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
 
     transfer_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     transfer_command_pool_create_info.queueFamilyIndex = context->transfer_queue_family_index;
@@ -923,50 +892,6 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
 
     HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, nullptr, &context->descriptor_pool));
 
-    Shader_Group *shader_group = get(&renderer_state->shader_groups, renderer_state->mesh_shader_group);
-
-    // set 0
-    {
-        VkDescriptorSetLayout level0_descriptor_set_layouts[HE_MAX_FRAMES_IN_FLIGHT] = {};
-
-        for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-        {
-            Vulkan_Pipeline_State *mesh_pipeline = &context->pipeline_states[renderer_state->mesh_pipeline.index];
-            Vulkan_Bind_Group_Layout *layout = &context->bind_group_layouts[ shader_group->bind_group_layouts[0].index ];
-            
-            level0_descriptor_set_layouts[frame_index] = layout->handle;
-
-        }
-
-        VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        descriptor_set_allocation_info.descriptorPool = context->descriptor_pool;
-        descriptor_set_allocation_info.descriptorSetCount = HE_MAX_FRAMES_IN_FLIGHT;
-        descriptor_set_allocation_info.pSetLayouts = level0_descriptor_set_layouts;
-
-        HE_CHECK_VKRESULT(vkAllocateDescriptorSets(context->logical_device, &descriptor_set_allocation_info, context->descriptor_sets[0]));
-    }
-
-    // set 1
-    {
-        VkDescriptorSetLayout level1_descriptor_set_layouts[HE_MAX_FRAMES_IN_FLIGHT] = {};
-
-        for (U32 frame_index = 0;
-             frame_index < HE_MAX_FRAMES_IN_FLIGHT;
-             frame_index++)
-        {
-            Vulkan_Pipeline_State *mesh_pipeline = &context->pipeline_states[renderer_state->mesh_pipeline.index];
-            Vulkan_Bind_Group_Layout *layout = &context->bind_group_layouts[ shader_group->bind_group_layouts[1].index ];
-            level1_descriptor_set_layouts[frame_index] = layout->handle;
-        }
-
-        VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        descriptor_set_allocation_info.descriptorPool = context->descriptor_pool;
-        descriptor_set_allocation_info.descriptorSetCount = U32(HE_MAX_FRAMES_IN_FLIGHT);
-        descriptor_set_allocation_info.pSetLayouts = level1_descriptor_set_layouts;
-
-        HE_CHECK_VKRESULT(vkAllocateDescriptorSets(context->logical_device, &descriptor_set_allocation_info, context->descriptor_sets[1]));
-    }
-
     VkSemaphoreCreateInfo semaphore_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     VkFenceCreateInfo fence_create_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -978,10 +903,6 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
         HE_CHECK_VKRESULT(vkCreateFence(context->logical_device, &fence_create_info, nullptr, &context->frame_in_flight_fences[frame_index]));
     }
 
-    context->current_frame_in_flight_index = 0;
-    context->frames_in_flight = 2;
-    HE_ASSERT(context->frames_in_flight <= HE_MAX_FRAMES_IN_FLIGHT);
-
     init_imgui(context);
     return true;
 }
@@ -989,8 +910,8 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
 void deinit_vulkan(Vulkan_Context *context)
 {
     vkDeviceWaitIdle(context->logical_device);
-    vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, nullptr);
 
+    vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, nullptr);
     vkDestroyDescriptorPool(context->logical_device, context->imgui_descriptor_pool, nullptr);
 
     ImGui_ImplVulkan_Shutdown();
@@ -1010,20 +931,12 @@ void deinit_vulkan(Vulkan_Context *context)
     destroy_swapchain(context, &context->swapchain);
 
     U64 pipeline_cache_size = 0;
-    vkGetPipelineCacheData(context->logical_device,
-                           context->pipeline_cache,
-                           &pipeline_cache_size,
-                           nullptr);
-
+    vkGetPipelineCacheData(context->logical_device, context->pipeline_cache, &pipeline_cache_size, nullptr);
 
     if (pipeline_cache_size)
     {
-        U8 *pipeline_cache_data = HE_ALLOCATE_ARRAY(context->allocator, U8, pipeline_cache_size);
-        vkGetPipelineCacheData(context->logical_device,
-                               context->pipeline_cache,
-                               &pipeline_cache_size,
-                               pipeline_cache_data);
-
+        U8 *pipeline_cache_data = HE_ALLOCATE_ARRAY(&context->arena, U8, pipeline_cache_size);
+        vkGetPipelineCacheData(context->logical_device, context->pipeline_cache, &pipeline_cache_size, pipeline_cache_data);
         write_entire_file(HE_PIPELINE_CACHE_FILENAME, pipeline_cache_data, pipeline_cache_size);
     }
 
@@ -1035,13 +948,9 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDestroyDevice(context->logical_device, nullptr);
 
 #if HE_GRAPHICS_DEBUGGING
-     PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerExt =
-        (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(context->instance,
-                                                                  "vkDestroyDebugUtilsMessengerEXT");
+    auto vkDestroyDebugUtilsMessengerExt = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(context->instance, "vkDestroyDebugUtilsMessengerEXT");
     HE_ASSERT(vkDestroyDebugUtilsMessengerExt);
-    vkDestroyDebugUtilsMessengerExt(context->instance,
-                                    context->debug_messenger,
-                                    nullptr);
+    vkDestroyDebugUtilsMessengerExt(context->instance, context->debug_messenger, nullptr);
 #endif
 
     vkDestroyInstance(context->instance, nullptr);
@@ -1087,13 +996,9 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = &context->engine->renderer_state;
-    U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
+    U32 current_frame_in_flight_index = renderer_state->current_frame_in_flight_index;
 
-    vkWaitForFences(context->logical_device,
-                    1, &context->frame_in_flight_fences[current_frame_in_flight_index],
-                    VK_TRUE, UINT64_MAX);
-
-    begin_temprary_memory_arena(&context->frame_arena, &context->arena);
+    vkWaitForFences(context->logical_device, 1, &context->frame_in_flight_fences[current_frame_in_flight_index], VK_TRUE, UINT64_MAX);
 
     Globals globals = {};
     globals.view = scene_data->view;
@@ -1105,11 +1010,6 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
     Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[current_frame_in_flight_index]);
     memcpy(global_uniform_buffer->data, &globals, sizeof(Globals));
 
-    Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[current_frame_in_flight_index]);
-
-    context->object_data_base = (Object_Data *)object_data_storage_buffer->data;
-    context->object_data_count = 0;
-
     U32 width = renderer_state->back_buffer_width;
     U32 height = renderer_state->back_buffer_height;
 
@@ -1118,14 +1018,13 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
         recreate_swapchain(context, &context->swapchain, width, height, context->swapchain.present_mode);
     }
 
-    VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[current_frame_in_flight_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);
+    VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[current_frame_in_flight_index], VK_NULL_HANDLE,&context->current_swapchain_image_index);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
     {
         if (width != 0 && height != 0)
         {
             recreate_swapchain(context, &context->swapchain, width, height, context->swapchain.present_mode);
-
         }
     }
     else
@@ -1159,108 +1058,6 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
 
     vkCmdBeginRenderPass(command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        Vulkan_Buffer *globals_uniform_buffer = &context->buffers[renderer_state->globals_uniform_buffers[frame_index].index];
-
-        VkDescriptorBufferInfo globals_uniform_buffer_descriptor_info = {};
-        globals_uniform_buffer_descriptor_info.buffer = globals_uniform_buffer->handle;
-        globals_uniform_buffer_descriptor_info.offset = 0;
-        globals_uniform_buffer_descriptor_info.range = sizeof(Globals);
-
-        VkWriteDescriptorSet globals_uniform_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        globals_uniform_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
-        globals_uniform_buffer_write_descriptor_set.dstBinding = 0;
-        globals_uniform_buffer_write_descriptor_set.dstArrayElement = 0;
-        globals_uniform_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        globals_uniform_buffer_write_descriptor_set.descriptorCount = 1;
-        globals_uniform_buffer_write_descriptor_set.pBufferInfo = &globals_uniform_buffer_descriptor_info;
-
-        Vulkan_Buffer *object_data_storage_buffer = &context->buffers[renderer_state->object_data_storage_buffers[frame_index].index];
-
-        VkDescriptorBufferInfo object_data_storage_buffer_descriptor_info = {};
-        object_data_storage_buffer_descriptor_info.buffer = object_data_storage_buffer->handle;
-        object_data_storage_buffer_descriptor_info.offset = 0;
-        object_data_storage_buffer_descriptor_info.range = sizeof(Object_Data) * HE_MAX_OBJECT_DATA_COUNT;
-
-        VkWriteDescriptorSet object_data_storage_buffer_write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        object_data_storage_buffer_write_descriptor_set.dstSet = context->descriptor_sets[0][frame_index];
-        object_data_storage_buffer_write_descriptor_set.dstBinding = 1;
-        object_data_storage_buffer_write_descriptor_set.dstArrayElement = 0;
-        object_data_storage_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        object_data_storage_buffer_write_descriptor_set.descriptorCount = 1;
-        object_data_storage_buffer_write_descriptor_set.pBufferInfo = &object_data_storage_buffer_descriptor_info;
-
-        VkWriteDescriptorSet write_descriptor_sets[] =
-        {
-            globals_uniform_buffer_write_descriptor_set,
-            object_data_storage_buffer_write_descriptor_set
-        };
-
-        vkUpdateDescriptorSets(context->logical_device, HE_ARRAYCOUNT(write_descriptor_sets), write_descriptor_sets, 0, nullptr);
-    }
-
-    VkDescriptorImageInfo *descriptor_image_infos = HE_ALLOCATE_ARRAY(&context->frame_arena, VkDescriptorImageInfo, HE_MAX_TEXTURE_COUNT);
-    Vulkan_Sampler *default_sampler = &context->samplers[renderer_state->default_sampler.index];
-
-    for (U32 texture_index = 0;
-         texture_index < renderer_state->textures.capacity;
-         texture_index++)
-    {
-        Texture *texture = nullptr;
-        Vulkan_Image *vulkan_image = nullptr;
-
-        if (renderer_state->textures.is_allocated[texture_index])
-        {
-            texture = &renderer_state->textures.data[texture_index];
-            vulkan_image = &context->textures[texture_index];
-        }
-        else
-        {
-            texture = &renderer_state->textures.data[renderer_state->white_pixel_texture.index];
-            vulkan_image = &context->textures[renderer_state->white_pixel_texture.index];
-        }
-
-        if (texture->data)
-        {
-            if (vkWaitForFences(context->logical_device, 1, &vulkan_image->is_loaded, VK_FALSE, 0) == VK_SUCCESS)
-            {
-                deallocate(&renderer_state->transfer_allocator, texture->data);
-                texture->data = nullptr;
-            }
-        }
-
-        descriptor_image_infos[texture_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        descriptor_image_infos[texture_index].imageView = vulkan_image->view;
-        descriptor_image_infos[texture_index].sampler = default_sampler->handle;
-    }
-
-    VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    write_descriptor_set.dstSet = context->descriptor_sets[1][current_frame_in_flight_index];
-    write_descriptor_set.dstBinding = 0;
-    write_descriptor_set.dstArrayElement = 0;
-    write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write_descriptor_set.descriptorCount = renderer_state->textures.capacity;
-    write_descriptor_set.pImageInfo = descriptor_image_infos;
-
-    vkUpdateDescriptorSets(context->logical_device, 1, &write_descriptor_set, 0, nullptr);
-
-    VkDescriptorSet descriptor_sets[] =
-    {
-        context->descriptor_sets[0][current_frame_in_flight_index],
-        context->descriptor_sets[1][current_frame_in_flight_index]
-    };
-
-    Pipeline_State *mesh_pipeline = get(&renderer_state->pipeline_states, renderer_state->mesh_pipeline);
-    Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[mesh_pipeline->shader_group.index];
-    
-    vkCmdBindDescriptorSets(command_buffer,
-                            VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            vulkan_shader_group->pipeline_layout,
-                            0, HE_ARRAYCOUNT(descriptor_sets),
-                            descriptor_sets,
-                            0, nullptr);
-
     VkViewport viewport = {};
     viewport.x = 0;
     viewport.y = 0;
@@ -1277,35 +1074,17 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
     scissor.extent.height = context->swapchain.height;
     vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
-    Vulkan_Buffer *position_buffer = &context->buffers[renderer_state->position_buffer.index];
-    Vulkan_Buffer *normal_buffer = &context->buffers[renderer_state->normal_buffer.index];
-    Vulkan_Buffer *uv_buffer = &context->buffers[renderer_state->uv_buffer.index];
-    Vulkan_Buffer *tangent_buffer = &context->buffers[renderer_state->tangent_buffer.index];
-
-    // todo(amer): this should be outside
-    VkBuffer vertex_buffers[] =
-    {
-        position_buffer->handle,
-        normal_buffer->handle,
-        uv_buffer->handle,
-        tangent_buffer->handle
-    };
-
-    VkDeviceSize offsets[] = { 0, 0, 0, 0 };
-    vkCmdBindVertexBuffers(command_buffer, 0, HE_ARRAYCOUNT(vertex_buffers), vertex_buffers, offsets);
-    
-    Vulkan_Buffer *index_buffer = &context->buffers[renderer_state->index_buffer.index];
-    vkCmdBindIndexBuffer(command_buffer, index_buffer->handle, 0, VK_INDEX_TYPE_UINT16);
+    context->command_buffer = command_buffer;
 }
 
 void vulkan_renderer_set_vertex_buffers(Buffer_Handle *vertex_buffer_handles, U64 *offsets, U32 count)
 {
     Vulkan_Context *context = &vulkan_context;
 
-    U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
+    U32 current_frame_in_flight_index = context->engine->renderer_state.current_frame_in_flight_index;
     VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
 
-    VkBuffer *vulkan_vertex_buffers = HE_ALLOCATE_ARRAY(&context->frame_arena, VkBuffer, count);
+    VkBuffer *vulkan_vertex_buffers = HE_ALLOCATE_ARRAY(&context->engine->renderer_state.frame_arena, VkBuffer, count);
     for (U32 vertex_buffer_index = 0; vertex_buffer_index < count; vertex_buffer_index++)
     {
         Buffer_Handle vertex_buffer_handle = vertex_buffer_handles[vertex_buffer_index];
@@ -1319,12 +1098,8 @@ void vulkan_renderer_set_vertex_buffers(Buffer_Handle *vertex_buffer_handles, U6
 void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 offset)
 {
     Vulkan_Context *context = &vulkan_context;
-
-    U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
-    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
-
     Vulkan_Buffer *vulkan_index_buffer = &context->buffers[index_buffer_handle.index];
-    vkCmdBindIndexBuffer(command_buffer, vulkan_index_buffer->handle, offset, VK_INDEX_TYPE_UINT16);
+    vkCmdBindIndexBuffer(context->command_buffer, vulkan_index_buffer->handle, offset, VK_INDEX_TYPE_UINT16);
 }
 
 void vulkan_renderer_submit_static_mesh(Static_Mesh_Handle static_mesh_handle, const glm::mat4 &transform)
@@ -1332,33 +1107,31 @@ void vulkan_renderer_submit_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = &context->engine->renderer_state;
 
-    HE_ASSERT(context->object_data_count < HE_MAX_OBJECT_DATA_COUNT);
-    U32 object_data_index = context->object_data_count++;
-    Object_Data *object_data = &context->object_data_base[object_data_index];
+    HE_ASSERT(renderer_state->object_data_count < HE_MAX_OBJECT_DATA_COUNT);
+    U32 object_data_index = renderer_state->object_data_count++;
+    Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
     object_data->model = transform;
-    U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
-    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
 
     Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
 
     Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
     Material *material = get(&renderer_state->materials, static_mesh->material_handle);
     
-    Buffer *material_buffer = get(&renderer_state->buffers, material->buffers[current_frame_in_flight_index]);
+    Buffer *material_buffer = get(&renderer_state->buffers, material->buffers[renderer_state->current_frame_in_flight_index]);
     copy_memory(material_buffer->data, material->data, material->size);
 
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle);
     Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[material->pipeline_state_handle.index];
-    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_pipeline_state->handle);
+    vkCmdBindPipeline(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_pipeline_state->handle);
     
     Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[pipeline_state->shader_group.index];
 
     VkDescriptorSet descriptor_sets[] =
     {
-        context->bind_groups[ material->bind_groups[current_frame_in_flight_index].index ].handle,
+        context->bind_groups[ material->bind_groups[ renderer_state->current_frame_in_flight_index ].index ].handle,
     };
 
-    vkCmdBindDescriptorSets(command_buffer,
+    vkCmdBindDescriptorSets(context->command_buffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
                             vulkan_shader_group->pipeline_layout,
                             2, HE_ARRAYCOUNT(descriptor_sets),
@@ -1370,7 +1143,7 @@ void vulkan_renderer_submit_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     U32 first_index = vulkan_static_mesh->first_index;
     S32 first_vertex = vulkan_static_mesh->first_vertex;
 
-    vkCmdDrawIndexed(command_buffer, static_mesh->index_count, instance_count,
+    vkCmdDrawIndexed(context->command_buffer, static_mesh->index_count, instance_count,
                      first_index, first_vertex, start_instance);
 }
 
@@ -1379,12 +1152,8 @@ void vulkan_renderer_end_frame()
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = &context->engine->renderer_state;
 
-    U32 current_frame_in_flight_index = context->current_frame_in_flight_index;
-    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
-
     ImGuiIO &io = ImGui::GetIO();
-    io.DisplaySize = ImVec2((F32)(renderer_state->back_buffer_width),
-                            (F32)(renderer_state->back_buffer_height));
+    io.DisplaySize = ImVec2((F32)(renderer_state->back_buffer_width), (F32)(renderer_state->back_buffer_height));
 
     if (renderer_state->engine->imgui_docking)
     {
@@ -1395,11 +1164,11 @@ void vulkan_renderer_end_frame()
 
     if (renderer_state->engine->show_imgui)
     {
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffer);
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), context->command_buffer);
     }
 
-    vkCmdEndRenderPass(command_buffer);
-    vkEndCommandBuffer(command_buffer);
+    vkCmdEndRenderPass(context->command_buffer);
+    vkEndCommandBuffer(context->command_buffer);
 
     VkPipelineStageFlags wait_stage =  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
@@ -1408,15 +1177,15 @@ void vulkan_renderer_end_frame()
     submit_info.pWaitDstStageMask = &wait_stage;
 
     submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &context->image_available_semaphores[current_frame_in_flight_index];
+    submit_info.pWaitSemaphores = &context->image_available_semaphores[renderer_state->current_frame_in_flight_index];
 
     submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &context->rendering_finished_semaphores[current_frame_in_flight_index];
+    submit_info.pSignalSemaphores = &context->rendering_finished_semaphores[renderer_state->current_frame_in_flight_index];
 
     submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffer;
+    submit_info.pCommandBuffers = &context->command_buffer;
 
-    vkQueueSubmit(context->graphics_queue, 1, &submit_info, context->frame_in_flight_fences[current_frame_in_flight_index]);
+    vkQueueSubmit(context->graphics_queue, 1, &submit_info, context->frame_in_flight_fences[renderer_state->current_frame_in_flight_index]);
 
     if (io.ConfigFlags&ImGuiConfigFlags_ViewportsEnable)
     {
@@ -1427,7 +1196,7 @@ void vulkan_renderer_end_frame()
     VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 
     present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores = &context->rendering_finished_semaphores[current_frame_in_flight_index];
+    present_info.pWaitSemaphores = &context->rendering_finished_semaphores[renderer_state->current_frame_in_flight_index];
 
     present_info.swapchainCount = 1;
     present_info.pSwapchains = &context->swapchain.handle;
@@ -1438,25 +1207,57 @@ void vulkan_renderer_end_frame()
     {
         if (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
         {
-            recreate_swapchain(context,
-                               &context->swapchain,
-                               renderer_state->back_buffer_width,
-                               renderer_state->back_buffer_height,
-                               context->swapchain.present_mode);
+            recreate_swapchain(context, &context->swapchain, renderer_state->back_buffer_width, renderer_state->back_buffer_height, context->swapchain.present_mode);
         }
     }
     else
     {
         HE_ASSERT(result == VK_SUCCESS);
     }
+}
 
-    context->current_frame_in_flight_index++;
-    if (context->current_frame_in_flight_index == context->frames_in_flight)
+VkFormat get_texture_format(Texture_Format texture_format)
+{
+    switch (texture_format)
     {
-        context->current_frame_in_flight_index = 0;
+        case Texture_Format::R8G8B8A8_SRGB:
+        {
+            return VK_FORMAT_R8G8B8A8_SRGB;
+        } break;
+
+        case Texture_Format::DEPTH_F32_STENCIL_U8:
+        {
+            return VK_FORMAT_D32_SFLOAT_S8_UINT;
+        } break;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported texture format");
+        } break;
     }
 
-    end_temprary_memory_arena(&context->frame_arena);
+    return VK_FORMAT_UNDEFINED;
+}
+
+VkSampleCountFlagBits get_sample_count(U32 sample_count)
+{
+    switch (sample_count)
+    {
+        case 1: return VK_SAMPLE_COUNT_1_BIT;
+        case 2: return VK_SAMPLE_COUNT_2_BIT;
+        case 4: return VK_SAMPLE_COUNT_4_BIT;
+        case 8: return VK_SAMPLE_COUNT_8_BIT;
+        case 16: return VK_SAMPLE_COUNT_16_BIT;
+        case 32: return VK_SAMPLE_COUNT_32_BIT;
+        case 64: return VK_SAMPLE_COUNT_64_BIT;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported sample count");
+        }
+    }
+
+    return VK_SAMPLE_COUNT_FLAG_BITS_MAX_ENUM;
 }
 
 bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture_Descriptor &descriptor)
@@ -1466,7 +1267,7 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     Texture *texture = get(&renderer_state->textures, texture_handle);
     Vulkan_Image *image = &context->textures[texture_handle.index];
 
-    HE_ASSERT(descriptor.format == Texture_Format::RGBA); // todo(amer): only supporting RGBA for now.
+    HE_ASSERT(descriptor.format == Texture_Format::R8G8B8A8_SRGB); // todo(amer): only supporting RGBA for now.
     create_image(image, context, descriptor.width, descriptor.height,
                  VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
                  VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -1809,7 +1610,6 @@ bool vulkan_renderer_create_bind_group(Bind_Group_Handle bind_group_handle, cons
     return true;
 }
 
-
 void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Update_Binding_Descriptor *update_binding_descriptors, U32 update_binding_descriptor_count)
 {
     Vulkan_Context *context = &vulkan_context;
@@ -1847,6 +1647,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
             {
                 Buffer *buffer = get(&context->engine->renderer_state.buffers, binding->buffers[0]);
                 Vulkan_Buffer *vulkan_buffer = &context->buffers[ binding->buffers[buffer_index].index ];
+
                 VkDescriptorBufferInfo *buffer_info = &buffer_infos[buffer_index];
                 buffer_info->buffer = vulkan_buffer->handle;
                 buffer_info->offset = 0;
@@ -1878,11 +1679,217 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
     vkUpdateDescriptorSets(context->logical_device, update_binding_descriptor_count, write_descriptor_sets, 0, nullptr);
 }
 
+void vulkan_renderer_set_bind_groups(U32 first_bind_group, Bind_Group_Handle *bind_group_handles, U32 count, Shader_Group_Handle shader_group)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[shader_group.index];
+
+    VkDescriptorSet *descriptor_sets = HE_ALLOCATE_ARRAY(&context->engine->renderer_state.frame_arena, VkDescriptorSet, count);
+    for (U32 bind_group_index = 0; bind_group_index < count; bind_group_index++)
+    {
+        Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[ bind_group_handles[ bind_group_index ].index ];
+        descriptor_sets[bind_group_index] = vulkan_bind_group->handle;
+    }
+
+    vkCmdBindDescriptorSets(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_shader_group->pipeline_layout, first_bind_group, count, descriptor_sets, 0, nullptr);
+}
+
 void vulkan_renderer_destroy_bind_group(Bind_Group_Handle bind_group_handle)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Bind_Group *bind_group = &context->bind_groups[bind_group_handle.index];
-    vkFreeDescriptorSets(context->logical_device, context->descriptor_pool, 1, &bind_group->handle);
+    Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[bind_group_handle.index];
+    vkFreeDescriptorSets(context->logical_device, context->descriptor_pool, 1, &vulkan_bind_group->handle);
+}
+
+bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor)
+{
+    Vulkan_Context *context = &vulkan_context;
+
+    Temprary_Memory_Arena temprary_arena = {};
+    begin_temprary_memory_arena(&temprary_arena, &context->arena);
+    HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
+
+    Render_Pass *render_pass = get(&context->engine->renderer_state.render_passes, render_pass_handle);
+    Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
+
+    U32 color_attachment_count = u64_to_u32(descriptor.color_attachments.size());
+    U32 depth_attachment_count = u64_to_u32(descriptor.depth_stencil_attachments.size());
+    U32 attachment_count = color_attachment_count + depth_attachment_count;
+    VkAttachmentDescription *attachments = HE_ALLOCATE_ARRAY(&temprary_arena, VkAttachmentDescription, attachment_count);
+    VkAttachmentReference *attachment_refs = HE_ALLOCATE_ARRAY(&temprary_arena, VkAttachmentReference, attachment_count);
+    U32 attachment_index = 0;
+
+    for (const Attachment_Info &attachment_info : descriptor.color_attachments)
+    {
+        VkAttachmentDescription *attachment = &attachments[attachment_index];
+        attachment->format = get_texture_format(attachment_info.format);
+        attachment->samples = get_sample_count(attachment_info.sample_count);
+        attachment->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        switch (attachment_info.operation)
+        {
+            case Attachment_Operation::DONT_CARE:
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            } break;
+
+            case Attachment_Operation::LOAD:
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                attachment->initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            } break;
+
+            case Attachment_Operation::CLEAR:
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            } break;
+        }
+
+        attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachment->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachment->finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        VkAttachmentReference *attachment_ref = &attachment_refs[attachment_index];
+        attachment_ref->attachment = attachment_index;
+        attachment_ref->layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        attachment_index++;
+    }
+
+    for (const Attachment_Info &attachment_info : descriptor.depth_stencil_attachments)
+    {
+        VkAttachmentDescription *attachment = &attachments[attachment_index];
+        attachment->format = get_texture_format(attachment_info.format);
+        attachment->samples = get_sample_count(attachment_info.sample_count);
+        attachment->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        switch (attachment_info.operation)
+        {
+            case Attachment_Operation::DONT_CARE:
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            } break;
+
+            case Attachment_Operation::LOAD:
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                attachment->initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            } break;
+
+            case Attachment_Operation::CLEAR:
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            } break;
+        }
+
+        switch (descriptor.stencil_operation)
+        {
+            case Attachment_Operation::DONT_CARE:
+            {
+                attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            } break;
+
+            case Attachment_Operation::LOAD:
+            {
+                attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            } break;
+
+            case Attachment_Operation::CLEAR:
+            {
+                attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            } break;
+        }
+
+        attachment->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachment->finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference *attachment_ref = &attachment_refs[attachment_index];
+        attachment_ref->attachment = attachment_index;
+        attachment_ref->layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        attachment_index++;
+    }
+
+    VkSubpassDescription subpass = {};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+
+    subpass.colorAttachmentCount = color_attachment_count;
+    subpass.pColorAttachments = attachment_refs;
+    subpass.pDepthStencilAttachment = &attachment_refs[color_attachment_count];
+
+    VkSubpassDependency dependency = {};
+    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass = 0;
+
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.srcAccessMask = 0;
+
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    VkRenderPassCreateInfo render_pass_create_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+    render_pass_create_info.attachmentCount = attachment_count;
+    render_pass_create_info.pAttachments = attachments;
+
+    render_pass_create_info.subpassCount = 1;
+    render_pass_create_info.pSubpasses = &subpass;
+
+    render_pass_create_info.dependencyCount = 1;
+    render_pass_create_info.pDependencies = &dependency;
+
+    HE_CHECK_VKRESULT(vkCreateRenderPass(context->logical_device, &render_pass_create_info, nullptr, &vulkan_render_pass->handle));
+    return true;
+}
+
+void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
+    vkDestroyRenderPass(context->logical_device, vulkan_render_pass->handle, nullptr);
+}
+
+bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
+
+    Temprary_Memory_Arena temprary_arena = {};
+    begin_temprary_memory_arena(&temprary_arena, &context->arena);
+    HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
+
+    Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[ descriptor.render_pass.index ];
+
+    U32 attachment_count = u64_to_u32(descriptor.attachments.size());
+    VkImageView *attachments = HE_ALLOCATE_ARRAY(&temprary_arena, VkImageView, attachment_count);
+
+    U32 attachment_index = 0;
+    for (Texture_Handle texture_handle : descriptor.attachments)
+    {
+        Vulkan_Image *vulkan_texture = &context->textures[ texture_handle.index ];
+        attachments[attachment_index++] = vulkan_texture->view;
+    }
+
+    VkFramebufferCreateInfo frame_buffer_create_info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+    frame_buffer_create_info.renderPass = vulkan_render_pass->handle;
+    frame_buffer_create_info.attachmentCount = attachment_count;
+    frame_buffer_create_info.pAttachments = attachments;
+    frame_buffer_create_info.width = descriptor.width;
+    frame_buffer_create_info.height = descriptor.height;
+    frame_buffer_create_info.layers = 1;
+
+    HE_CHECK_VKRESULT(vkCreateFramebuffer(context->logical_device, &frame_buffer_create_info, nullptr, &vulkan_frame_buffer->handle));
+    return true;
+}
+
+void vulkan_renderer_destroy_frame_buffer(Frame_Buffer_Handle frame_buffer_handle)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
+    vkDestroyFramebuffer(context->logical_device, vulkan_frame_buffer->handle, nullptr);
 }
 
 static VkBufferUsageFlags get_buffer_usage(Buffer_Usage usage)

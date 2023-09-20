@@ -65,6 +65,7 @@ bool request_renderer(RenderingAPI rendering_api,
             renderer->create_bind_group_layout = &vulkan_renderer_create_bind_group_layout;
             renderer->destroy_bind_group_layout = &vulkan_renderer_destroy_bind_group_layout;
             renderer->create_bind_group = &vulkan_renderer_create_bind_group;
+            renderer->set_bind_groups = &vulkan_renderer_set_bind_groups;
             renderer->update_bind_group = &vulkan_renderer_update_bind_group;
             renderer->destroy_bind_group = &vulkan_renderer_destroy_bind_group;
             renderer->begin_frame = &vulkan_renderer_begin_frame;
@@ -89,6 +90,7 @@ bool pre_init_renderer_state(Renderer_State *renderer_state, Engine *engine)
 {
     renderer_state->engine = engine;
     Memory_Arena *arena = &engine->memory.transient_arena;
+    renderer_state->arena = create_sub_arena(arena, HE_MEGA(32));
 
     init(&renderer_state->buffers, arena, HE_MAX_BUFFER_COUNT);
     init(&renderer_state->textures, arena, HE_MAX_TEXTURE_COUNT);
@@ -98,13 +100,26 @@ bool pre_init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     init(&renderer_state->pipeline_states, arena, HE_MAX_PIPELINE_STATE_COUNT);
     init(&renderer_state->bind_group_layouts, arena, HE_MAX_BIND_GROUP_LAYOUT_COUNT);
     init(&renderer_state->bind_groups, arena, HE_MAX_BIND_GROUP_COUNT);
+    init(&renderer_state->render_passes, arena, HE_MAX_RENDER_PASS_COUNT);
+    init(&renderer_state->frame_buffers, arena, HE_MAX_FRAME_BUFFER_COUNT);
     init(&renderer_state->materials,  arena, HE_MAX_MATERIAL_COUNT);
     init(&renderer_state->static_meshes, arena, HE_MAX_STATIC_MESH_COUNT);
 
     renderer_state->scene_nodes = HE_ALLOCATE_ARRAY(arena, Scene_Node, HE_MAX_SCENE_NODE_COUNT);
+    renderer_state->root_scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
+    Scene_Node *root_scene_node = renderer_state->root_scene_node;
+    root_scene_node->name = HE_STRING_LITERAL("Root");
+    root_scene_node->transform = glm::mat4(1.0f);
+    root_scene_node->parent = nullptr;
+    root_scene_node->start_mesh_index = -1;
+    root_scene_node->static_mesh_count = 0;
 
     bool render_commands_mutex_created = platform_create_mutex(&renderer_state->render_commands_mutex);
     HE_ASSERT(render_commands_mutex_created);
+
+    renderer_state->current_frame_in_flight_index = 0;
+    renderer_state->frames_in_flight = 2;
+    HE_ASSERT(renderer_state->frames_in_flight <= HE_MAX_FRAMES_IN_FLIGHT);
 
     U32 &back_buffer_width = renderer_state->back_buffer_width;
     U32 &back_buffer_height = renderer_state->back_buffer_height;
@@ -139,7 +154,7 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     white_pixel_descriptor.width = 1;
     white_pixel_descriptor.height = 1;
     white_pixel_descriptor.data = white_pixel_data;
-    white_pixel_descriptor.format = Texture_Format::RGBA;
+    white_pixel_descriptor.format = Texture_Format::R8G8B8A8_SRGB;
     white_pixel_descriptor.mipmapping = false;
     renderer->create_texture(renderer_state->white_pixel_texture, white_pixel_descriptor);
 
@@ -151,7 +166,7 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     normal_pixel_descriptor.width = 1;
     normal_pixel_descriptor.height = 1;
     normal_pixel_descriptor.data = normal_pixel_data;
-    normal_pixel_descriptor.format = Texture_Format::RGBA;
+    normal_pixel_descriptor.format = Texture_Format::R8G8B8A8_SRGB;
     normal_pixel_descriptor.mipmapping = false;
 
     renderer_state->normal_pixel_texture = aquire_handle(&renderer_state->textures);
@@ -225,6 +240,65 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     index_buffer_descriptor.is_device_local = true;
     renderer_state->index_buffer = aquire_handle(&renderer_state->buffers);
     renderer->create_buffer(renderer_state->index_buffer, index_buffer_descriptor);
+
+    renderer_state->mesh_vertex_shader = aquire_handle(&renderer_state->shaders);
+    Shader_Descriptor mesh_vertex_shader_descriptor = {};
+    mesh_vertex_shader_descriptor.path = "shaders/bin/mesh.vert.spv";
+    bool shader_loaded = renderer->create_shader(renderer_state->mesh_vertex_shader, mesh_vertex_shader_descriptor);
+    HE_ASSERT(shader_loaded);
+
+    renderer_state->mesh_fragment_shader = aquire_handle(&renderer_state->shaders);
+    Shader_Descriptor mesh_fragment_shader_descriptor = {};
+    mesh_fragment_shader_descriptor.path = "shaders/bin/mesh.frag.spv";
+    shader_loaded = renderer->create_shader(renderer_state->mesh_fragment_shader, mesh_fragment_shader_descriptor);
+    HE_ASSERT(shader_loaded);
+
+    renderer_state->mesh_shader_group = aquire_handle(&renderer_state->shader_groups);
+    Shader_Group_Descriptor shader_group_descriptor = {};
+    shader_group_descriptor.shaders = { renderer_state->mesh_vertex_shader, renderer_state->mesh_fragment_shader };
+    vulkan_renderer_create_shader_group(renderer_state->mesh_shader_group, shader_group_descriptor);
+
+    renderer_state->mesh_pipeline = aquire_handle(&renderer_state->pipeline_states);
+    Pipeline_State_Descriptor mesh_pipeline_state_descriptor = {};
+    mesh_pipeline_state_descriptor.shader_group = renderer_state->mesh_shader_group;
+    bool pipeline_created = renderer->create_pipeline_state(renderer_state->mesh_pipeline, mesh_pipeline_state_descriptor);
+    HE_ASSERT(pipeline_created);
+
+    Shader_Group *mesh_shader_group = get(&renderer_state->shader_groups, renderer_state->mesh_shader_group);
+
+    Bind_Group_Descriptor per_frame_bind_group_descriptor = {};
+    per_frame_bind_group_descriptor.layout = mesh_shader_group->bind_group_layouts[0];
+
+    Bind_Group_Descriptor per_render_pass_bind_group_descriptor = {};
+    per_render_pass_bind_group_descriptor.layout = mesh_shader_group->bind_group_layouts[1];
+
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        renderer_state->per_frame_bind_groups[frame_index] = aquire_handle(&renderer_state->bind_groups);
+        renderer->create_bind_group(renderer_state->per_frame_bind_groups[frame_index], per_frame_bind_group_descriptor);
+
+        Update_Binding_Descriptor globals_uniform_buffer_binding = {};
+        globals_uniform_buffer_binding.binding_number = 0;
+        globals_uniform_buffer_binding.element_index = 0;
+        globals_uniform_buffer_binding.count = 1;
+        globals_uniform_buffer_binding.buffers = &renderer_state->globals_uniform_buffers[frame_index];
+
+        Update_Binding_Descriptor object_data_storage_buffer_binding = {};
+        object_data_storage_buffer_binding.binding_number = 1;
+        object_data_storage_buffer_binding.element_index = 0;
+        object_data_storage_buffer_binding.count = 1;
+        object_data_storage_buffer_binding.buffers = &renderer_state->object_data_storage_buffers[frame_index];
+
+        Update_Binding_Descriptor update_binding_descriptors[] =
+        {
+            globals_uniform_buffer_binding,
+            object_data_storage_buffer_binding
+        };
+        renderer->update_bind_group(renderer_state->per_frame_bind_groups[frame_index], update_binding_descriptors, HE_ARRAYCOUNT(update_binding_descriptors));
+
+        renderer_state->per_render_pass_bind_groups[frame_index] = aquire_handle(&renderer_state->bind_groups);
+        renderer->create_bind_group(renderer_state->per_render_pass_bind_groups[frame_index], per_render_pass_bind_group_descriptor);
+    }
 
     _transfer_allocator = &renderer_state->transfer_allocator;
     _stbi_allocator = &engine->memory.free_list_allocator;
@@ -346,7 +420,7 @@ static bool create_texture(Texture_Handle texture_handle, void *pixels, U32 text
     descriptor.width = texture_width;
     descriptor.height = texture_height;
     descriptor.data = data;
-    descriptor.format = Texture_Format::RGBA;
+    descriptor.format = Texture_Format::R8G8B8A8_SRGB;
     descriptor.mipmapping = true;
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
@@ -510,13 +584,13 @@ Job_Result load_model_job(const Job_Parameters &params)
 
 Scene_Node* load_model_threaded(const String &path, Renderer *renderer, Renderer_State *renderer_state)
 {
-    Scene_Node *root_scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
+    Scene_Node *scene_node = add_child_scene_node(renderer_state, renderer_state->root_scene_node);
 
     Load_Model_Job_Data data = {};
     data.path = path;
     data.renderer = renderer;
     data.renderer_state = renderer_state;
-    data.scene_node = root_scene_node;
+    data.scene_node = scene_node;
 
     Job job = {};
     job.proc = load_model_job;
@@ -524,7 +598,7 @@ Scene_Node* load_model_threaded(const String &path, Renderer *renderer, Renderer
     job.parameters.size = sizeof(Load_Model_Job_Data);
     execute_job(job);
 
-    return root_scene_node;
+    return scene_node;
 }
 
 // note(amer): https://github.com/deccer/CMake-Glfw-OpenGL-Template/blob/main/src/Project/ProjectApplication.cpp
@@ -660,6 +734,8 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
 
     root_scene_node->parent = nullptr;
     root_scene_node->transform = glm::mat4(1.0f);
+    root_scene_node->start_mesh_index = -1;
+    root_scene_node->static_mesh_count = 0;
 
     struct Scene_Node_Bundle
     {
@@ -694,6 +770,10 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         pop_front(&nodes);
 
         Scene_Node *scene_node = node_bundle.node;
+        scene_node->start_mesh_index = -1;
+        scene_node->static_mesh_count = 0;
+        scene_node->transform = glm::mat4(1.0f);
+
         cgltf_node *node = node_bundle.cgltf_node;
 
         cgltf_node_transform_world(node, glm::value_ptr(scene_node->transform));
@@ -819,21 +899,11 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
     return true;
 }
 
-Scene_Node *load_model(const String &path, Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena)
-{
-    Scene_Node *root_scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
-    bool model_loaded = load_model(root_scene_node, path, renderer, renderer_state, arena);
-    HE_ASSERT(model_loaded);
-    return root_scene_node;
-}
-
 void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene_Node *scene_node, const glm::mat4 &parent_transform)
 {
     glm::mat4 transform = parent_transform * scene_node->transform;
 
-    for (U32 static_mesh_index = 0;
-         static_mesh_index < scene_node->static_mesh_count;
-         static_mesh_index++)
+    for (U32 static_mesh_index = 0; static_mesh_index < scene_node->static_mesh_count; static_mesh_index++)
     {
         U32 mesh_index = scene_node->start_mesh_index + static_mesh_index;
         renderer->submit_static_mesh({ (S32)mesh_index, renderer_state->static_meshes.generations[mesh_index] }, transform);
