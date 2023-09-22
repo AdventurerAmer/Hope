@@ -52,7 +52,10 @@ void vulkan_renderer_begin_frame(const struct Scene_Data *scene_data);
 void vulkan_renderer_set_vertex_buffers(Buffer_Handle *vertex_buffer_handles, U64 *offsets, U32 count);
 void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 offset);
 
-void vulkan_renderer_submit_static_mesh(Static_Mesh_Handle static_mesh_handle, const glm::mat4 &transform);
+void vulkan_renderer_set_pipeline_state(Pipeline_State_Handle pipeline_state_handle);
+
+void vulkan_renderer_draw_static_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance);
+
 void vulkan_renderer_end_frame();
 
 void vulkan_renderer_imgui_new_frame();

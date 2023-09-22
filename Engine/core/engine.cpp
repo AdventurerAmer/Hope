@@ -341,7 +341,7 @@ void game_loop(Engine *engine, F32 delta_time)
 
     for (S32 texture_index = 0; texture_index < (S32)texture_count; texture_index++)
     {
-        if (renderer_state->textures.is_allocated[texture_index])
+        if (renderer_state->textures.is_allocated[texture_index] && !renderer_state->textures.data[texture_index].is_attachment)
         {
             textures[texture_index] = { texture_index, renderer_state->textures.generations[texture_index] };
         }

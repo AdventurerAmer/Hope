@@ -7,29 +7,24 @@
 #include "core/engine.h"
 #include "core/memory.h"
 
-static void
-transtion_image_to_layout(Vulkan_Image *image,
-                          VkCommandBuffer command_buffer,
-                          VkImageLayout old_layout,
-                          VkImageLayout new_layout)
+void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U32 mip_levels, VkImageLayout old_layout, VkImageLayout new_layout)
 {
     VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
     barrier.oldLayout = old_layout;
     barrier.newLayout = new_layout;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image->handle;
+    barrier.image = image;
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = image->mip_levels;
+    barrier.subresourceRange.levelCount = mip_levels;
     barrier.subresourceRange.baseArrayLayer = 0;
     barrier.subresourceRange.layerCount = 1;
 
     VkPipelineStageFlags source_stage = 0;
     VkPipelineStageFlags destination_stage = 0;
 
-    if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
-        new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
     {
         barrier.srcAccessMask = 0;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -37,8 +32,15 @@ transtion_image_to_layout(Vulkan_Image *image,
         source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     }
-    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
-             new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+    {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+        source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
     {
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
@@ -46,35 +48,33 @@ transtion_image_to_layout(Vulkan_Image *image,
         source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         destination_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     }
-    else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
-             new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
     {
         barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|
-                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
         source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         destination_stage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&  new_layout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+    {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = 0;
+
+        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     }
     else
     {
         HE_ASSERT(false);
     }
 
-    vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage,
-                         0, 0, nullptr, 0, nullptr, 1, &barrier);
+    vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
-bool
-create_image(Vulkan_Image *image, Vulkan_Context *context,
-             U32 width, U32 height, VkFormat format,
-             VkImageTiling tiling, VkImageUsageFlags usage,
-             VkImageAspectFlags aspect_flags,
-             VkMemoryPropertyFlags properties,
-             bool mipmapping/*= false*/,
-             VkSampleCountFlagBits samples/*= VK_SAMPLE_COUNT_1_BIT*/)
+bool create_image(Vulkan_Image *image, Vulkan_Context *context, U32 width, U32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
+                  VkImageAspectFlags aspect_flags, VkMemoryPropertyFlags properties, bool mipmapping/*= false*/, VkSampleCountFlagBits samples/*= VK_SAMPLE_COUNT_1_BIT*/)
 {
-
     U32 mip_levels = 1;
 
     if (mipmapping)
@@ -110,15 +110,15 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info, nullptr, &image->memory));
 
     vkBindImageMemory(context->logical_device, image->handle, image->memory, 0);
-    image->mip_levels = mip_levels;
-    image->size = memory_requirements.size;
-    image->format = format;
-    image->data = nullptr;
 
     VkImageViewCreateInfo image_view_create_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
     image_view_create_info.image = image->handle;
     image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
     image_view_create_info.format = format;
+    image_view_create_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    image_view_create_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    image_view_create_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    image_view_create_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
     image_view_create_info.subresourceRange.aspectMask = aspect_flags;
     image_view_create_info.subresourceRange.baseMipLevel = 0;
     image_view_create_info.subresourceRange.levelCount = mip_levels;
@@ -126,8 +126,11 @@ create_image(Vulkan_Image *image, Vulkan_Context *context,
     image_view_create_info.subresourceRange.layerCount = 1;
     HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, nullptr, &image->view));
 
-    VkFenceCreateInfo fence_create_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-    HE_CHECK_VKRESULT(vkCreateFence(context->logical_device, &fence_create_info, nullptr, &image->is_loaded));
+    image->mip_levels = mip_levels;
+    image->size = memory_requirements.size;
+    image->format = format;
+    image->data = nullptr;
+
     return true;
 }
 
@@ -161,8 +164,9 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
     vkBeginCommandBuffer(command_buffer,
                          &command_buffer_begin_info);
 
-    transtion_image_to_layout(image,
-                              command_buffer,
+    transtion_image_to_layout(command_buffer,
+                              image->handle,
+                              image->mip_levels,
                               VK_IMAGE_LAYOUT_UNDEFINED,
                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
@@ -269,8 +273,7 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &command_buffer;
 
-    HE_CHECK_VKRESULT(vkResetFences(context->logical_device, 1, &image->is_loaded));
-    vkQueueSubmit(context->graphics_queue, 1, &submit_info, image->is_loaded);
+    vkQueueSubmit(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
 }
 
 void destroy_image(Vulkan_Image *image, Vulkan_Context *context)

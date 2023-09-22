@@ -39,9 +39,7 @@ S32 find_memory_type_index(VkMemoryRequirements memory_requirements,VkMemoryProp
 
     S32 result = -1;
 
-    for (U32 memory_type_index = 0;
-        memory_type_index < context->physical_device_memory_properties.memoryTypeCount;
-        memory_type_index++)
+    for (U32 memory_type_index = 0; memory_type_index < context->physical_device_memory_properties.memoryTypeCount; memory_type_index++)
     {
         if (((1 << memory_type_index) & memory_requirements.memoryTypeBits))
         {
@@ -267,10 +265,7 @@ static bool init_imgui(Vulkan_Context *context)
     descriptor_pool_create_info.poolSizeCount = HE_ARRAYCOUNT(pool_sizes);
     descriptor_pool_create_info.pPoolSizes = pool_sizes;
 
-    HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device,
-                                              &descriptor_pool_create_info,
-                                              nullptr,
-                                              &context->imgui_descriptor_pool));
+    HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, nullptr, &context->imgui_descriptor_pool));
 
     ImGui_ImplVulkan_InitInfo init_info = {};
     init_info.Instance = context->instance;
@@ -283,18 +278,18 @@ static bool init_imgui(Vulkan_Context *context)
     init_info.ImageCount = context->swapchain.image_count;
     init_info.MSAASamples = context->msaa_samples;
     init_info.PipelineCache = context->pipeline_cache;
-    ImGui_ImplVulkan_Init(&init_info, context->render_pass);
+
+    Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[ context->engine->renderer_state.world_render_pass.index ];
+    ImGui_ImplVulkan_Init(&init_info, vulkan_render_pass->handle);
 
     VkCommandBuffer command_buffer = context->graphics_command_buffers[0];
     vkResetCommandBuffer(command_buffer, 0);
 
-    VkCommandBufferBeginInfo command_buffer_begin_info =
-        { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     command_buffer_begin_info.flags = 0;
     command_buffer_begin_info.pInheritanceInfo = 0;
 
-    vkBeginCommandBuffer(command_buffer,
-                         &command_buffer_begin_info);
+    vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
     ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
     vkEndCommandBuffer(command_buffer);
 
@@ -373,18 +368,11 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
 
 #if HE_GRAPHICS_DEBUGGING
 
-    VkDebugUtilsMessengerCreateInfoEXT debug_messenger_create_info =
-        { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
+    VkDebugUtilsMessengerCreateInfoEXT debug_messenger_create_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
 
-    debug_messenger_create_info.messageSeverity =
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT|
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    debug_messenger_create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 
-    debug_messenger_create_info.messageType =
-        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT|
-        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT|
-        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT|
-        VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT;
+    debug_messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT;
 
     debug_messenger_create_info.pfnUserCallback = vulkan_debug_callback;
     debug_messenger_create_info.pUserData = nullptr;
@@ -404,20 +392,14 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
 
 #if HE_GRAPHICS_DEBUGGING
 
-    PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerExt =
-        (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(context->instance,
-                                                                  "vkCreateDebugUtilsMessengerEXT");
+    auto vkCreateDebugUtilsMessengerExt = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(context->instance, "vkCreateDebugUtilsMessengerEXT");
     HE_ASSERT(vkCreateDebugUtilsMessengerExt);
 
-    HE_CHECK_VKRESULT(vkCreateDebugUtilsMessengerExt(context->instance,
-                                                     &debug_messenger_create_info,
-                                                     nullptr,
-                                                     &context->debug_messenger));
+    HE_CHECK_VKRESULT(vkCreateDebugUtilsMessengerExt(context->instance, &debug_messenger_create_info, nullptr, &context->debug_messenger));
 
 #endif
 
-    context->surface = (VkSurfaceKHR)platform_create_vulkan_surface(engine,
-                                                                    context->instance);
+    context->surface = (VkSurfaceKHR)platform_create_vulkan_surface(engine, context->instance);
     HE_ASSERT(context->surface);
 
     VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
@@ -447,11 +429,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
     physical_device_features2.features.sampleRateShading = VK_TRUE;
     physical_device_features2.pNext = &descriptor_indexing_features;
 
-    context->physical_device = pick_physical_device(context->instance,
-                                                    context->surface,
-                                                    physical_device_features2,
-                                                    descriptor_indexing_features,
-                                                    arena);
+    context->physical_device = pick_physical_device(context->instance, context->surface, physical_device_features2, descriptor_indexing_features, arena);
     HE_ASSERT(context->physical_device != VK_NULL_HANDLE);
 
     vkGetPhysicalDeviceMemoryProperties(context->physical_device, &context->physical_device_memory_properties);
@@ -507,33 +485,22 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
         context->present_queue_family_index = 0;
 
         U32 queue_family_count = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device,
-                                                 &queue_family_count,
-                                                 nullptr);
+        vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device, &queue_family_count, nullptr);
 
-        VkQueueFamilyProperties *queue_families = HE_ALLOCATE_ARRAY(&temprary_arena,
-                                                                    VkQueueFamilyProperties,
-                                                                    queue_family_count);
+        VkQueueFamilyProperties *queue_families = HE_ALLOCATE_ARRAY(&temprary_arena, VkQueueFamilyProperties, queue_family_count);
 
-        vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device,
-                                                 &queue_family_count,
-                                                 queue_families);
+        vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device, &queue_family_count, queue_families);
 
         bool found_a_queue_family_that_can_do_graphics_and_present = false;
 
-        for (U32 queue_family_index = 0;
-                 queue_family_index < queue_family_count;
-                 queue_family_index++)
+        for (U32 queue_family_index = 0; queue_family_index < queue_family_count; queue_family_index++)
         {
             VkQueueFamilyProperties *queue_family = &queue_families[queue_family_index];
 
-            bool can_queue_family_do_graphics =
-                (queue_family->queueFlags & VK_QUEUE_GRAPHICS_BIT);
+            bool can_queue_family_do_graphics = (queue_family->queueFlags & VK_QUEUE_GRAPHICS_BIT);
 
             VkBool32 present_support = VK_FALSE;
-            vkGetPhysicalDeviceSurfaceSupportKHR(context->physical_device,
-                                                 queue_family_index,
-                                                 context->surface, &present_support);
+            vkGetPhysicalDeviceSurfaceSupportKHR(context->physical_device, queue_family_index, context->surface, &present_support);
 
             bool can_queue_family_present = present_support == VK_TRUE;
 
@@ -548,9 +515,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
 
         if (!found_a_queue_family_that_can_do_graphics_and_present)
         {
-            for (U32 queue_family_index = 0;
-                 queue_family_index < queue_family_count;
-                 queue_family_index++)
+            for (U32 queue_family_index = 0; queue_family_index < queue_family_count; queue_family_index++)
             {
                 VkQueueFamilyProperties *queue_family = &queue_families[queue_family_index];
 
@@ -572,9 +537,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
 
         context->transfer_queue_family_index = context->graphics_queue_family_index;
 
-        for (U32 queue_family_index = 0;
-             queue_family_index < queue_family_count;
-             queue_family_index++)
+        for (U32 queue_family_index = 0; queue_family_index < queue_family_count; queue_family_index++)
         {
             VkQueueFamilyProperties *queue_family = &queue_families[queue_family_index];
             if ((queue_family->queueFlags & VK_QUEUE_TRANSFER_BIT) && !(queue_family->queueFlags & VK_QUEUE_GRAPHICS_BIT))
@@ -585,9 +548,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
         }
 
         F32 queue_priority = 1.0f;
-        VkDeviceQueueCreateInfo *queue_create_infos = HE_ALLOCATE_ARRAY(&temprary_arena,
-                                                                        VkDeviceQueueCreateInfo,
-                                                                        3);
+        VkDeviceQueueCreateInfo *queue_create_infos = HE_ALLOCATE_ARRAY(&temprary_arena, VkDeviceQueueCreateInfo, 3);
 
         queue_create_infos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queue_create_infos[0].queueFamilyIndex = context->graphics_queue_family_index;
@@ -623,30 +584,20 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
         };
 
         U32 extension_property_count = 0;
-        vkEnumerateDeviceExtensionProperties(context->physical_device,
-                                             nullptr, &extension_property_count,
-                                             nullptr);
+        vkEnumerateDeviceExtensionProperties(context->physical_device, nullptr, &extension_property_count, nullptr);
 
-        VkExtensionProperties *extension_properties = HE_ALLOCATE_ARRAY(&temprary_arena,
-                                                                        VkExtensionProperties,
-                                                                        extension_property_count);
+        VkExtensionProperties *extension_properties = HE_ALLOCATE_ARRAY(&temprary_arena, VkExtensionProperties, extension_property_count);
 
-        vkEnumerateDeviceExtensionProperties(context->physical_device,
-                                             nullptr, &extension_property_count,
-                                             extension_properties);
+        vkEnumerateDeviceExtensionProperties(context->physical_device, nullptr, &extension_property_count, extension_properties);
 
         bool not_all_required_device_extensions_are_supported = false;
 
-        for (U32 extension_index = 0;
-             extension_index < HE_ARRAYCOUNT(required_device_extensions);
-             extension_index++)
+        for (U32 extension_index = 0; extension_index < HE_ARRAYCOUNT(required_device_extensions); extension_index++)
         {
             String device_extension = HE_STRING(required_device_extensions[extension_index]);
             bool is_extension_supported = false;
 
-            for (U32 extension_property_index = 0;
-                 extension_property_index < extension_property_count;
-                 extension_property_index++)
+            for (U32 extension_property_index = 0; extension_property_index < extension_property_count; extension_property_index++)
             {
                 VkExtensionProperties *extension_property = &extension_properties[extension_property_index];
                 if (device_extension == extension_property->extensionName)
@@ -674,151 +625,167 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine)
         device_create_info.ppEnabledExtensionNames = required_device_extensions;
         device_create_info.enabledExtensionCount = HE_ARRAYCOUNT(required_device_extensions);
 
-        HE_CHECK_VKRESULT(vkCreateDevice(context->physical_device,
-                                          &device_create_info, nullptr,
-                                          &context->logical_device));
+        HE_CHECK_VKRESULT(vkCreateDevice(context->physical_device, &device_create_info, nullptr, &context->logical_device));
 
-        vkGetDeviceQueue(context->logical_device,
-                         context->graphics_queue_family_index,
-                         0, &context->graphics_queue);
-
-        vkGetDeviceQueue(context->logical_device,
-                         context->present_queue_family_index,
-                         0, &context->present_queue);
-
-        vkGetDeviceQueue(context->logical_device,
-                         context->transfer_queue_family_index,
-                         0, &context->transfer_queue);
+        vkGetDeviceQueue(context->logical_device, context->graphics_queue_family_index, 0, &context->graphics_queue);
+        vkGetDeviceQueue(context->logical_device, context->present_queue_family_index, 0, &context->present_queue);
+        vkGetDeviceQueue(context->logical_device, context->transfer_queue_family_index, 0, &context->transfer_queue);
     }
 
     VkFormat image_formats[] =
     {
-        VK_FORMAT_R8G8B8A8_SRGB,
         VK_FORMAT_B8G8R8A8_SRGB
     };
 
     VkFormat depth_stencil_formats[] =
     {
-        VK_FORMAT_D32_SFLOAT_S8_UINT,
-        VK_FORMAT_D24_UNORM_S8_UINT
+        VK_FORMAT_D32_SFLOAT_S8_UINT
     };
 
-    init_swapchain_support(context,
-                           image_formats,
-                           HE_ARRAYCOUNT(image_formats),
-                           depth_stencil_formats,
-                           HE_ARRAYCOUNT(depth_stencil_formats),
-                           VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-                           arena,
-                           &context->swapchain_support);
+    init_swapchain_support(context, image_formats, HE_ARRAYCOUNT(image_formats), depth_stencil_formats, HE_ARRAYCOUNT(depth_stencil_formats), VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, arena, &context->swapchain_support);
 
-    VkAttachmentDescription attachments_msaa[3] = {};
-
-    attachments_msaa[0].format = context->swapchain_support.image_format;
-    attachments_msaa[0].samples = context->msaa_samples;
-    attachments_msaa[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments_msaa[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachments_msaa[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments_msaa[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments_msaa[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments_msaa[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    attachments_msaa[1].format = context->swapchain_support.image_format;
-    attachments_msaa[1].samples = VK_SAMPLE_COUNT_1_BIT;
-    attachments_msaa[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments_msaa[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachments_msaa[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments_msaa[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments_msaa[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments_msaa[1].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-    attachments_msaa[2].format = context->swapchain_support.depth_stencil_format;
-    attachments_msaa[2].samples = context->msaa_samples;
-    attachments_msaa[2].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments_msaa[2].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments_msaa[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments_msaa[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments_msaa[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments_msaa[2].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentDescription attachments[2] = {};
-
-    attachments[0].format = context->swapchain_support.image_format;
-    attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
-    attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-    attachments[1].format = context->swapchain_support.depth_stencil_format;
-    attachments[1].samples = context->msaa_samples;
-    attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference color_attachment_ref = {};
-    color_attachment_ref.attachment = 0;
-    color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference resolve_color_attachment_ref = {};
-    resolve_color_attachment_ref.attachment = 1;
-    resolve_color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference depth_stencil_attachment_ref = {};
-    depth_stencil_attachment_ref.attachment = 2;
-    depth_stencil_attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    VkSubpassDescription subpass = {};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &color_attachment_ref;
-
-    if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
+    Render_Pass_Descriptor world_render_pass_descriptor = {};
+    world_render_pass_descriptor.color_attachments =
     {
-        subpass.pResolveAttachments = &resolve_color_attachment_ref;
-    }
-    else
+        {
+            Texture_Format::B8G8R8A8_SRGB,
+            4,
+            Attachment_Operation::CLEAR
+        }
+    };
+
+    world_render_pass_descriptor.resolve_attachments =
     {
-        depth_stencil_attachment_ref.attachment = 1;
-    }
+        {
+            Texture_Format::B8G8R8A8_SRGB,
+            1,
+            Attachment_Operation::DONT_CARE
+        }
+    };
 
-    subpass.pDepthStencilAttachment = &depth_stencil_attachment_ref;
-
-    VkSubpassDependency dependency = {};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.srcAccessMask = 0;
-
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-
-    VkRenderPassCreateInfo render_pass_create_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-    if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
+    world_render_pass_descriptor.depth_stencil_attachments =
     {
-        render_pass_create_info.attachmentCount = HE_ARRAYCOUNT(attachments_msaa);
-        render_pass_create_info.pAttachments = attachments_msaa;
-    }
-    else
-    {
-        render_pass_create_info.attachmentCount = HE_ARRAYCOUNT(attachments);
-        render_pass_create_info.pAttachments = attachments;
-    }
+        {
+            Texture_Format::DEPTH_F32_STENCIL_U8,
+            4,
+            Attachment_Operation::CLEAR
+        }
+    };
 
-    render_pass_create_info.subpassCount = 1;
-    render_pass_create_info.pSubpasses = &subpass;
+    world_render_pass_descriptor.stencil_operation = Attachment_Operation::DONT_CARE;
 
-    render_pass_create_info.dependencyCount = 1;
-    render_pass_create_info.pDependencies = &dependency;
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer *renderer = &context->engine->renderer;
+    renderer_state->world_render_pass = aquire_handle(&renderer_state->render_passes);
+    renderer->create_render_pass(renderer_state->world_render_pass, world_render_pass_descriptor);
 
-    HE_CHECK_VKRESULT(vkCreateRenderPass(context->logical_device, &render_pass_create_info, nullptr, &context->render_pass));
+    // VkAttachmentDescription attachments_msaa[3] = {};
+
+    // attachments_msaa[0].format = context->swapchain_support.image_format;
+    // attachments_msaa[0].samples = context->msaa_samples;
+    // attachments_msaa[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    // attachments_msaa[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    // attachments_msaa[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    // attachments_msaa[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    // attachments_msaa[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    // attachments_msaa[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    // attachments_msaa[1].format = context->swapchain_support.image_format;
+    // attachments_msaa[1].samples = VK_SAMPLE_COUNT_1_BIT;
+    // attachments_msaa[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    // attachments_msaa[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    // attachments_msaa[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    // attachments_msaa[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    // attachments_msaa[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    // attachments_msaa[1].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    // attachments_msaa[2].format = context->swapchain_support.depth_stencil_format;
+    // attachments_msaa[2].samples = context->msaa_samples;
+    // attachments_msaa[2].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    // attachments_msaa[2].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    // attachments_msaa[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    // attachments_msaa[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    // attachments_msaa[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    // attachments_msaa[2].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    // VkAttachmentDescription attachments[2] = {};
+
+    // attachments[0].format = context->swapchain_support.image_format;
+    // attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+    // attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    // attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    // attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    // attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    // attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    // attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    // attachments[1].format = context->swapchain_support.depth_stencil_format;
+    // attachments[1].samples = context->msaa_samples;
+    // attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    // attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    // attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    // attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    // attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    // attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    // VkAttachmentReference color_attachment_ref = {};
+    // color_attachment_ref.attachment = 0;
+    // color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    // VkAttachmentReference resolve_color_attachment_ref = {};
+    // resolve_color_attachment_ref.attachment = 1;
+    // resolve_color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    // VkAttachmentReference depth_stencil_attachment_ref = {};
+    // depth_stencil_attachment_ref.attachment = 2;
+    // depth_stencil_attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    // VkSubpassDescription subpass = {};
+    // subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+
+    // subpass.colorAttachmentCount = 1;
+    // subpass.pColorAttachments = &color_attachment_ref;
+
+    // if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
+    // {
+    //     subpass.pResolveAttachments = &resolve_color_attachment_ref;
+    // }
+    // else
+    // {
+    //     depth_stencil_attachment_ref.attachment = 1;
+    // }
+
+    // subpass.pDepthStencilAttachment = &depth_stencil_attachment_ref;
+
+    // VkSubpassDependency dependency = {};
+    // dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    // dependency.dstSubpass = 0;
+
+    // dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    // dependency.srcAccessMask = 0;
+
+    // dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    // dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    // VkRenderPassCreateInfo render_pass_create_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+    // if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
+    // {
+    //     render_pass_create_info.attachmentCount = HE_ARRAYCOUNT(attachments_msaa);
+    //     render_pass_create_info.pAttachments = attachments_msaa;
+    // }
+    // else
+    // {
+    //     render_pass_create_info.attachmentCount = HE_ARRAYCOUNT(attachments);
+    //     render_pass_create_info.pAttachments = attachments;
+    // }
+
+    // render_pass_create_info.subpassCount = 1;
+    // render_pass_create_info.pSubpasses = &subpass;
+
+    // render_pass_create_info.dependencyCount = 1;
+    // render_pass_create_info.pDependencies = &dependency;
+
+    // HE_CHECK_VKRESULT(vkCreateRenderPass(context->logical_device, &render_pass_create_info, nullptr, &context->render_pass));
 
     VkPresentModeKHR present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
     U32 min_image_count = HE_MAX_FRAMES_IN_FLIGHT;
@@ -942,8 +909,6 @@ void deinit_vulkan(Vulkan_Context *context)
 
     vkDestroyPipelineCache(context->logical_device, context->pipeline_cache, nullptr);
 
-    vkDestroyRenderPass(context->logical_device, context->render_pass, nullptr);
-
     vkDestroySurfaceKHR(context->instance, context->surface, nullptr);
     vkDestroyDevice(context->logical_device, nullptr);
 
@@ -1049,8 +1014,8 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
     clear_values[2].depthStencil = { 1.0f, 0 };
 
     VkRenderPassBeginInfo render_pass_begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-    render_pass_begin_info.renderPass = context->render_pass;
-    render_pass_begin_info.framebuffer = context->swapchain.frame_buffers[context->current_swapchain_image_index];
+    render_pass_begin_info.renderPass = context->render_passes[ renderer_state->world_render_pass.index ].handle;
+    render_pass_begin_info.framebuffer = context->frame_buffers[ renderer_state->world_frame_buffers[ renderer_state->current_frame_in_flight_index ].index ].handle;
     render_pass_begin_info.renderArea.offset = { 0, 0 };
     render_pass_begin_info.renderArea.extent = { context->swapchain.width, context->swapchain.height };
     render_pass_begin_info.clearValueCount = HE_ARRAYCOUNT(clear_values);
@@ -1102,49 +1067,25 @@ void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 off
     vkCmdBindIndexBuffer(context->command_buffer, vulkan_index_buffer->handle, offset, VK_INDEX_TYPE_UINT16);
 }
 
-void vulkan_renderer_submit_static_mesh(Static_Mesh_Handle static_mesh_handle, const glm::mat4 &transform)
+void vulkan_renderer_set_pipeline_state(Pipeline_State_Handle pipeline_state_handle)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[pipeline_state_handle.index];
+    vkCmdBindPipeline(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_pipeline_state->handle);
+}
+
+void vulkan_renderer_draw_static_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance)
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = &context->engine->renderer_state;
-
-    HE_ASSERT(renderer_state->object_data_count < HE_MAX_OBJECT_DATA_COUNT);
-    U32 object_data_index = renderer_state->object_data_count++;
-    Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
-    object_data->model = transform;
-
+    Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
     Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
 
-    Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
-    Material *material = get(&renderer_state->materials, static_mesh->material_handle);
-    
-    Buffer *material_buffer = get(&renderer_state->buffers, material->buffers[renderer_state->current_frame_in_flight_index]);
-    copy_memory(material_buffer->data, material->data, material->size);
-
-    Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle);
-    Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[material->pipeline_state_handle.index];
-    vkCmdBindPipeline(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_pipeline_state->handle);
-    
-    Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[pipeline_state->shader_group.index];
-
-    VkDescriptorSet descriptor_sets[] =
-    {
-        context->bind_groups[ material->bind_groups[ renderer_state->current_frame_in_flight_index ].index ].handle,
-    };
-
-    vkCmdBindDescriptorSets(context->command_buffer,
-                            VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            vulkan_shader_group->pipeline_layout,
-                            2, HE_ARRAYCOUNT(descriptor_sets),
-                            descriptor_sets,
-                            0, nullptr);
-
     U32 instance_count = 1;
-    U32 start_instance = object_data_index;
     U32 first_index = vulkan_static_mesh->first_index;
     S32 first_vertex = vulkan_static_mesh->first_vertex;
 
-    vkCmdDrawIndexed(context->command_buffer, static_mesh->index_count, instance_count,
-                     first_index, first_vertex, start_instance);
+    vkCmdDrawIndexed(context->command_buffer, static_mesh->index_count, instance_count, first_index, first_vertex, first_instance);
 }
 
 void vulkan_renderer_end_frame()
@@ -1168,6 +1109,32 @@ void vulkan_renderer_end_frame()
     }
 
     vkCmdEndRenderPass(context->command_buffer);
+
+    Texture_Handle color_attachment_handle = renderer_state->resolve_color_attachments[renderer_state->current_frame_in_flight_index];
+    Vulkan_Image *color_attachment = &context->textures[color_attachment_handle.index];
+    VkImage swapchain_image = context->swapchain.images[context->current_swapchain_image_index];
+
+    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 0, nullptr);
+
+    transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    VkImageCopy region = {};
+    region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.srcSubresource.baseArrayLayer = 0;
+    region.srcSubresource.layerCount = 1;
+    region.srcSubresource.mipLevel = 0;
+    region.srcOffset = { 0, 0, 0 };
+
+    region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.dstSubresource.baseArrayLayer = 0;
+    region.dstSubresource.mipLevel = 0;
+    region.dstSubresource.layerCount = 1;
+    region.dstOffset = { 0, 0, 0 };
+    region.extent = { context->swapchain.width, context->swapchain.height, 1 };
+
+    vkCmdCopyImage(context->command_buffer, color_attachment->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     vkEndCommandBuffer(context->command_buffer);
 
     VkPipelineStageFlags wait_stage =  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1216,13 +1183,18 @@ void vulkan_renderer_end_frame()
     }
 }
 
-VkFormat get_texture_format(Texture_Format texture_format)
+static VkFormat get_texture_format(Texture_Format texture_format)
 {
     switch (texture_format)
     {
         case Texture_Format::R8G8B8A8_SRGB:
         {
             return VK_FORMAT_R8G8B8A8_SRGB;
+        } break;
+
+        case Texture_Format::B8G8R8A8_SRGB:
+        {
+            return VK_FORMAT_B8G8R8A8_SRGB;
         } break;
 
         case Texture_Format::DEPTH_F32_STENCIL_U8:
@@ -1239,7 +1211,7 @@ VkFormat get_texture_format(Texture_Format texture_format)
     return VK_FORMAT_UNDEFINED;
 }
 
-VkSampleCountFlagBits get_sample_count(U32 sample_count)
+static VkSampleCountFlagBits get_sample_count(U32 sample_count)
 {
     switch (sample_count)
     {
@@ -1260,6 +1232,20 @@ VkSampleCountFlagBits get_sample_count(U32 sample_count)
     return VK_SAMPLE_COUNT_FLAG_BITS_MAX_ENUM;
 }
 
+static bool is_color_format(Texture_Format format)
+{
+    switch (format)
+    {
+        case Texture_Format::R8G8B8A8_SRGB:
+        case Texture_Format::B8G8R8A8_SRGB:
+        {
+            return true;
+        } break;
+    }
+
+    return false;
+}
+
 bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
@@ -1267,23 +1253,47 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     Texture *texture = get(&renderer_state->textures, texture_handle);
     Vulkan_Image *image = &context->textures[texture_handle.index];
 
-    HE_ASSERT(descriptor.format == Texture_Format::R8G8B8A8_SRGB); // todo(amer): only supporting RGBA for now.
-    create_image(image, context, descriptor.width, descriptor.height,
-                 VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-                 VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
-                 VK_IMAGE_ASPECT_COLOR_BIT,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, descriptor.mipmapping);
-    
-    // todo(amer): only supporting RGBA for now.
-    U64 size = (U64)descriptor.width * (U64)descriptor.height * sizeof(U32);
-    U64 transfered_data_offset = (U8 *)descriptor.data - renderer_state->transfer_allocator.base;
-    
-    Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
-    copy_data_to_image_from_buffer(context, image, descriptor.width, descriptor.height, transfer_buffer, transfered_data_offset, size);
+    VkImageAspectFlags aspect = VK_IMAGE_ASPECT_NONE;
+    VkImageUsageFlags usage = VK_IMAGE_USAGE_FLAG_BITS_MAX_ENUM;
+
+    if (is_color_format(descriptor.format))
+    {
+        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+
+        if (descriptor.is_attachment)
+        {
+            usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        }
+        else
+        {
+            usage = VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        }
+    }
+    else
+    {
+        aspect = VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT;
+        usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    }
+
+    VkFormat format = get_texture_format(descriptor.format);
+    VkSampleCountFlagBits sample_count = get_sample_count(descriptor.sample_count);
+
+    create_image(image, context, descriptor.width, descriptor.height, format, VK_IMAGE_TILING_OPTIMAL, usage, aspect, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                 descriptor.mipmapping, sample_count);
+
+    if (descriptor.data)
+    {
+        // todo(amer): only supporting RGBA for now.
+        U64 size = (U64)descriptor.width * (U64)descriptor.height * sizeof(U32);
+        U64 transfered_data_offset = (U8 *)descriptor.data - renderer_state->transfer_allocator.base;
+
+        Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
+        copy_data_to_image_from_buffer(context, image, descriptor.width, descriptor.height, transfer_buffer, transfered_data_offset, size);
+    }
 
     texture->width = descriptor.width;
     texture->height = descriptor.height;
-    texture->data = descriptor.data;
+    texture->is_attachment = descriptor.is_attachment;
     return true;
 }
 
@@ -1505,7 +1515,8 @@ void vulkan_renderer_destroy_shader_group(Shader_Group_Handle shader_group_handl
 bool vulkan_renderer_create_pipeline_state(Pipeline_State_Handle pipeline_state_handle, const Pipeline_State_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    return create_graphics_pipeline(pipeline_state_handle, descriptor.shader_group, context->render_pass, context);
+    Vulkan_Render_Pass* vulkan_render_pass = &context->render_passes[ descriptor.render_pass.index ];
+    return create_graphics_pipeline(pipeline_state_handle, descriptor.shader_group, vulkan_render_pass->handle, context);
 }
 
 void vulkan_renderer_destroy_pipeline_state(Pipeline_State_Handle pipeline_state_handle)
@@ -1714,7 +1725,9 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
 
     U32 color_attachment_count = u64_to_u32(descriptor.color_attachments.size());
     U32 depth_attachment_count = u64_to_u32(descriptor.depth_stencil_attachments.size());
-    U32 attachment_count = color_attachment_count + depth_attachment_count;
+    U32 resolve_attachment_count = u64_to_u32(descriptor.resolve_attachments.size());
+
+    U32 attachment_count = color_attachment_count + resolve_attachment_count + depth_attachment_count;
     VkAttachmentDescription *attachments = HE_ALLOCATE_ARRAY(&temprary_arena, VkAttachmentDescription, attachment_count);
     VkAttachmentReference *attachment_refs = HE_ALLOCATE_ARRAY(&temprary_arena, VkAttachmentReference, attachment_count);
     U32 attachment_index = 0;
@@ -1749,7 +1762,46 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
 
         attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         attachment->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        attachment->finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        attachment->finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+        VkAttachmentReference *attachment_ref = &attachment_refs[attachment_index];
+        attachment_ref->attachment = attachment_index;
+        attachment_ref->layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        attachment_index++;
+    }
+
+    for (const Attachment_Info &attachment_info : descriptor.resolve_attachments)
+    {
+        VkAttachmentDescription *attachment = &attachments[attachment_index];
+        attachment->format = get_texture_format(attachment_info.format);
+        attachment->samples = get_sample_count(attachment_info.sample_count);
+        attachment->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        switch (attachment_info.operation)
+        {
+            case Attachment_Operation::DONT_CARE:
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            } break;
+
+            case Attachment_Operation::LOAD:
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                attachment->initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            } break;
+
+            case Attachment_Operation::CLEAR:
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            } break;
+        }
+
+        attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachment->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachment->finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 
         VkAttachmentReference *attachment_ref = &attachment_refs[attachment_index];
         attachment_ref->attachment = attachment_index;
@@ -1817,10 +1869,23 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     VkSubpassDescription subpass = {};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 
-    subpass.colorAttachmentCount = color_attachment_count;
-    subpass.pColorAttachments = attachment_refs;
-    subpass.pDepthStencilAttachment = &attachment_refs[color_attachment_count];
+    if (color_attachment_count)
+    {
+        subpass.colorAttachmentCount = color_attachment_count;
+        subpass.pColorAttachments = attachment_refs;
+    }
 
+    if (resolve_attachment_count)
+    {
+        subpass.pResolveAttachments = &attachment_refs[color_attachment_count];
+    }
+
+    if (depth_attachment_count)
+    {
+        subpass.pDepthStencilAttachment = &attachment_refs[color_attachment_count + resolve_attachment_count];
+    }
+
+    // todo(amer): this dependency is not optimal
     VkSubpassDependency dependency = {};
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
@@ -1990,9 +2055,6 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
 
     Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
 
-    VkFenceCreateInfo fence_create_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-    HE_CHECK_VKRESULT(vkCreateFence(context->logical_device, &fence_create_info, nullptr, &vulkan_static_mesh->is_loaded));
-
     U64 position_offset = (U8 *)descriptor.positions - renderer_state->transfer_allocator.base;
     U64 normal_offset = (U8 *)descriptor.normals - renderer_state->transfer_allocator.base;
     U64 uv_offset = (U8 *)descriptor.uvs - renderer_state->transfer_allocator.base;
@@ -2057,7 +2119,7 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &command_buffer;
-    vkQueueSubmit(context->transfer_queue, 1, &submit_info, vulkan_static_mesh->is_loaded);
+    vkQueueSubmit(context->transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
 
     vulkan_static_mesh->first_vertex = (S32)u64_to_u32(renderer_state->vertex_count);
     vulkan_static_mesh->first_index = u64_to_u32(renderer_state->index_offset / sizeof(U16));
@@ -2072,5 +2134,4 @@ void vulkan_renderer_destroy_static_mesh(Static_Mesh_Handle static_mesh_handle)
 {
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
-    vkDestroyFence(context->logical_device, vulkan_static_mesh->is_loaded, nullptr);
 }

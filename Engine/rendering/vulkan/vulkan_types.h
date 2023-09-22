@@ -105,16 +105,16 @@ struct Vulkan_Swapchain
     U32 height;
     VkPresentModeKHR present_mode;
     VkFormat image_format;
+    VkFormat depth_stencil_format;
     VkColorSpaceKHR image_color_space;
 
     U32 image_count;
     VkImage *images;
     VkImageView *image_views;
-    VkFramebuffer *frame_buffers;
 
-    VkFormat depth_stencil_format;
-    Vulkan_Image color_attachment;
-    Vulkan_Image depth_stencil_attachment;
+    // VkFramebuffer *frame_buffers;
+    // Vulkan_Image color_attachment;
+    // Vulkan_Image depth_stencil_attachment;
 };
 
 struct Vulkan_Render_Pass
@@ -126,7 +126,6 @@ struct Vulkan_Static_Mesh
 {
     S32 first_vertex;
     U32 first_index;
-    VkFence is_loaded;
 };
 
 struct Vulkan_Context
@@ -154,9 +153,7 @@ struct Vulkan_Context
 
     Vulkan_Swapchain_Support swapchain_support;
     Vulkan_Swapchain swapchain;
-
-    VkSampleCountFlagBits msaa_samples;
-    VkRenderPass render_pass;
+    U32 current_swapchain_image_index;
 
     VkPipelineCache pipeline_cache;
 
@@ -165,14 +162,13 @@ struct Vulkan_Context
     VkFence frame_in_flight_fences[HE_MAX_FRAMES_IN_FLIGHT];
 
     VkDescriptorPool descriptor_pool;
+    VkDescriptorPool imgui_descriptor_pool;
 
     VkCommandPool graphics_command_pool;
     VkCommandBuffer graphics_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
     VkCommandBuffer command_buffer;
 
-    VkCommandPool transfer_command_pool;
-
-    U32 current_swapchain_image_index;
+    VkCommandPool transfer_command_pool;;
 
     Vulkan_Buffer *buffers;
     Vulkan_Image *textures;
@@ -186,7 +182,9 @@ struct Vulkan_Context
     Vulkan_Frame_Buffer *frame_buffers;
     Vulkan_Static_Mesh *static_meshes;
 
-    VkDescriptorPool imgui_descriptor_pool;
+    // todo(amer): to be removed...
+    VkSampleCountFlagBits msaa_samples;
+    // VkRenderPass render_pass;
 
 #if HE_GRAPHICS_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;

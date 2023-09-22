@@ -65,6 +65,7 @@ using Buffer_Handle = Resource_Handle< Buffer >;
 enum class Texture_Format
 {
     R8G8B8A8_SRGB,
+    B8G8R8A8_SRGB,
 
     DEPTH_F32_STENCIL_U8
 };
@@ -73,9 +74,11 @@ struct Texture_Descriptor
 {
     U32 width;
     U32 height;
-    void *data;
+    void *data = nullptr;
     Texture_Format format;
-    bool mipmapping;
+    bool mipmapping = false;
+    U32 sample_count = 1;
+    bool is_attachment = false;
 };
 
 struct Texture
@@ -85,7 +88,7 @@ struct Texture
     U32 width;
     U32 height;
 
-    void *data;
+    bool is_attachment;
 };
 
 using Texture_Handle = Resource_Handle< Texture >;
@@ -182,6 +185,65 @@ struct Update_Binding_Descriptor
     Texture_Handle *textures;
     Sampler_Handle *samplers;
 };
+
+//
+// Render Pass
+//
+
+enum class Attachment_Operation : U8
+{
+    DONT_CARE,
+    LOAD,
+    CLEAR
+};
+
+struct Attachment_Info
+{
+    Texture_Format format;
+    U32 sample_count = 1;
+    Attachment_Operation operation = Attachment_Operation::DONT_CARE;
+};
+
+struct Render_Pass_Descriptor
+{
+    std::initializer_list< Attachment_Info > color_attachments;
+    std::initializer_list< Attachment_Info > depth_stencil_attachments;
+    std::initializer_list< Attachment_Info > resolve_attachments;
+    Attachment_Operation stencil_operation = Attachment_Operation::DONT_CARE;
+};
+
+struct Render_Pass
+{
+    String name;
+    Render_Pass_Descriptor descriptor;
+};
+
+using Render_Pass_Handle = Resource_Handle< Render_Pass >;
+
+// Frame Buffer
+
+struct Frame_Buffer_Descriptor
+{
+    U32 width;
+    U32 height;
+
+    std::initializer_list< Texture_Handle > attachments;
+
+    Render_Pass_Handle render_pass;
+};
+
+struct Frame_Buffer
+{
+    U32 width;
+    U32 height;
+
+    U32 attachment_count;
+    Texture_Handle *attachments;
+
+    Render_Pass_Handle render_pass;
+};
+
+using Frame_Buffer_Handle = Resource_Handle< Frame_Buffer >;
 
 //
 // Shader
@@ -301,6 +363,7 @@ using Shader_Group_Handle = Resource_Handle< Shader_Group >;
 struct Pipeline_State_Descriptor
 {
     Shader_Group_Handle shader_group;
+    Render_Pass_Handle render_pass;
 };
 
 struct Pipeline_State
@@ -311,64 +374,6 @@ struct Pipeline_State
 };
 
 using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
-
-//
-// Render Pass
-//
-
-enum class Attachment_Operation : U8
-{
-    DONT_CARE,
-    LOAD,
-    CLEAR
-};
-
-struct Attachment_Info
-{
-    Texture_Format format;
-    U32 sample_count = 1;
-    Attachment_Operation operation = Attachment_Operation::DONT_CARE;
-};
-
-struct Render_Pass_Descriptor
-{
-    std::initializer_list< Attachment_Info > color_attachments;
-    std::initializer_list< Attachment_Info > depth_stencil_attachments;
-    Attachment_Operation stencil_operation = Attachment_Operation::DONT_CARE;
-};
-
-struct Render_Pass
-{
-    String name;
-    Render_Pass_Descriptor descriptor;
-};
-
-using Render_Pass_Handle = Resource_Handle< Render_Pass >;
-
-// Frame Buffer
-
-struct Frame_Buffer_Descriptor
-{
-    U32 width;
-    U32 height;
-
-    std::initializer_list< Texture_Handle > attachments;
-
-    Render_Pass_Handle render_pass;
-};
-
-struct Frame_Buffer
-{
-    U32 width;
-    U32 height;
-
-    U32 attachment_count;
-    Texture_Handle *attachments;
-
-    Render_Pass_Handle render_pass;
-};
-
-using Frame_Buffer_Handle = Resource_Handle< Frame_Buffer >;
 
 //
 // Material
@@ -420,9 +425,6 @@ struct Static_Mesh
 
     U16 vertex_count;
     U32 index_count;
-
-    void *data0;
-    void *data1;
 
     Material_Handle material_handle;
 };

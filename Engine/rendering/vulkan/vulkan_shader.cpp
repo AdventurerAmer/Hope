@@ -931,7 +931,7 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle, Shade
 
     VkPipelineMultisampleStateCreateInfo multisampling_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
 
-    multisampling_state_create_info.rasterizationSamples = context->msaa_samples;
+    multisampling_state_create_info.rasterizationSamples = VK_SAMPLE_COUNT_4_BIT;
     multisampling_state_create_info.alphaToCoverageEnable = VK_FALSE;
     multisampling_state_create_info.alphaToOneEnable = VK_FALSE;
     multisampling_state_create_info.sampleShadingEnable = VK_TRUE;

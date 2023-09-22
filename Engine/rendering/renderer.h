@@ -81,6 +81,13 @@ struct Renderer_State
     Bind_Group_Handle per_frame_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
     Bind_Group_Handle per_render_pass_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
 
+    Texture_Handle multi_sample_color_attachments[HE_MAX_FRAMES_IN_FLIGHT];
+    Texture_Handle multi_sample_depth_attachments[HE_MAX_FRAMES_IN_FLIGHT];
+    Texture_Handle resolve_color_attachments[HE_MAX_FRAMES_IN_FLIGHT];
+
+    Frame_Buffer_Handle world_frame_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    Render_Pass_Handle world_render_pass;
+
     Texture_Handle white_pixel_texture;
     Texture_Handle normal_pixel_texture;
 
@@ -130,9 +137,11 @@ struct Renderer
     void (*on_resize)(U32 width, U32 height);
 
     void (*begin_frame)(const Scene_Data *scene_data);
+
     void (*set_vertex_buffers)(Buffer_Handle *vertex_buffer_handles, U64 *offsets, U32 count);
     void (*set_index_buffer)(Buffer_Handle index_buffer_handle, U64 offset);
-    void (*submit_static_mesh)(Static_Mesh_Handle static_mesh_handle, const glm::mat4 &transfom);
+    void (*set_pipeline_state)(Pipeline_State_Handle pipeline_state_handle);
+    void (*draw_static_mesh)(Static_Mesh_Handle static_mesh_handle, U32 first_instance);
     void (*end_frame)();
 
     bool (*create_buffer)(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor);
@@ -160,6 +169,12 @@ struct Renderer
     void (*update_bind_group)(Bind_Group_Handle bind_group_handle, const Update_Binding_Descriptor *update_binding_descriptors, U32 update_binding_descriptor_count);
     void (*set_bind_groups)(U32 first_bind_group, Bind_Group_Handle *bind_group_handles, U32 count, Shader_Group_Handle shader_group);
     void (*destroy_bind_group)(Bind_Group_Handle bind_group_handle);
+
+    bool (*create_render_pass)(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor);
+    void (*destroy_render_pass)(Render_Pass_Handle render_pass_handle);
+
+    bool (*create_frame_buffer)(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor);
+    void (*destroy_frame_buffer)(Frame_Buffer_Handle frame_buffer_handle);
 
     bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
     void (*destroy_static_mesh)(Static_Mesh_Handle static_mesh_handle);
