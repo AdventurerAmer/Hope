@@ -457,8 +457,7 @@ void game_loop(Engine *engine, F32 delta_time)
         renderer_state->per_render_pass_bind_groups[current_frame_in_flight_index]
     };
 
-    // todo(amer): get ride of renderer_state->mesh_shader_group
-    renderer->set_bind_groups(0, bind_groups, HE_ARRAYCOUNT(bind_groups), renderer_state->mesh_shader_group);
+    renderer->set_bind_groups(0, bind_groups, HE_ARRAYCOUNT(bind_groups));
 
     render_scene_node(renderer, renderer_state, renderer_state->root_scene_node, glm::mat4(1.0f));
     renderer->end_frame();

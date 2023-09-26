@@ -2,9 +2,6 @@
 
 #include "vulkan_types.h"
 
-// todo(amer): move to vulkan_utils.h
-S32 find_memory_type_index(VkMemoryRequirements memory_requirements, VkMemoryPropertyFlags memory_property_flags);
-
 bool vulkan_renderer_init(struct Engine *engine);
 void vulkan_renderer_deinit();
 
@@ -35,7 +32,7 @@ void vulkan_renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle bind_gro
 
 bool vulkan_renderer_create_bind_group(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor);
 void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Update_Binding_Descriptor *update_binding_descriptors, U32 update_binding_descriptor_count);
-void vulkan_renderer_set_bind_groups(U32 first_bind_group, Bind_Group_Handle *bind_group_handles, U32 count, Shader_Group_Handle shader_group);
+void vulkan_renderer_set_bind_groups(U32 first_bind_group, Bind_Group_Handle *bind_group_handles, U32 count);
 void vulkan_renderer_destroy_bind_group(Bind_Group_Handle bind_group_handle);
 
 bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor);

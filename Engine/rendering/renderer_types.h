@@ -14,8 +14,6 @@
 #include <glm/ext/scalar_constants.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include <atomic>
-
 #define HE_GRAPHICS_DEBUGGING 1
 #define HE_MAX_FRAMES_IN_FLIGHT 3
 #define HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
@@ -133,7 +131,7 @@ struct Sampler
 using Sampler_Handle = Resource_Handle< Sampler >;
 
 //
-// Bind Group
+// Bind Group Layout
 //
 
 enum class Binding_Type : U8
@@ -163,18 +161,6 @@ struct Bind_Group_Layout
 };
 
 using Bind_Group_Layout_Handle = Resource_Handle< Bind_Group_Layout >;
-
-struct Bind_Group_Descriptor
-{
-    Bind_Group_Layout_Handle layout;
-};
-
-struct Bind_Group
-{
-    Bind_Group_Descriptor descriptor;
-};
-
-using Bind_Group_Handle = Resource_Handle< Bind_Group >;
 
 struct Update_Binding_Descriptor
 {
@@ -369,8 +355,54 @@ struct Shader_Group
 
 using Shader_Group_Handle = Resource_Handle< Shader_Group >;
 
+//
+// Bind Group
+//
+
+struct Bind_Group_Descriptor
+{
+    Shader_Group_Handle shader_group;
+    Bind_Group_Layout_Handle layout;
+};
+
+struct Bind_Group
+{
+    Bind_Group_Descriptor descriptor;
+};
+
+using Bind_Group_Handle = Resource_Handle< Bind_Group >;
+
+//
+// Pipeline State
+//
+
+enum class Cull_Mode : U8
+{
+    NONE,
+    FRONT,
+    BACK,
+};
+
+enum class Front_Face : U8
+{
+    CLOCKWISE,
+    COUNTER_CLOCKWISE,
+};
+
+enum class Fill_Mode : U8
+{
+    SOLID,
+    WIREFRAME
+};
+
 struct Pipeline_State_Descriptor
 {
+    Cull_Mode cull_mode = Cull_Mode::BACK;
+    Front_Face front_face = Front_Face::COUNTER_CLOCKWISE;
+    Fill_Mode fill_mode = Fill_Mode::SOLID;
+    bool sample_shading = false;
+    U32 sample_count = 1;
+
     Shader_Group_Handle shader_group;
     Render_Pass_Handle render_pass;
 };

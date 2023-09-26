@@ -1,5 +1,6 @@
 #include "vulkan_buffer.h"
 #include "vulkan_renderer.h"
+#include "vulkan_utils.h"
 
 bool create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
                    U64 size, VkBufferUsageFlags usage_flags,
@@ -20,7 +21,7 @@ bool create_buffer(Vulkan_Buffer *buffer, Vulkan_Context *context,
     VkMemoryRequirements memory_requirements = {};
     vkGetBufferMemoryRequirements(context->logical_device, buffer->handle, &memory_requirements);
 
-    S32 memory_type_index = find_memory_type_index(memory_requirements, memory_property_flags);
+    S32 memory_type_index = find_memory_type_index(memory_requirements, memory_property_flags, context);
     HE_ASSERT(memory_type_index != -1);
 
     VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };

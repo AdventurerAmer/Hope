@@ -3,6 +3,7 @@
 
 #include "vulkan_image.h"
 #include "vulkan_renderer.h"
+#include "vulkan_utils.h"
 
 #include "core/engine.h"
 #include "core/memory.h"
@@ -105,7 +106,7 @@ bool create_image(Vulkan_Image *image, Vulkan_Context *context, U32 width, U32 h
 
     VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
     memory_allocate_info.allocationSize = memory_requirements.size;
-    memory_allocate_info.memoryTypeIndex = find_memory_type_index(memory_requirements, properties);
+    memory_allocate_info.memoryTypeIndex = find_memory_type_index(memory_requirements, properties, context);
 
     HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info, nullptr, &image->memory));
 

@@ -1,19 +1,22 @@
 #include <string.h>
 
 #include "vulkan_renderer.h"
+#include "vulkan_image.h"
+#include "vulkan_buffer.h"
+#include "vulkan_swapchain.h"
+#include "vulkan_shader.h"
+#include "vulkan_utils.h"
+
+#include "rendering/renderer.h"
+
 #include "core/platform.h"
 #include "core/debugging.h"
 #include "core/memory.h"
 #include "core/file_system.h"
 #include "core/engine.h"
-#include "containers/dynamic_array.h"
-#include "rendering/renderer.h"
-
-#include "vulkan_image.h"
-#include "vulkan_buffer.h"
-#include "vulkan_swapchain.h"
-#include "vulkan_shader.h"
 #include "core/cvars.h"
+
+#include "containers/dynamic_array.h"
 
 #include "ImGui/backends/imgui_impl_vulkan.cpp"
 
@@ -31,29 +34,6 @@ vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
     HE_LOG(Rendering, Trace, "%s\n", callback_data->pMessage);
     HE_ASSERT(message_severity != VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT);
     return VK_FALSE;
-}
-
-S32 find_memory_type_index(VkMemoryRequirements memory_requirements,VkMemoryPropertyFlags memory_property_flags)
-{
-    Vulkan_Context *context = &vulkan_context;
-
-    S32 result = -1;
-
-    for (U32 memory_type_index = 0; memory_type_index < context->physical_device_memory_properties.memoryTypeCount; memory_type_index++)
-    {
-        if (((1 << memory_type_index) & memory_requirements.memoryTypeBits))
-        {
-            // todo(amer): we should track how much memory we allocated from heaps so allocations don't fail
-            const VkMemoryType *memory_type = &context->physical_device_memory_properties.memoryTypes[memory_type_index];
-            if ((memory_type->propertyFlags & memory_property_flags) == memory_property_flags)
-            {
-                result = (S32)memory_type_index;
-                break;
-            }
-        }
-    }
-
-    return result;
 }
 
 static bool is_physical_device_supports_all_features(VkPhysicalDevice physical_device, VkPhysicalDeviceFeatures2 features2, VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features)
@@ -1185,27 +1165,6 @@ static VkFormat get_texture_format(Texture_Format texture_format)
     return VK_FORMAT_UNDEFINED;
 }
 
-static VkSampleCountFlagBits get_sample_count(U32 sample_count)
-{
-    switch (sample_count)
-    {
-        case 1: return VK_SAMPLE_COUNT_1_BIT;
-        case 2: return VK_SAMPLE_COUNT_2_BIT;
-        case 4: return VK_SAMPLE_COUNT_4_BIT;
-        case 8: return VK_SAMPLE_COUNT_8_BIT;
-        case 16: return VK_SAMPLE_COUNT_16_BIT;
-        case 32: return VK_SAMPLE_COUNT_32_BIT;
-        case 64: return VK_SAMPLE_COUNT_64_BIT;
-
-        default:
-        {
-            HE_ASSERT(!"unsupported sample count");
-        }
-    }
-
-    return VK_SAMPLE_COUNT_FLAG_BITS_MAX_ENUM;
-}
-
 static bool is_color_format(Texture_Format format)
 {
     switch (format)
@@ -1491,8 +1450,7 @@ void vulkan_renderer_destroy_shader_group(Shader_Group_Handle shader_group_handl
 bool vulkan_renderer_create_pipeline_state(Pipeline_State_Handle pipeline_state_handle, const Pipeline_State_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Render_Pass* vulkan_render_pass = &context->render_passes[ descriptor.render_pass.index ];
-    return create_graphics_pipeline(pipeline_state_handle, descriptor.shader_group, vulkan_render_pass->handle, context);
+    return create_graphics_pipeline(pipeline_state_handle, descriptor, context);
 }
 
 void vulkan_renderer_destroy_pipeline_state(Pipeline_State_Handle pipeline_state_handle)
@@ -1585,15 +1543,17 @@ void vulkan_renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle bind_gro
 bool vulkan_renderer_create_bind_group(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Bind_Group *bind_group = &context->bind_groups[bind_group_handle.index];
-    Vulkan_Bind_Group_Layout *bind_group_layout = &context->bind_group_layouts[descriptor.layout.index];
+    Bind_Group *bind_group = get(&context->engine->renderer_state.bind_groups, bind_group_handle);
+    Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[bind_group_handle.index];
+    Vulkan_Bind_Group_Layout *vulkan_bind_group_layout = &context->bind_group_layouts[descriptor.layout.index];
 
     VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
     descriptor_set_allocation_info.descriptorPool = context->descriptor_pool;
     descriptor_set_allocation_info.descriptorSetCount = 1;
-    descriptor_set_allocation_info.pSetLayouts = &bind_group_layout->handle;
+    descriptor_set_allocation_info.pSetLayouts = &vulkan_bind_group_layout->handle;
 
-    HE_CHECK_VKRESULT(vkAllocateDescriptorSets(context->logical_device, &descriptor_set_allocation_info, &bind_group->handle));
+    HE_CHECK_VKRESULT(vkAllocateDescriptorSets(context->logical_device, &descriptor_set_allocation_info, &vulkan_bind_group->handle));
+    bind_group->descriptor = descriptor;
     return true;
 }
 
@@ -1666,10 +1626,13 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
     vkUpdateDescriptorSets(context->logical_device, update_binding_descriptor_count, write_descriptor_sets, 0, nullptr);
 }
 
-void vulkan_renderer_set_bind_groups(U32 first_bind_group, Bind_Group_Handle *bind_group_handles, U32 count, Shader_Group_Handle shader_group)
+void vulkan_renderer_set_bind_groups(U32 first_bind_group, Bind_Group_Handle *bind_group_handles, U32 count)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[shader_group.index];
+
+    Bind_Group *bind_group = get(&context->engine->renderer_state.bind_groups, bind_group_handles[0]);
+
+    Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[ bind_group->descriptor.shader_group.index ];
 
     VkDescriptorSet *descriptor_sets = HE_ALLOCATE_ARRAY(&context->engine->renderer_state.frame_arena, VkDescriptorSet, count);
     for (U32 bind_group_index = 0; bind_group_index < count; bind_group_index++)
@@ -2032,7 +1995,7 @@ bool vulkan_renderer_create_buffer(Buffer_Handle buffer_handle, const Buffer_Des
     VkMemoryRequirements memory_requirements = {};
     vkGetBufferMemoryRequirements(context->logical_device, vulkan_buffer->handle, &memory_requirements);
 
-    S32 memory_type_index = find_memory_type_index(memory_requirements, memory_property_flags);
+    S32 memory_type_index = find_memory_type_index(memory_requirements, memory_property_flags, context);
     HE_ASSERT(memory_type_index != -1);
 
     VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };

@@ -167,7 +167,7 @@ struct Renderer
 
     bool (*create_bind_group)(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor);
     void (*update_bind_group)(Bind_Group_Handle bind_group_handle, const Update_Binding_Descriptor *update_binding_descriptors, U32 update_binding_descriptor_count);
-    void (*set_bind_groups)(U32 first_bind_group, Bind_Group_Handle *bind_group_handles, U32 count, Shader_Group_Handle shader_group);
+    void (*set_bind_groups)(U32 first_bind_group, Bind_Group_Handle *bind_group_handles, U32 count);
     void (*destroy_bind_group)(Bind_Group_Handle bind_group_handle);
 
     bool (*create_render_pass)(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor);

@@ -1,10 +1,13 @@
 #include <spirv-headers/spirv.h>
 
 #include "vulkan_shader.h"
+#include "vulkan_utils.h"
+
 #include "core/platform.h"
 #include "core/debugging.h"
 #include "core/engine.h"
 #include "core/file_system.h"
+
 #include "containers/dynamic_array.h"
 
 #include <initializer_list>
@@ -814,31 +817,75 @@ static VkDescriptorType get_descriptor_type(Binding_Type type)
     return VK_DESCRIPTOR_TYPE_MAX_ENUM;
 }
 
-bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle, Shader_Group_Handle shader_group_handle, VkRenderPass render_pass, Vulkan_Context *context)
+static VkPolygonMode get_polygon_mode(Fill_Mode fill_mode)
 {
+    switch (fill_mode)
+    {
+        case Fill_Mode::SOLID: return VK_POLYGON_MODE_FILL;
+        case Fill_Mode::WIREFRAME: return VK_POLYGON_MODE_LINE;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported fill mode");
+        } break;
+    }
+
+    return VK_POLYGON_MODE_MAX_ENUM;
+}
+
+static VkCullModeFlagBits get_cull_mode(Cull_Mode cull_mode)
+{
+    switch (cull_mode)
+    {
+        case Cull_Mode::NONE: return VK_CULL_MODE_NONE;
+        case Cull_Mode::FRONT: return VK_CULL_MODE_FRONT_BIT;
+        case Cull_Mode::BACK: return VK_CULL_MODE_BACK_BIT;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported cull mode");
+        } break;
+    }
+
+    return VK_CULL_MODE_FLAG_BITS_MAX_ENUM;
+}
+
+static VkFrontFace get_front_face(Front_Face front_face)
+{
+    switch (front_face)
+    {
+        case Front_Face::COUNTER_CLOCKWISE: return VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        case Front_Face::CLOCKWISE: return VK_FRONT_FACE_CLOCKWISE;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported front face");
+        } break;
+    }
+
+    return VK_FRONT_FACE_MAX_ENUM;
+}
+
+bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  const Pipeline_State_Descriptor &descriptor, Vulkan_Context *context)
+{
+    Temprary_Memory_Arena temprary_arena = {};
+    begin_temprary_memory_arena(&temprary_arena, &context->arena);
+    HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
+
     Renderer_State *renderer_state = &context->engine->renderer_state;
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, pipeline_state_handle);
-    Shader_Group *shader_group = get(&renderer_state->shader_groups, shader_group_handle);
-    Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[shader_group_handle.index];
+
+    Shader_Group *shader_group = get(&renderer_state->shader_groups, descriptor.shader_group);
     U32 shader_count = (U32)shader_group->shader_count;
 
-    Vulkan_Pipeline_State *pipeline = &context->pipeline_states[pipeline_state_handle.index];
+    Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[descriptor.shader_group.index];
+    Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[pipeline_state_handle.index];
 
-    Dynamic_Array< VkPipelineShaderStageCreateInfo > shader_stage_create_infos;
-    init(&shader_stage_create_infos, context->allocator, shader_count);
+    VkPipelineShaderStageCreateInfo *shader_stage_create_infos = HE_ALLOCATE_ARRAY(&temprary_arena, VkPipelineShaderStageCreateInfo, shader_count);
 
     bool is_using_vertex_shader = false;
-    Dynamic_Array< VkVertexInputBindingDescription > vertex_input_binding_descriptions;
-    init(&vertex_input_binding_descriptions, context->allocator);
-
-    Dynamic_Array< VkVertexInputAttributeDescription > vertex_input_attribute_descriptions;
-    init(&vertex_input_attribute_descriptions, context->allocator);
-
-    HE_DEFER
-    {
-        deinit(&vertex_input_binding_descriptions);
-        deinit(&vertex_input_attribute_descriptions);
-    };
+    VkVertexInputBindingDescription *vertex_input_binding_descriptions = nullptr;
+    VkVertexInputAttributeDescription *vertex_input_attribute_descriptions = nullptr;
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 
@@ -857,9 +904,8 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle, Shade
         if (shader->stage == Shader_Stage::VERTEX)
         {
             is_using_vertex_shader = true;
-
-            set_count(&vertex_input_binding_descriptions, shader->input_count);
-            set_count(&vertex_input_attribute_descriptions, shader->input_count);
+            vertex_input_binding_descriptions = HE_ALLOCATE_ARRAY(&temprary_arena, VkVertexInputBindingDescription, shader->input_count);
+            vertex_input_attribute_descriptions = HE_ALLOCATE_ARRAY(&temprary_arena, VkVertexInputAttributeDescription, shader->input_count);
 
             for (U32 input_variable_index = 0; input_variable_index < shader->input_count; input_variable_index++)
             {
@@ -876,10 +922,10 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle, Shade
                 vertex_attribute->offset = 0;
             }
 
-            vertex_input_state_create_info.vertexBindingDescriptionCount = vertex_input_binding_descriptions.count;
-            vertex_input_state_create_info.pVertexBindingDescriptions = vertex_input_binding_descriptions.data;
-            vertex_input_state_create_info.vertexAttributeDescriptionCount = vertex_input_attribute_descriptions.count;
-            vertex_input_state_create_info.pVertexAttributeDescriptions = vertex_input_attribute_descriptions.data;
+            vertex_input_state_create_info.vertexBindingDescriptionCount = shader->input_count;
+            vertex_input_state_create_info.pVertexBindingDescriptions = vertex_input_binding_descriptions;
+            vertex_input_state_create_info.vertexAttributeDescriptionCount = shader->input_count;
+            vertex_input_state_create_info.pVertexAttributeDescriptions = vertex_input_attribute_descriptions;
         }
 
     }
@@ -920,10 +966,10 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle, Shade
 
     rasterization_state_create_info.depthClampEnable = VK_FALSE;
     rasterization_state_create_info.rasterizerDiscardEnable = VK_FALSE;
-    rasterization_state_create_info.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterization_state_create_info.polygonMode = get_polygon_mode(descriptor.fill_mode);
     rasterization_state_create_info.lineWidth = 1.0f;
-    rasterization_state_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterization_state_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterization_state_create_info.cullMode = get_cull_mode(descriptor.cull_mode);
+    rasterization_state_create_info.frontFace = get_front_face(descriptor.front_face);
     rasterization_state_create_info.depthBiasEnable = VK_FALSE;
     rasterization_state_create_info.depthBiasConstantFactor = 0.0f;
     rasterization_state_create_info.depthBiasClamp = 0.0f;
@@ -931,11 +977,11 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle, Shade
 
     VkPipelineMultisampleStateCreateInfo multisampling_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
 
-    multisampling_state_create_info.rasterizationSamples = VK_SAMPLE_COUNT_4_BIT;
+    multisampling_state_create_info.rasterizationSamples = get_sample_count(descriptor.sample_count);
     multisampling_state_create_info.alphaToCoverageEnable = VK_FALSE;
     multisampling_state_create_info.alphaToOneEnable = VK_FALSE;
-    multisampling_state_create_info.sampleShadingEnable = VK_TRUE;
-    multisampling_state_create_info.minSampleShading = 0.2f;
+    multisampling_state_create_info.sampleShadingEnable = descriptor.sample_shading ? VK_TRUE : VK_FALSE;
+    multisampling_state_create_info.minSampleShading = 1.0f;
     multisampling_state_create_info.pSampleMask = nullptr;
 
     VkPipelineColorBlendAttachmentState color_blend_attachment_state = {};
@@ -970,8 +1016,8 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle, Shade
     depth_stencil_state_create_info.back = {};
 
     VkGraphicsPipelineCreateInfo graphics_pipeline_create_info = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-    graphics_pipeline_create_info.stageCount = shader_stage_create_infos.count;
-    graphics_pipeline_create_info.pStages = shader_stage_create_infos.data;
+    graphics_pipeline_create_info.stageCount = shader_count;
+    graphics_pipeline_create_info.pStages = shader_stage_create_infos;
 
     if (is_using_vertex_shader)
     {
@@ -986,20 +1032,18 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle, Shade
     graphics_pipeline_create_info.pColorBlendState = &color_blend_state_create_info;
     graphics_pipeline_create_info.pDynamicState = &dynamic_state_create_info;
     graphics_pipeline_create_info.layout = vulkan_shader_group->pipeline_layout;
-    graphics_pipeline_create_info.renderPass = render_pass;
+    graphics_pipeline_create_info.renderPass = context->render_passes[ descriptor.render_pass.index ].handle;
     graphics_pipeline_create_info.subpass = 0;
     graphics_pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
     graphics_pipeline_create_info.basePipelineIndex = -1;
 
-    HE_CHECK_VKRESULT(vkCreateGraphicsPipelines(context->logical_device, context->pipeline_cache, 1, &graphics_pipeline_create_info, nullptr, &pipeline->handle));
-
+    HE_CHECK_VKRESULT(vkCreateGraphicsPipelines(context->logical_device, context->pipeline_cache, 1, &graphics_pipeline_create_info, nullptr, &vulkan_pipeline_state->handle));
     return true;
 }
 
 void destroy_pipeline(Pipeline_State_Handle pipeline_state_handle, Vulkan_Context *context)
 {
     HE_ASSERT(context);
-
     Vulkan_Pipeline_State *pipeline = &context->pipeline_states[pipeline_state_handle.index];
     vkDestroyPipeline(context->logical_device, pipeline->handle, nullptr);
 }

@@ -267,9 +267,11 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     Shader_Group *mesh_shader_group = get(&renderer_state->shader_groups, renderer_state->mesh_shader_group);
 
     Bind_Group_Descriptor per_frame_bind_group_descriptor = {};
+    per_frame_bind_group_descriptor.shader_group = renderer_state->mesh_shader_group;
     per_frame_bind_group_descriptor.layout = mesh_shader_group->bind_group_layouts[0];
 
     Bind_Group_Descriptor per_render_pass_bind_group_descriptor = {};
+    per_render_pass_bind_group_descriptor.shader_group = renderer_state->mesh_shader_group;
     per_render_pass_bind_group_descriptor.layout = mesh_shader_group->bind_group_layouts[1];
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -355,6 +357,11 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
 
     renderer_state->mesh_pipeline = aquire_handle(&renderer_state->pipeline_states);
     Pipeline_State_Descriptor mesh_pipeline_state_descriptor = {};
+    mesh_pipeline_state_descriptor.cull_mode = Cull_Mode::BACK;
+    mesh_pipeline_state_descriptor.fill_mode = Fill_Mode::SOLID;
+    mesh_pipeline_state_descriptor.front_face = Front_Face::COUNTER_CLOCKWISE;
+    mesh_pipeline_state_descriptor.sample_count = 4;
+    mesh_pipeline_state_descriptor.sample_shading = true;
     mesh_pipeline_state_descriptor.shader_group = renderer_state->mesh_shader_group;
     mesh_pipeline_state_descriptor.render_pass = renderer_state->world_render_pass;
     bool pipeline_created = renderer->create_pipeline_state(renderer_state->mesh_pipeline, mesh_pipeline_state_descriptor);
@@ -991,7 +998,7 @@ void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene
         Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle);
 
         renderer->set_pipeline_state(material->pipeline_state_handle);
-        renderer->set_bind_groups(2, &material->bind_groups[renderer_state->current_frame_in_flight_index], 1, pipeline_state->shader_group);
+        renderer->set_bind_groups(2, &material->bind_groups[renderer_state->current_frame_in_flight_index], 1);
 
         renderer->draw_static_mesh(static_mesh_handle, object_data_index);
     }
@@ -1048,6 +1055,7 @@ Material_Handle create_material(Renderer_State *renderer_state, Renderer *render
         material->bind_groups[frame_index] = aquire_handle(&renderer_state->bind_groups);
 
         Bind_Group_Descriptor bind_group_descriptor = {};
+        bind_group_descriptor.shader_group = pipeline_state->shader_group;
         bind_group_descriptor.layout = shader_group->bind_group_layouts[2]; // todo(amer): Hardcoding
         renderer->create_bind_group(material->bind_groups[frame_index], bind_group_descriptor);
 
