@@ -119,22 +119,15 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
             U32 client_width = u64_to_u32(l_param & 0xFFFF);
             U32 client_height = u64_to_u32(l_param >> 16);
 
-            U32 width = 0;
-            U32 height = 0;
-            win32_get_window_size(client_width, client_height, &width, &height);
-
-            Window *window = &engine->window;
-            window->width = width;
-            window->height = height;
+            U32 window_width = 0;
+            U32 window_height = 0;
+            win32_get_window_size(client_width, client_height, &window_width, &window_height);
 
             event.width = u32_to_u16(client_width);
             event.height = u32_to_u16(client_height);
             engine->game_code.on_event(engine, event);
 
-            if (engine->renderer.on_resize)
-            {
-                engine->renderer.on_resize(client_width, client_height);
-            }
+            on_resize(engine, window_width, window_height, client_width, client_height);
         } break;
 
         default:

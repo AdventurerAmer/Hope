@@ -68,6 +68,8 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->update_bind_group = &vulkan_renderer_update_bind_group;
             renderer->destroy_bind_group = &vulkan_renderer_destroy_bind_group;
             renderer->create_render_pass = &vulkan_renderer_create_render_pass;
+            renderer->begin_render_pass = &vulkan_renderer_begin_render_pass;
+            renderer->end_render_pass = &vulkan_renderer_end_render_pass;
             renderer->destroy_render_pass = &vulkan_renderer_destroy_render_pass;
             renderer->create_frame_buffer = &vulkan_renderer_create_frame_buffer;
             renderer->destroy_frame_buffer = &vulkan_renderer_destroy_frame_buffer;
@@ -429,7 +431,7 @@ void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_s
         renderer->destroy_bind_group_layout({ bind_group_layout_index, renderer_state->bind_group_layouts.generations[bind_group_layout_index] });
     }
 
-    for (S32 frame_buffer_index = 0; frame_buffer_index < (S32)renderer_state->frame_buffers.count; frame_buffer_index++)
+    for (S32 frame_buffer_index = 0; frame_buffer_index < (S32)renderer_state->frame_buffers.capacity; frame_buffer_index++)
     {
         if (!renderer_state->frame_buffers.is_allocated[frame_buffer_index])
         {
@@ -438,7 +440,7 @@ void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_s
         renderer->destroy_frame_buffer({ frame_buffer_index, renderer_state->frame_buffers.generations[frame_buffer_index] });
     }
 
-    for (S32 render_pass_index = 0; render_pass_index < (S32)renderer_state->render_passes.count; render_pass_index++)
+    for (S32 render_pass_index = 0; render_pass_index < (S32)renderer_state->render_passes.capacity; render_pass_index++)
     {
         if (!renderer_state->render_passes.is_allocated[render_pass_index])
         {
@@ -447,7 +449,7 @@ void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_s
         renderer->destroy_render_pass({ render_pass_index, renderer_state->render_passes.generations[render_pass_index] });
     }
 
-    for (S32 pipeline_state_index = 0; pipeline_state_index < (S32)renderer_state->pipeline_states.count; pipeline_state_index++)
+    for (S32 pipeline_state_index = 0; pipeline_state_index < (S32)renderer_state->pipeline_states.capacity; pipeline_state_index++)
     {
         if (!renderer_state->pipeline_states.is_allocated[pipeline_state_index])
         {

@@ -53,18 +53,12 @@ struct Engine_API
 
     void (*update_camera)(Camera *camera);
 
-    Scene_Node* (*load_model)(const String &path, Renderer *renderer,
-                              Renderer_State *renderer_state, Memory_Arena *arena);
-
     Scene_Node* (*load_model_threaded)(const String &path, Renderer *renderer, Renderer_State *renderer_state);
 
-    void (*render_scene_node)(Renderer *renderer, Renderer_State *renderer_state,
-                              Scene_Node *scene_node, const glm::mat4 &transform);
-
     void* (*allocate_memory)(U64 size);
-    void  (*deallocate_memory)(void *memory);
-    void  (*set_window_mode)(Window *window, Window_Mode mode);
-    void  (*debug_printf)(const char *message);
+    void (*deallocate_memory)(void *memory);
+    void (*set_window_mode)(Window *window, Window_Mode mode);
+    void (*debug_printf)(const char *message);
 };
 
 struct Engine
@@ -99,6 +93,7 @@ struct Engine
 
 bool startup(Engine *engine, void *platform_state);
 
+void on_resize(Engine *engine, U32 window_width, U32 window_height, U32 client_width, U32 client_height);
 void game_loop(Engine *engine, F32 delta_time);
 
 void shutdown(Engine *engine);

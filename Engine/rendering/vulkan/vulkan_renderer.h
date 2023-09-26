@@ -39,6 +39,8 @@ void vulkan_renderer_set_bind_groups(U32 first_bind_group, Bind_Group_Handle *bi
 void vulkan_renderer_destroy_bind_group(Bind_Group_Handle bind_group_handle);
 
 bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor);
+void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Frame_Buffer_Handle frame_buffer_handle, Clear_Value *clear_values, U32 clear_value_count);
+void vulkan_renderer_end_render_pass(Render_Pass_Handle render_pass_handle);
 void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle);
 
 bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor);

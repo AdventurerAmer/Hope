@@ -120,7 +120,6 @@ void hock_engine_api(Engine_API *api)
     api->control_camera = &control_camera;
     api->update_camera = &update_camera;
     api->load_model_threaded = &load_model_threaded;
-    api->render_scene_node = &render_scene_node;
 }
 
 bool startup(Engine *engine, void *platform_state)
@@ -267,6 +266,22 @@ bool startup(Engine *engine, void *platform_state)
     return game_initialized;
 }
 
+void on_resize(Engine *engine, U32 window_width, U32 window_height, U32 client_width, U32 client_height)
+{
+    Window *window = &engine->window;
+    window->width = window_width;
+    window->height = window_height;
+
+    Renderer_State *renderer_state = &engine->renderer_state;
+    renderer_state->back_buffer_width = client_width;
+    renderer_state->back_buffer_height = client_height;
+
+    if (engine->renderer.on_resize)
+    {
+        engine->renderer.on_resize(client_width, client_height);
+    }
+}
+
 void game_loop(Engine *engine, F32 delta_time)
 {
     imgui_new_frame(engine);
@@ -310,11 +325,86 @@ void game_loop(Engine *engine, F32 delta_time)
 
     U32 current_frame_in_flight_index = renderer_state->current_frame_in_flight_index;
 
+    Frame_Buffer *frame_buffer = get(&renderer_state->frame_buffers, renderer_state->world_frame_buffers[current_frame_in_flight_index]);
+    if ((frame_buffer->width != renderer_state->back_buffer_width || frame_buffer->height != renderer_state->back_buffer_height)
+        && (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0))
+    {
+        renderer->wait_for_gpu_to_finish_all_work();
+
+        for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+        {
+            renderer->destroy_frame_buffer(renderer_state->world_frame_buffers[frame_index]);
+            renderer->destroy_texture(renderer_state->multi_sample_color_attachments[frame_index]);
+            renderer->destroy_texture(renderer_state->resolve_color_attachments[frame_index]);
+            renderer->destroy_texture(renderer_state->multi_sample_depth_attachments[frame_index]);
+        }
+
+        Texture_Descriptor multi_sample_color_attachment_descriptor = {};
+        multi_sample_color_attachment_descriptor.format = Texture_Format::B8G8R8A8_SRGB;
+        multi_sample_color_attachment_descriptor.data = nullptr;
+        multi_sample_color_attachment_descriptor.mipmapping = false;
+        multi_sample_color_attachment_descriptor.width = renderer_state->back_buffer_width;
+        multi_sample_color_attachment_descriptor.height = renderer_state->back_buffer_height;
+        multi_sample_color_attachment_descriptor.sample_count = 4;
+        multi_sample_color_attachment_descriptor.is_attachment = true;
+
+        Texture_Descriptor resolve_color_attachment_descriptor = {};
+        resolve_color_attachment_descriptor.format = Texture_Format::B8G8R8A8_SRGB;
+        resolve_color_attachment_descriptor.data = nullptr;
+        resolve_color_attachment_descriptor.mipmapping = false;
+        resolve_color_attachment_descriptor.width = renderer_state->back_buffer_width;
+        resolve_color_attachment_descriptor.height = renderer_state->back_buffer_height;
+        resolve_color_attachment_descriptor.sample_count = 1;
+        resolve_color_attachment_descriptor.is_attachment = true;
+
+        Texture_Descriptor multi_sample_depth_attachment_descriptor = {};
+        multi_sample_depth_attachment_descriptor.format = Texture_Format::DEPTH_F32_STENCIL_U8;
+        multi_sample_depth_attachment_descriptor.data = nullptr;
+        multi_sample_depth_attachment_descriptor.mipmapping = false;
+        multi_sample_depth_attachment_descriptor.width = renderer_state->back_buffer_width;
+        multi_sample_depth_attachment_descriptor.height = renderer_state->back_buffer_height;
+        multi_sample_depth_attachment_descriptor.sample_count = 4;
+        multi_sample_depth_attachment_descriptor.is_attachment = true;
+
+        for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+        {
+            renderer_state->multi_sample_color_attachments[frame_index] = aquire_handle(&renderer_state->textures);
+            renderer->create_texture(renderer_state->multi_sample_color_attachments[frame_index], multi_sample_color_attachment_descriptor);
+
+            renderer_state->resolve_color_attachments[frame_index] = aquire_handle(&renderer_state->textures);
+            renderer->create_texture(renderer_state->resolve_color_attachments[frame_index], resolve_color_attachment_descriptor);
+
+            renderer_state->multi_sample_depth_attachments[frame_index] = aquire_handle(&renderer_state->textures);
+            renderer->create_texture(renderer_state->multi_sample_depth_attachments[frame_index], multi_sample_depth_attachment_descriptor);
+
+            Frame_Buffer_Descriptor world_frame_buffer_descriptor;
+            world_frame_buffer_descriptor.render_pass = renderer_state->world_render_pass;
+            world_frame_buffer_descriptor.width = renderer_state->back_buffer_width;
+            world_frame_buffer_descriptor.height = renderer_state->back_buffer_height;
+            world_frame_buffer_descriptor.attachments =
+            {
+                renderer_state->multi_sample_color_attachments[frame_index],
+                renderer_state->resolve_color_attachments[frame_index],
+                renderer_state->multi_sample_depth_attachments[frame_index]
+            };
+
+            renderer_state->world_frame_buffers[frame_index] = aquire_handle(&renderer_state->frame_buffers);
+            renderer->create_frame_buffer(renderer_state->world_frame_buffers[frame_index], world_frame_buffer_descriptor);
+        }
+    }
+
     Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[current_frame_in_flight_index]);
     renderer_state->object_data_base = (Object_Data *)object_data_storage_buffer->data;
     renderer_state->object_data_count = 0;
 
     renderer->begin_frame(scene_data);
+
+    Clear_Value clear_values[3] = {};
+    clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+    clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+    clear_values[2].depth = 1.0f;
+
+    renderer->begin_render_pass(renderer_state->world_render_pass, renderer_state->world_frame_buffers[current_frame_in_flight_index], clear_values, HE_ARRAYCOUNT(clear_values));
 
     Buffer_Handle vertex_buffers[] =
     {
@@ -367,7 +457,7 @@ void game_loop(Engine *engine, F32 delta_time)
         renderer_state->per_render_pass_bind_groups[current_frame_in_flight_index]
     };
 
-    // todo(amer): i don't like mesh_shader_group here...
+    // todo(amer): get ride of renderer_state->mesh_shader_group
     renderer->set_bind_groups(0, bind_groups, HE_ARRAYCOUNT(bind_groups), renderer_state->mesh_shader_group);
 
     render_scene_node(renderer, renderer_state, renderer_state->root_scene_node, glm::mat4(1.0f));

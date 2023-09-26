@@ -938,17 +938,10 @@ void vulkan_renderer_deinit()
 
 void vulkan_renderer_on_resize(U32 width, U32 height)
 {
+    Vulkan_Context *context = &vulkan_context;
     if (width != 0 && height != 0)
     {
-        Renderer_State *renderer_state = &vulkan_context.engine->renderer_state;
-        renderer_state->back_buffer_width = width;
-        renderer_state->back_buffer_height = height;
-
-        recreate_swapchain(&vulkan_context,
-                           &vulkan_context.swapchain,
-                           width,
-                           height,
-                           vulkan_context.swapchain.present_mode);
+        recreate_swapchain(context, &context->swapchain, width, height, context->swapchain.present_mode);
     }
 }
 
@@ -1007,21 +1000,6 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
     command_buffer_begin_info.pInheritanceInfo = 0;
 
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
-
-    VkClearValue clear_values[3] = {};
-    clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-    clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-    clear_values[2].depthStencil = { 1.0f, 0 };
-
-    VkRenderPassBeginInfo render_pass_begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-    render_pass_begin_info.renderPass = context->render_passes[ renderer_state->world_render_pass.index ].handle;
-    render_pass_begin_info.framebuffer = context->frame_buffers[ renderer_state->world_frame_buffers[ renderer_state->current_frame_in_flight_index ].index ].handle;
-    render_pass_begin_info.renderArea.offset = { 0, 0 };
-    render_pass_begin_info.renderArea.extent = { context->swapchain.width, context->swapchain.height };
-    render_pass_begin_info.clearValueCount = HE_ARRAYCOUNT(clear_values);
-    render_pass_begin_info.pClearValues = clear_values;
-
-    vkCmdBeginRenderPass(command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
     VkViewport viewport = {};
     viewport.x = 0;
@@ -1114,10 +1092,6 @@ void vulkan_renderer_end_frame()
     Vulkan_Image *color_attachment = &context->textures[color_attachment_handle.index];
     VkImage swapchain_image = context->swapchain.images[context->current_swapchain_image_index];
 
-    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 0, nullptr);
-
-    transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
     VkImageCopy region = {};
     region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.srcSubresource.baseArrayLayer = 0;
@@ -1132,8 +1106,8 @@ void vulkan_renderer_end_frame()
     region.dstOffset = { 0, 0, 0 };
     region.extent = { context->swapchain.width, context->swapchain.height, 1 };
 
+    transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     vkCmdCopyImage(context->command_buffer, color_attachment->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
     transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     vkEndCommandBuffer(context->command_buffer);
 
@@ -1294,6 +1268,7 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     texture->width = descriptor.width;
     texture->height = descriptor.height;
     texture->is_attachment = descriptor.is_attachment;
+    texture->format = descriptor.format;
     return true;
 }
 
@@ -1302,6 +1277,7 @@ void vulkan_renderer_destroy_texture(Texture_Handle texture_handle)
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Image *vulkan_image = &context->textures[texture_handle.index];
     destroy_image(vulkan_image, &vulkan_context);
+    release_handle(&context->engine->renderer_state.textures, texture_handle);
 }
 
 static VkSamplerAddressMode get_address_mode(Address_Mode address_mode)
@@ -1885,17 +1861,6 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
         subpass.pDepthStencilAttachment = &attachment_refs[color_attachment_count + resolve_attachment_count];
     }
 
-    // todo(amer): this dependency is not optimal
-    VkSubpassDependency dependency = {};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.srcAccessMask = 0;
-
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-
     VkRenderPassCreateInfo render_pass_create_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
     render_pass_create_info.attachmentCount = attachment_count;
     render_pass_create_info.pAttachments = attachments;
@@ -1903,11 +1868,61 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     render_pass_create_info.subpassCount = 1;
     render_pass_create_info.pSubpasses = &subpass;
 
-    render_pass_create_info.dependencyCount = 1;
-    render_pass_create_info.pDependencies = &dependency;
-
     HE_CHECK_VKRESULT(vkCreateRenderPass(context->logical_device, &render_pass_create_info, nullptr, &vulkan_render_pass->handle));
     return true;
+}
+
+void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Frame_Buffer_Handle frame_buffer_handle, Clear_Value *clear_values, U32 clear_value_count)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Renderer_State *renderer_state = &context->engine->renderer_state;
+
+    Frame_Buffer *frame_buffer = get(&renderer_state->frame_buffers, frame_buffer_handle);
+    Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
+    Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
+
+    HE_ASSERT(frame_buffer->attachment_count == clear_value_count);
+
+    VkClearValue *vulkan_clear_values = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, VkClearValue, clear_value_count);
+
+    for (U32 clear_value_index = 0; clear_value_index < clear_value_count; clear_value_index++)
+    {
+        Texture_Handle texture_handle = frame_buffer->attachments[clear_value_index];
+        Texture *texture = get(&renderer_state->textures, texture_handle);
+
+        if (is_color_format(texture->format))
+        {
+            vulkan_clear_values[clear_value_index].color =
+            {
+                clear_values[clear_value_index].color.r,
+                clear_values[clear_value_index].color.g,
+                clear_values[clear_value_index].color.b,
+                clear_values[clear_value_index].color.a,
+            };
+        }
+        else
+        {
+            vulkan_clear_values[clear_value_index].depthStencil =
+            {
+                clear_values[clear_value_index].depth,
+                clear_values[clear_value_index].stencil,
+            };
+        }
+    }
+
+    VkRenderPassBeginInfo render_pass_begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+    render_pass_begin_info.renderPass = vulkan_render_pass->handle;
+    render_pass_begin_info.framebuffer = vulkan_frame_buffer->handle;
+    render_pass_begin_info.renderArea.offset = { 0, 0 };
+    render_pass_begin_info.renderArea.extent = { context->swapchain.width, context->swapchain.height };
+    render_pass_begin_info.clearValueCount = clear_value_count;
+    render_pass_begin_info.pClearValues = vulkan_clear_values;
+
+    vkCmdBeginRenderPass(context->command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
+}
+
+void vulkan_renderer_end_render_pass(Render_Pass_Handle render_pass_handle)
+{
 }
 
 void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle)
@@ -1920,6 +1935,7 @@ void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle)
 bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
+    Frame_Buffer *frame_buffer = get(&context->engine->renderer_state.frame_buffers, frame_buffer_handle);
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
 
     Temprary_Memory_Arena temprary_arena = {};
@@ -1929,24 +1945,31 @@ bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[ descriptor.render_pass.index ];
 
     U32 attachment_count = u64_to_u32(descriptor.attachments.size());
-    VkImageView *attachments = HE_ALLOCATE_ARRAY(&temprary_arena, VkImageView, attachment_count);
+    Texture_Handle *attachments = HE_ALLOCATE_ARRAY(context->allocator, Texture_Handle, attachment_count);
+    VkImageView *vulkan_attachments = HE_ALLOCATE_ARRAY(&temprary_arena, VkImageView, attachment_count);
 
     U32 attachment_index = 0;
     for (Texture_Handle texture_handle : descriptor.attachments)
     {
         Vulkan_Image *vulkan_texture = &context->textures[ texture_handle.index ];
-        attachments[attachment_index++] = vulkan_texture->view;
+        attachments[attachment_index] = texture_handle;
+        vulkan_attachments[attachment_index] = vulkan_texture->view;
+        attachment_index++;
     }
 
     VkFramebufferCreateInfo frame_buffer_create_info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
     frame_buffer_create_info.renderPass = vulkan_render_pass->handle;
     frame_buffer_create_info.attachmentCount = attachment_count;
-    frame_buffer_create_info.pAttachments = attachments;
+    frame_buffer_create_info.pAttachments = vulkan_attachments;
     frame_buffer_create_info.width = descriptor.width;
     frame_buffer_create_info.height = descriptor.height;
     frame_buffer_create_info.layers = 1;
 
     HE_CHECK_VKRESULT(vkCreateFramebuffer(context->logical_device, &frame_buffer_create_info, nullptr, &vulkan_frame_buffer->handle));
+    frame_buffer->width = descriptor.width;
+    frame_buffer->height = descriptor.height;
+    frame_buffer->attachment_count = attachment_count;
+    frame_buffer->attachments = attachments;
     return true;
 }
 
@@ -1955,6 +1978,7 @@ void vulkan_renderer_destroy_frame_buffer(Frame_Buffer_Handle frame_buffer_handl
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
     vkDestroyFramebuffer(context->logical_device, vulkan_frame_buffer->handle, nullptr);
+    release_handle(&context->engine->renderer_state.frame_buffers, frame_buffer_handle);
 }
 
 static VkBufferUsageFlags get_buffer_usage(Buffer_Usage usage)

@@ -171,6 +171,8 @@ struct Renderer
     void (*destroy_bind_group)(Bind_Group_Handle bind_group_handle);
 
     bool (*create_render_pass)(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor);
+    void (*begin_render_pass)(Render_Pass_Handle render_pass_handle, Frame_Buffer_Handle frame_buffer_handle, Clear_Value *clear_values, U32 clear_value_count);
+    void (*end_render_pass)(Render_Pass_Handle render_pass_handle);
     void (*destroy_render_pass)(Render_Pass_Handle render_pass_handle);
 
     bool (*create_frame_buffer)(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor);

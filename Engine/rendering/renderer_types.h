@@ -88,6 +88,8 @@ struct Texture
     U32 width;
     U32 height;
 
+    Texture_Format format;
+
     bool is_attachment;
 };
 
@@ -189,6 +191,13 @@ struct Update_Binding_Descriptor
 //
 // Render Pass
 //
+
+struct Clear_Value
+{
+    glm::vec4 color;
+    F32 depth;
+    U8 stencil;
+};
 
 enum class Attachment_Operation : U8
 {
