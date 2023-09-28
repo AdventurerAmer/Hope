@@ -136,17 +136,13 @@ bool startup(Engine *engine, void *platform_state)
 
     U8 *permanent_memory = (U8 *)memory;
     engine->memory.permanent_memory_size = permenent_memory_size;
-    engine->memory.permanent_arena = create_memory_arena(permanent_memory,
-                                                         permenent_memory_size);
+    engine->memory.permanent_arena = create_memory_arena(permanent_memory, permenent_memory_size);
 
     U8 *transient_memory = (U8 *)memory + permenent_memory_size;
     engine->memory.transient_memory_size = transient_memory_size;
-    engine->memory.transient_arena = create_memory_arena(transient_memory,
-                                                         transient_memory_size);
+    engine->memory.transient_arena = create_memory_arena(transient_memory, transient_memory_size);
 
-    init_free_list_allocator(&engine->memory.free_list_allocator,
-                             &engine->memory.transient_arena,
-                             HE_MEGA(512));
+    init_free_list_allocator(&engine->memory.free_list_allocator, &engine->memory.transient_arena, HE_MEGA(512));
 
     init_cvars("config.cvars", engine);
 
@@ -316,6 +312,132 @@ void game_loop(Engine *engine, F32 delta_time)
 
     ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, HE_MAX_F32);
 
+    //
+    // Anisotropic Filtering
+    //
+    {
+        U32 anisotropic_filtering[] =
+        {
+            0,
+            2,
+            4,
+            8,
+            16
+        };
+
+        const char *anisotropic_filtering_text[] =
+        {
+            "NONE",
+            "X2  ",
+            "X4  ",
+            "X8  ",
+            "X16 "
+        };
+
+        ImGui::Text("Anisotropic Filtering");
+        ImGui::SameLine();
+
+        const char *selected_anisotropic_filtering = nullptr;
+        for (U32 i = 0; i < HE_ARRAYCOUNT(anisotropic_filtering); i++)
+        {
+            if (renderer_state->anisotropic_filtering == anisotropic_filtering[i])
+            {
+                selected_anisotropic_filtering = anisotropic_filtering_text[i];
+                break;
+            }
+        }
+
+        if (ImGui::BeginCombo("##Anistropic Filtering", selected_anisotropic_filtering))
+        {
+            for (U32 i = 0; i < HE_ARRAYCOUNT(anisotropic_filtering); i++)
+            {
+                bool is_selected = renderer_state->anisotropic_filtering == anisotropic_filtering[i];
+                if (ImGui::Selectable(anisotropic_filtering_text[i], is_selected))
+                {
+                    if (renderer_state->anisotropic_filtering != anisotropic_filtering[i])
+                    {
+                        renderer_state->anisotropic_filtering = anisotropic_filtering[i];
+
+                        renderer->wait_for_gpu_to_finish_all_work();
+
+                        Sampler_Descriptor default_sampler_descriptor = {};
+                        default_sampler_descriptor.min_filter = Filter::LINEAR;
+                        default_sampler_descriptor.mag_filter = Filter::NEAREST;
+                        default_sampler_descriptor.mip_filter = Filter::LINEAR;
+                        default_sampler_descriptor.address_mode_u = Address_Mode::REPEAT;
+                        default_sampler_descriptor.address_mode_v = Address_Mode::REPEAT;
+                        default_sampler_descriptor.address_mode_w = Address_Mode::REPEAT;
+                        default_sampler_descriptor.anisotropy = renderer_state->anisotropic_filtering;
+
+                        renderer->destroy_sampler(renderer_state->default_sampler);
+                        renderer_state->default_sampler = Resource_Pool< Sampler >::invalid_handle;
+                        renderer_state->default_sampler = aquire_handle(&renderer_state->samplers);
+                        renderer->create_sampler(renderer_state->default_sampler, default_sampler_descriptor);
+                    }
+                }
+                if (is_selected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+
+    //
+    // MSAA
+    //
+    {
+        U32 msaa[] =
+        {
+            1,
+            2,
+            4,
+        };
+
+        const char* msaa_text[] =
+        {
+            "NONE",
+            "X2  ",
+            "X4  ",
+        };
+
+        ImGui::Text("MSAA");
+        ImGui::SameLine();
+
+        const char *selected_msaa = nullptr;
+        for (U32 i = 0; i < HE_ARRAYCOUNT(msaa); i++)
+        {
+            if (renderer_state->sample_count == msaa[i])
+            {
+                selected_msaa = msaa_text[i];
+                break;
+            }
+        }
+
+        if (ImGui::BeginCombo("##MSAA", selected_msaa))
+        {
+            for (U32 i = 0; i < HE_ARRAYCOUNT(msaa); i++)
+            {
+                bool is_selected = renderer_state->sample_count == msaa[i];
+                if (ImGui::Selectable(msaa_text[i], is_selected))
+                {
+                    if (renderer_state->sample_count != msaa[i])
+                    {
+                        renderer_state->sample_count = msaa[i];
+                        invalidate_render_entities(renderer, renderer_state);
+                    }
+                }
+                if (is_selected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+
+
     ImGui::End();
 
     Game_Code *game_code = &engine->game_code;
@@ -329,68 +451,7 @@ void game_loop(Engine *engine, F32 delta_time)
     if ((frame_buffer->width != renderer_state->back_buffer_width || frame_buffer->height != renderer_state->back_buffer_height)
         && (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0))
     {
-        renderer->wait_for_gpu_to_finish_all_work();
-
-        for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-        {
-            renderer->destroy_frame_buffer(renderer_state->world_frame_buffers[frame_index]);
-            renderer->destroy_texture(renderer_state->multi_sample_color_attachments[frame_index]);
-            renderer->destroy_texture(renderer_state->resolve_color_attachments[frame_index]);
-            renderer->destroy_texture(renderer_state->multi_sample_depth_attachments[frame_index]);
-        }
-
-        Texture_Descriptor multi_sample_color_attachment_descriptor = {};
-        multi_sample_color_attachment_descriptor.format = Texture_Format::B8G8R8A8_SRGB;
-        multi_sample_color_attachment_descriptor.data = nullptr;
-        multi_sample_color_attachment_descriptor.mipmapping = false;
-        multi_sample_color_attachment_descriptor.width = renderer_state->back_buffer_width;
-        multi_sample_color_attachment_descriptor.height = renderer_state->back_buffer_height;
-        multi_sample_color_attachment_descriptor.sample_count = 4;
-        multi_sample_color_attachment_descriptor.is_attachment = true;
-
-        Texture_Descriptor resolve_color_attachment_descriptor = {};
-        resolve_color_attachment_descriptor.format = Texture_Format::B8G8R8A8_SRGB;
-        resolve_color_attachment_descriptor.data = nullptr;
-        resolve_color_attachment_descriptor.mipmapping = false;
-        resolve_color_attachment_descriptor.width = renderer_state->back_buffer_width;
-        resolve_color_attachment_descriptor.height = renderer_state->back_buffer_height;
-        resolve_color_attachment_descriptor.sample_count = 1;
-        resolve_color_attachment_descriptor.is_attachment = true;
-
-        Texture_Descriptor multi_sample_depth_attachment_descriptor = {};
-        multi_sample_depth_attachment_descriptor.format = Texture_Format::DEPTH_F32_STENCIL_U8;
-        multi_sample_depth_attachment_descriptor.data = nullptr;
-        multi_sample_depth_attachment_descriptor.mipmapping = false;
-        multi_sample_depth_attachment_descriptor.width = renderer_state->back_buffer_width;
-        multi_sample_depth_attachment_descriptor.height = renderer_state->back_buffer_height;
-        multi_sample_depth_attachment_descriptor.sample_count = 4;
-        multi_sample_depth_attachment_descriptor.is_attachment = true;
-
-        for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-        {
-            renderer_state->multi_sample_color_attachments[frame_index] = aquire_handle(&renderer_state->textures);
-            renderer->create_texture(renderer_state->multi_sample_color_attachments[frame_index], multi_sample_color_attachment_descriptor);
-
-            renderer_state->resolve_color_attachments[frame_index] = aquire_handle(&renderer_state->textures);
-            renderer->create_texture(renderer_state->resolve_color_attachments[frame_index], resolve_color_attachment_descriptor);
-
-            renderer_state->multi_sample_depth_attachments[frame_index] = aquire_handle(&renderer_state->textures);
-            renderer->create_texture(renderer_state->multi_sample_depth_attachments[frame_index], multi_sample_depth_attachment_descriptor);
-
-            Frame_Buffer_Descriptor world_frame_buffer_descriptor;
-            world_frame_buffer_descriptor.render_pass = renderer_state->world_render_pass;
-            world_frame_buffer_descriptor.width = renderer_state->back_buffer_width;
-            world_frame_buffer_descriptor.height = renderer_state->back_buffer_height;
-            world_frame_buffer_descriptor.attachments =
-            {
-                renderer_state->multi_sample_color_attachments[frame_index],
-                renderer_state->resolve_color_attachments[frame_index],
-                renderer_state->multi_sample_depth_attachments[frame_index]
-            };
-
-            renderer_state->world_frame_buffers[frame_index] = aquire_handle(&renderer_state->frame_buffers);
-            renderer->create_frame_buffer(renderer_state->world_frame_buffers[frame_index], world_frame_buffer_descriptor);
-        }
+        invalidate_render_entities(renderer, renderer_state);
     }
 
     Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[current_frame_in_flight_index]);
@@ -400,11 +461,22 @@ void game_loop(Engine *engine, F32 delta_time)
     renderer->begin_frame(scene_data);
 
     Clear_Value clear_values[3] = {};
-    clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-    clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-    clear_values[2].depth = 1.0f;
+    U32 clear_value_count = 3;
 
-    renderer->begin_render_pass(renderer_state->world_render_pass, renderer_state->world_frame_buffers[current_frame_in_flight_index], clear_values, HE_ARRAYCOUNT(clear_values));
+    if (renderer_state->sample_count != 1)
+    {
+        clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+        clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+        clear_values[2].depth = 1.0f;
+    }
+    else
+    {
+        clear_value_count = 2;
+        clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+        clear_values[1].depth = 1.0f;
+    }
+
+    renderer->begin_render_pass(renderer_state->world_render_pass, renderer_state->world_frame_buffers[current_frame_in_flight_index], clear_values, clear_value_count);
 
     Buffer_Handle vertex_buffers[] =
     {
@@ -460,6 +532,14 @@ void game_loop(Engine *engine, F32 delta_time)
     renderer->set_bind_groups(0, bind_groups, HE_ARRAYCOUNT(bind_groups));
 
     render_scene_node(renderer, renderer_state, renderer_state->root_scene_node, glm::mat4(1.0f));
+
+    renderer->end_render_pass(renderer_state->world_render_pass);
+
+    Clear_Value ui_clear_values[1] = {};
+    renderer->begin_render_pass(renderer_state->ui_render_pass, renderer_state->ui_frame_buffers[current_frame_in_flight_index], ui_clear_values, HE_ARRAYCOUNT(ui_clear_values));
+    renderer->imgui_render();
+    renderer->end_render_pass(renderer_state->ui_render_pass);
+
     renderer->end_frame();
 
     renderer_state->current_frame_in_flight_index++;

@@ -57,4 +57,6 @@ void vulkan_renderer_draw_static_mesh(Static_Mesh_Handle static_mesh_handle, U32
 
 void vulkan_renderer_end_frame();
 
+bool vulkan_renderer_init_imgui();
 void vulkan_renderer_imgui_new_frame();
+void vulkan_renderer_imgui_render();

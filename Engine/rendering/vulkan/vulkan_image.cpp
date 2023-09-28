@@ -33,7 +33,7 @@ void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U3
         source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     }
-    if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+    else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
     {
         barrier.srcAccessMask = 0;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -57,12 +57,20 @@ void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U3
         source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         destination_stage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     }
-    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&  new_layout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
     {
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = 0;
 
         source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        source_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
         destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     }
     else
@@ -135,11 +143,7 @@ bool create_image(Vulkan_Image *image, Vulkan_Context *context, U32 width, U32 h
     return true;
 }
 
-void copy_data_to_image_from_buffer(Vulkan_Context *context,
-                                    Vulkan_Image *image,
-                                    U32 width, U32 height,
-                                    Vulkan_Buffer *buffer,
-                                    U64 offset, U64 size)
+void copy_data_to_image_from_buffer(Vulkan_Context *context, Vulkan_Image *image, U32 width, U32 height, Vulkan_Buffer *buffer, U64 offset, U64 size)
 {
     HE_ASSERT(context);
     HE_ASSERT(image);
@@ -157,19 +161,13 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
     vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer); // @Leak
     vkResetCommandBuffer(command_buffer, 0);
 
-    VkCommandBufferBeginInfo command_buffer_begin_info =
-        { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     command_buffer_begin_info.flags = 0;
     command_buffer_begin_info.pInheritanceInfo = 0;
 
-    vkBeginCommandBuffer(command_buffer,
-                         &command_buffer_begin_info);
+    vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
 
-    transtion_image_to_layout(command_buffer,
-                              image->handle,
-                              image->mip_levels,
-                              VK_IMAGE_LAYOUT_UNDEFINED,
-                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    transtion_image_to_layout(command_buffer, image->handle, image->mip_levels, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     VkBufferImageCopy region = {};
     region.bufferOffset = offset;
@@ -212,11 +210,7 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
-        vkCmdPipelineBarrier(command_buffer,
-                             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                             0, nullptr,
-                             0, nullptr,
-                             1, &barrier);
+        vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
         VkImageBlit blit = {};
         blit.srcOffsets[0] = { 0, 0, 0 };
@@ -239,21 +233,14 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
         blit.dstSubresource.baseArrayLayer = 0;
         blit.dstSubresource.layerCount = 1;
 
-        vkCmdBlitImage(command_buffer, image->handle,
-                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                       1, &blit, VK_FILTER_LINEAR);
+        vkCmdBlitImage(command_buffer, image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
 
         barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
         barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-        vkCmdPipelineBarrier(command_buffer,
-                            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-                            0, nullptr,
-                            0, nullptr,
-                            1, &barrier);
+        vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
 
     barrier.subresourceRange.baseMipLevel = image->mip_levels - 1;
@@ -262,11 +249,7 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context,
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-    vkCmdPipelineBarrier(command_buffer,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-                         0, nullptr,
-                         0, nullptr,
-                         1, &barrier);
+    vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
     vkEndCommandBuffer(command_buffer);
 

@@ -7,3 +7,5 @@
 @renderer
 :back_buffer_width 1280
 :back_buffer_height 720
+:sample_count 4
+:anisotropic_filtering 16

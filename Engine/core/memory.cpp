@@ -371,7 +371,7 @@ void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16
     platform_unlock_mutex(&allocator->mutex);
 
     void *new_memory = allocate(allocator, new_size, alignment);
-    copy_memory(new_memory, memory, header.size);
+    copy_memory(new_memory, memory, old_size);
     deallocate(allocator, memory);
 
     return new_memory;
@@ -385,11 +385,7 @@ void deallocate(Free_List_Allocator *allocator, void *memory)
     }
 
     platform_lock_mutex(&allocator->mutex);
-
-    HE_DEFER
-    {
-        platform_unlock_mutex(&allocator->mutex);
-    };
+    HE_DEFER { platform_unlock_mutex(&allocator->mutex); };
 
     HE_ASSERT(allocator);
     HE_ASSERT(memory >= allocator->base && memory <= allocator->base + allocator->size);

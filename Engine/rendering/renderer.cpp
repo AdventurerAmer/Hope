@@ -79,7 +79,9 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->set_pipeline_state = &vulkan_renderer_set_pipeline_state;
             renderer->draw_static_mesh = &vulkan_renderer_draw_static_mesh;
             renderer->end_frame = &vulkan_renderer_end_frame;
+            renderer->init_imgui = &vulkan_renderer_init_imgui;
             renderer->imgui_new_frame = &vulkan_renderer_imgui_new_frame;
+            renderer->imgui_render = &vulkan_renderer_imgui_render;
         } break;
 #endif
 
@@ -129,11 +131,18 @@ bool pre_init_renderer_state(Renderer_State *renderer_state, Engine *engine)
 
     U32 &back_buffer_width = renderer_state->back_buffer_width;
     U32 &back_buffer_height = renderer_state->back_buffer_height;
+    U32 &sample_count = renderer_state->sample_count;
+    U32 &anisotropic_filtering = renderer_state->anisotropic_filtering;
     back_buffer_width = 1280;
     back_buffer_height = 720;
+    sample_count = 4;
+    anisotropic_filtering = 16;
 
     HE_DECLARE_CVAR("renderer", back_buffer_width, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", back_buffer_height, CVarFlag_None);
+    HE_DECLARE_CVAR("renderer", sample_count, CVarFlag_None);
+    HE_DECLARE_CVAR("renderer", anisotropic_filtering, CVarFlag_None);
+
     return true;
 }
 
@@ -185,7 +194,7 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     default_sampler_descriptor.address_mode_u = Address_Mode::REPEAT;
     default_sampler_descriptor.address_mode_v = Address_Mode::REPEAT;
     default_sampler_descriptor.address_mode_w = Address_Mode::REPEAT;
-    default_sampler_descriptor.anisotropic_filtering = true;
+    default_sampler_descriptor.anisotropy = renderer_state->anisotropic_filtering;
 
     renderer_state->default_sampler = aquire_handle(&renderer_state->samplers);
     renderer->create_sampler(renderer_state->default_sampler, default_sampler_descriptor);
@@ -302,70 +311,33 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
         renderer->create_bind_group(renderer_state->per_render_pass_bind_groups[frame_index], per_render_pass_bind_group_descriptor);
     }
 
-    Texture_Descriptor multi_sample_color_attachment_descriptor = {};
-    multi_sample_color_attachment_descriptor.format = Texture_Format::B8G8R8A8_SRGB;
-    multi_sample_color_attachment_descriptor.data = nullptr;
-    multi_sample_color_attachment_descriptor.mipmapping = false;
-    multi_sample_color_attachment_descriptor.width = renderer_state->back_buffer_width;
-    multi_sample_color_attachment_descriptor.height = renderer_state->back_buffer_height;
-    multi_sample_color_attachment_descriptor.sample_count = 4;
-    multi_sample_color_attachment_descriptor.is_attachment = true;
-
-    Texture_Descriptor resolve_color_attachment_descriptor = {};
-    resolve_color_attachment_descriptor.format = Texture_Format::B8G8R8A8_SRGB;
-    resolve_color_attachment_descriptor.data = nullptr;
-    resolve_color_attachment_descriptor.mipmapping = false;
-    resolve_color_attachment_descriptor.width = renderer_state->back_buffer_width;
-    resolve_color_attachment_descriptor.height = renderer_state->back_buffer_height;
-    resolve_color_attachment_descriptor.sample_count = 1;
-    resolve_color_attachment_descriptor.is_attachment = true;
-
-    Texture_Descriptor multi_sample_depth_attachment_descriptor = {};
-    multi_sample_depth_attachment_descriptor.format = Texture_Format::DEPTH_F32_STENCIL_U8;
-    multi_sample_depth_attachment_descriptor.data = nullptr;
-    multi_sample_depth_attachment_descriptor.mipmapping = false;
-    multi_sample_depth_attachment_descriptor.width = renderer_state->back_buffer_width;
-    multi_sample_depth_attachment_descriptor.height = renderer_state->back_buffer_height;
-    multi_sample_depth_attachment_descriptor.sample_count = 4;
-    multi_sample_depth_attachment_descriptor.is_attachment = true;
+    renderer_state->world_render_pass = Resource_Pool< Render_Pass >::invalid_handle;
+    renderer_state->ui_render_pass = Resource_Pool< Render_Pass >::invalid_handle;
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
-        renderer_state->multi_sample_color_attachments[frame_index] = aquire_handle(&renderer_state->textures);
-        renderer->create_texture(renderer_state->multi_sample_color_attachments[frame_index], multi_sample_color_attachment_descriptor);
-
-        renderer_state->resolve_color_attachments[frame_index] = aquire_handle(&renderer_state->textures);
-        renderer->create_texture(renderer_state->resolve_color_attachments[frame_index], resolve_color_attachment_descriptor);
-
-        renderer_state->multi_sample_depth_attachments[frame_index] = aquire_handle(&renderer_state->textures);
-        renderer->create_texture(renderer_state->multi_sample_depth_attachments[frame_index], multi_sample_depth_attachment_descriptor);
-
-        Frame_Buffer_Descriptor world_frame_buffer_descriptor;
-        world_frame_buffer_descriptor.render_pass = renderer_state->world_render_pass;
-        world_frame_buffer_descriptor.width = renderer_state->back_buffer_width;
-        world_frame_buffer_descriptor.height = renderer_state->back_buffer_height;
-        world_frame_buffer_descriptor.attachments =
-        {
-            renderer_state->multi_sample_color_attachments[frame_index],
-            renderer_state->resolve_color_attachments[frame_index],
-            renderer_state->multi_sample_depth_attachments[frame_index]
-        };
-
-        renderer_state->world_frame_buffers[frame_index] = aquire_handle(&renderer_state->frame_buffers);
-        renderer->create_frame_buffer(renderer_state->world_frame_buffers[frame_index], world_frame_buffer_descriptor);
+        renderer_state->world_frame_buffers[frame_index] = Resource_Pool< Frame_Buffer >::invalid_handle;
+        renderer_state->ui_frame_buffers[frame_index] = Resource_Pool< Frame_Buffer >::invalid_handle;
+        renderer_state->color_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
+        renderer_state->resolve_color_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
+        renderer_state->depth_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
     }
+
+    invalidate_render_entities(renderer, renderer_state);
 
     renderer_state->mesh_pipeline = aquire_handle(&renderer_state->pipeline_states);
     Pipeline_State_Descriptor mesh_pipeline_state_descriptor = {};
     mesh_pipeline_state_descriptor.cull_mode = Cull_Mode::BACK;
     mesh_pipeline_state_descriptor.fill_mode = Fill_Mode::SOLID;
     mesh_pipeline_state_descriptor.front_face = Front_Face::COUNTER_CLOCKWISE;
-    mesh_pipeline_state_descriptor.sample_count = 4;
     mesh_pipeline_state_descriptor.sample_shading = true;
     mesh_pipeline_state_descriptor.shader_group = renderer_state->mesh_shader_group;
     mesh_pipeline_state_descriptor.render_pass = renderer_state->world_render_pass;
     bool pipeline_created = renderer->create_pipeline_state(renderer_state->mesh_pipeline, mesh_pipeline_state_descriptor);
     HE_ASSERT(pipeline_created);
+
+    bool imgui_inited = renderer->init_imgui();
+    HE_ASSERT(imgui_inited);
 
     _transfer_allocator = &renderer_state->transfer_allocator;
     _stbi_allocator = &engine->memory.free_list_allocator;
@@ -463,6 +435,222 @@ void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_s
             continue;
         }
         renderer->destroy_pipeline_state({ pipeline_state_index, renderer_state->pipeline_states.generations[pipeline_state_index] });
+    }
+}
+
+void invalidate_render_entities(struct Renderer *renderer, Renderer_State *renderer_state)
+{
+    renderer->wait_for_gpu_to_finish_all_work();
+
+    if (is_valid_handle(&renderer_state->render_passes, renderer_state->world_render_pass))
+    {
+        renderer->destroy_render_pass(renderer_state->world_render_pass);
+    }
+    else
+    {
+        renderer_state->world_render_pass = aquire_handle(&renderer_state->render_passes);
+    }
+
+    if (is_valid_handle(&renderer_state->render_passes, renderer_state->ui_render_pass))
+    {
+        renderer->destroy_render_pass(renderer_state->ui_render_pass);
+    }
+    else
+    {
+        renderer_state->ui_render_pass = aquire_handle(&renderer_state->render_passes);
+    }
+
+    Render_Pass_Descriptor world_render_pass_descriptor = {};
+    world_render_pass_descriptor.color_attachments =
+    {
+        {
+            Texture_Format::B8G8R8A8_SRGB,
+            renderer_state->sample_count,
+            Attachment_Operation::CLEAR
+        }
+    };
+
+    if (renderer_state->sample_count != 1)
+    {
+        world_render_pass_descriptor.resolve_attachments =
+        {
+            {
+                Texture_Format::B8G8R8A8_SRGB,
+                1,
+                Attachment_Operation::DONT_CARE
+            }
+        };
+    }
+
+    world_render_pass_descriptor.depth_stencil_attachments =
+    {
+        {
+            Texture_Format::DEPTH_F32_STENCIL_U8,
+            renderer_state->sample_count,
+            Attachment_Operation::CLEAR
+        }
+    };
+
+    world_render_pass_descriptor.stencil_operation = Attachment_Operation::DONT_CARE;
+    renderer->create_render_pass(renderer_state->world_render_pass, world_render_pass_descriptor);
+
+    Render_Pass_Descriptor ui_render_pass_descriptor = {};
+    ui_render_pass_descriptor.color_attachments =
+    {
+        {
+            Texture_Format::B8G8R8A8_SRGB,
+            1,
+            Attachment_Operation::LOAD
+        }
+    };
+    ui_render_pass_descriptor.stencil_operation = Attachment_Operation::DONT_CARE;
+
+    renderer->create_render_pass(renderer_state->ui_render_pass, ui_render_pass_descriptor);
+
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        if (is_valid_handle(&renderer_state->frame_buffers, renderer_state->world_frame_buffers[frame_index]))
+        {
+            renderer->destroy_frame_buffer(renderer_state->world_frame_buffers[frame_index]);
+        }
+        else
+        {
+            renderer_state->world_frame_buffers[frame_index] = aquire_handle(&renderer_state->frame_buffers);
+        }
+
+        if (is_valid_handle(&renderer_state->frame_buffers, renderer_state->ui_frame_buffers[frame_index]))
+        {
+            renderer->destroy_frame_buffer(renderer_state->ui_frame_buffers[frame_index]);
+        }
+        else
+        {
+            renderer_state->ui_frame_buffers[frame_index] = aquire_handle(&renderer_state->frame_buffers);
+        }
+
+        if (is_valid_handle(&renderer_state->textures, renderer_state->color_attachments[frame_index]))
+        {
+            renderer->destroy_texture(renderer_state->color_attachments[frame_index]);
+        }
+        else
+        {
+            renderer_state->color_attachments[frame_index] = aquire_handle(&renderer_state->textures);
+        }
+
+        if (is_valid_handle(&renderer_state->textures, renderer_state->resolve_color_attachments[frame_index]))
+        {
+            renderer->destroy_texture(renderer_state->resolve_color_attachments[frame_index]);
+        }
+        else
+        {
+            renderer_state->resolve_color_attachments[frame_index] = aquire_handle(&renderer_state->textures);
+        }
+
+        if (is_valid_handle(&renderer_state->textures, renderer_state->depth_attachments[frame_index]))
+        {
+            renderer->destroy_texture(renderer_state->depth_attachments[frame_index]);
+        }
+        else
+        {
+            renderer_state->depth_attachments[frame_index] = aquire_handle(&renderer_state->textures);
+        }
+    }
+
+    Texture_Descriptor color_attachment_descriptor = {};
+    color_attachment_descriptor.format = Texture_Format::B8G8R8A8_SRGB;
+    color_attachment_descriptor.data = nullptr;
+    color_attachment_descriptor.mipmapping = false;
+    color_attachment_descriptor.width = renderer_state->back_buffer_width;
+    color_attachment_descriptor.height = renderer_state->back_buffer_height;
+    color_attachment_descriptor.sample_count = renderer_state->sample_count;
+    color_attachment_descriptor.is_attachment = true;
+
+    Texture_Descriptor resolve_color_attachment_descriptor = {};
+    resolve_color_attachment_descriptor.format = Texture_Format::B8G8R8A8_SRGB;
+    resolve_color_attachment_descriptor.data = nullptr;
+    resolve_color_attachment_descriptor.mipmapping = false;
+    resolve_color_attachment_descriptor.width = renderer_state->back_buffer_width;
+    resolve_color_attachment_descriptor.height = renderer_state->back_buffer_height;
+    resolve_color_attachment_descriptor.sample_count = 1;
+    resolve_color_attachment_descriptor.is_attachment = true;
+
+    Texture_Descriptor depth_attachment_descriptor = {};
+    depth_attachment_descriptor.format = Texture_Format::DEPTH_F32_STENCIL_U8;
+    depth_attachment_descriptor.data = nullptr;
+    depth_attachment_descriptor.mipmapping = false;
+    depth_attachment_descriptor.width = renderer_state->back_buffer_width;
+    depth_attachment_descriptor.height = renderer_state->back_buffer_height;
+    depth_attachment_descriptor.sample_count = renderer_state->sample_count;
+    depth_attachment_descriptor.is_attachment = true;
+
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        renderer->create_texture(renderer_state->color_attachments[frame_index], color_attachment_descriptor);
+        renderer->create_texture(renderer_state->resolve_color_attachments[frame_index], resolve_color_attachment_descriptor);
+        renderer->create_texture(renderer_state->depth_attachments[frame_index], depth_attachment_descriptor);
+
+        Frame_Buffer_Descriptor world_frame_buffer_descriptor;
+        world_frame_buffer_descriptor.render_pass = renderer_state->world_render_pass;
+        world_frame_buffer_descriptor.width = renderer_state->back_buffer_width;
+        world_frame_buffer_descriptor.height = renderer_state->back_buffer_height;
+
+        if (renderer_state->sample_count != 1)
+        {
+            world_frame_buffer_descriptor.attachments =
+            {
+                renderer_state->color_attachments[frame_index],
+                renderer_state->resolve_color_attachments[frame_index],
+                renderer_state->depth_attachments[frame_index]
+            };
+        }
+        else
+        {
+            world_frame_buffer_descriptor.attachments =
+            {
+                renderer_state->color_attachments[frame_index],
+                renderer_state->depth_attachments[frame_index]
+            };
+        }
+
+        renderer->create_frame_buffer(renderer_state->world_frame_buffers[frame_index], world_frame_buffer_descriptor);
+
+        Frame_Buffer_Descriptor ui_frame_buffer_descriptor;
+        ui_frame_buffer_descriptor.render_pass = renderer_state->ui_render_pass;
+        ui_frame_buffer_descriptor.width = renderer_state->back_buffer_width;
+        ui_frame_buffer_descriptor.height = renderer_state->back_buffer_height;
+
+        if (renderer_state->sample_count != 1)
+        {
+            ui_frame_buffer_descriptor.attachments =
+            {
+                renderer_state->resolve_color_attachments[frame_index],
+            };
+        }
+        else
+        {
+            ui_frame_buffer_descriptor.attachments =
+            {
+                renderer_state->color_attachments[frame_index],
+            };
+        }
+
+        renderer->create_frame_buffer(renderer_state->ui_frame_buffers[frame_index], ui_frame_buffer_descriptor);
+    }
+
+    for (S32 pipeline_state_index = 0; pipeline_state_index < (S32)renderer_state->pipeline_states.capacity; pipeline_state_index++)
+    {
+        if (!renderer_state->pipeline_states.is_allocated[pipeline_state_index])
+        {
+            continue;
+        }
+
+        Pipeline_State_Handle pipeline_state_handle = { pipeline_state_index, renderer_state->pipeline_states.generations[pipeline_state_index] };
+        Pipeline_State *pipeline_state = &renderer_state->pipeline_states.data[pipeline_state_index];
+
+        if (pipeline_state->descriptor.render_pass == renderer_state->world_render_pass)
+        {
+            renderer->destroy_pipeline_state(pipeline_state_handle);
+            renderer->create_pipeline_state(pipeline_state_handle, pipeline_state->descriptor);
+        }
     }
 }
 
@@ -1014,7 +1202,7 @@ Material_Handle create_material(Renderer_State *renderer_state, Renderer *render
     Material_Handle material_handle = aquire_handle(&renderer_state->materials);
     Material *material = get(&renderer_state->materials, material_handle);
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, descriptor.pipeline_state_handle);
-    Shader_Group *shader_group = get(&renderer_state->shader_groups, pipeline_state->shader_group);
+    Shader_Group *shader_group = get(&renderer_state->shader_groups, pipeline_state->descriptor.shader_group);
 
     Shader_Struct *properties = nullptr;
 
@@ -1055,8 +1243,8 @@ Material_Handle create_material(Renderer_State *renderer_state, Renderer *render
         material->bind_groups[frame_index] = aquire_handle(&renderer_state->bind_groups);
 
         Bind_Group_Descriptor bind_group_descriptor = {};
-        bind_group_descriptor.shader_group = pipeline_state->shader_group;
-        bind_group_descriptor.layout = shader_group->bind_group_layouts[2]; // todo(amer): Hardcoding
+        bind_group_descriptor.shader_group = pipeline_state->descriptor.shader_group;
+        bind_group_descriptor.layout = shader_group->bind_group_layouts[2]; // todo(amer): @Hardcoding
         renderer->create_bind_group(material->bind_groups[frame_index], bind_group_descriptor);
 
         Update_Binding_Descriptor update_binding_descriptor = {};

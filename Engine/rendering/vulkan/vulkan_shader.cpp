@@ -202,9 +202,7 @@ static void set_descriptor_type(Binding &binding, const SPIRV_Entity &shader_ent
     }
 }
 
-U32 parse_struct(const SPIRV_Entity &entity,
-                 Dynamic_Array< SPIRV_Shader_Struct > &structs,
-                 SPIRV_Entity *ids)
+U32 parse_struct(const SPIRV_Entity &entity, Dynamic_Array< SPIRV_Shader_Struct > &structs, SPIRV_Entity *ids)
 {
     for (U32 struct_index = 0; struct_index < structs.count; struct_index++)
     {
@@ -874,6 +872,8 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
 
     Renderer_State *renderer_state = &context->engine->renderer_state;
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, pipeline_state_handle);
+    pipeline_state->descriptor = descriptor;
+    Render_Pass *render_pass = get(&renderer_state->render_passes, descriptor.render_pass);
 
     Shader_Group *shader_group = get(&renderer_state->shader_groups, descriptor.shader_group);
     U32 shader_count = (U32)shader_group->shader_count;
@@ -975,13 +975,23 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     rasterization_state_create_info.depthBiasClamp = 0.0f;
     rasterization_state_create_info.depthBiasSlopeFactor = 0.0f;
 
-    VkPipelineMultisampleStateCreateInfo multisampling_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+    VkSampleCountFlagBits sample_count = VK_SAMPLE_COUNT_1_BIT;
 
-    multisampling_state_create_info.rasterizationSamples = get_sample_count(descriptor.sample_count);
+    if (render_pass->color_attachment_count)
+    {
+        sample_count = get_sample_count(render_pass->color_attachments[0].sample_count);
+    }
+    else if (render_pass->depth_stencil_attachment_count)
+    {
+        sample_count = get_sample_count(render_pass->depth_stencil_attachments[0].sample_count);
+    }
+
+    VkPipelineMultisampleStateCreateInfo multisampling_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+    multisampling_state_create_info.rasterizationSamples = sample_count;
     multisampling_state_create_info.alphaToCoverageEnable = VK_FALSE;
     multisampling_state_create_info.alphaToOneEnable = VK_FALSE;
     multisampling_state_create_info.sampleShadingEnable = descriptor.sample_shading ? VK_TRUE : VK_FALSE;
-    multisampling_state_create_info.minSampleShading = 1.0f;
+    multisampling_state_create_info.minSampleShading = 0.2f;
     multisampling_state_create_info.pSampleMask = nullptr;
 
     VkPipelineColorBlendAttachmentState color_blend_attachment_state = {};

@@ -87,6 +87,7 @@ struct Texture
     U32 height;
 
     Texture_Format format;
+    U32 sample_count;
 
     bool is_attachment;
 };
@@ -119,7 +120,7 @@ struct Sampler_Descriptor
     Filter mag_filter = Filter::NEAREST;
     Filter mip_filter = Filter::NEAREST;
 
-    bool anisotropic_filtering = true;
+    U32 anisotropy = 16;
 };
 
 struct Sampler
@@ -210,7 +211,15 @@ struct Render_Pass_Descriptor
 struct Render_Pass
 {
     String name;
-    Render_Pass_Descriptor descriptor;
+
+    U32 color_attachment_count;
+    Attachment_Info *color_attachments;
+
+    U32 depth_stencil_attachment_count;
+    Attachment_Info *depth_stencil_attachments;
+
+    U32 resolve_attachment_count;
+    Attachment_Info *resolve_attachments;
 };
 
 using Render_Pass_Handle = Resource_Handle< Render_Pass >;
@@ -401,8 +410,6 @@ struct Pipeline_State_Descriptor
     Front_Face front_face = Front_Face::COUNTER_CLOCKWISE;
     Fill_Mode fill_mode = Fill_Mode::SOLID;
     bool sample_shading = false;
-    U32 sample_count = 1;
-
     Shader_Group_Handle shader_group;
     Render_Pass_Handle render_pass;
 };
@@ -411,7 +418,7 @@ struct Pipeline_State
 {
     String name;
 
-    Shader_Group_Handle shader_group;
+    Pipeline_State_Descriptor descriptor;
 };
 
 using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;

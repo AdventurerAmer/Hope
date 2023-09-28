@@ -25,8 +25,8 @@ HE_API bool init_game(Engine *engine)
 
     FPS_Camera_Controller *camera_controller = &game_state.camera_controller;
     F32 rotation_speed = 45.0f;
-    F32 base_movement_speed = 5.0f;
-    F32 max_movement_speed = 10.0f;
+    F32 base_movement_speed = 3.0f;
+    F32 max_movement_speed = 5.0f;
 	F32 sensitivity_x = 1.0f;
 	F32 sensitivity_y = 1.0f;
 

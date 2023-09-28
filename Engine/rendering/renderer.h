@@ -70,8 +70,11 @@ struct Renderer_State
 
     std::atomic< U32 > scene_node_count;
     Scene_Node *scene_nodes;
-
     Scene_Node *root_scene_node;
+
+    U32 sample_count;
+    U32 current_render_pass_sample_count;
+    U32 anisotropic_filtering;
 
     Shader_Handle mesh_vertex_shader;
     Shader_Handle mesh_fragment_shader;
@@ -81,12 +84,15 @@ struct Renderer_State
     Bind_Group_Handle per_frame_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
     Bind_Group_Handle per_render_pass_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
 
-    Texture_Handle multi_sample_color_attachments[HE_MAX_FRAMES_IN_FLIGHT];
-    Texture_Handle multi_sample_depth_attachments[HE_MAX_FRAMES_IN_FLIGHT];
+    Texture_Handle color_attachments[HE_MAX_FRAMES_IN_FLIGHT];
+    Texture_Handle depth_attachments[HE_MAX_FRAMES_IN_FLIGHT];
     Texture_Handle resolve_color_attachments[HE_MAX_FRAMES_IN_FLIGHT];
 
     Frame_Buffer_Handle world_frame_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    Frame_Buffer_Handle ui_frame_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+
     Render_Pass_Handle world_render_pass;
+    Render_Pass_Handle ui_render_pass;
 
     Texture_Handle white_pixel_texture;
     Texture_Handle normal_pixel_texture;
@@ -126,6 +132,8 @@ bool pre_init_renderer_state(Renderer_State *renderer_state, struct Engine *engi
 bool init_renderer_state(Renderer_State *renderer_state, struct Engine *engine);
 
 void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_state);
+
+void invalidate_render_entities(struct Renderer *renderer, Renderer_State *renderer_state);
 
 struct Renderer
 {
@@ -181,7 +189,9 @@ struct Renderer
     bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
     void (*destroy_static_mesh)(Static_Mesh_Handle static_mesh_handle);
 
+    bool (*init_imgui)();
     void (*imgui_new_frame)();
+    void (*imgui_render)();
 };
 
 bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);

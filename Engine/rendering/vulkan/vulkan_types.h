@@ -111,10 +111,6 @@ struct Vulkan_Swapchain
     U32 image_count;
     VkImage *images;
     VkImageView *image_views;
-
-    // VkFramebuffer *frame_buffers;
-    // Vulkan_Image color_attachment;
-    // Vulkan_Image depth_stencil_attachment;
 };
 
 struct Vulkan_Render_Pass
@@ -168,7 +164,7 @@ struct Vulkan_Context
     VkCommandBuffer graphics_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
     VkCommandBuffer command_buffer;
 
-    VkCommandPool transfer_command_pool;;
+    VkCommandPool transfer_command_pool;
 
     Vulkan_Buffer *buffers;
     Vulkan_Image *textures;
@@ -181,10 +177,6 @@ struct Vulkan_Context
     Vulkan_Render_Pass *render_passes;
     Vulkan_Frame_Buffer *frame_buffers;
     Vulkan_Static_Mesh *static_meshes;
-
-    // todo(amer): to be removed...
-    VkSampleCountFlagBits msaa_samples;
-    // VkRenderPass render_pass;
 
 #if HE_GRAPHICS_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;

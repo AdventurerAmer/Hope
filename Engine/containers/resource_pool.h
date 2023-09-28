@@ -9,6 +9,11 @@ struct Resource_Handle
 {
     S32 index;
     U32 generation;
+
+    bool operator==(const Resource_Handle< T > &other)
+    {
+        return index == other.index && generation == other.generation;
+    }
 };
 
 struct Resource_Pool_Node
