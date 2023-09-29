@@ -271,6 +271,11 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     renderer_state->mesh_shader_group = aquire_handle(&renderer_state->shader_groups);
     Shader_Group_Descriptor shader_group_descriptor = {};
     shader_group_descriptor.shaders = { renderer_state->mesh_vertex_shader, renderer_state->mesh_fragment_shader };
+
+    for (const Shader_Handle& handle : shader_group_descriptor.shaders) {
+        HE_LOG(Core, Trace, "{%d, %d}\n", handle.index, handle.generation);
+    }
+
     vulkan_renderer_create_shader_group(renderer_state->mesh_shader_group, shader_group_descriptor);
 
     Shader_Group *mesh_shader_group = get(&renderer_state->shader_groups, renderer_state->mesh_shader_group);
@@ -1206,7 +1211,7 @@ Material_Handle create_material(Renderer_State *renderer_state, Renderer *render
 
     Shader_Struct *properties = nullptr;
 
-    for (U32 shader_index = 0; shader_index < shader_group->shader_count; shader_index++)
+    for (U32 shader_index = 0; shader_index < shader_group->shaders.count; shader_index++)
     {
         Shader *shader = get(&renderer_state->shaders, shader_group->shaders[shader_index]);
         for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)

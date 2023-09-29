@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/defines.h"
+#include "containers/array.h"
 #include "containers/string.h"
 #include "containers/resource_pool.h"
 
@@ -18,6 +19,8 @@
 #define HE_MAX_FRAMES_IN_FLIGHT 3
 #define HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
 #define HE_MAX_DESCRIPTOR_SET_COUNT 4
+#define HE_MAX_ATTACHMENT_COUNT 16
+#define HE_MAX_SHADER_COUNT_PER_PIPELINE 8
 #define HE_MAX_OBJECT_DATA_COUNT UINT16_MAX
 #define HE_PIPELINE_CACHE_FILENAME "shaders/bin/pipeline.cache"
 
@@ -202,9 +205,9 @@ struct Attachment_Info
 
 struct Render_Pass_Descriptor
 {
-    std::initializer_list< Attachment_Info > color_attachments;
-    std::initializer_list< Attachment_Info > depth_stencil_attachments;
-    std::initializer_list< Attachment_Info > resolve_attachments;
+    Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > color_attachments;
+    Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > depth_stencil_attachments;
+    Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > resolve_attachments;
     Attachment_Operation stencil_operation = Attachment_Operation::DONT_CARE;
 };
 
@@ -212,14 +215,9 @@ struct Render_Pass
 {
     String name;
 
-    U32 color_attachment_count;
-    Attachment_Info *color_attachments;
-
-    U32 depth_stencil_attachment_count;
-    Attachment_Info *depth_stencil_attachments;
-
-    U32 resolve_attachment_count;
-    Attachment_Info *resolve_attachments;
+    Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > color_attachments;
+    Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > depth_stencil_attachments;
+    Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > resolve_attachments;
 };
 
 using Render_Pass_Handle = Resource_Handle< Render_Pass >;
@@ -231,7 +229,7 @@ struct Frame_Buffer_Descriptor
     U32 width;
     U32 height;
 
-    std::initializer_list< Texture_Handle > attachments;
+    Array< Texture_Handle, HE_MAX_ATTACHMENT_COUNT > attachments;
 
     Render_Pass_Handle render_pass;
 };
@@ -241,8 +239,7 @@ struct Frame_Buffer
     U32 width;
     U32 height;
 
-    U32 attachment_count;
-    Texture_Handle *attachments;
+    Array< Texture_Handle, HE_MAX_ATTACHMENT_COUNT > attachments;
 
     Render_Pass_Handle render_pass;
 };
@@ -349,16 +346,13 @@ using Shader_Handle = Resource_Handle< Shader >;
 
 struct Shader_Group_Descriptor
 {
-    std::initializer_list< Shader_Handle > shaders;
+    Array< Shader_Handle, HE_MAX_SHADER_COUNT_PER_PIPELINE > shaders;
 };
 
 struct Shader_Group
 {
     String name;
-
-    U32 shader_count;
-    Shader_Handle *shaders;
-
+    Array< Shader_Handle, HE_MAX_SHADER_COUNT_PER_PIPELINE > shaders;
     Bind_Group_Layout_Handle bind_group_layouts[HE_MAX_DESCRIPTOR_SET_COUNT];
 };
 

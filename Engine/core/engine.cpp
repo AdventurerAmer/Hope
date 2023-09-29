@@ -370,8 +370,6 @@ void game_loop(Engine *engine, F32 delta_time)
                         default_sampler_descriptor.anisotropy = renderer_state->anisotropic_filtering;
 
                         renderer->destroy_sampler(renderer_state->default_sampler);
-                        renderer_state->default_sampler = Resource_Pool< Sampler >::invalid_handle;
-                        renderer_state->default_sampler = aquire_handle(&renderer_state->samplers);
                         renderer->create_sampler(renderer_state->default_sampler, default_sampler_descriptor);
                     }
                 }

@@ -171,14 +171,14 @@ S32 find(const Dynamic_Array< T > *dynamic_array, const T &target)
 }
 
 template< typename T >
-HE_FORCE_INLINE Size size_in_bytes(Dynamic_Array< T > *dynamic_array)
+HE_FORCE_INLINE Size size_in_bytes(const Dynamic_Array< T > *dynamic_array)
 {
     HE_ASSERT(dynamic_array);
     return sizeof(T) * dynamic_array->count;
 }
 
 template< typename T >
-HE_FORCE_INLINE Size capacity_in_bytes(Dynamic_Array< T > *dynamic_array)
+HE_FORCE_INLINE Size capacity_in_bytes(const Dynamic_Array< T > *dynamic_array)
 {
     HE_ASSERT(dynamic_array);
     return sizeof(T) * dynamic_array->capacity;

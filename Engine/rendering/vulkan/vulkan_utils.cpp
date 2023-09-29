@@ -35,7 +35,7 @@ VkSampleCountFlagBits get_sample_count(U32 sample_count)
 
         default:
         {
-            HE_ASSERT(!"unsupported sample count");
+            HE_ASSERT(false);
         }
     }
 

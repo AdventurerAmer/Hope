@@ -1,7 +1,7 @@
-[Core-Trace]: assets loaded 608.21 ms to finish
-sh
-]: main thread stealed a job
-[Core-Trace]: main thread stealed a job
+[Core-Trace]: {0, 0}
+[Core-Trace]: {1, 0}
+[Core-Trace]: assets loaded 233.70 ms to finish
+e]: main thread stealed a job
 [Core-Trace]: main thread stealed a job
 [Core-Trace]: main thread stealed a job
 [Core-Trace]: main thread stealed a job

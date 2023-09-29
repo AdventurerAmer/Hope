@@ -10,8 +10,6 @@
 
 #include "containers/dynamic_array.h"
 
-#include <initializer_list>
-
 static Vulkan_Context *vulkan_context;
 
 enum class SPRIV_Shader_Entity_Kind
@@ -876,12 +874,11 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     Render_Pass *render_pass = get(&renderer_state->render_passes, descriptor.render_pass);
 
     Shader_Group *shader_group = get(&renderer_state->shader_groups, descriptor.shader_group);
-    U32 shader_count = (U32)shader_group->shader_count;
-
+    
     Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[descriptor.shader_group.index];
     Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[pipeline_state_handle.index];
 
-    VkPipelineShaderStageCreateInfo *shader_stage_create_infos = HE_ALLOCATE_ARRAY(&temprary_arena, VkPipelineShaderStageCreateInfo, shader_count);
+    VkPipelineShaderStageCreateInfo *shader_stage_create_infos = HE_ALLOCATE_ARRAY(&temprary_arena, VkPipelineShaderStageCreateInfo, shader_group->shaders.count);
 
     bool is_using_vertex_shader = false;
     VkVertexInputBindingDescription *vertex_input_binding_descriptions = nullptr;
@@ -889,9 +886,10 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 
-    for (U32 shader_index = 0; shader_index < shader_group->shader_count; shader_index++)
+    for (U32 shader_index = 0; shader_index < shader_group->shaders.count; shader_index++)
     {
         Shader_Handle shader_handle = shader_group->shaders[shader_index];
+
         Shader *shader = get(&context->engine->renderer_state.shaders, shader_handle);
         Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
 
@@ -977,11 +975,11 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
 
     VkSampleCountFlagBits sample_count = VK_SAMPLE_COUNT_1_BIT;
 
-    if (render_pass->color_attachment_count)
+    if (render_pass->color_attachments.count)
     {
         sample_count = get_sample_count(render_pass->color_attachments[0].sample_count);
     }
-    else if (render_pass->depth_stencil_attachment_count)
+    else if (render_pass->depth_stencil_attachments.count)
     {
         sample_count = get_sample_count(render_pass->depth_stencil_attachments[0].sample_count);
     }
@@ -1026,7 +1024,7 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     depth_stencil_state_create_info.back = {};
 
     VkGraphicsPipelineCreateInfo graphics_pipeline_create_info = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-    graphics_pipeline_create_info.stageCount = shader_count;
+    graphics_pipeline_create_info.stageCount = shader_group->shaders.count;
     graphics_pipeline_create_info.pStages = shader_stage_create_infos;
 
     if (is_using_vertex_shader)

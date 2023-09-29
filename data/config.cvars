@@ -1,11 +1,11 @@
 @platform
 :engine_name Hope
 :app_name Hope
-:window_width 1296
-:window_height 759
+:window_width 1612
+:window_height 866
 :window_mode 0
 @renderer
-:back_buffer_width 1280
-:back_buffer_height 720
+:back_buffer_width 1596
+:back_buffer_height 827
 :sample_count 4
 :anisotropic_filtering 16

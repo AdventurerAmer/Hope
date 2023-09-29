@@ -1111,9 +1111,6 @@ bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = &context->engine->renderer_state;
 
-    U32 shader_count = (U32)descriptor.shaders.size();
-    Shader_Handle *shaders = HE_ALLOCATE_ARRAY(&context->arena, Shader_Handle, shader_count);
-
     Temprary_Memory_Arena temprary_arena = {};
     begin_temprary_memory_arena(&temprary_arena, &context->arena);
     HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
@@ -1129,12 +1126,8 @@ bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle
         init(&set, context->allocator);
     }
 
-    U32 shader_index_ = 0;
-
-    for (Shader_Handle shader_handle : descriptor.shaders)
+    for (const Shader_Handle &shader_handle : descriptor.shaders)
     {
-        shaders[shader_index_++] = shader_handle;
-
         Shader *shader = get(&renderer_state->shaders, shader_handle);
 
         for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
@@ -1187,8 +1180,7 @@ bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle
 
     HE_CHECK_VKRESULT(vkCreatePipelineLayout(context->logical_device, &pipeline_layout_create_info, nullptr, &vulkan_shader_group->pipeline_layout));
 
-    shader_group->shader_count = shader_count;
-    shader_group->shaders = shaders;
+    copy(shader_group->shaders, descriptor.shaders);
     return true;
 }
 
@@ -1414,68 +1406,34 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     Render_Pass *render_pass = get(&context->engine->renderer_state.render_passes, render_pass_handle);
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
 
-    U32 color_attachment_count = u64_to_u32(descriptor.color_attachments.size());
-    U32 depth_stencil_attachment_count = u64_to_u32(descriptor.depth_stencil_attachments.size());
-    U32 resolve_attachment_count = u64_to_u32(descriptor.resolve_attachments.size());
-
-    if (color_attachment_count)
+    if (render_pass->color_attachments.count)
     {
-        render_pass->color_attachment_count = color_attachment_count;
-        render_pass->color_attachments = HE_REALLOCATE_ARRAY(context->allocator, render_pass->color_attachments, Attachment_Info, color_attachment_count);
-
-        U32 color_attachment_index = 0;
-
-        for (const Attachment_Info& attachment_info : descriptor.color_attachments)
-        {
-            render_pass->color_attachments[color_attachment_index++] = attachment_info;
-        }
+        copy(render_pass->color_attachments, descriptor.color_attachments);
     }
     else
     {
-        render_pass->color_attachment_count = 0;
-        deallocate(context->allocator, render_pass->color_attachments);
-        render_pass->color_attachments = nullptr;
+        reset(&render_pass->color_attachments);
     }
 
-    if (resolve_attachment_count)
+    if (descriptor.resolve_attachments.count)
     {
-        render_pass->resolve_attachment_count = resolve_attachment_count;
-        render_pass->resolve_attachments = HE_REALLOCATE_ARRAY(context->allocator, render_pass->resolve_attachments, Attachment_Info, resolve_attachment_count);
-
-        U32 resolve_attachment_index = 0;
-
-        for (const Attachment_Info& attachment_info : descriptor.resolve_attachments)
-        {
-            render_pass->resolve_attachments[resolve_attachment_index++] = attachment_info;
-        }
+        copy(render_pass->resolve_attachments, descriptor.resolve_attachments);
     }
     else
     {
-        deallocate(context->allocator, render_pass->resolve_attachments);
-        render_pass->resolve_attachment_count = 0;
-        render_pass->resolve_attachments = nullptr;
+        reset(&render_pass->resolve_attachments);
     }
 
-    if (depth_stencil_attachment_count)
+    if (descriptor.depth_stencil_attachments.count)
     {
-        render_pass->depth_stencil_attachment_count = depth_stencil_attachment_count;
-        render_pass->depth_stencil_attachments = HE_REALLOCATE_ARRAY(context->allocator, render_pass->depth_stencil_attachments, Attachment_Info, depth_stencil_attachment_count);
-
-        U32 depth_stencil_attachment_index = 0;
-
-        for (const Attachment_Info& attachment_info : descriptor.depth_stencil_attachments)
-        {
-            render_pass->depth_stencil_attachments[depth_stencil_attachment_index++] = attachment_info;
-        }
+        copy(render_pass->depth_stencil_attachments, descriptor.depth_stencil_attachments);
     }
     else
     {
-        render_pass->depth_stencil_attachment_count = 0;
-        deallocate(context->allocator, render_pass->depth_stencil_attachments);
-        render_pass->depth_stencil_attachments = nullptr;
+        reset(&render_pass->depth_stencil_attachments);
     }
 
-    U32 attachment_count = color_attachment_count + resolve_attachment_count + depth_stencil_attachment_count;
+    U32 attachment_count = descriptor.color_attachments.count + descriptor.resolve_attachments.count + descriptor.depth_stencil_attachments.count;
     VkAttachmentDescription *attachments = HE_ALLOCATE_ARRAY(&temprary_arena, VkAttachmentDescription, attachment_count);
     VkAttachmentReference *attachment_refs = HE_ALLOCATE_ARRAY(&temprary_arena, VkAttachmentReference, attachment_count);
     U32 attachment_index = 0;
@@ -1617,20 +1575,20 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     VkSubpassDescription subpass = {};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 
-    if (color_attachment_count)
+    if (descriptor.color_attachments.count)
     {
-        subpass.colorAttachmentCount = color_attachment_count;
+        subpass.colorAttachmentCount = descriptor.color_attachments.count;
         subpass.pColorAttachments = attachment_refs;
     }
 
-    if (resolve_attachment_count)
+    if (descriptor.resolve_attachments.count)
     {
-        subpass.pResolveAttachments = &attachment_refs[color_attachment_count];
+        subpass.pResolveAttachments = &attachment_refs[descriptor.color_attachments.count];
     }
 
-    if (depth_stencil_attachment_count)
+    if (descriptor.depth_stencil_attachments.count)
     {
-        subpass.pDepthStencilAttachment = &attachment_refs[color_attachment_count + resolve_attachment_count];
+        subpass.pDepthStencilAttachment = &attachment_refs[descriptor.color_attachments.count + descriptor.resolve_attachments.count];
     }
 
     VkRenderPassCreateInfo render_pass_create_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
@@ -1652,7 +1610,7 @@ void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Fr
     Frame_Buffer *frame_buffer = get(&renderer_state->frame_buffers, frame_buffer_handle);
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
-    HE_ASSERT(frame_buffer->attachment_count == clear_value_count);
+    HE_ASSERT(frame_buffer->attachments.count == clear_value_count);
 
     Texture *attachment = get(&renderer_state->textures, frame_buffer->attachments[0]);
     renderer_state->current_render_pass_sample_count = attachment->sample_count;
@@ -1712,6 +1670,7 @@ bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle
 {
     Vulkan_Context *context = &vulkan_context;
     Frame_Buffer *frame_buffer = get(&context->engine->renderer_state.frame_buffers, frame_buffer_handle);
+    copy(frame_buffer->attachments, descriptor.attachments);
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
 
     Temprary_Memory_Arena temprary_arena = {};
@@ -1719,23 +1678,19 @@ bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle
     HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
 
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[ descriptor.render_pass.index ];
-
-    U32 attachment_count = u64_to_u32(descriptor.attachments.size());
-    Texture_Handle *attachments = HE_ALLOCATE_ARRAY(context->allocator, Texture_Handle, attachment_count);
-    VkImageView *vulkan_attachments = HE_ALLOCATE_ARRAY(&temprary_arena, VkImageView, attachment_count);
+    VkImageView *vulkan_attachments = HE_ALLOCATE_ARRAY(&temprary_arena, VkImageView, descriptor.attachments.count);
 
     U32 attachment_index = 0;
     for (Texture_Handle texture_handle : descriptor.attachments)
     {
         Vulkan_Image *vulkan_texture = &context->textures[ texture_handle.index ];
-        attachments[attachment_index] = texture_handle;
         vulkan_attachments[attachment_index] = vulkan_texture->view;
         attachment_index++;
     }
 
     VkFramebufferCreateInfo frame_buffer_create_info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
     frame_buffer_create_info.renderPass = vulkan_render_pass->handle;
-    frame_buffer_create_info.attachmentCount = attachment_count;
+    frame_buffer_create_info.attachmentCount = descriptor.attachments.count;
     frame_buffer_create_info.pAttachments = vulkan_attachments;
     frame_buffer_create_info.width = descriptor.width;
     frame_buffer_create_info.height = descriptor.height;
@@ -1744,8 +1699,6 @@ bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle
     HE_CHECK_VKRESULT(vkCreateFramebuffer(context->logical_device, &frame_buffer_create_info, nullptr, &vulkan_frame_buffer->handle));
     frame_buffer->width = descriptor.width;
     frame_buffer->height = descriptor.height;
-    frame_buffer->attachment_count = attachment_count;
-    frame_buffer->attachments = attachments;
     return true;
 }
 
