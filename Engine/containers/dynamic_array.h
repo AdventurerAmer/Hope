@@ -26,10 +26,30 @@ struct Dynamic_Array
         HE_ASSERT(index < count);
         return data[index];
     }
+
+    HE_FORCE_INLINE T* begin()
+    {
+        return &data[0];
+    }
+
+    HE_FORCE_INLINE T* end()
+    {
+        return &data[count];
+    }
+
+    HE_FORCE_INLINE const T* begin() const
+    {
+        return &data[0];
+    }
+
+    HE_FORCE_INLINE const T* end() const
+    {
+        return &data[count];
+    }
 };
 
 template< typename T >
-void init(Dynamic_Array< T > *dynamic_array, Free_List_Allocator *allocator, U32 initial_count = 0, U32 initial_capacity = 0)
+void init(Dynamic_Array< T > *dynamic_array, Allocator allocator, U32 initial_count = 0, U32 initial_capacity = 0)
 {
     HE_ASSERT(dynamic_array);
 
@@ -38,7 +58,13 @@ void init(Dynamic_Array< T > *dynamic_array, Free_List_Allocator *allocator, U32
         initial_capacity = initial_count ? initial_count * 2 : HE_DEFAULT_DYNAMIC_ARRAY_INITIAL_CAPACITY;
     }
 
-    dynamic_array->data = HE_ALLOCATE_ARRAY(allocator, T, initial_capacity);
+    dynamic_array->data = nullptr;
+
+    std::visit([&](auto &&allocator)
+    {
+        dynamic_array->data = HE_ALLOCATE_ARRAY(allocator, T, initial_capacity);
+    }, allocator);
+
     dynamic_array->count = initial_count;
     dynamic_array->capacity = initial_capacity;
     dynamic_array->allocator = allocator;

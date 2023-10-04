@@ -1,6 +1,6 @@
-[Core-Trace]: {0, 0}
-[Core-Trace]: {1, 0}
-[Core-Trace]: assets loaded 233.70 ms to finish
+[Core-Trace]: assets loaded 538.80 ms to finish
+
+race]: assets loaded 570.25 ms to finish
 e]: main thread stealed a job
 [Core-Trace]: main thread stealed a job
 [Core-Trace]: main thread stealed a job

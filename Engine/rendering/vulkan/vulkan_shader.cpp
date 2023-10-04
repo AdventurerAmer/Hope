@@ -269,10 +269,10 @@ bool load_shader(Shader_Handle shader_handle, const char *path, Vulkan_Context *
         vulkan_context = context;
     }
 
-    Shader *shader = get(&context->engine->renderer_state.shaders, shader_handle);
+    Shader *shader = get(&context->renderer_state->shaders, shader_handle);
     Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
 
-    Memory_Arena *arena = &context->engine->memory.transient_arena;
+    Memory_Arena *arena = &context->arena;
     
     Temprary_Memory_Arena temp_arena = {};
     begin_temprary_memory_arena(&temp_arena, arena);
@@ -738,7 +738,6 @@ bool load_shader(Shader_Handle shader_handle, const char *path, Vulkan_Context *
 
     shader->struct_count = struct_count;
     shader->structs = shader_structs;
-
     return true;
 }
 
@@ -868,7 +867,7 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     begin_temprary_memory_arena(&temprary_arena, &context->arena);
     HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
 
-    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer_State *renderer_state = context->renderer_state;
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, pipeline_state_handle);
     pipeline_state->descriptor = descriptor;
     Render_Pass *render_pass = get(&renderer_state->render_passes, descriptor.render_pass);
@@ -890,7 +889,7 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     {
         Shader_Handle shader_handle = shader_group->shaders[shader_index];
 
-        Shader *shader = get(&context->engine->renderer_state.shaders, shader_handle);
+        Shader *shader = get(&context->renderer_state->shaders, shader_handle);
         Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
 
         VkPipelineShaderStageCreateInfo &pipeline_stage_create_info = shader_stage_create_infos[shader_index];

@@ -352,8 +352,9 @@ struct Shader_Group_Descriptor
 struct Shader_Group
 {
     String name;
+
     Array< Shader_Handle, HE_MAX_SHADER_COUNT_PER_PIPELINE > shaders;
-    Bind_Group_Layout_Handle bind_group_layouts[HE_MAX_DESCRIPTOR_SET_COUNT];
+    Array< Bind_Group_Layout_Handle, HE_MAX_DESCRIPTOR_SET_COUNT > bind_group_layouts;
 };
 
 using Shader_Group_Handle = Resource_Handle< Shader_Group >;
@@ -438,8 +439,8 @@ struct Material
     U64 size;
     Shader_Struct *properties;
 
-    Buffer_Handle buffers[HE_MAX_FRAMES_IN_FLIGHT];
-    Bind_Group_Handle bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
+    Array< Buffer_Handle, HE_MAX_FRAMES_IN_FLIGHT > buffers;
+    Array< Bind_Group_Handle, HE_MAX_FRAMES_IN_FLIGHT > bind_groups;
 };
 
 using Material_Handle = Resource_Handle< Material >;
@@ -488,7 +489,7 @@ struct Scene_Node
     glm::mat4 transform;
 };
 
-// todo(amer): @HardCoding per object data and globals layouts here
+// todo(amer): @HardCoding per object data and globals struct layouts here
 struct Object_Data
 {
     glm::mat4 model;

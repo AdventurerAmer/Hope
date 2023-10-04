@@ -93,17 +93,12 @@ bool init_cvars(const char *filepath, Engine *engine)
     cvars_state.arena = arena;
     cvars_state.allocator = allocator;
 
-    init(&cvars_state.categories, allocator);
-
     auto &categories = cvars_state.categories;
+    init(&categories, allocator);
 
     Temprary_Memory_Arena temprary_arena = {};
     begin_temprary_memory_arena(&temprary_arena, &engine->memory.transient_arena);
-
-    HE_DEFER
-    {
-        end_temprary_memory_arena(&temprary_arena);
-    };
+    HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
 
     Read_Entire_File_Result result = read_entire_file(filepath, &temprary_arena);
 

@@ -239,10 +239,7 @@ INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command
         while (PeekMessageA(&message, window_handle, 0, 0, PM_REMOVE))
         {
             // todo(amer): handle imgui input outside platform win32.
-            if (engine->show_imgui)
-            {
-                ImGui_ImplWin32_WndProcHandler(window_handle, message.message, message.wParam, message.lParam);
-            }
+            ImGui_ImplWin32_WndProcHandler(window_handle, message.message, message.wParam, message.lParam);
 
             switch (message.message)
             {

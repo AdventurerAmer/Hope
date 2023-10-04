@@ -7,8 +7,8 @@
 template< typename T >
 struct Resource_Handle
 {
-    S32 index;
-    U32 generation;
+    S32 index = -1;
+    U32 generation = 0;
 
     bool operator==(const Resource_Handle< T > &other)
     {
@@ -142,4 +142,28 @@ void release_handle(Resource_Pool< T > *resource_pool, Resource_Handle< T > hand
     resource_pool->count--;
 
     platform_unlock_mutex(&resource_pool->mutex);
+}
+
+
+template< typename T >
+Resource_Handle< T > iterator(Resource_Pool< T > *resource_pool)
+{
+    HE_ASSERT(resource_pool);
+    return Resource_Pool< T >::invalid_handle;
+}
+
+template< typename T >
+bool next(Resource_Pool< T > *resource_pool, Resource_Handle< T > &handle)
+{
+    for (U32 index = handle.index + 1; index < resource_pool->capacity; index++)
+    {
+        if (resource_pool->is_allocated[index])
+        {
+            handle.index = (S32)index;
+            handle.generation = resource_pool->generations[index];
+            return true;
+        }
+    }
+
+    return false;
 }

@@ -12,10 +12,9 @@ static Game_State game_state;
 
 HE_API bool init_game(Engine *engine)
 {
-	Renderer *renderer = &engine->renderer;
-	Renderer_State *renderer_state = &engine->renderer_state;
+    glm::vec2 viewport = engine->api.get_viewport();
 
-    F32 aspect_ratio = (F32)renderer_state->back_buffer_width / (F32)renderer_state->back_buffer_height;
+    F32 aspect_ratio = viewport.x / viewport.y;
     glm::quat camera_rotation = glm::quat({ 0.0f, 0.0f, 0.0f });
     Camera *camera = &game_state.camera;
 	F32 fov = 45.0f;
@@ -35,7 +34,7 @@ HE_API bool init_game(Engine *engine)
                                            base_movement_speed,
                                            max_movement_speed, sensitivity_x, sensitivity_y);
 
-    engine->api.load_model_threaded(HE_STRING_LITERAL("models/FlightHelmet/FlightHelmet.gltf"), renderer, renderer_state);
+    engine->api.load_model_threaded(HE_STRING_LITERAL("models/FlightHelmet/FlightHelmet.gltf"));
     return true;
 }
 
@@ -85,9 +84,7 @@ HE_API void on_event(Engine *engine, Event event)
 HE_API void on_update(Engine *engine, F32 delta_time)
 {
 	Input *input = &engine->input;
-    Renderer *renderer = &engine->renderer;
-    Renderer_State *renderer_state = &engine->renderer_state;
-
+    
     Camera *camera = &game_state.camera;
     FPS_Camera_Controller *camera_controller = &game_state.camera_controller;
 
@@ -115,7 +112,7 @@ HE_API void on_update(Engine *engine, F32 delta_time)
 
     if (!engine->is_minimized)
     {
-        Scene_Data *scene_data = &renderer_state->scene_data;
+        Scene_Data *scene_data = engine->api.get_scene_data();
         scene_data->view = camera->view;
         scene_data->projection = camera->projection;
     }

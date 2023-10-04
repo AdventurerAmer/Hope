@@ -8,7 +8,13 @@
 #include "core/file_system.h"
 #include "core/job_system.h"
 #include "core/debugging.h"
+
 #include "containers/queue.h"
+
+#include <imgui.h>
+
+static Renderer_State *renderer_state;
+static Renderer *renderer;
 
 static Free_List_Allocator *_transfer_allocator;
 static Free_List_Allocator *_stbi_allocator;
@@ -74,6 +80,7 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->create_frame_buffer = &vulkan_renderer_create_frame_buffer;
             renderer->destroy_frame_buffer = &vulkan_renderer_destroy_frame_buffer;
             renderer->begin_frame = &vulkan_renderer_begin_frame;
+            renderer->set_viewport = &vulkan_renderer_set_viewport;
             renderer->set_vertex_buffers = &vulkan_renderer_set_vertex_buffers;
             renderer->set_index_buffer = &vulkan_renderer_set_index_buffer;
             renderer->set_pipeline_state = &vulkan_renderer_set_pipeline_state;
@@ -94,12 +101,13 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
     return result;
 }
 
-bool pre_init_renderer_state(Renderer_State *renderer_state, Engine *engine)
+bool pre_init_renderer_state(Engine *engine)
 {
-    renderer_state->engine = engine;
     Memory_Arena *arena = &engine->memory.transient_arena;
+    renderer_state = HE_ALLOCATE(arena, Renderer_State);
+    renderer_state->engine = engine;
     renderer_state->arena = create_sub_arena(arena, HE_MEGA(32));
-
+    
     init(&renderer_state->buffers, arena, HE_MAX_BUFFER_COUNT);
     init(&renderer_state->textures, arena, HE_MAX_TEXTURE_COUNT);
     init(&renderer_state->samplers, arena, HE_MAX_SAMPLER_COUNT);
@@ -142,26 +150,35 @@ bool pre_init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     HE_DECLARE_CVAR("renderer", back_buffer_height, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", sample_count, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", anisotropic_filtering, CVarFlag_None);
+    
+    bool renderer_requested = request_renderer(RenderingAPI_Vulkan, &renderer_state->renderer);
+    if (!renderer_requested)
+    {
+        return false;
+    }
+
+    renderer = &renderer_state->renderer;
+
+    bool renderer_inited = renderer->init(engine, renderer_state);
+    if (!renderer_inited)
+    {
+        return false;
+    }
 
     return true;
 }
 
-bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
+bool init_renderer_state(Engine *engine)
 {
-    Renderer *renderer = &engine->renderer;
-
     Buffer_Descriptor transfer_buffer_descriptor = {};
     transfer_buffer_descriptor.size = HE_GIGA(2);
     transfer_buffer_descriptor.usage = Buffer_Usage::TRANSFER;
     transfer_buffer_descriptor.is_device_local = false;
-    renderer_state->transfer_buffer = aquire_handle(&renderer_state->buffers);
-    renderer->create_buffer(renderer_state->transfer_buffer, transfer_buffer_descriptor);
+    renderer_state->transfer_buffer = renderer_create_buffer(transfer_buffer_descriptor);
 
     Buffer *transfer_buffer = get(&renderer_state->buffers, renderer_state->transfer_buffer);
     init_free_list_allocator(&renderer_state->transfer_allocator, transfer_buffer->data, transfer_buffer->size);
     
-    renderer_state->white_pixel_texture = aquire_handle(&renderer_state->textures);
-
     U32 *white_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
     *white_pixel_data = 0xFFFFFFFF;
 
@@ -171,8 +188,7 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     white_pixel_descriptor.data = white_pixel_data;
     white_pixel_descriptor.format = Texture_Format::R8G8B8A8_SRGB;
     white_pixel_descriptor.mipmapping = false;
-    renderer->create_texture(renderer_state->white_pixel_texture, white_pixel_descriptor);
-
+    renderer_state->white_pixel_texture = renderer_create_texture(white_pixel_descriptor);
     U32 *normal_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
     *normal_pixel_data = 0xFFFF8080; // todo(amer): endianness
     HE_ASSERT(HE_ARCH_X64);
@@ -183,9 +199,7 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     normal_pixel_descriptor.data = normal_pixel_data;
     normal_pixel_descriptor.format = Texture_Format::R8G8B8A8_SRGB;
     normal_pixel_descriptor.mipmapping = false;
-
-    renderer_state->normal_pixel_texture = aquire_handle(&renderer_state->textures);
-    renderer->create_texture(renderer_state->normal_pixel_texture, normal_pixel_descriptor);
+    renderer_state->normal_pixel_texture = renderer_create_texture(normal_pixel_descriptor);
 
     Sampler_Descriptor default_sampler_descriptor = {};
     default_sampler_descriptor.min_filter = Filter::LINEAR;
@@ -195,9 +209,7 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     default_sampler_descriptor.address_mode_v = Address_Mode::REPEAT;
     default_sampler_descriptor.address_mode_w = Address_Mode::REPEAT;
     default_sampler_descriptor.anisotropy = renderer_state->anisotropic_filtering;
-
-    renderer_state->default_sampler = aquire_handle(&renderer_state->samplers);
-    renderer->create_sampler(renderer_state->default_sampler, default_sampler_descriptor);
+    renderer_state->default_sampler = renderer_create_sampler(default_sampler_descriptor);
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
@@ -205,17 +217,13 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
         globals_uniform_buffer_descriptor.size = sizeof(Globals);
         globals_uniform_buffer_descriptor.usage = Buffer_Usage::UNIFORM;
         globals_uniform_buffer_descriptor.is_device_local = false;
-
-        renderer_state->globals_uniform_buffers[frame_index] = aquire_handle(&renderer_state->buffers);
-        renderer->create_buffer(renderer_state->globals_uniform_buffers[frame_index], globals_uniform_buffer_descriptor);
+        renderer_state->globals_uniform_buffers[frame_index] = renderer_create_buffer(globals_uniform_buffer_descriptor);
 
         Buffer_Descriptor object_data_storage_buffer_descriptor = {};
         object_data_storage_buffer_descriptor.size = sizeof(Object_Data) * HE_MAX_OBJECT_DATA_COUNT;
         object_data_storage_buffer_descriptor.usage = Buffer_Usage::STORAGE;
         object_data_storage_buffer_descriptor.is_device_local = false;
-
-        renderer_state->object_data_storage_buffers[frame_index] = aquire_handle(&renderer_state->buffers);
-        renderer->create_buffer(renderer_state->object_data_storage_buffers[frame_index], object_data_storage_buffer_descriptor);
+        renderer_state->object_data_storage_buffers[frame_index] = renderer_create_buffer(object_data_storage_buffer_descriptor);
     }
 
     U32 max_vertex_count = 1'000'000; // todo(amer): @Hardcode
@@ -225,61 +233,45 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     position_buffer_descriptor.size = max_vertex_count * sizeof(glm::vec3);
     position_buffer_descriptor.usage = Buffer_Usage::VERTEX;
     position_buffer_descriptor.is_device_local = true;
-    renderer_state->position_buffer = aquire_handle(&renderer_state->buffers);
-    renderer->create_buffer(renderer_state->position_buffer, position_buffer_descriptor);
+    renderer_state->position_buffer = renderer_create_buffer(position_buffer_descriptor);
 
     Buffer_Descriptor normal_buffer_descriptor = {};
     normal_buffer_descriptor.size = max_vertex_count * sizeof(glm::vec3);
     normal_buffer_descriptor.usage = Buffer_Usage::VERTEX;
     normal_buffer_descriptor.is_device_local = true;
-    renderer_state->normal_buffer = aquire_handle(&renderer_state->buffers);
-    renderer->create_buffer(renderer_state->normal_buffer, normal_buffer_descriptor);
+    renderer_state->normal_buffer = renderer_create_buffer(normal_buffer_descriptor);
 
     Buffer_Descriptor uv_buffer_descriptor = {};
     uv_buffer_descriptor.size = max_vertex_count * sizeof(glm::vec2);
     uv_buffer_descriptor.usage = Buffer_Usage::VERTEX;
     uv_buffer_descriptor.is_device_local = true;
-    renderer_state->uv_buffer = aquire_handle(&renderer_state->buffers);
-    renderer->create_buffer(renderer_state->uv_buffer, uv_buffer_descriptor);
+    renderer_state->uv_buffer = renderer_create_buffer(uv_buffer_descriptor);
 
     Buffer_Descriptor tangent_buffer_descriptor = {};
     tangent_buffer_descriptor.size = max_vertex_count * sizeof(glm::vec4);
     tangent_buffer_descriptor.usage = Buffer_Usage::VERTEX;
     tangent_buffer_descriptor.is_device_local = true;
-    renderer_state->tangent_buffer = aquire_handle(&renderer_state->buffers);
-    renderer->create_buffer(renderer_state->tangent_buffer, tangent_buffer_descriptor);
+    renderer_state->tangent_buffer = renderer_create_buffer(tangent_buffer_descriptor);
 
     Buffer_Descriptor index_buffer_descriptor = {};
     index_buffer_descriptor.size = HE_MEGA(128);
     index_buffer_descriptor.usage = Buffer_Usage::INDEX;
     index_buffer_descriptor.is_device_local = true;
-    renderer_state->index_buffer = aquire_handle(&renderer_state->buffers);
-    renderer->create_buffer(renderer_state->index_buffer, index_buffer_descriptor);
+    renderer_state->index_buffer = renderer_create_buffer(index_buffer_descriptor);
 
-    renderer_state->mesh_vertex_shader = aquire_handle(&renderer_state->shaders);
     Shader_Descriptor mesh_vertex_shader_descriptor = {};
     mesh_vertex_shader_descriptor.path = "shaders/bin/mesh.vert.spv";
-    bool shader_loaded = renderer->create_shader(renderer_state->mesh_vertex_shader, mesh_vertex_shader_descriptor);
-    HE_ASSERT(shader_loaded);
+    renderer_state->mesh_vertex_shader = renderer_create_shader(mesh_vertex_shader_descriptor);
 
-    renderer_state->mesh_fragment_shader = aquire_handle(&renderer_state->shaders);
     Shader_Descriptor mesh_fragment_shader_descriptor = {};
     mesh_fragment_shader_descriptor.path = "shaders/bin/mesh.frag.spv";
-    shader_loaded = renderer->create_shader(renderer_state->mesh_fragment_shader, mesh_fragment_shader_descriptor);
-    HE_ASSERT(shader_loaded);
+    renderer_state->mesh_fragment_shader = renderer_create_shader(mesh_fragment_shader_descriptor);
 
-    renderer_state->mesh_shader_group = aquire_handle(&renderer_state->shader_groups);
-    Shader_Group_Descriptor shader_group_descriptor = {};
-    shader_group_descriptor.shaders = { renderer_state->mesh_vertex_shader, renderer_state->mesh_fragment_shader };
-
-    for (const Shader_Handle& handle : shader_group_descriptor.shaders) {
-        HE_LOG(Core, Trace, "{%d, %d}\n", handle.index, handle.generation);
-    }
-
-    vulkan_renderer_create_shader_group(renderer_state->mesh_shader_group, shader_group_descriptor);
+    Shader_Group_Descriptor mesh_shader_group_descriptor = {};
+    mesh_shader_group_descriptor.shaders = { renderer_state->mesh_vertex_shader, renderer_state->mesh_fragment_shader };
+    renderer_state->mesh_shader_group = renderer_create_shader_group(mesh_shader_group_descriptor);
 
     Shader_Group *mesh_shader_group = get(&renderer_state->shader_groups, renderer_state->mesh_shader_group);
-
     Bind_Group_Descriptor per_frame_bind_group_descriptor = {};
     per_frame_bind_group_descriptor.shader_group = renderer_state->mesh_shader_group;
     per_frame_bind_group_descriptor.layout = mesh_shader_group->bind_group_layouts[0];
@@ -310,7 +302,8 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
             globals_uniform_buffer_binding,
             object_data_storage_buffer_binding
         };
-        renderer->update_bind_group(renderer_state->per_frame_bind_groups[frame_index], update_binding_descriptors, HE_ARRAYCOUNT(update_binding_descriptors));
+        
+        renderer->update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
 
         renderer_state->per_render_pass_bind_groups[frame_index] = aquire_handle(&renderer_state->bind_groups);
         renderer->create_bind_group(renderer_state->per_render_pass_bind_groups[frame_index], per_render_pass_bind_group_descriptor);
@@ -328,7 +321,7 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
         renderer_state->depth_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
     }
 
-    invalidate_render_entities(renderer, renderer_state);
+    invalidate_render_entities();
 
     renderer_state->mesh_pipeline = aquire_handle(&renderer_state->pipeline_states);
     Pipeline_State_Descriptor mesh_pipeline_state_descriptor = {};
@@ -340,110 +333,240 @@ bool init_renderer_state(Renderer_State *renderer_state, Engine *engine)
     mesh_pipeline_state_descriptor.render_pass = renderer_state->world_render_pass;
     bool pipeline_created = renderer->create_pipeline_state(renderer_state->mesh_pipeline, mesh_pipeline_state_descriptor);
     HE_ASSERT(pipeline_created);
-
+    
+    init_imgui(engine);
     bool imgui_inited = renderer->init_imgui();
     HE_ASSERT(imgui_inited);
+
+    init(&renderer_state->render_graph, &engine->memory.free_list_allocator);
+    
+    {
+        Render_Graph_Resource_Info msaa_RT = {};
+        msaa_RT.texture =
+        {
+            renderer_state->back_buffer_width,
+            renderer_state->back_buffer_height,
+            Texture_Format::B8G8R8A8_SRGB,
+            Attachment_Operation::CLEAR,
+            renderer_state->sample_count
+        };
+
+        Render_Graph_Resource_Info RT = {};
+        RT.texture =
+        {
+            renderer_state->back_buffer_width,
+            renderer_state->back_buffer_height,
+            Texture_Format::B8G8R8A8_SRGB,
+            Attachment_Operation::DONT_CARE,
+            1
+        };
+
+        Render_Graph_Resource_Info msaa_depth = {};
+        msaa_depth.texture =
+        {
+            renderer_state->back_buffer_width,
+            renderer_state->back_buffer_height,
+            Texture_Format::DEPTH_F32_STENCIL_U8,
+            Attachment_Operation::CLEAR,
+            renderer_state->sample_count
+        };
+
+        Render_Graph_Node_Output outputs[] =
+        {
+            {
+                HE_STRING_LITERAL("msaa_rt0"),
+                Render_Graph_Resource_Type::ATTACHMENT,
+                msaa_RT
+            },
+            {
+                HE_STRING_LITERAL("rt0"),
+                Render_Graph_Resource_Type::ATTACHMENT,
+                RT
+            },
+            {
+                HE_STRING_LITERAL("msaa_depth"),
+                Render_Graph_Resource_Type::ATTACHMENT,
+                msaa_depth
+            }
+        };
+
+        auto pre_render = [](Renderer *renderer, Renderer_State *renderer_state) -> Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT >
+        {
+            Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT > clear_values;
+            
+            append(&clear_values);
+            append(&clear_values);
+            append(&clear_values);
+            
+            clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+            clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+            clear_values[2].depth = 1.0f;
+            return clear_values;
+        };
+
+        auto render = [](Renderer *renderer, Renderer_State *renderer_state)
+        {
+            Buffer_Handle vertex_buffers[] =
+            {
+                renderer_state->position_buffer,
+                renderer_state->normal_buffer,
+                renderer_state->uv_buffer,
+                renderer_state->tangent_buffer
+            };
+
+            U64 offsets[] =
+            {
+                0,
+                0,
+                0,
+                0
+            };
+
+            renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
+            renderer->set_index_buffer(renderer_state->index_buffer, 0);
+
+            U32 texture_count = renderer_state->textures.capacity;
+            Texture_Handle *textures = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Texture_Handle, texture_count);
+            Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Sampler_Handle, texture_count);
+
+            for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
+            {
+                if (renderer_state->textures.data[it.index].is_attachment)
+                {
+                    textures[it.index] = renderer_state->white_pixel_texture;
+                }
+                else
+                {
+                    textures[it.index] = it;
+                }
+
+                samplers[it.index] = renderer_state->default_sampler;
+            }
+
+            Update_Binding_Descriptor update_textures_binding_descriptors[1] = {};
+            update_textures_binding_descriptors[0].binding_number = 0;
+            update_textures_binding_descriptors[0].element_index = 0;
+            update_textures_binding_descriptors[0].count = texture_count;
+            update_textures_binding_descriptors[0].textures = textures;
+            update_textures_binding_descriptors[0].samplers = samplers;
+            renderer->update_bind_group(renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index], to_array_view(update_textures_binding_descriptors));
+
+            Bind_Group_Handle bind_groups[] =
+            {
+                renderer_state->per_frame_bind_groups[renderer_state->current_frame_in_flight_index],
+                renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index]
+            };
+
+            renderer->set_bind_groups(0, to_array_view(bind_groups));
+            
+            render_scene_node(renderer_state->root_scene_node, glm::mat4(1.0f));
+        };
+
+        add_node(&renderer_state->render_graph, HE_STRING_LITERAL("world_msaa"), {}, to_array_view(outputs), pre_render, render);
+    }
+
+    {
+        Render_Graph_Node_Input inputs[] =
+        {
+            {
+                HE_STRING_LITERAL("rt0"),
+                Render_Graph_Resource_Type::ATTACHMENT
+            }
+        };
+
+        Render_Graph_Node_Output outputs[] =
+        {
+            {
+                HE_STRING_LITERAL("rt0"),
+                Render_Graph_Resource_Type::REFERENCE
+            }
+        };
+
+        auto pre_render = [](Renderer *renderer, Renderer_State *renderer_state) -> Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT >
+        {
+            Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT > clear_values;
+            append(&clear_values);
+            
+            clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+            return clear_values;
+        };
+
+        auto render = [](Renderer *renderer, Renderer_State *renderer_state)
+        {
+            renderer->imgui_render();
+        };
+
+        add_node(&renderer_state->render_graph, HE_STRING_LITERAL("ui"), to_array_view(inputs), to_array_view(outputs), pre_render, render);
+    }
+
+    compile(&renderer_state->render_graph);
 
     _transfer_allocator = &renderer_state->transfer_allocator;
     _stbi_allocator = &engine->memory.free_list_allocator;
     return true;
 }
 
-void deinit_renderer_state(struct Renderer *renderer, Renderer_State *renderer_state)
+void deinit_renderer_state()
 {
-    // todo(amer): clean this...
-    for (S32 buffer_index = 0; buffer_index < (S32)renderer_state->buffers.capacity; buffer_index++)
+    renderer->wait_for_gpu_to_finish_all_work();
+
+    for (auto it = iterator(&renderer_state->buffers); next(&renderer_state->buffers, it);)
     {
-        if (!renderer_state->buffers.is_allocated[buffer_index])
-        {
-            continue;
-        }
-        renderer->destroy_buffer({ buffer_index, renderer_state->buffers.generations[buffer_index] });
+        renderer->destroy_buffer(it);
     }
 
-    for (S32 texture_index = 0; texture_index < (S32)renderer_state->textures.capacity; texture_index++)
+    for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
     {
-        if (!renderer_state->textures.is_allocated[texture_index])
-        {
-            continue;
-        }
-        renderer->destroy_texture({ texture_index, renderer_state->textures.generations[texture_index] });
+        renderer->destroy_texture(it);
     }
 
-    for (S32 sampler_index = 0; sampler_index < (S32)renderer_state->samplers.capacity; sampler_index++)
+    for (auto it = iterator(&renderer_state->samplers); next(&renderer_state->samplers, it);)
     {
-        if (!renderer_state->samplers.is_allocated[sampler_index])
-        {
-            continue;
-        }
-        renderer->destroy_sampler({ sampler_index, renderer_state->samplers.generations[sampler_index] });
+        renderer->destroy_sampler(it);
     }
 
-    for (S32 static_mesh_index = 0; static_mesh_index < (S32)renderer_state->static_meshes.capacity; static_mesh_index++)
+    for (auto it = iterator(&renderer_state->static_meshes); next(&renderer_state->static_meshes, it);)
     {
-        if (!renderer_state->static_meshes.is_allocated[static_mesh_index])
-        {
-            continue;
-        }
-        renderer->destroy_static_mesh({ static_mesh_index, renderer_state->static_meshes.generations[static_mesh_index] });
+        renderer->destroy_static_mesh(it);
     }
 
-    for (S32 shader_index = 0; shader_index < (S32)renderer_state->shaders.capacity; shader_index++)
+    for (auto it = iterator(&renderer_state->shaders); next(&renderer_state->shaders, it);)
     {
-        if (!renderer_state->shaders.is_allocated[shader_index])
-        {
-            continue;
-        }
-        renderer->destroy_shader({ shader_index, renderer_state->shaders.generations[shader_index] });
+        renderer->destroy_shader(it);
     }
 
-    for (S32 shader_group_index = 0; shader_group_index < (S32)renderer_state->shader_groups.capacity; shader_group_index++)
+    for (auto it = iterator(&renderer_state->shader_groups); next(&renderer_state->shader_groups, it);)
     {
-        if (!renderer_state->shader_groups.is_allocated[shader_group_index])
-        {
-            continue;
-        }
-        renderer->destroy_shader_group({ shader_group_index, renderer_state->shader_groups.generations[shader_group_index] });
+        renderer->destroy_shader_group(it);
     }
 
-    for (S32 bind_group_layout_index = 0; bind_group_layout_index < (S32)renderer_state->bind_group_layouts.capacity; bind_group_layout_index++)
+    for (auto it = iterator(&renderer_state->bind_group_layouts); next(&renderer_state->bind_group_layouts, it);)
     {
-        if (!renderer_state->bind_group_layouts.is_allocated[bind_group_layout_index])
-        {
-            continue;
-        }
-        renderer->destroy_bind_group_layout({ bind_group_layout_index, renderer_state->bind_group_layouts.generations[bind_group_layout_index] });
+        renderer->destroy_bind_group_layout(it);
     }
 
-    for (S32 frame_buffer_index = 0; frame_buffer_index < (S32)renderer_state->frame_buffers.capacity; frame_buffer_index++)
+    for (auto it = iterator(&renderer_state->frame_buffers); next(&renderer_state->frame_buffers, it);)
     {
-        if (!renderer_state->frame_buffers.is_allocated[frame_buffer_index])
-        {
-            continue;
-        }
-        renderer->destroy_frame_buffer({ frame_buffer_index, renderer_state->frame_buffers.generations[frame_buffer_index] });
+        renderer->destroy_frame_buffer(it);
     }
 
-    for (S32 render_pass_index = 0; render_pass_index < (S32)renderer_state->render_passes.capacity; render_pass_index++)
+    for (auto it = iterator(&renderer_state->render_passes); next(&renderer_state->render_passes, it);)
     {
-        if (!renderer_state->render_passes.is_allocated[render_pass_index])
-        {
-            continue;
-        }
-        renderer->destroy_render_pass({ render_pass_index, renderer_state->render_passes.generations[render_pass_index] });
+        renderer->destroy_render_pass(it);
     }
 
-    for (S32 pipeline_state_index = 0; pipeline_state_index < (S32)renderer_state->pipeline_states.capacity; pipeline_state_index++)
+    for (auto it = iterator(&renderer_state->pipeline_states); next(&renderer_state->pipeline_states, it);)
     {
-        if (!renderer_state->pipeline_states.is_allocated[pipeline_state_index])
-        {
-            continue;
-        }
-        renderer->destroy_pipeline_state({ pipeline_state_index, renderer_state->pipeline_states.generations[pipeline_state_index] });
+        renderer->destroy_pipeline_state(it);
     }
+
+    renderer->deinit();
+
+    platform_shutdown_imgui();
+    ImGui::DestroyContext();
 }
 
-void invalidate_render_entities(struct Renderer *renderer, Renderer_State *renderer_state)
+void invalidate_render_entities()
 {
     renderer->wait_for_gpu_to_finish_all_work();
 
@@ -641,25 +764,19 @@ void invalidate_render_entities(struct Renderer *renderer, Renderer_State *rende
         renderer->create_frame_buffer(renderer_state->ui_frame_buffers[frame_index], ui_frame_buffer_descriptor);
     }
 
-    for (S32 pipeline_state_index = 0; pipeline_state_index < (S32)renderer_state->pipeline_states.capacity; pipeline_state_index++)
+    for (auto it = iterator(&renderer_state->pipeline_states); next(&renderer_state->pipeline_states, it); )
     {
-        if (!renderer_state->pipeline_states.is_allocated[pipeline_state_index])
-        {
-            continue;
-        }
-
-        Pipeline_State_Handle pipeline_state_handle = { pipeline_state_index, renderer_state->pipeline_states.generations[pipeline_state_index] };
-        Pipeline_State *pipeline_state = &renderer_state->pipeline_states.data[pipeline_state_index];
+        Pipeline_State *pipeline_state = &renderer_state->pipeline_states.data[it.index];
 
         if (pipeline_state->descriptor.render_pass == renderer_state->world_render_pass)
         {
-            renderer->destroy_pipeline_state(pipeline_state_handle);
-            renderer->create_pipeline_state(pipeline_state_handle, pipeline_state->descriptor);
+            renderer->destroy_pipeline_state(it);
+            renderer->create_pipeline_state(it, pipeline_state->descriptor);
         }
     }
 }
 
-Scene_Node* add_child_scene_node(Renderer_State *renderer_state, Scene_Node *parent)
+Scene_Node* add_child_scene_node(Scene_Node *parent)
 {
     HE_ASSERT(renderer_state->scene_node_count < HE_MAX_SCENE_NODE_COUNT);
     HE_ASSERT(parent);
@@ -688,7 +805,35 @@ struct Load_Texture_Job_Data
     Texture_Handle texture_handle;
 };
 
-static bool create_texture(Texture_Handle texture_handle, void *pixels, U32 texture_width, U32 texture_height, Renderer *renderer, Renderer_State *renderer_state)
+Texture_Handle find_texture(const String &name)
+{
+    for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
+    {
+        Texture *texture = &renderer_state->textures.data[it.index];
+        if (texture->name == name)
+        {
+            return it;
+        }
+    }
+
+    return Resource_Pool< Texture >::invalid_handle;
+}
+
+Material_Handle find_material(U64 hash)
+{
+    for (auto it = iterator(&renderer_state->materials); next(&renderer_state->materials, it);)
+    {
+        Material *material = &renderer_state->materials.data[it.index];
+        if (material->hash == hash)
+        {
+            return it;
+        }
+    }
+
+    return Resource_Pool< Material >::invalid_handle;
+}
+
+static bool create_texture(Texture_Handle texture_handle, void *pixels, U32 texture_width, U32 texture_height)
 {
     U64 data_size = texture_width * texture_height * sizeof(U32);
     U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, data_size);
@@ -701,7 +846,7 @@ static bool create_texture(Texture_Handle texture_handle, void *pixels, U32 text
     descriptor.format = Texture_Format::R8G8B8A8_SRGB;
     descriptor.mipmapping = true;
     descriptor.sample_count = 1;
-
+    
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     bool texture_created = renderer->create_texture(texture_handle, descriptor);
     HE_ASSERT(texture_created);
@@ -724,14 +869,14 @@ static Job_Result load_texture_job(const Job_Parameters &params)
     stbi_uc *pixels = stbi_load(path.data, &texture_width, &texture_height, &texture_channels, STBI_rgb_alpha);
     HE_ASSERT(pixels);
 
-    bool texture_created = create_texture(job_data->texture_handle, pixels, texture_width, texture_height, renderer, renderer_state);
+    bool texture_created = create_texture(job_data->texture_handle, pixels, texture_width, texture_height);
     HE_ASSERT(texture_created);
     stbi_image_free(pixels);
 
     return Job_Result::SUCCEEDED;
 }
 
-static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path, Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena)
+static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path, Memory_Arena *arena)
 {
     Temprary_Memory_Arena temprary_arena;
     begin_temprary_memory_arena(&temprary_arena, arena);
@@ -773,7 +918,7 @@ static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const
         texture_path = format_string(temprary_arena.arena, "%.*s/%.*s%s", HE_EXPAND_STRING(model_path), HE_EXPAND_STRING(texture_name), HE_EXPAND_STRING(extension_to_append));
     }
 
-    Texture_Handle found_texture_handle = find_texture(renderer_state, texture_path);
+    Texture_Handle found_texture_handle = find_texture(texture_path);
     if (!is_valid_handle(&renderer_state->textures, found_texture_handle))
     {
         texture_handle = aquire_handle(&renderer_state->textures);
@@ -808,7 +953,7 @@ static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const
             pixels = stbi_load_from_memory(image_data, u64_to_u32(view->size), &texture_width, &texture_height, &texture_channels, STBI_rgb_alpha);
 
             HE_ASSERT(pixels);
-            bool texture_created = create_texture(texture_handle, pixels, texture_width, texture_height, renderer, renderer_state);
+            bool texture_created = create_texture(texture_handle, pixels, texture_width, texture_height);
             HE_ASSERT(texture_created);
             stbi_image_free(pixels);
         }
@@ -843,7 +988,7 @@ Job_Result load_model_job(const Job_Parameters &params)
 {
     Temprary_Memory_Arena *tempray_memory_arena = params.temprary_memory_arena;
     Load_Model_Job_Data *data = (Load_Model_Job_Data *)params.data;
-    bool model_loaded = load_model(data->scene_node, data->path, data->renderer, data->renderer_state, tempray_memory_arena->arena);
+    bool model_loaded = load_model(data->scene_node, data->path, tempray_memory_arena->arena);
     if (!model_loaded)
     {
         return Job_Result::FAILED;
@@ -851,9 +996,9 @@ Job_Result load_model_job(const Job_Parameters &params)
     return Job_Result::SUCCEEDED;
 }
 
-Scene_Node* load_model_threaded(const String &path, Renderer *renderer, Renderer_State *renderer_state)
+Scene_Node* load_model_threaded(const String &path)
 {
-    Scene_Node *scene_node = add_child_scene_node(renderer_state, renderer_state->root_scene_node);
+    Scene_Node *scene_node = add_child_scene_node(renderer_state->root_scene_node);
 
     Load_Model_Job_Data data = {};
     data.path = path;
@@ -872,7 +1017,7 @@ Scene_Node* load_model_threaded(const String &path, Renderer *renderer, Renderer
 
 // note(amer): https://github.com/deccer/CMake-Glfw-OpenGL-Template/blob/main/src/Project/ProjectApplication.cpp
 // thanks to this giga chad for the example
-bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *renderer, Renderer_State *renderer_state, Memory_Arena *arena)
+bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *arena)
 {
     Read_Entire_File_Result result = read_entire_file(path.data, &renderer_state->transfer_allocator); // @Leak
 
@@ -914,16 +1059,14 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         material_descriptor.pipeline_state_handle = renderer_state->mesh_pipeline;
 
         platform_lock_mutex(&renderer_state->render_commands_mutex);
-        Material_Handle material_handle = create_material(renderer_state, renderer, material_descriptor);
+        Material_Handle material_handle = renderer_create_material(material_descriptor);
         platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
         Material *renderer_material = get(&renderer_state->materials, material_handle);
 
         if (material->name)
         {
-            renderer_material->name = copy_string(material->name,
-                                                  string_length(material->name),
-                                                  &renderer_state->engine->memory.free_list_allocator);
+            renderer_material->name = copy_string(material->name, string_length(material->name), &renderer_state->engine->memory.free_list_allocator);
         }
         renderer_material->hash = material_hash;
 
@@ -935,10 +1078,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
         {
             if (material->pbr_metallic_roughness.base_color_texture.texture)
             {
-                albedo = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture,
-                                            model_path,
-                                            renderer,
-                                            renderer_state, arena);
+                albedo = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture, model_path, arena);
             }
             else
             {
@@ -947,10 +1087,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
 
             if (material->pbr_metallic_roughness.metallic_roughness_texture.texture)
             {
-                metallic_roughness = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture,
-                                                        model_path,
-                                                        renderer,
-                                                        renderer_state, arena);
+                metallic_roughness = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture, model_path, arena);
             }
             else
             {
@@ -960,10 +1097,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
 
         if (material->normal_texture.texture)
         {
-            normal = cgltf_load_texture(&material->normal_texture,
-                                        model_path,
-                                        renderer,
-                                        renderer_state, arena);
+            normal = cgltf_load_texture(&material->normal_texture, model_path, arena);
         }
         else
         {
@@ -1025,7 +1159,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
 
     for (U32 node_index = 0; node_index < model_data->nodes_count; node_index++)
     {
-        push(&nodes, { &model_data->nodes[node_index], add_child_scene_node(renderer_state, root_scene_node) });
+        push(&nodes, { &model_data->nodes[node_index], add_child_scene_node(root_scene_node) });
     }
 
     while (true)
@@ -1059,7 +1193,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
                 cgltf_material *material = primitive->material;
 
                 U64 material_hash = (U64)material;
-                Material_Handle material_handle = find_material(renderer_state, material_hash);
+                Material_Handle material_handle = find_material(material_hash);
 
                 Static_Mesh_Handle static_mesh_handle = aquire_handle(&renderer_state->static_meshes);
                 Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
@@ -1155,11 +1289,9 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
             }
         }
 
-        for (U32 child_node_index = 0;
-            child_node_index < node->children_count;
-            child_node_index++)
+        for (U32 child_node_index = 0; child_node_index < node->children_count; child_node_index++)
         {
-            push(&nodes, { node->children[child_node_index], add_child_scene_node(renderer_state, scene_node) });
+            push(&nodes, { node->children[child_node_index], add_child_scene_node(scene_node) });
         }
     }
 
@@ -1168,7 +1300,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Renderer *rende
     return true;
 }
 
-void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene_Node *scene_node, const glm::mat4 &parent_transform)
+void render_scene_node(Scene_Node *scene_node, const glm::mat4 &parent_transform)
 {
     glm::mat4 transform = parent_transform * scene_node->transform;
 
@@ -1190,19 +1322,24 @@ void render_scene_node(Renderer *renderer, Renderer_State *renderer_state, Scene
 
         Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle);
 
+        Bind_Group_Handle material_bind_groups[] =
+        {
+            material->bind_groups[renderer_state->current_frame_in_flight_index]
+        };
+
         renderer->set_pipeline_state(material->pipeline_state_handle);
-        renderer->set_bind_groups(2, &material->bind_groups[renderer_state->current_frame_in_flight_index], 1);
+        renderer->set_bind_groups(2, to_array_view(material_bind_groups));
 
         renderer->draw_static_mesh(static_mesh_handle, object_data_index);
     }
 
     for (Scene_Node *node = scene_node->first_child; node; node = node->next_sibling)
     {
-        render_scene_node(renderer, renderer_state, node, transform);
+        render_scene_node(node, transform);
     }
 }
 
-Material_Handle create_material(Renderer_State *renderer_state, Renderer *renderer, const Material_Descriptor &descriptor)
+Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 {
     Material_Handle material_handle = aquire_handle(&renderer_state->materials);
     Material *material = get(&renderer_state->materials, material_handle);
@@ -1233,32 +1370,27 @@ Material_Handle create_material(Renderer_State *renderer_state, Renderer *render
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
-        material->buffers[frame_index] = aquire_handle(&renderer_state->buffers);
-
-        Buffer_Descriptor buffer_descriptor = {};
-        buffer_descriptor.usage = Buffer_Usage::UNIFORM;
-        buffer_descriptor.size = size;
-        buffer_descriptor.is_device_local = false;
-
-        renderer->create_buffer(material->buffers[frame_index], buffer_descriptor);
+        Buffer_Descriptor material_buffer_descriptor = {};
+        material_buffer_descriptor.usage = Buffer_Usage::UNIFORM;
+        material_buffer_descriptor.size = size;
+        material_buffer_descriptor.is_device_local = false;
+        material->buffers[frame_index] = renderer_create_buffer(material_buffer_descriptor);
     }
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
-        material->bind_groups[frame_index] = aquire_handle(&renderer_state->bind_groups);
-
         Bind_Group_Descriptor bind_group_descriptor = {};
         bind_group_descriptor.shader_group = pipeline_state->descriptor.shader_group;
         bind_group_descriptor.layout = shader_group->bind_group_layouts[2]; // todo(amer): @Hardcoding
-        renderer->create_bind_group(material->bind_groups[frame_index], bind_group_descriptor);
+        material->bind_groups[frame_index] = renderer_create_bind_group(bind_group_descriptor);
 
-        Update_Binding_Descriptor update_binding_descriptor = {};
-        update_binding_descriptor.binding_number = 0;
-        update_binding_descriptor.element_index = 0;
-        update_binding_descriptor.count = 1;
-        update_binding_descriptor.buffers = &material->buffers[frame_index];
+        Update_Binding_Descriptor update_binding_descriptors[1] = {};
+        update_binding_descriptors[0].binding_number = 0;
+        update_binding_descriptors[0].element_index = 0;
+        update_binding_descriptors[0].count = 1;
+        update_binding_descriptors[0].buffers = &material->buffers[frame_index];
 
-        renderer->update_bind_group(material->bind_groups[frame_index], &update_binding_descriptor, 1);
+        renderer->update_bind_group(material->bind_groups[frame_index], to_array_view(update_binding_descriptors));
     }
 
     material->pipeline_state_handle = descriptor.pipeline_state_handle;
@@ -1269,18 +1401,25 @@ Material_Handle create_material(Renderer_State *renderer_state, Renderer *render
     return material_handle;
 }
 
-void destroy_material(Renderer_State *renderer_state, Renderer *renderer, Material_Handle material_handle)
+Material *renderer_get_material(Material_Handle material_handle)
+{
+    return get(&renderer_state->materials, material_handle);
+}
+
+void renderer_destroy_material(Material_Handle &material_handle)
 {
     Material *material = get(&renderer_state->materials, material_handle);
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
-        renderer->destroy_buffer(material->buffers[frame_index]);
-        renderer->destroy_bind_group(material->bind_groups[frame_index]);
+        renderer_destroy_buffer(material->buffers[frame_index]);
+        renderer_destroy_bind_group(material->bind_groups[frame_index]);
     }
 
     deallocate(&renderer_state->engine->memory.free_list_allocator, material->data);
     release_handle(&renderer_state->materials, material_handle);
+
+    material_handle = Resource_Pool< Material >::invalid_handle;
 }
 
 U8 *get_property(Material *material, const String &name, Shader_Data_Type data_type)
@@ -1297,41 +1436,14 @@ U8 *get_property(Material *material, const String &name, Shader_Data_Type data_t
     return nullptr;
 }
 
-Texture_Handle find_texture(Renderer_State *renderer_state, const String &name)
+glm::vec4 srgb_to_linear(const glm::vec4 &color)
 {
-    for (S32 texture_index = 0; texture_index < (S32)renderer_state->textures.capacity; texture_index++)
-    {
-        if (!renderer_state->textures.is_allocated[texture_index])
-        {
-            continue;
-        }
-
-        Texture *texture = &renderer_state->textures.data[texture_index];
-        if (texture->name == name)
-        {
-            return { texture_index, renderer_state->textures.generations[texture_index] };
-        }
-    }
-
-    return Resource_Pool< Texture >::invalid_handle;
+    return glm::pow(color, glm::vec4(renderer_state->gamma));
 }
 
-Material_Handle find_material(Renderer_State *renderer_state, U64 hash)
+glm::vec4 linear_to_srgb(const glm::vec4 &color)
 {
-    for (S32 material_index = 0; material_index < (S32)renderer_state->materials.capacity; material_index++)
-    {
-        if (!renderer_state->materials.is_allocated[material_index])
-        {
-            continue;
-        }
-
-        Material *material = &renderer_state->materials.data[material_index];
-        if (material->hash == hash)
-        {
-            return { material_index, renderer_state->materials.generations[material_index] };
-        }
-    }
-    return Resource_Pool< Material >::invalid_handle;
+    return glm::pow(color, glm::vec4(1.0f / renderer_state->gamma));
 }
 
 U32 get_size_of_shader_data_type(Shader_Data_Type data_type)
@@ -1368,4 +1480,405 @@ U32 get_size_of_shader_data_type(Shader_Data_Type data_type)
     }
 
     return 0;
+}
+
+void renderer_on_resize(U32 width, U32 height)
+{
+    if (renderer_state) 
+    {
+        renderer_state->back_buffer_width = width;
+        renderer_state->back_buffer_height = height;
+
+        if (renderer)
+        {
+            renderer->on_resize(width, height);
+        }
+    }
+}
+
+glm::vec2 renderer_get_viewport()
+{
+    return { renderer_state->back_buffer_width, renderer_state->back_buffer_height };
+}
+
+Scene_Data *renderer_get_scene_data()
+{
+    return &renderer_state->scene_data;
+}
+
+void renderer_wait_for_gpu_to_finish_all_work()
+{
+    renderer->wait_for_gpu_to_finish_all_work();
+}
+
+//
+// Buffers
+//
+
+Buffer_Handle renderer_create_buffer(const Buffer_Descriptor &descriptor)
+{
+    Buffer_Handle buffer_handle = aquire_handle(&renderer_state->buffers);
+    renderer->create_buffer(buffer_handle, descriptor);
+
+    Buffer *buffer = &renderer_state->buffers.data[buffer_handle.index];
+    buffer->usage = descriptor.usage;
+    buffer->size = descriptor.size;
+
+    return buffer_handle;
+}
+
+Buffer* renderer_get_buffer(Buffer_Handle buffer_handle)
+{
+    return get(&renderer_state->buffers, buffer_handle);
+}
+
+void renderer_destroy_buffer(Buffer_Handle &buffer_handle)
+{
+    renderer->destroy_buffer(buffer_handle);
+    release_handle(&renderer_state->buffers, buffer_handle);
+    buffer_handle = Resource_Pool< Buffer >::invalid_handle;
+}
+
+//
+// Textures
+//
+Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
+{
+    Texture_Handle texture_handle = aquire_handle(&renderer_state->textures);
+    renderer->create_texture(texture_handle, descriptor);
+    return texture_handle;
+}
+
+Texture* renderer_get_texture(Texture_Handle texture_handle)
+{
+    return get(&renderer_state->textures, texture_handle);
+}
+
+void renderer_destroy_texture(Texture_Handle &texture_handle)
+{
+    renderer->destroy_texture(texture_handle);
+    release_handle(&renderer_state->textures, texture_handle);
+    texture_handle = Resource_Pool< Texture >::invalid_handle;
+}
+
+//
+// Samplers
+//
+
+Sampler_Handle renderer_create_sampler(const Sampler_Descriptor &descriptor)
+{
+    Sampler_Handle sampler_handle = aquire_handle(&renderer_state->samplers);
+    renderer->create_sampler(sampler_handle, descriptor);
+    Sampler *sampler = &renderer_state->samplers.data[sampler_handle.index];
+    sampler->descriptor = descriptor;
+    return sampler_handle;
+}
+
+Sampler* renderer_get_sampler(Sampler_Handle sampler_handle)
+{
+    return get(&renderer_state->samplers, sampler_handle);
+}
+
+void renderer_destroy_sampler(Sampler_Handle &sampler_handle)
+{
+    renderer->destroy_sampler(sampler_handle);
+    release_handle(&renderer_state->samplers, sampler_handle);
+    sampler_handle = Resource_Pool< Sampler >::invalid_handle;
+}
+
+//
+// Shaders
+//
+
+Shader_Handle renderer_create_shader(const Shader_Descriptor &descriptor)
+{
+    Shader_Handle shader_handle = aquire_handle(&renderer_state->shaders);
+    renderer->create_shader(shader_handle, descriptor);
+    return shader_handle;
+}
+
+Shader* renderer_get_shader(Shader_Handle shader_handle)
+{
+    return get(&renderer_state->shaders, shader_handle);
+}
+
+void renderer_destroy_shader(Shader_Handle &shader_handle)
+{
+    renderer->destroy_shader(shader_handle);
+    release_handle(&renderer_state->shaders, shader_handle);
+    shader_handle = Resource_Pool< Shader >::invalid_handle;
+}
+
+//
+// Shader Groups
+//
+
+Shader_Group_Handle renderer_create_shader_group(const Shader_Group_Descriptor &descriptor)
+{
+    Shader_Group_Handle shader_group_handle = aquire_handle(&renderer_state->shader_groups);
+    renderer->create_shader_group(shader_group_handle, descriptor);
+    Shader_Group *shader_group = &renderer_state->shader_groups.data[shader_group_handle.index];
+    copy(&shader_group->shaders, &descriptor.shaders);
+    return shader_group_handle;
+}
+
+Shader_Group* renderer_get_shader_group(Shader_Group_Handle shader_group_handle)
+{
+    return get(&renderer_state->shader_groups, shader_group_handle);
+}
+
+void renderer_destroy_shader_group(Shader_Group_Handle &shader_group_handle)
+{
+    renderer->destroy_shader_group(shader_group_handle);
+    release_handle(&renderer_state->shader_groups, shader_group_handle);
+    shader_group_handle = Resource_Pool< Shader_Group >::invalid_handle;
+}
+
+//
+// Bind Group Layouts
+//
+
+Bind_Group_Layout_Handle renderer_create_bind_group_layout(const Bind_Group_Layout_Descriptor &descriptor)
+{
+    Bind_Group_Layout_Handle bind_group_layout_handle = aquire_handle(&renderer_state->bind_group_layouts);
+    renderer->create_bind_group_layout(bind_group_layout_handle, descriptor);
+    Bind_Group_Layout *bind_group_layout = &renderer_state->bind_group_layouts.data[bind_group_layout_handle.index]; 
+    bind_group_layout->descriptor = descriptor;
+    return bind_group_layout_handle;
+}
+
+Bind_Group_Layout* renderer_get_bind_group_layout(Bind_Group_Layout_Handle bind_group_layout_handle)
+{
+    return get(&renderer_state->bind_group_layouts, bind_group_layout_handle);
+}
+
+void renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle &bind_group_layout_handle)
+{
+    renderer->destroy_bind_group_layout(bind_group_layout_handle);
+    release_handle(&renderer_state->bind_group_layouts, bind_group_layout_handle);
+    bind_group_layout_handle = Resource_Pool< Bind_Group_Layout >::invalid_handle;
+}
+
+//
+// Bind Groups
+//
+
+Bind_Group_Handle renderer_create_bind_group(const Bind_Group_Descriptor &descriptor)
+{
+    Bind_Group_Handle bind_group_handle = aquire_handle(&renderer_state->bind_groups);
+    renderer->create_bind_group(bind_group_handle, descriptor);
+    Bind_Group *bind_group = &renderer_state->bind_groups.data[bind_group_handle.index]; 
+    bind_group->descriptor = descriptor;
+    return bind_group_handle;
+}
+
+Bind_Group *renderer_get_bind_group(Bind_Group_Handle bind_group_handle)
+{
+    return get(&renderer_state->bind_groups, bind_group_handle);
+}
+
+void renderer_destroy_bind_group(Bind_Group_Handle &bind_group_handle)
+{
+    renderer->destroy_bind_group(bind_group_handle);
+    release_handle(&renderer_state->bind_groups, bind_group_handle);
+    bind_group_handle = Resource_Pool< Bind_Group >::invalid_handle;
+}
+
+//
+// Pipeline States
+//
+
+Pipeline_State_Handle renderer_create_pipeline_state(const Pipeline_State_Descriptor &descriptor)
+{
+    Pipeline_State_Handle pipeline_state_handle = aquire_handle(&renderer_state->pipeline_states);
+    renderer->create_pipeline_state(pipeline_state_handle, descriptor);
+
+    Pipeline_State *pipeline_state = &renderer_state->pipeline_states.data[pipeline_state_handle.index];
+    pipeline_state->descriptor = descriptor;
+
+    return pipeline_state_handle;
+}
+
+Pipeline_State* renderer_get_pipeline_state(Pipeline_State_Handle pipeline_state_handle)
+{
+    return get(&renderer_state->pipeline_states, pipeline_state_handle);
+}
+
+void renderer_destroy_pipeline_state(Pipeline_State_Handle &pipeline_state_handle)
+{
+    renderer->destroy_pipeline_state(pipeline_state_handle);
+    release_handle(&renderer_state->pipeline_states, pipeline_state_handle);
+    pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
+}
+
+//
+// Render Passes
+//
+
+Render_Pass_Handle renderer_create_render_pass(const Render_Pass_Descriptor &descriptor)
+{
+    Render_Pass_Handle render_pass_handle = aquire_handle(&renderer_state->render_passes);
+    renderer->create_render_pass(render_pass_handle, descriptor);
+    return render_pass_handle;
+}
+
+Render_Pass *renderer_get_render_pass(Render_Pass_Handle render_pass_handle)
+{
+    return get(&renderer_state->render_passes, render_pass_handle);
+}
+
+void renderer_destroy_render_pass(Render_Pass_Handle &render_pass_handle)
+{
+    renderer->destroy_render_pass(render_pass_handle);
+    release_handle(&renderer_state->render_passes, render_pass_handle);
+    render_pass_handle = Resource_Pool< Render_Pass >::invalid_handle; 
+}
+
+//
+// Frame Buffers
+//
+
+Frame_Buffer_Handle renderer_create_frame_buffer(const Frame_Buffer_Descriptor &descriptor)
+{
+    Frame_Buffer_Handle frame_buffer_handle = aquire_handle(&renderer_state->frame_buffers);
+    renderer->create_frame_buffer(frame_buffer_handle, descriptor);
+    return frame_buffer_handle;
+}
+
+Frame_Buffer *renderer_get_frame_buffer(Frame_Buffer_Handle frame_buffer_handle)
+{
+    return get(&renderer_state->frame_buffers, frame_buffer_handle);
+}
+
+void renderer_destroy_frame_buffer(Frame_Buffer_Handle &frame_buffer_handle)
+{
+    renderer->destroy_frame_buffer(frame_buffer_handle);
+    release_handle(&renderer_state->frame_buffers, frame_buffer_handle);
+    frame_buffer_handle = Resource_Pool< Frame_Buffer >::invalid_handle;
+}
+
+Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &descriptor)
+{
+    Static_Mesh_Handle static_mesh_handle = aquire_handle(&renderer_state->static_meshes);
+    renderer->create_static_mesh(static_mesh_handle, descriptor);
+    return static_mesh_handle;
+}
+
+Static_Mesh *renderer_get_static_mesh(Static_Mesh_Handle static_mesh_handle)
+{
+    return get(&renderer_state->static_meshes, static_mesh_handle);
+}
+
+void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle)
+{
+    renderer->destroy_static_mesh(static_mesh_handle);
+    release_handle(&renderer_state->static_meshes, static_mesh_handle);
+    static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
+}
+
+void init_imgui(Engine *engine)
+{
+    renderer_state->imgui_docking = false;
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+
+    ImGuiIO &io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad; // Enable Gamepad Controls
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; // Enable Docking
+    // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable Multi-Viewport / Platform Windows
+
+    // Setup Dear ImGui style
+    ImGui::StyleColorsDark();
+    //ImGui::StyleColorsClassic();
+
+    // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
+    ImGuiStyle& style = ImGui::GetStyle();
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    {
+        style.WindowRounding = 0.0f;
+        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
+
+    platform_init_imgui(engine);
+}
+
+void imgui_new_frame()
+{
+    platform_imgui_new_frame();
+    renderer->imgui_new_frame();
+    ImGui::NewFrame();
+
+    if (renderer_state->engine->show_imgui)
+    {
+        if (renderer_state->imgui_docking)
+        {
+            static bool opt_fullscreen_persistant = true;
+            bool opt_fullscreen = opt_fullscreen_persistant;
+            static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+
+            // We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
+            // because it would be confusing to have two docking targets within each others.
+            ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar|ImGuiWindowFlags_NoDocking;
+
+            if (opt_fullscreen)
+            {
+                ImGuiViewport *viewport = ImGui::GetMainViewport();
+                ImGui::SetNextWindowPos(viewport->Pos);
+                ImGui::SetNextWindowSize(viewport->Size);
+                ImGui::SetNextWindowViewport(viewport->ID);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+                window_flags |= ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove;
+                window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus|ImGuiWindowFlags_NoNavFocus;
+            }
+
+            // When using ImGuiDockNodeFlags_PassthruCentralNode, DockSpace() will render our background
+            // and handle the pass-thru hole, so we ask Begin() to not render a background.
+            if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
+            {
+                window_flags |= ImGuiWindowFlags_NoBackground;
+            }
+
+            // Important: note that we proceed even if Begin() returns false (aka window is collapsed).
+            // This is because we want to keep our DockSpace() active. If a DockSpace() is inactive,
+            // all active windows docked into it will lose their parent and become undocked.
+            // We cannot preserve the docking relationship between an active window and an inactive docking, otherwise
+            // any change of dockspace/settings would lead to windows being stuck in limbo and never being visible.
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::Begin("DockSpace", &renderer_state->imgui_docking, window_flags);
+            ImGui::PopStyleVar();
+
+            if (opt_fullscreen)
+            {
+                ImGui::PopStyleVar(2);
+            }
+
+            // DockSpace
+            ImGuiIO &io = ImGui::GetIO();
+
+            ImGuiStyle& style = ImGui::GetStyle();
+            float minWindowSizeX = style.WindowMinSize.x;
+            style.WindowMinSize.x = 280.0f;
+
+            if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+            {
+                ImGuiID dockspace_id = ImGui::GetID("DockSpace");
+                ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+            }
+
+            style.WindowMinSize.x = minWindowSizeX;
+        }
+    }
+}
+
+Renderer *get_renderer()
+{
+    return renderer;
+}
+
+Renderer_State *get_renderer_state()
+{
+    return renderer_state;
 }

@@ -214,11 +214,11 @@ static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR s
     return physical_device;
 }
 
-static bool init_vulkan(Vulkan_Context *context, Engine *engine)
+static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State *renderer_state)
 {
-    context->engine = engine;
     context->allocator = &engine->memory.free_list_allocator;
-
+    context->renderer_state = renderer_state;
+    
     Memory_Arena *arena = &engine->memory.permanent_arena;
     context->arena = create_sub_arena(arena, HE_MEGA(32));
 
@@ -652,9 +652,9 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDestroyInstance(context->instance, nullptr);
 }
 
-bool vulkan_renderer_init(Engine *engine)
+bool vulkan_renderer_init(Engine *engine, Renderer_State *renderer_state)
 {
-    return init_vulkan(&vulkan_context, engine);
+    return init_vulkan(&vulkan_context, engine, renderer_state);
 }
 
 void vulkan_renderer_wait_for_gpu_to_finish_all_work()
@@ -679,20 +679,10 @@ void vulkan_renderer_on_resize(U32 width, U32 height)
 void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
 {
     Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer_State *renderer_state = context->renderer_state;
     U32 current_frame_in_flight_index = renderer_state->current_frame_in_flight_index;
 
     vkWaitForFences(context->logical_device, 1, &context->frame_in_flight_fences[current_frame_in_flight_index], VK_TRUE, UINT64_MAX);
-
-    Globals globals = {};
-    globals.view = scene_data->view;
-    globals.projection = scene_data->projection;
-    globals.projection[1][1] *= -1;
-    globals.directional_light_direction = glm::vec4(scene_data->directional_light.direction, 0.0f);
-    globals.directional_light_color = srgb_to_linear(scene_data->directional_light.color) * scene_data->directional_light.intensity;
-
-    Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[current_frame_in_flight_index]);
-    memcpy(global_uniform_buffer->data, &globals, sizeof(Globals));
 
     U32 width = renderer_state->back_buffer_width;
     U32 height = renderer_state->back_buffer_height;
@@ -727,41 +717,58 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
 
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
 
-    VkViewport viewport = {};
-    viewport.x = 0;
-    viewport.y = 0;
-    viewport.width = (F32)context->swapchain.width;
-    viewport.height = (F32)context->swapchain.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+    Globals globals = {};
+    globals.view = scene_data->view;
+    globals.projection = scene_data->projection;
+    globals.projection[1][1] *= -1;
+    globals.directional_light_direction = glm::vec4(scene_data->directional_light.direction, 0.0f);
+    globals.directional_light_color = srgb_to_linear(scene_data->directional_light.color) * scene_data->directional_light.intensity;
 
-    VkRect2D scissor = {};
-    scissor.offset.x = 0;
-    scissor.offset.y = 0;
-    scissor.extent.width = context->swapchain.width;
-    scissor.extent.height = context->swapchain.height;
-    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+    Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[current_frame_in_flight_index]);
+    memcpy(global_uniform_buffer->data, &globals, sizeof(Globals));
 
     context->command_buffer = command_buffer;
 }
 
-void vulkan_renderer_set_vertex_buffers(Buffer_Handle *vertex_buffer_handles, U64 *offsets, U32 count)
+void vulkan_renderer_set_viewport(U32 width, U32 height)
 {
     Vulkan_Context *context = &vulkan_context;
 
-    U32 current_frame_in_flight_index = context->engine->renderer_state.current_frame_in_flight_index;
+    VkViewport viewport = {};
+    viewport.x = 0;
+    viewport.y = 0;
+    viewport.width = (F32)width;
+    viewport.height = (F32)height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(context->command_buffer, 0, 1, &viewport);
+
+    VkRect2D scissor = {};
+    scissor.offset.x = 0;
+    scissor.offset.y = 0;
+    scissor.extent.width = width;
+    scissor.extent.height = height;
+    vkCmdSetScissor(context->command_buffer, 0, 1, &scissor);
+}
+
+void vulkan_renderer_set_vertex_buffers(const Array_View< Buffer_Handle > &vertex_buffer_handles, const Array_View< U64 > &offsets)
+{
+    HE_ASSERT(vertex_buffer_handles.count == offsets.count);
+    
+    Vulkan_Context *context = &vulkan_context;
+
+    U32 current_frame_in_flight_index = context->renderer_state->current_frame_in_flight_index;
     VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
 
-    VkBuffer *vulkan_vertex_buffers = HE_ALLOCATE_ARRAY(&context->engine->renderer_state.frame_arena, VkBuffer, count);
-    for (U32 vertex_buffer_index = 0; vertex_buffer_index < count; vertex_buffer_index++)
+    VkBuffer *vulkan_vertex_buffers = HE_ALLOCATE_ARRAY(&context->renderer_state->frame_arena, VkBuffer, offsets.count);
+    for (U32 vertex_buffer_index = 0; vertex_buffer_index < offsets.count; vertex_buffer_index++)
     {
         Buffer_Handle vertex_buffer_handle = vertex_buffer_handles[vertex_buffer_index];
         Vulkan_Buffer *vulkan_vertex_buffer = &context->buffers[vertex_buffer_handle.index];
         vulkan_vertex_buffers[vertex_buffer_index] = vulkan_vertex_buffer->handle;
     }
 
-    vkCmdBindVertexBuffers(command_buffer, 0, count, vulkan_vertex_buffers, offsets);
+    vkCmdBindVertexBuffers(command_buffer, 0, offsets.count, vulkan_vertex_buffers, offsets.data);
 }
 
 void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 offset)
@@ -774,7 +781,7 @@ void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 off
 void vulkan_renderer_set_pipeline_state(Pipeline_State_Handle pipeline_state_handle)
 {
     Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer_State *renderer_state = context->renderer_state;
 
     Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[pipeline_state_handle.index];
     vkCmdBindPipeline(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_pipeline_state->handle);
@@ -783,7 +790,7 @@ void vulkan_renderer_set_pipeline_state(Pipeline_State_Handle pipeline_state_han
 void vulkan_renderer_draw_static_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance)
 {
     Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer_State *renderer_state = context->renderer_state;
     Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
     Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
 
@@ -797,7 +804,7 @@ void vulkan_renderer_draw_static_mesh(Static_Mesh_Handle static_mesh_handle, U32
 void vulkan_renderer_end_frame()
 {
     Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer_State *renderer_state = context->renderer_state;
 
     Texture_Handle color_attachment_handle = Resource_Pool< Texture >::invalid_handle;
 
@@ -811,8 +818,7 @@ void vulkan_renderer_end_frame()
     }
 
     HE_ASSERT(is_valid_handle(&renderer_state->textures, color_attachment_handle));
-
-    Vulkan_Image *color_attachment = &context->textures[color_attachment_handle.index];
+    
     VkImage swapchain_image = context->swapchain.images[context->current_swapchain_image_index];
 
     VkImageCopy region = {};
@@ -833,9 +839,21 @@ void vulkan_renderer_end_frame()
 
     transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    // todo(amer): not optimal...
-    transtion_image_to_layout(context->command_buffer, color_attachment->handle, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    Vulkan_Image *color_attachment = nullptr;
 
+#if HE_RENDER_GRAPH
+    // todo(amer): make the final pass / final image to be copied to the swapchain image in the definition of the graph
+    S32 index = find(&renderer_state->render_graph.resource_cache, HE_STRING_LITERAL("rt0"));
+    HE_ASSERT(index != -1);
+    Render_Graph_Resource_Handle resource_handle = renderer_state->render_graph.resource_cache.values[index];
+    Texture_Handle rt0 = renderer_state->render_graph.resources[resource_handle].info.texture.handles[renderer_state->current_frame_in_flight_index];
+    color_attachment = &context->textures[rt0.index];
+#else
+    // todo(amer): not optimal...
+    color_attachment = &context->textures[color_attachment_handle.index];
+#endif
+    
+    transtion_image_to_layout(context->command_buffer, color_attachment->handle, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     vkCmdCopyImage(context->command_buffer, color_attachment->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
@@ -933,7 +951,7 @@ static bool is_color_format(Texture_Format format)
 bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer_State *renderer_state = context->renderer_state;
     Texture *texture = get(&renderer_state->textures, texture_handle);
     Vulkan_Image *image = &context->textures[texture_handle.index];
 
@@ -1041,7 +1059,7 @@ static VkSamplerMipmapMode get_mipmap_mode(Filter filter)
 bool vulkan_renderer_create_sampler(Sampler_Handle sampler_handle, const Sampler_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Sampler *sampler = get(&context->engine->renderer_state.samplers, sampler_handle);
+    Sampler *sampler = get(&context->renderer_state->samplers, sampler_handle);
     Vulkan_Sampler *vulkan_sampler = &context->samplers[sampler_handle.index];
 
     VkSamplerCreateInfo sampler_create_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
@@ -1074,7 +1092,7 @@ bool vulkan_renderer_create_sampler(Sampler_Handle sampler_handle, const Sampler
 void vulkan_renderer_destroy_sampler(Sampler_Handle sampler_handle)
 {
     Vulkan_Context *context = &vulkan_context;
-    Sampler *sampler = get(&context->engine->renderer_state.samplers, sampler_handle);
+    Sampler *sampler = get(&context->renderer_state->samplers, sampler_handle);
     Vulkan_Sampler *vulkan_sampler = &context->samplers[sampler_handle.index];
     vkDestroySampler(context->logical_device, vulkan_sampler->handle, nullptr);
 }
@@ -1109,7 +1127,7 @@ static void combine_stage_flags_or_add_binding_if_not_found(Dynamic_Array< Bindi
 bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle, const Shader_Group_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer_State *renderer_state = context->renderer_state;
 
     Temprary_Memory_Arena temprary_arena = {};
     begin_temprary_memory_arena(&temprary_arena, &context->arena);
@@ -1180,7 +1198,7 @@ bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle
 
     HE_CHECK_VKRESULT(vkCreatePipelineLayout(context->logical_device, &pipeline_layout_create_info, nullptr, &vulkan_shader_group->pipeline_layout));
 
-    copy(shader_group->shaders, descriptor.shaders);
+    copy(&shader_group->shaders, &descriptor.shaders);
     return true;
 }
 
@@ -1240,7 +1258,7 @@ bool vulkan_renderer_create_bind_group_layout(Bind_Group_Layout_Handle bind_grou
 {
     Vulkan_Context *context = &vulkan_context;
 
-    Bind_Group_Layout *bind_group_layout = get(&context->engine->renderer_state.bind_group_layouts, bind_group_layout_handle);
+    Bind_Group_Layout *bind_group_layout = get(&context->renderer_state->bind_group_layouts, bind_group_layout_handle);
     Vulkan_Bind_Group_Layout *vulkan_bind_group_layout = &context->bind_group_layouts[bind_group_layout_handle.index];
 
     Temprary_Memory_Arena temprary_arena = {};
@@ -1287,7 +1305,7 @@ void vulkan_renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle bind_gro
 bool vulkan_renderer_create_bind_group(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Bind_Group *bind_group = get(&context->engine->renderer_state.bind_groups, bind_group_handle);
+    Bind_Group *bind_group = get(&context->renderer_state->bind_groups, bind_group_handle);
     Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[bind_group_handle.index];
     Vulkan_Bind_Group_Layout *vulkan_bind_group_layout = &context->bind_group_layouts[descriptor.layout.index];
 
@@ -1301,7 +1319,7 @@ bool vulkan_renderer_create_bind_group(Bind_Group_Handle bind_group_handle, cons
     return true;
 }
 
-void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Update_Binding_Descriptor *update_binding_descriptors, U32 update_binding_descriptor_count)
+void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors)
 {
     Vulkan_Context *context = &vulkan_context;
 
@@ -1311,9 +1329,9 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
 
     Vulkan_Bind_Group *bind_group = &context->bind_groups[bind_group_handle.index];
 
-    VkWriteDescriptorSet *write_descriptor_sets = HE_ALLOCATE_ARRAY(&temprary_arena, VkWriteDescriptorSet, update_binding_descriptor_count);
+    VkWriteDescriptorSet *write_descriptor_sets = HE_ALLOCATE_ARRAY(&temprary_arena, VkWriteDescriptorSet, update_binding_descriptors.count);
 
-    for (U32 binding_index = 0; binding_index < update_binding_descriptor_count; binding_index++)
+    for (U32 binding_index = 0; binding_index < update_binding_descriptors.count; binding_index++)
     {
         const Update_Binding_Descriptor *binding = &update_binding_descriptors[binding_index];
 
@@ -1328,7 +1346,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
         if (binding->buffers)
         {
             {
-                Buffer *buffer = get(&context->engine->renderer_state.buffers, binding->buffers[0]);
+                Buffer *buffer = get(&context->renderer_state->buffers, binding->buffers[0]);
                 write_descriptor_set->descriptorType = get_descriptor_type(buffer->usage);
             }
 
@@ -1336,7 +1354,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
 
             for (U32 buffer_index = 0; buffer_index < binding->count; buffer_index++)
             {
-                Buffer *buffer = get(&context->engine->renderer_state.buffers, binding->buffers[0]);
+                Buffer *buffer = get(&context->renderer_state->buffers, binding->buffers[0]);
                 Vulkan_Buffer *vulkan_buffer = &context->buffers[ binding->buffers[buffer_index].index ];
 
                 VkDescriptorBufferInfo *buffer_info = &buffer_infos[buffer_index];
@@ -1367,25 +1385,25 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
         }
     }
 
-    vkUpdateDescriptorSets(context->logical_device, update_binding_descriptor_count, write_descriptor_sets, 0, nullptr);
+    vkUpdateDescriptorSets(context->logical_device, update_binding_descriptors.count, write_descriptor_sets, 0, nullptr);
 }
 
-void vulkan_renderer_set_bind_groups(U32 first_bind_group, Bind_Group_Handle *bind_group_handles, U32 count)
+void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bind_Group_Handle > &bind_group_handles)
 {
     Vulkan_Context *context = &vulkan_context;
 
-    Bind_Group *bind_group = get(&context->engine->renderer_state.bind_groups, bind_group_handles[0]);
+    Bind_Group *bind_group = get(&context->renderer_state->bind_groups, bind_group_handles[0]);
 
     Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[ bind_group->descriptor.shader_group.index ];
 
-    VkDescriptorSet *descriptor_sets = HE_ALLOCATE_ARRAY(&context->engine->renderer_state.frame_arena, VkDescriptorSet, count);
-    for (U32 bind_group_index = 0; bind_group_index < count; bind_group_index++)
+    VkDescriptorSet *descriptor_sets = HE_ALLOCATE_ARRAY(&context->renderer_state->frame_arena, VkDescriptorSet, bind_group_handles.count);
+    for (U32 bind_group_index = 0; bind_group_index < bind_group_handles.count; bind_group_index++)
     {
         Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[ bind_group_handles[ bind_group_index ].index ];
         descriptor_sets[bind_group_index] = vulkan_bind_group->handle;
     }
 
-    vkCmdBindDescriptorSets(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_shader_group->pipeline_layout, first_bind_group, count, descriptor_sets, 0, nullptr);
+    vkCmdBindDescriptorSets(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_shader_group->pipeline_layout, first_bind_group, bind_group_handles.count, descriptor_sets, 0, nullptr);
 }
 
 void vulkan_renderer_destroy_bind_group(Bind_Group_Handle bind_group_handle)
@@ -1403,12 +1421,12 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     begin_temprary_memory_arena(&temprary_arena, &context->arena);
     HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
 
-    Render_Pass *render_pass = get(&context->engine->renderer_state.render_passes, render_pass_handle);
+    Render_Pass *render_pass = get(&context->renderer_state->render_passes, render_pass_handle);
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
 
     if (render_pass->color_attachments.count)
     {
-        copy(render_pass->color_attachments, descriptor.color_attachments);
+        copy(&render_pass->color_attachments, &descriptor.color_attachments);
     }
     else
     {
@@ -1417,7 +1435,7 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
 
     if (descriptor.resolve_attachments.count)
     {
-        copy(render_pass->resolve_attachments, descriptor.resolve_attachments);
+        copy(&render_pass->resolve_attachments, &descriptor.resolve_attachments);
     }
     else
     {
@@ -1426,7 +1444,7 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
 
     if (descriptor.depth_stencil_attachments.count)
     {
-        copy(render_pass->depth_stencil_attachments, descriptor.depth_stencil_attachments);
+        copy(&render_pass->depth_stencil_attachments, &descriptor.depth_stencil_attachments);
     }
     else
     {
@@ -1602,22 +1620,21 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     return true;
 }
 
-void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Frame_Buffer_Handle frame_buffer_handle, Clear_Value *clear_values, U32 clear_value_count)
+void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Frame_Buffer_Handle frame_buffer_handle, const Array_View< Clear_Value > &clear_values)
 {
     Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer_State *renderer_state = context->renderer_state;
 
     Frame_Buffer *frame_buffer = get(&renderer_state->frame_buffers, frame_buffer_handle);
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
-    HE_ASSERT(frame_buffer->attachments.count == clear_value_count);
+    HE_ASSERT(frame_buffer->attachments.count == clear_values.count);
 
     Texture *attachment = get(&renderer_state->textures, frame_buffer->attachments[0]);
-    renderer_state->current_render_pass_sample_count = attachment->sample_count;
+    
+    VkClearValue *vulkan_clear_values = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, VkClearValue, clear_values.count);
 
-    VkClearValue *vulkan_clear_values = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, VkClearValue, clear_value_count);
-
-    for (U32 clear_value_index = 0; clear_value_index < clear_value_count; clear_value_index++)
+    for (U32 clear_value_index = 0; clear_value_index < clear_values.count; clear_value_index++)
     {
         Texture_Handle texture_handle = frame_buffer->attachments[clear_value_index];
         Texture *texture = get(&renderer_state->textures, texture_handle);
@@ -1647,7 +1664,7 @@ void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Fr
     render_pass_begin_info.framebuffer = vulkan_frame_buffer->handle;
     render_pass_begin_info.renderArea.offset = { 0, 0 };
     render_pass_begin_info.renderArea.extent = { context->swapchain.width, context->swapchain.height };
-    render_pass_begin_info.clearValueCount = clear_value_count;
+    render_pass_begin_info.clearValueCount = clear_values.count;
     render_pass_begin_info.pClearValues = vulkan_clear_values;
 
     vkCmdBeginRenderPass(context->command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
@@ -1669,8 +1686,8 @@ void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle)
 bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Frame_Buffer *frame_buffer = get(&context->engine->renderer_state.frame_buffers, frame_buffer_handle);
-    copy(frame_buffer->attachments, descriptor.attachments);
+    Frame_Buffer *frame_buffer = get(&context->renderer_state->frame_buffers, frame_buffer_handle);
+    copy(&frame_buffer->attachments, &descriptor.attachments);
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
 
     Temprary_Memory_Arena temprary_arena = {};
@@ -1705,7 +1722,7 @@ bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle
 void vulkan_renderer_destroy_frame_buffer(Frame_Buffer_Handle frame_buffer_handle)
 {
     Vulkan_Context *context = &vulkan_context;
-    Frame_Buffer *frame_buffer = get(&context->engine->renderer_state.frame_buffers, frame_buffer_handle);
+    Frame_Buffer *frame_buffer = get(&context->renderer_state->frame_buffers, frame_buffer_handle);
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
     vkDestroyFramebuffer(context->logical_device, vulkan_frame_buffer->handle, nullptr);
 }
@@ -1734,7 +1751,7 @@ bool vulkan_renderer_create_buffer(Buffer_Handle buffer_handle, const Buffer_Des
     HE_ASSERT(descriptor.size);
     Vulkan_Context *context = &vulkan_context;
 
-    Buffer *buffer = get(&context->engine->renderer_state.buffers, buffer_handle);
+    Buffer *buffer = get(&context->renderer_state->buffers, buffer_handle);
     Vulkan_Buffer *vulkan_buffer = &context->buffers[buffer_handle.index];
 
     VkBufferUsageFlags usage = get_buffer_usage(descriptor.usage);
@@ -1794,7 +1811,7 @@ void vulkan_renderer_destroy_buffer(Buffer_Handle buffer_handle)
 bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer_State *renderer_state = context->renderer_state;
     Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
 
     U64 position_size = descriptor.vertex_count * sizeof(glm::vec3);
@@ -1931,7 +1948,7 @@ bool vulkan_renderer_init_imgui()
     init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     init_info.PipelineCache = context->pipeline_cache;
 
-    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer_State *renderer_state = context->renderer_state;
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[ renderer_state->ui_render_pass.index ];
     ImGui_ImplVulkan_Init(&init_info, vulkan_render_pass->handle);
 
@@ -1965,12 +1982,12 @@ void vulkan_renderer_imgui_new_frame()
 void vulkan_renderer_imgui_render()
 {
     Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer_State *renderer_state = context->renderer_state;
 
     ImGuiIO &io = ImGui::GetIO();
     io.DisplaySize = ImVec2((F32)(renderer_state->back_buffer_width), (F32)(renderer_state->back_buffer_height));
 
-    if (renderer_state->engine->imgui_docking)
+    if (renderer_state->imgui_docking)
     {
         ImGui::End();
     }

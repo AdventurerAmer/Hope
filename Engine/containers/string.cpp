@@ -84,6 +84,23 @@ S64 find_first_char_from_right(const String &str, const char *chars)
     return -1;
 }
 
+String copy_string(const char *str, U64 count, Allocator allocator)
+{
+    if (!count)
+    {
+        return HE_STRING_LITERAL("");
+    }
+    char *data = nullptr;
+    std::visit([&](auto &&allocator)
+    {
+        data = HE_ALLOCATE_ARRAY(allocator, char, count + 1);
+    }, allocator);
+    
+    copy_memory(data, str, count);
+    data[count] = 0;
+    return { data, count };
+}
+
 String sub_string(const String &str, U64 index)
 {
     HE_ASSERT(index < str.count);

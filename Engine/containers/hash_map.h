@@ -22,11 +22,11 @@ struct Hash_Map
     U32 capacity;
     U32 count;
 
-    Allocator *allocator;
+    Allocator allocator;
 };
 
-template< typename Key_Type, typename Value_Type, typename Allocator >
-void init(Hash_Map< Key_Type, Value_Type > *hash_map, Allocator *allocator, U32 capacity)
+template< typename Key_Type, typename Value_Type >
+void init(Hash_Map< Key_Type, Value_Type > *hash_map, Allocator allocator, U32 capacity)
 {
     HE_ASSERT(hash_map);
     HE_ASSERT(capacity);
@@ -44,7 +44,13 @@ void init(Hash_Map< Key_Type, Value_Type > *hash_map, Allocator *allocator, U32 
     }
 
     Size total_size = (sizeof(Slot_State) + sizeof(Key_Type) + sizeof(Value_Type)) * capacity;
-    U8 *memory = HE_ALLOCATE_ARRAY(allocator, U8, total_size);
+    U8 *memory = nullptr; 
+    
+    std::visit([&](auto &&allocator)
+    {
+        memory = HE_ALLOCATE_ARRAY(allocator, U8, total_size);
+    }, allocator);
+
     hash_map->memory = memory;
     hash_map->states = (Slot_State*)memory;
     zero_memory(hash_map->states, sizeof(Slot_State) * capacity);
@@ -65,7 +71,7 @@ void deinit(Hash_Map< Key_Type, Value_Type > *hash_map)
 }
 
 template< typename Key_Type, typename Value_Type >
-S32 find(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, U32 *out_insert_index)
+S32 find(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, S32 *out_insert_index = nullptr)
 {
     HE_ASSERT(hash_map);
 
@@ -115,6 +121,7 @@ S32 find(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, U32 *o
 template< typename Key_Type, typename Value_Type >
 void insert(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, const Value_Type &value)
 {
+    HE_ASSERT(hash_map);
     HE_ASSERT(hash_map->count < hash_map->capacity);
 
     S32 insert_index = -1;

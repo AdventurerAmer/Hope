@@ -126,7 +126,7 @@ struct Vulkan_Static_Mesh
 
 struct Vulkan_Context
 {
-    struct Engine *engine;
+    struct Renderer_State *renderer_state;
 
     Memory_Arena arena;
     Free_List_Allocator *allocator;

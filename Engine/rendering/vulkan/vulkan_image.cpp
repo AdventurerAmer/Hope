@@ -182,7 +182,7 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context, Vulkan_Image *image
     region.imageOffset = { 0, 0, 0 };
     region.imageExtent = { width, height, 1 };
 
-    Renderer_State *renderer_state = &context->engine->renderer_state;
+    Renderer_State *renderer_state = context->renderer_state;
     Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
     vkCmdCopyBufferToImage(command_buffer, transfer_buffer->handle, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 

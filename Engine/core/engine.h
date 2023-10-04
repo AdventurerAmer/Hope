@@ -35,30 +35,23 @@ struct Game_Code
 
 struct Engine_API
 {
-    void (*init_camera)(Camera *camera, glm::vec3 position,
-                        glm::quat rotation, F32 aspect_ratio,
-                        F32 field_of_view, F32 near_clip, F32 far_clip);
+    void (*init_camera)(Camera *camera, glm::vec3 position, glm::quat rotation, F32 aspect_ratio, F32 field_of_view, F32 near_clip, F32 far_clip);
 
-    void (*init_fps_camera_controller)(FPS_Camera_Controller *camera_controller,
-                                       F32 pitch, F32 yaw, F32 rotation_speed,
-                                       F32 base_movement_speed,
-                                       F32 max_movement_speed,
-                                       F32 sensitivity_x,
-                                       F32 sensitivity_y);
+    void (*init_fps_camera_controller)(FPS_Camera_Controller *camera_controller, F32 pitch, F32 yaw, F32 rotation_speed, F32 base_movement_speed, F32 max_movement_speed, F32 sensitivity_x, F32 sensitivity_y);
 
-    void (*control_camera)(FPS_Camera_Controller *camera_controller,
-                           Camera *camera,
-                           const FPS_Camera_Controller_Input input,
-                           F32 delta_time);
+    void (*control_camera)(FPS_Camera_Controller *camera_controller, Camera *camera, const FPS_Camera_Controller_Input input, F32 delta_time);
 
     void (*update_camera)(Camera *camera);
 
-    Scene_Node* (*load_model_threaded)(const String &path, Renderer *renderer, Renderer_State *renderer_state);
+    Scene_Node* (*load_model_threaded)(const String &path);
 
     void* (*allocate_memory)(U64 size);
     void (*deallocate_memory)(void *memory);
     void (*set_window_mode)(Window *window, Window_Mode mode);
     void (*debug_printf)(const char *message);
+
+    glm::vec2 (*get_viewport)();
+    Scene_Data* (*get_scene_data)();
 };
 
 struct Engine
@@ -77,11 +70,8 @@ struct Engine
 
     Input input;
 
-    Renderer_State renderer_state;
-    Renderer renderer;
-
+    // todo(amer): move this to debug state
     bool show_imgui;
-    bool imgui_docking;
 
     /*
         note(amer): this is a platform specific pointer to Win32_Platform_State on windows

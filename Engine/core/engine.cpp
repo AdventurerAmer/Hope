@@ -6,108 +6,9 @@
 #include "job_system.h"
 
 #include <chrono>
-
 #include <imgui.h>
 
 extern Debug_State global_debug_state;
-
-static void init_imgui(Engine *engine)
-{
-    engine->show_imgui = false;
-    engine->imgui_docking = false;
-
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-
-    ImGuiIO &io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad; // Enable Gamepad Controls
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; // Enable Docking
-    // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable Multi-Viewport / Platform Windows
-
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-    //ImGui::StyleColorsClassic();
-
-    // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
-    ImGuiStyle& style = ImGui::GetStyle();
-    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-    {
-        style.WindowRounding = 0.0f;
-        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-    }
-
-    platform_init_imgui(engine);
-}
-
-static void imgui_new_frame(Engine *engine)
-{
-    platform_imgui_new_frame();
-    engine->renderer.imgui_new_frame();
-    ImGui::NewFrame();
-
-    if (engine->show_imgui)
-    {
-        if (engine->imgui_docking)
-        {
-            static bool opt_fullscreen_persistant = true;
-            bool opt_fullscreen = opt_fullscreen_persistant;
-            static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
-
-            // We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
-            // because it would be confusing to have two docking targets within each others.
-            ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar|ImGuiWindowFlags_NoDocking;
-
-            if (opt_fullscreen)
-            {
-                ImGuiViewport *viewport = ImGui::GetMainViewport();
-                ImGui::SetNextWindowPos(viewport->Pos);
-                ImGui::SetNextWindowSize(viewport->Size);
-                ImGui::SetNextWindowViewport(viewport->ID);
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-                window_flags |= ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove;
-                window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus|ImGuiWindowFlags_NoNavFocus;
-            }
-
-            // When using ImGuiDockNodeFlags_PassthruCentralNode, DockSpace() will render our background
-            // and handle the pass-thru hole, so we ask Begin() to not render a background.
-            if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
-            {
-                window_flags |= ImGuiWindowFlags_NoBackground;
-            }
-
-            // Important: note that we proceed even if Begin() returns false (aka window is collapsed).
-            // This is because we want to keep our DockSpace() active. If a DockSpace() is inactive,
-            // all active windows docked into it will lose their parent and become undocked.
-            // We cannot preserve the docking relationship between an active window and an inactive docking, otherwise
-            // any change of dockspace/settings would lead to windows being stuck in limbo and never being visible.
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-            ImGui::Begin("DockSpace", &engine->imgui_docking, window_flags);
-            ImGui::PopStyleVar();
-
-            if (opt_fullscreen)
-            {
-                ImGui::PopStyleVar(2);
-            }
-
-            // DockSpace
-            ImGuiIO &io = ImGui::GetIO();
-
-            ImGuiStyle& style = ImGui::GetStyle();
-            float minWindowSizeX = style.WindowMinSize.x;
-            style.WindowMinSize.x = 280.0f;
-
-            if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
-            {
-                ImGuiID dockspace_id = ImGui::GetID("DockSpace");
-                ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
-            }
-
-            style.WindowMinSize.x = minWindowSizeX;
-        }
-    }
-}
 
 void hock_engine_api(Engine_API *api)
 {
@@ -120,6 +21,8 @@ void hock_engine_api(Engine_API *api)
     api->control_camera = &control_camera;
     api->update_camera = &update_camera;
     api->load_model_threaded = &load_model_threaded;
+    api->get_viewport = &renderer_get_viewport;
+    api->get_scene_data = &renderer_get_scene_data;
 }
 
 bool startup(Engine *engine, void *platform_state)
@@ -163,7 +66,7 @@ bool startup(Engine *engine, void *platform_state)
 #endif
 
     Dynamic_Library game_code_dll = {};
-    bool game_code_loaded = platform_load_dynamic_library(&game_code_dll, "../bin/Game.dll"); // note(amer): hard coding dynamic library extension (.dll)
+    bool game_code_loaded = platform_load_dynamic_library(&game_code_dll, "../bin/Game.dll"); // note(amer): @HardCoding dynamic library extension (.dll)
     HE_ASSERT(game_code_loaded);
 
     Game_Code *game_code = &engine->game_code;
@@ -217,35 +120,19 @@ bool startup(Engine *engine, void *platform_state)
     bool job_system_inited = init_job_system(engine);
     HE_ASSERT(job_system_inited);
 
-    init_imgui(engine);
-
-    Renderer_State *renderer_state = &engine->renderer_state;
-    bool renderer_state_per_inited = pre_init_renderer_state(renderer_state, engine);
+    bool renderer_state_per_inited = pre_init_renderer_state(engine);
     if (!renderer_state_per_inited)
     {
         return false;
     }
 
-    Renderer *renderer = &engine->renderer;
-    bool renderer_requested = request_renderer(RenderingAPI_Vulkan, renderer);
-    if (!renderer_requested)
-    {
-        return false;
-    }
-
-    bool renderer_inited = renderer->init(engine);
-    if (!renderer_inited)
-    {
-        return false;
-    }
-
-    bool renderer_state_inited = init_renderer_state(renderer_state, engine);
+    bool renderer_state_inited = init_renderer_state(engine);
     if (!renderer_state_inited)
     {
         return false;
     }
 
-    Scene_Data *scene_data = &renderer_state->scene_data;
+    Scene_Data *scene_data = renderer_get_scene_data();
     scene_data->directional_light.direction = { 0.0f, -1.0f, 0.0f };
     scene_data->directional_light.color = { 1.0f, 1.0f, 1.0f, 1.0f };
     scene_data->directional_light.intensity = 1.0f;
@@ -254,7 +141,7 @@ bool startup(Engine *engine, void *platform_state)
 
     bool game_initialized = game_code->init_game(engine);
     wait_for_all_jobs_to_finish();
-    renderer->wait_for_gpu_to_finish_all_work();
+    renderer_wait_for_gpu_to_finish_all_work();
 
     auto end = std::chrono::steady_clock::now();
     const std::chrono::duration< double > elapsed_seconds = end - start;
@@ -267,24 +154,15 @@ void on_resize(Engine *engine, U32 window_width, U32 window_height, U32 client_w
     Window *window = &engine->window;
     window->width = window_width;
     window->height = window_height;
-
-    Renderer_State *renderer_state = &engine->renderer_state;
-    renderer_state->back_buffer_width = client_width;
-    renderer_state->back_buffer_height = client_height;
-
-    if (engine->renderer.on_resize)
-    {
-        engine->renderer.on_resize(client_width, client_height);
-    }
+    
+    renderer_on_resize(client_width, client_height);
 }
 
 void game_loop(Engine *engine, F32 delta_time)
 {
-    imgui_new_frame(engine);
+    imgui_new_frame();
 
-    Renderer *renderer = &engine->renderer;
-    Renderer_State *renderer_state = &engine->renderer_state;
-    Scene_Data *scene_data = &renderer_state->scene_data;
+    Scene_Data *scene_data = renderer_get_scene_data();
     Directional_Light *directional_light = &scene_data->directional_light;
 
     ImGui::Begin("Graphics");
@@ -311,6 +189,9 @@ void game_loop(Engine *engine, F32 delta_time)
     ImGui::SameLine();
 
     ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, HE_MAX_F32);
+
+    Renderer *renderer = get_renderer();
+    Renderer_State *renderer_state = get_renderer_state();
 
     //
     // Anisotropic Filtering
@@ -357,7 +238,6 @@ void game_loop(Engine *engine, F32 delta_time)
                     if (renderer_state->anisotropic_filtering != anisotropic_filtering[i])
                     {
                         renderer_state->anisotropic_filtering = anisotropic_filtering[i];
-
                         renderer->wait_for_gpu_to_finish_all_work();
 
                         Sampler_Descriptor default_sampler_descriptor = {};
@@ -391,6 +271,7 @@ void game_loop(Engine *engine, F32 delta_time)
             1,
             2,
             4,
+            8
         };
 
         const char* msaa_text[] =
@@ -398,6 +279,7 @@ void game_loop(Engine *engine, F32 delta_time)
             "NONE",
             "X2  ",
             "X4  ",
+            "X8  "
         };
 
         ImGui::Text("MSAA");
@@ -423,7 +305,7 @@ void game_loop(Engine *engine, F32 delta_time)
                     if (renderer_state->sample_count != msaa[i])
                     {
                         renderer_state->sample_count = msaa[i];
-                        invalidate_render_entities(renderer, renderer_state);
+                        invalidate_render_entities();
                     }
                 }
                 if (is_selected)
@@ -445,18 +327,23 @@ void game_loop(Engine *engine, F32 delta_time)
 
     U32 current_frame_in_flight_index = renderer_state->current_frame_in_flight_index;
 
+    Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[current_frame_in_flight_index]);
+    renderer_state->object_data_base = (Object_Data *)object_data_storage_buffer->data;
+    renderer_state->object_data_count = 0;
+    
+    renderer->begin_frame(scene_data);
+    
+#if HE_RENDER_GRAPH
+    render(&renderer_state->render_graph, renderer, renderer_state);
+#else
     Frame_Buffer *frame_buffer = get(&renderer_state->frame_buffers, renderer_state->world_frame_buffers[current_frame_in_flight_index]);
     if ((frame_buffer->width != renderer_state->back_buffer_width || frame_buffer->height != renderer_state->back_buffer_height)
         && (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0))
     {
-        invalidate_render_entities(renderer, renderer_state);
+        invalidate_render_entities();
     }
 
-    Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[current_frame_in_flight_index]);
-    renderer_state->object_data_base = (Object_Data *)object_data_storage_buffer->data;
-    renderer_state->object_data_count = 0;
-
-    renderer->begin_frame(scene_data);
+    renderer->set_viewport(renderer_state->back_buffer_width, renderer_state->back_buffer_height);
 
     Clear_Value clear_values[3] = {};
     U32 clear_value_count = 3;
@@ -466,6 +353,7 @@ void game_loop(Engine *engine, F32 delta_time)
         clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
         clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
         clear_values[2].depth = 1.0f;
+
     }
     else
     {
@@ -474,7 +362,7 @@ void game_loop(Engine *engine, F32 delta_time)
         clear_values[1].depth = 1.0f;
     }
 
-    renderer->begin_render_pass(renderer_state->world_render_pass, renderer_state->world_frame_buffers[current_frame_in_flight_index], clear_values, clear_value_count);
+    renderer->begin_render_pass(renderer_state->world_render_pass, renderer_state->world_frame_buffers[current_frame_in_flight_index], to_array_view(clear_values));
 
     Buffer_Handle vertex_buffers[] =
     {
@@ -492,34 +380,34 @@ void game_loop(Engine *engine, F32 delta_time)
         0
     };
 
-    renderer->set_vertex_buffers(vertex_buffers, offsets, HE_ARRAYCOUNT(vertex_buffers));
+    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
     renderer->set_index_buffer(renderer_state->index_buffer, 0);
 
     U32 texture_count = renderer_state->textures.capacity;
     Texture_Handle *textures = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Texture_Handle, texture_count);
     Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Sampler_Handle, texture_count);
 
-    for (S32 texture_index = 0; texture_index < (S32)texture_count; texture_index++)
+    for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
     {
-        if (renderer_state->textures.is_allocated[texture_index] && !renderer_state->textures.data[texture_index].is_attachment)
+        if (renderer_state->textures.data[it.index].is_attachment)
         {
-            textures[texture_index] = { texture_index, renderer_state->textures.generations[texture_index] };
+            textures[it.index] = renderer_state->white_pixel_texture;
         }
         else
         {
-            textures[texture_index] = renderer_state->white_pixel_texture;
+            textures[it.index] = it;
         }
 
-        samplers[texture_index] = renderer_state->default_sampler;
+        samplers[it.index] = renderer_state->default_sampler;
     }
 
-    Update_Binding_Descriptor update_textures_binding_descriptor = {};
-    update_textures_binding_descriptor.binding_number = 0;
-    update_textures_binding_descriptor.element_index = 0;
-    update_textures_binding_descriptor.count = texture_count;
-    update_textures_binding_descriptor.textures = textures;
-    update_textures_binding_descriptor.samplers = samplers;
-    renderer->update_bind_group(renderer_state->per_render_pass_bind_groups[current_frame_in_flight_index], &update_textures_binding_descriptor, 1);
+    Update_Binding_Descriptor update_textures_binding_descriptors[1] = {};
+    update_textures_binding_descriptors[0].binding_number = 0;
+    update_textures_binding_descriptors[0].element_index = 0;
+    update_textures_binding_descriptors[0].count = texture_count;
+    update_textures_binding_descriptors[0].textures = textures;
+    update_textures_binding_descriptors[0].samplers = samplers;
+    renderer->update_bind_group(renderer_state->per_render_pass_bind_groups[current_frame_in_flight_index], to_array_view(update_textures_binding_descriptors));
 
     Bind_Group_Handle bind_groups[] =
     {
@@ -527,16 +415,18 @@ void game_loop(Engine *engine, F32 delta_time)
         renderer_state->per_render_pass_bind_groups[current_frame_in_flight_index]
     };
 
-    renderer->set_bind_groups(0, bind_groups, HE_ARRAYCOUNT(bind_groups));
+    renderer->set_bind_groups(0, to_array_view(bind_groups));
 
-    render_scene_node(renderer, renderer_state, renderer_state->root_scene_node, glm::mat4(1.0f));
+    render_scene_node(renderer_state->root_scene_node, glm::mat4(1.0f));
 
     renderer->end_render_pass(renderer_state->world_render_pass);
 
     Clear_Value ui_clear_values[1] = {};
-    renderer->begin_render_pass(renderer_state->ui_render_pass, renderer_state->ui_frame_buffers[current_frame_in_flight_index], ui_clear_values, HE_ARRAYCOUNT(ui_clear_values));
+    renderer->begin_render_pass(renderer_state->ui_render_pass, renderer_state->ui_frame_buffers[current_frame_in_flight_index], to_array_view(ui_clear_values));
     renderer->imgui_render();
     renderer->end_render_pass(renderer_state->ui_render_pass);
+
+#endif
 
     renderer->end_frame();
 
@@ -551,17 +441,9 @@ void game_loop(Engine *engine, F32 delta_time)
 
 void shutdown(Engine *engine)
 {
-    Renderer *renderer = &engine->renderer;
-    Renderer_State *renderer_state = &engine->renderer_state;
-    renderer->wait_for_gpu_to_finish_all_work();
-
-    deinit_renderer_state(renderer, renderer_state);
-    renderer->deinit();
+    deinit_renderer_state();
 
     deinit_job_system();
-
-    platform_shutdown_imgui();
-    ImGui::DestroyContext();
 
 #ifndef HE_SHIPPING
     Logger *logger = &global_debug_state.main_logger;

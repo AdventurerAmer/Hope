@@ -2,7 +2,7 @@
 
 #include "vulkan_types.h"
 
-bool vulkan_renderer_init(struct Engine *engine);
+bool vulkan_renderer_init(struct Engine *engine, struct Renderer_State *renderer_state);
 void vulkan_renderer_deinit();
 
 void vulkan_renderer_wait_for_gpu_to_finish_all_work();
@@ -31,12 +31,12 @@ bool vulkan_renderer_create_bind_group_layout(Bind_Group_Layout_Handle bind_grou
 void vulkan_renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle bind_group_layout_handle);
 
 bool vulkan_renderer_create_bind_group(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor);
-void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Update_Binding_Descriptor *update_binding_descriptors, U32 update_binding_descriptor_count);
-void vulkan_renderer_set_bind_groups(U32 first_bind_group, Bind_Group_Handle *bind_group_handles, U32 count);
+void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors);
+void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bind_Group_Handle > &bind_group_handles);
 void vulkan_renderer_destroy_bind_group(Bind_Group_Handle bind_group_handle);
 
 bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor);
-void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Frame_Buffer_Handle frame_buffer_handle, Clear_Value *clear_values, U32 clear_value_count);
+void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Frame_Buffer_Handle frame_buffer_handle, const Array_View< Clear_Value > &clear_values);
 void vulkan_renderer_end_render_pass(Render_Pass_Handle render_pass_handle);
 void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle);
 
@@ -48,7 +48,9 @@ void vulkan_renderer_destroy_static_mesh(Static_Mesh_Handle static_mesh_handle);
 
 void vulkan_renderer_begin_frame(const struct Scene_Data *scene_data);
 
-void vulkan_renderer_set_vertex_buffers(Buffer_Handle *vertex_buffer_handles, U64 *offsets, U32 count);
+void vulkan_renderer_set_viewport(U32 width, U32 height);
+
+void vulkan_renderer_set_vertex_buffers(const Array_View< Buffer_Handle > &vertex_buffer_handles, const Array_View< U64 > &offsets);
 void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 offset);
 
 void vulkan_renderer_set_pipeline_state(Pipeline_State_Handle pipeline_state_handle);

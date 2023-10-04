@@ -66,11 +66,35 @@ void reset(Array< T, N > *array)
 }
 
 template< typename T, const U32 N >
+HE_FORCE_INLINE T& front(Array< T, N > *array)
+{
+    HE_ASSERT(array);
+    HE_ASSERT(array->count);
+    return array->data[0];
+}
+
+template< typename T, const U32 N >
+HE_FORCE_INLINE T& back(Array< T, N > *array)
+{
+    HE_ASSERT(array);
+    HE_ASSERT(array->count);
+    return array->data[array->count - 1];
+}
+
+template< typename T, const U32 N >
 void append(Array< T, N > *array, const T &datum)
 {
     HE_ASSERT(array);
     HE_ASSERT(array->count < N);
     array->data[array->count++] = datum;
+}
+
+template< typename T, const U32 N >
+T& append(Array< T, N > *array)
+{
+    HE_ASSERT(array);
+    HE_ASSERT(array->count < N);
+    return array->data[array->count++];
 }
 
 template< typename T, const U32 N >
@@ -133,8 +157,55 @@ HE_FORCE_INLINE Size capacity_in_bytes(Array< T, N > *array)
 }
 
 template< typename T, const U32 N >
-void copy(Array< T, N > &dst, const Array< T, N > &src)
+void copy(Array< T, N > *dst, const Array< T, N > *src)
 {
-    dst.count = src.count;
-    copy_memory(dst.data, src.data, size_in_bytes(&src));
+    dst->count = src->count;
+    copy_memory(dst->data, src->data, size_in_bytes(src));
+}
+
+template< typename T, const U32 N >
+HE_FORCE_INLINE bool empty(const Array< T, N > *array)
+{
+    return array->count == 0;
+}
+
+template< typename T, const U32 N >
+HE_FORCE_INLINE bool full(const Array< T, N > *array)
+{
+    return array->count == N;
+}
+
+template< typename T >
+struct Array_View
+{
+    const U32 count;
+    const T *data;
+
+    HE_FORCE_INLINE const T& operator[](U32 index) const
+    {
+        HE_ASSERT(index >= 0 && index < count);
+        return data[index];
+    }
+
+    HE_FORCE_INLINE const T* begin() const
+    {
+        return &data[0];
+    }
+
+    HE_FORCE_INLINE const T* end() const
+    {
+        return &data[count];
+    }
+};
+
+template< typename T, const U32 N >
+HE_FORCE_INLINE Array_View< T > to_array_view(const T (&array)[N])
+{
+    return { N, array };
+}
+
+template< typename T, const U32 N >
+HE_FORCE_INLINE Array_View< T > to_array_view(const Array< T, N > &array)
+{
+    return { array.count, array.data };
 }
