@@ -1,72 +1,68 @@
 #include "render_graph.h"
 #include "rendering/renderer.h"
+#include "rendering/renderer_utils.h"
 
 void init(Render_Graph *render_graph, Allocator allocator)
 {
-    reset(&render_graph->resources);
     reset(&render_graph->nodes);
+    init(&render_graph->node_cache, allocator, HE_MAX_RENDER_GRAPH_NODE_COUNT);
+
+    reset(&render_graph->resources);
     init(&render_graph->resource_cache, allocator, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT);
+
     render_graph->allocator = allocator;
 }
 
-void add_node(Render_Graph *render_graph, const String &name, const Array_View< Render_Graph_Node_Input > &inputs, const Array_View< Render_Graph_Node_Output > &outputs, pre_render_pass_proc pre_render, render_pass_proc render)
+Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const Array_View< Render_Target_Info > &render_targets, render_proc render)
 {
-    Render_Graph_Node &node = append(&render_graph->nodes);
-    node.pre_render = pre_render;
-    node.render = render;
-    node.enabled = true;
+    HE_ASSERT(find(&render_graph->node_cache, HE_STRING(name)) == -1);
     
+    Render_Graph_Node &node = append(&render_graph->nodes);
+    Render_Graph_Node_Handle node_handle = (Render_Graph_Node_Handle)(&node - render_graph->nodes.data);
+    
+    insert(&render_graph->node_cache, HE_STRING(name), node_handle);
+
     if (!node.edges.data)
     {
         init(&node.edges, render_graph->allocator);
     }
 
-    node.name = name;
+    reset(&node.render_targets);
+    reset(&node.clear_values);
     
-    reset(&node.inputs);
-    reset(&node.outputs);
-    
-    for (const auto &input : inputs)
+    for (const auto &render_target : render_targets)
     {
-        Render_Graph_Resource &resource = append(&render_graph->resources);
-        resource.name = input.name;
-        resource.type = input.type;
-        resource.node_handle = -1;
-        resource.output_handle = -1;
-        resource.info = {};
-        resource.ref_count = 0;
+        String render_target_name = HE_STRING(render_target.name);
+        Render_Graph_Resource_Handle resource_handle = -1;
 
-        Render_Graph_Resource_Handle resource_handle = (Render_Graph_Resource_Handle)(&resource - render_graph->resources.data);
-        append(&node.inputs, resource_handle);
-    }
-
-    for (const auto &output : outputs)
-    {
-        Render_Graph_Resource &resource = append(&render_graph->resources);
-        resource.name = output.name;
-        resource.type = output.type;
-        resource.info = {};
-        resource.ref_count = 0;
-        resource.node_handle = -1;
-
-        Render_Graph_Resource_Handle resource_handle = (Render_Graph_Resource_Handle)(&resource - render_graph->resources.data);
-        
-        if (output.type != Render_Graph_Resource_Type::REFERENCE) 
+        // todo(amer): iterator...
+        S32 index = find(&render_graph->resource_cache, render_target_name);
+        if (index == -1)
         {
-            Render_Graph_Node_Handle node_handle = (Render_Graph_Node_Handle)(&node - render_graph->nodes.data);
-            
+            Render_Graph_Resource &resource = append(&render_graph->resources);
+            resource.name = render_target_name;
             resource.node_handle = node_handle;
-            resource.output_handle = resource_handle;
-            resource.info = output.info;
-            
+            resource.info = render_target.info;
+            resource.ref_count = 0;
+
+            resource_handle = (Render_Graph_Resource_Handle)(&resource - render_graph->resources.data);
             insert(&render_graph->resource_cache, resource.name, resource_handle);
         }
+        else
+        {
+            resource_handle = render_graph->resource_cache.values[index];
+        }
 
-        append(&node.outputs, resource_handle);
+        append(&node.render_targets, resource_handle);
     }
+
+    node.name = HE_STRING(name);
+    node.render = render;
+    node.clear_values.count = render_targets.count;
+    return node;
 }
 
-void compile(Render_Graph *render_graph)
+void compile(Render_Graph *render_graph, Renderer *renderer)
 {
     for (Render_Graph_Node &node : render_graph->nodes)
     {
@@ -75,26 +71,21 @@ void compile(Render_Graph *render_graph)
 
     for (Render_Graph_Node &node : render_graph->nodes)
     {
-        if (!node.enabled)
+        Render_Graph_Node_Handle node_handle = Render_Graph_Node_Handle(&node - render_graph->nodes.data);
+
+        for (Render_Graph_Resource_Handle &resource_handle : node.render_targets)
         {
-            continue;
-        }
+            Render_Graph_Resource &resource = render_graph->resources[resource_handle];
+            if (resource.node_handle == node_handle)
+            {
+                continue;
+            }
 
-        for (Render_Graph_Resource_Handle &input_resource_handle : node.inputs)
-        {
-            Render_Graph_Resource &input_resource = render_graph->resources[input_resource_handle];
-
-            // todo(amer): find should return an iterator...
-            S32 index = find(&render_graph->resource_cache, input_resource.name); 
-            HE_ASSERT(index != -1);
-            Render_Graph_Resource_Handle output_resource_handle = render_graph->resource_cache.values[index];
-            Render_Graph_Resource &output_resource = render_graph->resources[output_resource_handle];
-            input_resource.node_handle = output_resource.node_handle;
-            input_resource.info = output_resource.info;
-            input_resource.output_handle = output_resource.output_handle;
-
-            Render_Graph_Node &parent = render_graph->nodes[output_resource.node_handle];
-            append(&parent.edges, Render_Graph_Node_Handle(&node - render_graph->nodes.data));
+            Render_Graph_Node &parent = render_graph->nodes[resource.node_handle];
+            if (find(&parent.edges, node_handle) == -1)
+            {
+                append(&parent.edges, node_handle);
+            }
         } 
     }
 
@@ -106,11 +97,6 @@ void compile(Render_Graph *render_graph)
 
     for (const Render_Graph_Node &node : render_graph->nodes)
     {
-        if (!node.enabled)
-        {
-            continue;
-        }
-
         append(&render_graph->node_stack, (Render_Graph_Node_Handle)(&node - render_graph->nodes.data));
 
         while (render_graph->node_stack.count)
@@ -159,10 +145,9 @@ void compile(Render_Graph *render_graph)
     {
         Render_Graph_Node &node = render_graph->nodes[node_handle];
         
-        for (Render_Graph_Resource_Handle &input_resource_handle : node.inputs)
+        for (Render_Graph_Resource_Handle &resource_handle : node.render_targets)
         {
-            Render_Graph_Resource &input_resource = render_graph->resources[input_resource_handle];
-            Render_Graph_Resource &resource = render_graph->resources[input_resource.output_handle];
+            Render_Graph_Resource &resource = render_graph->resources[resource_handle];
             resource.ref_count++;
         }
     }
@@ -174,42 +159,75 @@ void compile(Render_Graph *render_graph)
     {
         Render_Graph_Node &node = render_graph->nodes[node_handle];
 
-        for (Render_Graph_Resource_Handle resource_output_handle : node.outputs)
+        Array< Texture_Handle, HE_MAX_ATTACHMENT_COUNT > node_free_textures = {};
+
+        for (Render_Graph_Resource_Handle resource_handle : node.render_targets)
         {
-            Render_Graph_Resource &output_resource = render_graph->resources[resource_output_handle];
-            if (output_resource.type == Render_Graph_Resource_Type::ATTACHMENT)
+            Render_Graph_Resource &resource = render_graph->resources[resource_handle];
+
+            if (resource.node_handle == node_handle)
             {
-                // todo(amer): texture aliasing and best fit
                 Texture_Descriptor texture_descriptor = {};
-                texture_descriptor.width = output_resource.info.texture.width;
-                texture_descriptor.height = output_resource.info.texture.height;
-                texture_descriptor.format = output_resource.info.texture.format;
-                texture_descriptor.sample_count = output_resource.info.texture.sample_count;
+                texture_descriptor.width = resource.info.width;
+                texture_descriptor.height = resource.info.height;
+                texture_descriptor.format = resource.info.format;
+                texture_descriptor.sample_count = resource.info.sample_count;
                 texture_descriptor.is_attachment = true;
+
+                Memory_Requirements texture_memory_requirments = renderer->get_texture_memory_requirements(texture_descriptor);
 
                 for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
                 {
-                    Texture_Handle texture_handle = renderer_create_texture(texture_descriptor);
-                    output_resource.info.texture.handles[frame_index] = texture_handle;
+                    U64 best_size_so_far = HE_MAX_U64;
+                    S32 best_texture_index_so_far = -1;
+                    resource.info.handles[frame_index] = Resource_Pool< Texture >::invalid_handle;
+
+                    for (U32 texture_index = 0; texture_index < texture_free_list.count; texture_index++)
+                    {
+                        Texture *texture = renderer_get_texture(texture_free_list[texture_index]);
+                        
+                        if (texture->width == resource.info.width && texture->height == resource.info.height &&
+                            texture->sample_count == resource.info.sample_count && texture->format == resource.info.format)
+                        {
+                            resource.info.handles[frame_index] = texture_free_list[texture_index];
+                            remove_and_swap_back(&texture_free_list, texture_index);
+                            break;
+                        }
+                        else if (texture->size >= texture_memory_requirments.size && texture->alignment >= texture_memory_requirments.alignment)
+                        {
+                            if (texture->size < best_size_so_far)
+                            {
+                                best_size_so_far = texture->size;
+                                best_texture_index_so_far = texture_index;
+                            }
+                        }
+                    }
+
+                    if (resource.info.handles[frame_index].index == -1)
+                    {
+                        if (best_texture_index_so_far != -1)
+                        {
+                            texture_descriptor.alias = texture_free_list[best_texture_index_so_far];
+                            remove_and_swap_back(&texture_free_list, best_texture_index_so_far);
+                        }
+                        resource.info.handles[frame_index] = renderer_create_texture(texture_descriptor);
+                    }
+                }    
+            }
+
+            resource.ref_count--;
+            if (resource.ref_count == 0)
+            {
+                for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+                {
+                    append(&node_free_textures, resource.info.handles[frame_index]);
                 }
             }
         }
 
-        for (Render_Graph_Resource_Handle input_resource_handle : node.inputs)
+        for (Texture_Handle texture_handle : node_free_textures)
         {
-            Render_Graph_Resource &input_resource = render_graph->resources[input_resource_handle];
-            Render_Graph_Resource &output_resource = render_graph->resources[input_resource.output_handle];
-            output_resource.ref_count--;
-            if (output_resource.ref_count == 0)
-            {
-                if (output_resource.type == Render_Graph_Resource_Type::ATTACHMENT || output_resource.type == Render_Graph_Resource_Type::TEXTURE)
-                {
-                    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-                    {
-                        append(&texture_free_list, output_resource.info.texture.handles[frame_index]);
-                    }
-                }
-            }
+            append(&texture_free_list, texture_handle);
         }
     }
 
@@ -220,71 +238,34 @@ void compile(Render_Graph *render_graph)
         Render_Pass_Descriptor render_pass_descriptor = {};
         Frame_Buffer_Descriptor frame_buffer_descriptors[HE_MAX_FRAMES_IN_FLIGHT] = {};
 
-        for (Render_Graph_Resource_Handle output_resource_handle : node.outputs)
+        for (Render_Graph_Resource_Handle output_resource_handle : node.render_targets)
         {
             Render_Graph_Resource &resource = render_graph->resources[output_resource_handle];
-            if (resource.type == Render_Graph_Resource_Type::ATTACHMENT)
+
+            Attachment_Info attachment_info = {};
+            attachment_info.format = resource.info.format;
+            attachment_info.sample_count = resource.info.sample_count;
+            attachment_info.operation = resource.info.operation;
+
+            if (attachment_info.format == Texture_Format::DEPTH_F32_STENCIL_U8)
             {
-                Attachment_Info attachment_info = {};
-                attachment_info.format = resource.info.texture.format;
-                attachment_info.sample_count = resource.info.texture.sample_count;
-                attachment_info.operation = resource.info.texture.operation;
-                 
-                if (attachment_info.format == Texture_Format::DEPTH_F32_STENCIL_U8)
+                append(&render_pass_descriptor.depth_stencil_attachments, attachment_info);
+            }
+            else
+            {
+                if (render_pass_descriptor.color_attachments.count == 0 || attachment_info.sample_count == render_pass_descriptor.color_attachments[0].sample_count)
                 {
-                    append(&render_pass_descriptor.depth_stencil_attachments, attachment_info);
+                    append(&render_pass_descriptor.color_attachments, attachment_info);
                 }
                 else
                 {
-                    if (render_pass_descriptor.color_attachments.count == 0 || attachment_info.sample_count == render_pass_descriptor.color_attachments[0].sample_count)
-                    {
-                        append(&render_pass_descriptor.color_attachments, attachment_info);
-                    }
-                    else
-                    {
-                        append(&render_pass_descriptor.resolve_attachments, attachment_info);
-                    }
-                }
-
-                for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-                {
-                    append(&frame_buffer_descriptors[frame_index].attachments, resource.info.texture.handles[frame_index]);
+                    append(&render_pass_descriptor.resolve_attachments, attachment_info);
                 }
             }
-        }
 
-        for (Render_Graph_Resource_Handle input_resource_handle : node.inputs)
-        {
-            Render_Graph_Resource &input_resource = render_graph->resources[input_resource_handle];
-            Render_Graph_Resource &output_resource = render_graph->resources[input_resource.output_handle];
-
-            if (input_resource.type == Render_Graph_Resource_Type::ATTACHMENT)
+            for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
             {
-                Attachment_Info attachment_info = {};
-                attachment_info.format = output_resource.info.texture.format;
-                attachment_info.sample_count = output_resource.info.texture.sample_count;
-                attachment_info.operation = output_resource.info.texture.operation;
-                
-                if (attachment_info.format == Texture_Format::DEPTH_F32_STENCIL_U8)
-                {
-                    append(&render_pass_descriptor.depth_stencil_attachments, attachment_info);
-                }
-                else
-                {
-                    if (render_pass_descriptor.color_attachments.count == 0 || attachment_info.sample_count == render_pass_descriptor.color_attachments[0].sample_count)
-                    {
-                        append(&render_pass_descriptor.color_attachments, attachment_info);
-                    }
-                    else
-                    {
-                        append(&render_pass_descriptor.resolve_attachments, attachment_info);
-                    }
-                }
-
-                for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-                {
-                    append(&frame_buffer_descriptors[frame_index].attachments, output_resource.info.texture.handles[frame_index]);
-                }
+                append(&frame_buffer_descriptors[frame_index].attachments, resource.info.handles[frame_index]);
             }
         }
 
@@ -313,8 +294,7 @@ void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *rend
         Frame_Buffer *frame_buffer = renderer_get_frame_buffer(node.frame_buffers[renderer_state->current_frame_in_flight_index]);
         renderer->set_viewport(frame_buffer->width, frame_buffer->height);
 
-        Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT > clear_values = node.pre_render(renderer, renderer_state);
-        renderer->begin_render_pass(node.render_pass, node.frame_buffers[renderer_state->current_frame_in_flight_index], to_array_view(clear_values));
+        renderer->begin_render_pass(node.render_pass, node.frame_buffers[renderer_state->current_frame_in_flight_index], to_array_view(node.clear_values));
         node.render(renderer, renderer_state);
         renderer->end_render_pass(node.render_pass);
     }

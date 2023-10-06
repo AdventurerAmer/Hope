@@ -20,7 +20,7 @@ HE_API bool init_game(Engine *engine)
 	F32 fov = 45.0f;
 	F32 near = 0.1f;
 	F32 far = 1000.0f;
-	engine->api.init_camera(camera, { 0.0f, 0.0f, 1.0f }, camera_rotation, aspect_ratio, fov, near, far);
+	engine->api.init_camera(camera, { 0.0f, 0.3f, 1.0f }, camera_rotation, aspect_ratio, fov, near, far);
 
     FPS_Camera_Controller *camera_controller = &game_state.camera_controller;
     F32 rotation_speed = 45.0f;
@@ -28,7 +28,7 @@ HE_API bool init_game(Engine *engine)
     F32 max_movement_speed = 5.0f;
 	F32 sensitivity_x = 1.0f;
 	F32 sensitivity_y = 1.0f;
-
+    
 	engine->api.init_fps_camera_controller(camera_controller, /*pitch=*/0.0f, /*yaw=*/0.0f,
                                            rotation_speed,
                                            base_movement_speed,

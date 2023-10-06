@@ -53,7 +53,6 @@ void init(Hash_Map< Key_Type, Value_Type > *hash_map, Allocator allocator, U32 c
 
     hash_map->memory = memory;
     hash_map->states = (Slot_State*)memory;
-    zero_memory(hash_map->states, sizeof(Slot_State) * capacity);
     hash_map->keys = (Key_Type*)(memory + sizeof(Slot_State) * capacity);
     hash_map->values = (Value_Type*)(memory + (sizeof(Slot_State) + sizeof(Key_Type)) * capacity);
     hash_map->capacity = capacity;

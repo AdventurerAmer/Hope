@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/defines.h"
+#include <initializer_list>
 
 template< typename T, const U32 N >
 struct Array

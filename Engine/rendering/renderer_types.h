@@ -29,6 +29,12 @@
 #define HE_GRAPHICS_DEBUGGING 0
 #endif
 
+struct Memory_Requirements
+{
+    U64 size;
+    U64 alignment;
+};
+
 //
 // Buffer
 //
@@ -67,19 +73,8 @@ enum class Texture_Format
 {
     R8G8B8A8_SRGB,
     B8G8R8A8_SRGB,
-
+    
     DEPTH_F32_STENCIL_U8
-};
-
-struct Texture_Descriptor
-{
-    U32 width;
-    U32 height;
-    void *data = nullptr;
-    Texture_Format format;
-    bool mipmapping = false;
-    U32 sample_count = 1;
-    bool is_attachment = false;
 };
 
 struct Texture
@@ -92,10 +87,26 @@ struct Texture
     Texture_Format format;
     U32 sample_count;
 
+    U64 size;
+    U64 alignment;
+
     bool is_attachment;
+    Resource_Handle< Texture > alias;
 };
 
 using Texture_Handle = Resource_Handle< Texture >;
+
+struct Texture_Descriptor
+{
+    U32 width;
+    U32 height;
+    void *data = nullptr;
+    Texture_Format format;
+    bool mipmapping = false;
+    U32 sample_count = 1;
+    bool is_attachment = false;
+    Texture_Handle alias = Resource_Pool< Texture >::invalid_handle;
+};
 
 //
 // Sampler

@@ -62,3 +62,5 @@ void vulkan_renderer_end_frame();
 bool vulkan_renderer_init_imgui();
 void vulkan_renderer_imgui_new_frame();
 void vulkan_renderer_imgui_render();
+
+Memory_Requirements vulkan_renderer_get_texture_memory_requirements(const Texture_Descriptor &descriptor);

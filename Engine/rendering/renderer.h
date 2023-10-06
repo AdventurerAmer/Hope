@@ -100,6 +100,8 @@ struct Renderer
     bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
     void (*destroy_static_mesh)(Static_Mesh_Handle static_mesh_handle);
 
+    Memory_Requirements (*get_texture_memory_requirements)(const Texture_Descriptor &descriptor);
+
     bool (*init_imgui)();
     void (*imgui_new_frame)();
     void (*imgui_render)();

@@ -185,11 +185,11 @@ S32 find(const Dynamic_Array< T > *dynamic_array, const T &target)
 {
     HE_ASSERT(dynamic_array);
 
-    for (S32 index = 0; index < dynamic_array->count; index++)
+    for (S32 index = 0; index < (S32)dynamic_array->count; index++)
     {
         if (dynamic_array->data[index] == target)
         {
-            return it;
+            return index;
         }
     }
 

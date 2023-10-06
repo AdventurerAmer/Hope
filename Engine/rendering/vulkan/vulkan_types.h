@@ -33,14 +33,11 @@
 struct Vulkan_Image
 {
     VkImage handle;
+    VkMemoryRequirements memory_requirements;
     VkDeviceMemory memory;
-    U64 size;
     VkImageView view;
     VkFormat format;
     U32 mip_levels;
-
-    void *data;
-    VkFence is_loaded;
 };
 
 struct Vulkan_Sampler

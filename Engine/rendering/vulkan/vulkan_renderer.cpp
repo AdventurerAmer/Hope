@@ -8,6 +8,7 @@
 #include "vulkan_utils.h"
 
 #include "rendering/renderer.h"
+#include "rendering/renderer_utils.h"
 
 #include "core/platform.h"
 #include "core/debugging.h"
@@ -846,7 +847,7 @@ void vulkan_renderer_end_frame()
     S32 index = find(&renderer_state->render_graph.resource_cache, HE_STRING_LITERAL("rt0"));
     HE_ASSERT(index != -1);
     Render_Graph_Resource_Handle resource_handle = renderer_state->render_graph.resource_cache.values[index];
-    Texture_Handle rt0 = renderer_state->render_graph.resources[resource_handle].info.texture.handles[renderer_state->current_frame_in_flight_index];
+    Texture_Handle rt0 = renderer_state->render_graph.resources[resource_handle].info.handles[renderer_state->current_frame_in_flight_index];
     color_attachment = &context->textures[rt0.index];
 #else
     // todo(amer): not optimal...
@@ -934,20 +935,6 @@ static VkFormat get_texture_format(Texture_Format texture_format)
     return VK_FORMAT_UNDEFINED;
 }
 
-static bool is_color_format(Texture_Format format)
-{
-    switch (format)
-    {
-        case Texture_Format::R8G8B8A8_SRGB:
-        case Texture_Format::B8G8R8A8_SRGB:
-        {
-            return true;
-        } break;
-    }
-
-    return false;
-}
-
 bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
@@ -981,7 +968,7 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     VkSampleCountFlagBits sample_count = get_sample_count(descriptor.sample_count);
 
     create_image(image, context, descriptor.width, descriptor.height, format, VK_IMAGE_TILING_OPTIMAL, usage, aspect, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                 descriptor.mipmapping, sample_count);
+                 descriptor.mipmapping, sample_count, descriptor.alias);
 
     if (descriptor.data)
     {
@@ -998,6 +985,9 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     texture->is_attachment = descriptor.is_attachment;
     texture->format = descriptor.format;
     texture->sample_count = descriptor.sample_count;
+    texture->alias = descriptor.alias;
+    texture->size = image->memory_requirements.size;
+    texture->alignment = image->memory_requirements.alignment;
     return true;
 }
 
@@ -1998,4 +1988,70 @@ void vulkan_renderer_imgui_render()
     {
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), context->command_buffer);
     }
+}
+// todo(amer): make this a utility function and use it in vulkan_renderer_create_texture...
+Memory_Requirements vulkan_renderer_get_texture_memory_requirements(const Texture_Descriptor &descriptor)
+{
+    Vulkan_Context *context = &vulkan_context;
+
+    U32 mip_levels = 1;
+    
+    VkImageAspectFlags aspect = VK_IMAGE_ASPECT_NONE;
+    VkImageUsageFlags usage = VK_IMAGE_USAGE_FLAG_BITS_MAX_ENUM;
+
+    if (is_color_format(descriptor.format))
+    {
+        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+
+        if (descriptor.is_attachment)
+        {
+            usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        }
+        else
+        {
+            usage = VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        }
+    }
+    else
+    {
+        aspect = VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT;
+        usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    }
+
+    VkFormat format = get_texture_format(descriptor.format);
+    VkSampleCountFlagBits sample_count = get_sample_count(descriptor.sample_count);
+
+    if (descriptor.mipmapping)
+    {
+        mip_levels = (U32)glm::floor(glm::log2((F32)glm::max(descriptor.width, descriptor.height)));
+        usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
+
+    VkImageCreateInfo image_create_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    image_create_info.imageType = VK_IMAGE_TYPE_2D;
+    image_create_info.extent.width = descriptor.width;
+    image_create_info.extent.height = descriptor.height;
+    image_create_info.extent.depth = 1;
+    image_create_info.mipLevels = mip_levels;
+    image_create_info.arrayLayers = 1;
+    image_create_info.format = format;
+    image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_create_info.usage = usage;
+    image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    image_create_info.samples = sample_count;
+    image_create_info.flags = 0;
+
+    VkImage image = VK_NULL_HANDLE;
+    HE_CHECK_VKRESULT(vkCreateImage(context->logical_device, &image_create_info, nullptr, &image));
+
+    VkMemoryRequirements vulkan_memory_requirements = {};
+    vkGetImageMemoryRequirements(context->logical_device, image, &vulkan_memory_requirements);    
+    vkDestroyImage(context->logical_device, image, nullptr);
+
+    Memory_Requirements result = {};
+    result.size = vulkan_memory_requirements.size;
+    result.alignment = vulkan_memory_requirements.alignment;
+
+    return result;
 }

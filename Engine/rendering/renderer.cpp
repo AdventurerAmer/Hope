@@ -89,6 +89,7 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->init_imgui = &vulkan_renderer_init_imgui;
             renderer->imgui_new_frame = &vulkan_renderer_imgui_new_frame;
             renderer->imgui_render = &vulkan_renderer_imgui_render;
+            renderer->get_texture_memory_requirements = &vulkan_renderer_get_texture_memory_requirements;
         } break;
 #endif
 
@@ -341,69 +342,6 @@ bool init_renderer_state(Engine *engine)
     init(&renderer_state->render_graph, &engine->memory.free_list_allocator);
     
     {
-        Render_Graph_Resource_Info msaa_RT = {};
-        msaa_RT.texture =
-        {
-            renderer_state->back_buffer_width,
-            renderer_state->back_buffer_height,
-            Texture_Format::B8G8R8A8_SRGB,
-            Attachment_Operation::CLEAR,
-            renderer_state->sample_count
-        };
-
-        Render_Graph_Resource_Info RT = {};
-        RT.texture =
-        {
-            renderer_state->back_buffer_width,
-            renderer_state->back_buffer_height,
-            Texture_Format::B8G8R8A8_SRGB,
-            Attachment_Operation::DONT_CARE,
-            1
-        };
-
-        Render_Graph_Resource_Info msaa_depth = {};
-        msaa_depth.texture =
-        {
-            renderer_state->back_buffer_width,
-            renderer_state->back_buffer_height,
-            Texture_Format::DEPTH_F32_STENCIL_U8,
-            Attachment_Operation::CLEAR,
-            renderer_state->sample_count
-        };
-
-        Render_Graph_Node_Output outputs[] =
-        {
-            {
-                HE_STRING_LITERAL("msaa_rt0"),
-                Render_Graph_Resource_Type::ATTACHMENT,
-                msaa_RT
-            },
-            {
-                HE_STRING_LITERAL("rt0"),
-                Render_Graph_Resource_Type::ATTACHMENT,
-                RT
-            },
-            {
-                HE_STRING_LITERAL("msaa_depth"),
-                Render_Graph_Resource_Type::ATTACHMENT,
-                msaa_depth
-            }
-        };
-
-        auto pre_render = [](Renderer *renderer, Renderer_State *renderer_state) -> Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT >
-        {
-            Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT > clear_values;
-            
-            append(&clear_values);
-            append(&clear_values);
-            append(&clear_values);
-            
-            clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-            clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-            clear_values[2].depth = 1.0f;
-            return clear_values;
-        };
-
         auto render = [](Renderer *renderer, Renderer_State *renderer_state)
         {
             Buffer_Handle vertex_buffers[] =
@@ -462,44 +400,63 @@ bool init_renderer_state(Engine *engine)
             render_scene_node(renderer_state->root_scene_node, glm::mat4(1.0f));
         };
 
-        add_node(&renderer_state->render_graph, HE_STRING_LITERAL("world_msaa"), {}, to_array_view(outputs), pre_render, render);
+        Render_Target_Info render_targets[] =
+        {
+            {
+                "msaa_rt0",
+                {
+                    renderer_state->back_buffer_width,
+                    renderer_state->back_buffer_height,
+                    Texture_Format::B8G8R8A8_SRGB,
+                    Attachment_Operation::CLEAR,
+                    renderer_state->sample_count
+                }
+            },
+            {
+                "rt0",
+                {
+                    renderer_state->back_buffer_width,
+                    renderer_state->back_buffer_height,
+                    Texture_Format::B8G8R8A8_SRGB,
+                    Attachment_Operation::DONT_CARE,
+                    1
+                }
+            },
+            {
+                "msaa_depth",
+                {
+                    renderer_state->back_buffer_width,
+                    renderer_state->back_buffer_height,
+                    Texture_Format::DEPTH_F32_STENCIL_U8,
+                    Attachment_Operation::CLEAR,
+                    renderer_state->sample_count
+                }
+            }
+        };
+
+        Render_Graph_Node &node = add_node(&renderer_state->render_graph, "world_msaa", to_array_view(render_targets), render);
+        node.clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+        node.clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+        node.clear_values[2].depth = 1.0f;
     }
 
     {
-        Render_Graph_Node_Input inputs[] =
-        {
-            {
-                HE_STRING_LITERAL("rt0"),
-                Render_Graph_Resource_Type::ATTACHMENT
-            }
-        };
-
-        Render_Graph_Node_Output outputs[] =
-        {
-            {
-                HE_STRING_LITERAL("rt0"),
-                Render_Graph_Resource_Type::REFERENCE
-            }
-        };
-
-        auto pre_render = [](Renderer *renderer, Renderer_State *renderer_state) -> Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT >
-        {
-            Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT > clear_values;
-            append(&clear_values);
-            
-            clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-            return clear_values;
-        };
-
         auto render = [](Renderer *renderer, Renderer_State *renderer_state)
         {
             renderer->imgui_render();
         };
 
-        add_node(&renderer_state->render_graph, HE_STRING_LITERAL("ui"), to_array_view(inputs), to_array_view(outputs), pre_render, render);
+        Render_Target_Info render_targets[] =
+        {
+            {
+                "rt0"
+            }
+        };
+        
+        add_node(&renderer_state->render_graph, "ui", to_array_view(render_targets), render);
     }
 
-    compile(&renderer_state->render_graph);
+    compile(&renderer_state->render_graph, renderer);
 
     _transfer_allocator = &renderer_state->transfer_allocator;
     _stbi_allocator = &engine->memory.free_list_allocator;

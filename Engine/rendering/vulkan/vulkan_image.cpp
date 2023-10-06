@@ -82,7 +82,7 @@ void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U3
 }
 
 bool create_image(Vulkan_Image *image, Vulkan_Context *context, U32 width, U32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
-                  VkImageAspectFlags aspect_flags, VkMemoryPropertyFlags properties, bool mipmapping/*= false*/, VkSampleCountFlagBits samples/*= VK_SAMPLE_COUNT_1_BIT*/)
+                  VkImageAspectFlags aspect_flags, VkMemoryPropertyFlags properties, bool mipmapping/*= false*/, VkSampleCountFlagBits samples/*= VK_SAMPLE_COUNT_1_BIT*/, Texture_Handle alias /*Resource_Pool< Texture >::invalid_handle*/)
 {
     U32 mip_levels = 1;
 
@@ -111,14 +111,26 @@ bool create_image(Vulkan_Image *image, Vulkan_Context *context, U32 width, U32 h
 
     VkMemoryRequirements memory_requirements = {};
     vkGetImageMemoryRequirements(context->logical_device, image->handle, &memory_requirements);
-
-    VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
-    memory_allocate_info.allocationSize = memory_requirements.size;
-    memory_allocate_info.memoryTypeIndex = find_memory_type_index(memory_requirements, properties, context);
-
-    HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info, nullptr, &image->memory));
-
-    vkBindImageMemory(context->logical_device, image->handle, image->memory, 0);
+    image->memory_requirements = memory_requirements;
+    
+    if (is_valid_handle(&context->renderer_state->textures, alias))
+    {
+        Texture *alias_texture = renderer_get_texture(alias);
+        Vulkan_Image *alias_image = &context->textures[alias.index]; 
+        HE_ASSERT(alias_texture->size >= memory_requirements.size);
+        HE_ASSERT(alias_texture->alignment == memory_requirements.alignment);
+        
+        vkBindImageMemory(context->logical_device, image->handle, alias_image->memory, 0);
+        image->memory = VK_NULL_HANDLE;
+    }
+    else
+    {
+        VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+        memory_allocate_info.allocationSize = memory_requirements.size;
+        memory_allocate_info.memoryTypeIndex = find_memory_type_index(memory_requirements, properties, context);
+        HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info, nullptr, &image->memory));
+        vkBindImageMemory(context->logical_device, image->handle, image->memory, 0);
+    }
 
     VkImageViewCreateInfo image_view_create_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
     image_view_create_info.image = image->handle;
@@ -136,10 +148,7 @@ bool create_image(Vulkan_Image *image, Vulkan_Context *context, U32 width, U32 h
     HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, nullptr, &image->view));
 
     image->mip_levels = mip_levels;
-    image->size = memory_requirements.size;
     image->format = format;
-    image->data = nullptr;
-
     return true;
 }
 
@@ -263,7 +272,11 @@ void copy_data_to_image_from_buffer(Vulkan_Context *context, Vulkan_Image *image
 void destroy_image(Vulkan_Image *image, Vulkan_Context *context)
 {
     vkDestroyImageView(context->logical_device, image->view, nullptr);
-    vkFreeMemory(context->logical_device, image->memory, nullptr);
+    
+    if (image->memory)
+    {
+        vkFreeMemory(context->logical_device, image->memory, nullptr);
+    }
+    
     vkDestroyImage(context->logical_device, image->handle, nullptr);
-    vkDestroyFence(context->logical_device, image->is_loaded, nullptr);
 }
