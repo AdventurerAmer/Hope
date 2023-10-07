@@ -319,7 +319,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor);
 Material* renderer_get_material(Material_Handle material_handle);
 void renderer_destroy_material(Material_Handle &material_handle);
 
-void init_imgui(Engine *engine);
+bool init_imgui(Engine *engine);
 void imgui_new_frame();
 
 // todo(amer): Temprary

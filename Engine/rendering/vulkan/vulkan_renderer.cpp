@@ -807,18 +807,18 @@ void vulkan_renderer_end_frame()
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
 
-    Texture_Handle color_attachment_handle = Resource_Pool< Texture >::invalid_handle;
+    // Texture_Handle color_attachment_handle = Resource_Pool< Texture >::invalid_handle;
 
-    if (renderer_state->sample_count != 1)
-    {
-        color_attachment_handle = renderer_state->resolve_color_attachments[renderer_state->current_frame_in_flight_index];
-    }
-    else
-    {
-        color_attachment_handle = renderer_state->color_attachments[renderer_state->current_frame_in_flight_index];
-    }
+    // if (renderer_state->sample_count != 1)
+    // {
+    //     color_attachment_handle = renderer_state->resolve_color_attachments[renderer_state->current_frame_in_flight_index];
+    // }
+    // else
+    // {
+    //     color_attachment_handle = renderer_state->color_attachments[renderer_state->current_frame_in_flight_index];
+    // }
 
-    HE_ASSERT(is_valid_handle(&renderer_state->textures, color_attachment_handle));
+    // HE_ASSERT(is_valid_handle(&renderer_state->textures, color_attachment_handle));
     
     VkImage swapchain_image = context->swapchain.images[context->current_swapchain_image_index];
 
@@ -1938,8 +1938,19 @@ bool vulkan_renderer_init_imgui()
     init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     init_info.PipelineCache = context->pipeline_cache;
 
-    Renderer_State *renderer_state = context->renderer_state;
-    Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[ renderer_state->ui_render_pass.index ];
+    Render_Pass_Descriptor render_pass_descriptor = {};
+    render_pass_descriptor.color_attachments =
+    {
+        {
+            Texture_Format::B8G8R8A8_SRGB,
+            1,
+            Attachment_Operation::CLEAR        
+        }
+    };
+
+    Render_Pass_Handle imgui_render_pass = renderer_create_render_pass(render_pass_descriptor);
+
+    Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[ imgui_render_pass.index ];
     ImGui_ImplVulkan_Init(&init_info, vulkan_render_pass->handle);
 
     VkCommandBuffer command_buffer = context->graphics_command_buffers[0];

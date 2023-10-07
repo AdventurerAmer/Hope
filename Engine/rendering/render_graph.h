@@ -20,12 +20,26 @@ typedef S32 Render_Graph_Resource_Handle;
 
 struct Render_Graph_Resource_Info
 {
-    U32 width;
-    U32 height;
+    Attachment_Operation operation = Attachment_Operation::DONT_CARE;
+
     Texture_Format format;
-    Attachment_Operation operation;
-    U32 sample_count;
-    Texture_Handle handles[HE_MAX_FRAMES_IN_FLIGHT];
+
+    bool resizable_sample = false;
+    U32 sample_count = 1;
+    
+    U32 width = 0;
+    U32 height = 0;
+
+    bool resizable = false;
+    F32 scale_x = 1.0f;
+    F32 scale_y = 1.0f;
+
+    Texture_Handle handles[HE_MAX_FRAMES_IN_FLIGHT] = 
+    { 
+        Resource_Pool< Texture >::invalid_handle,
+        Resource_Pool< Texture >::invalid_handle,
+        Resource_Pool< Texture >::invalid_handle
+    };
 };
 
 struct Render_Target_Info
@@ -82,7 +96,10 @@ struct Render_Graph
 void init(Render_Graph *render_graph, Allocator allocator);
 
 Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const Array_View< Render_Target_Info > &render_targets, render_proc render);
+Render_Graph_Node_Handle get_node(Render_Graph *render_graph, const char *name);
 
 void compile(Render_Graph *render_graph, Renderer *renderer);
 
 void render(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
+
+void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state, U32 width, U32 height);

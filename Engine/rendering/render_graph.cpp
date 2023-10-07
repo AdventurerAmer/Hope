@@ -44,6 +44,15 @@ Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const 
             resource.node_handle = node_handle;
             resource.info = render_target.info;
             resource.ref_count = 0;
+            
+            if (render_target.info.resizable)
+            {
+                glm::vec2 viewport = renderer_get_viewport();
+                U32 width = (U32)(render_target.info.scale_x * viewport.x);
+                U32 height = (U32)(render_target.info.scale_y * viewport.y);
+                resource.info.width = width;
+                resource.info.height = height;
+            }
 
             resource_handle = (Render_Graph_Resource_Handle)(&resource - render_graph->resources.data);
             insert(&render_graph->resource_cache, resource.name, resource_handle);
@@ -60,6 +69,19 @@ Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const 
     node.render = render;
     node.clear_values.count = render_targets.count;
     return node;
+}
+
+Render_Graph_Node_Handle get_node(Render_Graph *render_graph, const char *name)
+{
+    Render_Graph_Node_Handle node_handle = -1;
+
+    S32 index = find(&render_graph->node_cache, HE_STRING(name));
+    if (index != -1)
+    {
+        node_handle = render_graph->node_cache.values[index];
+    }
+    
+    return node_handle;
 }
 
 void compile(Render_Graph *render_graph, Renderer *renderer)
@@ -238,14 +260,19 @@ void compile(Render_Graph *render_graph, Renderer *renderer)
         Render_Pass_Descriptor render_pass_descriptor = {};
         Frame_Buffer_Descriptor frame_buffer_descriptors[HE_MAX_FRAMES_IN_FLIGHT] = {};
 
-        for (Render_Graph_Resource_Handle output_resource_handle : node.render_targets)
+        U32 width = 0;
+        U32 height = 0;
+
+        for (Render_Graph_Resource_Handle resource_handle : node.render_targets)
         {
-            Render_Graph_Resource &resource = render_graph->resources[output_resource_handle];
+            Render_Graph_Resource &resource = render_graph->resources[resource_handle];
 
             Attachment_Info attachment_info = {};
             attachment_info.format = resource.info.format;
             attachment_info.sample_count = resource.info.sample_count;
             attachment_info.operation = resource.info.operation;
+            width = resource.info.width;
+            height = resource.info.height; 
 
             if (attachment_info.format == Texture_Format::DEPTH_F32_STENCIL_U8)
             {
@@ -271,12 +298,10 @@ void compile(Render_Graph *render_graph, Renderer *renderer)
 
         node.render_pass = renderer_create_render_pass(render_pass_descriptor);
 
-        glm::vec2 viewport = renderer_get_viewport();
-
         for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
         {
-            frame_buffer_descriptors[frame_index].width = (U32)viewport.x;
-            frame_buffer_descriptors[frame_index].height = (U32)viewport.y;
+            frame_buffer_descriptors[frame_index].width = width;
+            frame_buffer_descriptors[frame_index].height = height;
             frame_buffer_descriptors[frame_index].render_pass = node.render_pass;
             node.frame_buffers[frame_index] = renderer_create_frame_buffer(frame_buffer_descriptors[frame_index]);
         }
@@ -297,5 +322,116 @@ void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *rend
         renderer->begin_render_pass(node.render_pass, node.frame_buffers[renderer_state->current_frame_in_flight_index], to_array_view(node.clear_values));
         node.render(renderer, renderer_state);
         renderer->end_render_pass(node.render_pass);
+    }
+}
+
+void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state, U32 width, U32 height)
+{
+    renderer->wait_for_gpu_to_finish_all_work();
+
+    for (Render_Graph_Resource &resource : render_graph->resources)
+    {
+        if (resource.info.resizable)
+        {
+            resource.info.width = (U32)(resource.info.scale_x * width);
+            resource.info.height = (U32)(resource.info.scale_y * height);
+        }
+
+        if (resource.info.resizable_sample)
+        {
+            resource.info.sample_count = renderer_state->sample_count;
+        }
+
+        Texture_Descriptor texture_descriptor = {};
+        texture_descriptor.format = resource.info.format;
+        texture_descriptor.is_attachment = true;
+        texture_descriptor.width = resource.info.width;
+        texture_descriptor.height = resource.info.width;
+        texture_descriptor.sample_count = resource.info.sample_count;
+
+        for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+        {
+            if (is_valid_handle(&renderer_state->textures, resource.info.handles[frame_index]))
+            {
+                renderer->destroy_texture(resource.info.handles[frame_index]);
+                renderer->create_texture(resource.info.handles[frame_index], texture_descriptor);
+            }
+        }
+    }
+
+    for (Render_Graph_Node_Handle node_handle : render_graph->topologically_sorted_nodes)
+    {
+        Render_Graph_Node &node = render_graph->nodes[node_handle];
+        Render_Graph_Resource_Handle render_target_handle = node.render_targets[0];
+        Render_Graph_Resource &render_target = render_graph->resources[render_target_handle];
+        if (render_target.info.resizable || render_target.info.resizable_sample)
+        {
+            Render_Pass_Descriptor render_pass_descriptor = {};
+            Frame_Buffer_Descriptor frame_buffer_descriptors[HE_MAX_FRAMES_IN_FLIGHT] = {};
+
+            for (Render_Graph_Resource_Handle resource_handle : node.render_targets)
+            {
+                Render_Graph_Resource& resource = render_graph->resources[resource_handle];
+
+                Attachment_Info attachment_info = {};
+                attachment_info.format = resource.info.format;
+                attachment_info.sample_count = resource.info.sample_count;
+                attachment_info.operation = resource.info.operation;
+
+                if (attachment_info.format == Texture_Format::DEPTH_F32_STENCIL_U8)
+                {
+                    append(&render_pass_descriptor.depth_stencil_attachments, attachment_info);
+                }
+                else
+                {
+                    if (render_pass_descriptor.color_attachments.count == 0 || attachment_info.sample_count == render_pass_descriptor.color_attachments[0].sample_count)
+                    {
+                        append(&render_pass_descriptor.color_attachments, attachment_info);
+                    }
+                    else
+                    {
+                        append(&render_pass_descriptor.resolve_attachments, attachment_info);
+                    }
+                }
+
+                for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+                {
+                    append(&frame_buffer_descriptors[frame_index].attachments, resource.info.handles[frame_index]);
+                }
+
+                if (is_valid_handle(&renderer_state->render_passes, node.render_pass))
+                {
+                    renderer->destroy_render_pass(node.render_pass);
+                    renderer->create_render_pass(node.render_pass, render_pass_descriptor);
+                }
+
+                for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+                {
+                    frame_buffer_descriptors[frame_index].width = width;
+                    frame_buffer_descriptors[frame_index].height = height;
+                    frame_buffer_descriptors[frame_index].render_pass = node.render_pass;
+
+                    if (is_valid_handle(&renderer_state->frame_buffers, node.frame_buffers[frame_index]))
+                    {
+                        renderer->destroy_frame_buffer(node.frame_buffers[frame_index]);
+                        renderer->create_frame_buffer(node.frame_buffers[frame_index], frame_buffer_descriptors[frame_index]);
+                    }
+                }
+            }
+
+            if (render_target.info.resizable_sample)
+            {
+                for (auto it = iterator(&renderer_state->pipeline_states); next(&renderer_state->pipeline_states, it); )
+                {
+                    Pipeline_State *pipeline_state = &renderer_state->pipeline_states.data[it.index];
+
+                    if (pipeline_state->descriptor.render_pass == node.render_pass)
+                    {
+                        renderer->destroy_pipeline_state(it);
+                        renderer->create_pipeline_state(it, pipeline_state->descriptor);
+                    }
+                }
+            }
+        }
     }
 }

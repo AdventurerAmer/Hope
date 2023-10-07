@@ -305,7 +305,7 @@ void game_loop(Engine *engine, F32 delta_time)
                     if (renderer_state->sample_count != msaa[i])
                     {
                         renderer_state->sample_count = msaa[i];
-                        invalidate_render_entities();
+                        invalidate(&renderer_state->render_graph, renderer, renderer_state, renderer_state->back_buffer_width, renderer_state->back_buffer_height);
                     }
                 }
                 if (is_selected)

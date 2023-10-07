@@ -310,34 +310,19 @@ bool init_renderer_state(Engine *engine)
         renderer->create_bind_group(renderer_state->per_render_pass_bind_groups[frame_index], per_render_pass_bind_group_descriptor);
     }
 
-    renderer_state->world_render_pass = Resource_Pool< Render_Pass >::invalid_handle;
-    renderer_state->ui_render_pass = Resource_Pool< Render_Pass >::invalid_handle;
+    // renderer_state->world_render_pass = Resource_Pool< Render_Pass >::invalid_handle;
+    // renderer_state->ui_render_pass = Resource_Pool< Render_Pass >::invalid_handle;
 
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        renderer_state->world_frame_buffers[frame_index] = Resource_Pool< Frame_Buffer >::invalid_handle;
-        renderer_state->ui_frame_buffers[frame_index] = Resource_Pool< Frame_Buffer >::invalid_handle;
-        renderer_state->color_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
-        renderer_state->resolve_color_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
-        renderer_state->depth_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
-    }
+    // for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    // {
+    //     renderer_state->world_frame_buffers[frame_index] = Resource_Pool< Frame_Buffer >::invalid_handle;
+    //     renderer_state->ui_frame_buffers[frame_index] = Resource_Pool< Frame_Buffer >::invalid_handle;
+    //     renderer_state->color_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
+    //     renderer_state->resolve_color_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
+    //     renderer_state->depth_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
+    // }
 
-    invalidate_render_entities();
-
-    renderer_state->mesh_pipeline = aquire_handle(&renderer_state->pipeline_states);
-    Pipeline_State_Descriptor mesh_pipeline_state_descriptor = {};
-    mesh_pipeline_state_descriptor.cull_mode = Cull_Mode::BACK;
-    mesh_pipeline_state_descriptor.fill_mode = Fill_Mode::SOLID;
-    mesh_pipeline_state_descriptor.front_face = Front_Face::COUNTER_CLOCKWISE;
-    mesh_pipeline_state_descriptor.sample_shading = true;
-    mesh_pipeline_state_descriptor.shader_group = renderer_state->mesh_shader_group;
-    mesh_pipeline_state_descriptor.render_pass = renderer_state->world_render_pass;
-    bool pipeline_created = renderer->create_pipeline_state(renderer_state->mesh_pipeline, mesh_pipeline_state_descriptor);
-    HE_ASSERT(pipeline_created);
-    
-    init_imgui(engine);
-    bool imgui_inited = renderer->init_imgui();
-    HE_ASSERT(imgui_inited);
+    // invalidate_render_entities();
 
     init(&renderer_state->render_graph, &engine->memory.free_list_allocator);
     
@@ -396,7 +381,6 @@ bool init_renderer_state(Engine *engine)
             };
 
             renderer->set_bind_groups(0, to_array_view(bind_groups));
-            
             render_scene_node(renderer_state->root_scene_node, glm::mat4(1.0f));
         };
 
@@ -405,31 +389,43 @@ bool init_renderer_state(Engine *engine)
             {
                 "msaa_rt0",
                 {
-                    renderer_state->back_buffer_width,
-                    renderer_state->back_buffer_height,
-                    Texture_Format::B8G8R8A8_SRGB,
                     Attachment_Operation::CLEAR,
-                    renderer_state->sample_count
+                    Texture_Format::B8G8R8A8_SRGB,
+                    true,
+                    renderer_state->sample_count,
+                    0,
+                    0,
+                    true,
+                    1.0f,
+                    1.0f,
                 }
             },
             {
                 "rt0",
                 {
-                    renderer_state->back_buffer_width,
-                    renderer_state->back_buffer_height,
-                    Texture_Format::B8G8R8A8_SRGB,
                     Attachment_Operation::DONT_CARE,
-                    1
+                    Texture_Format::B8G8R8A8_SRGB,
+                    false,
+                    1,
+                    0,
+                    0,
+                    true,
+                    1.0f,
+                    1.0f,
                 }
             },
             {
                 "msaa_depth",
                 {
-                    renderer_state->back_buffer_width,
-                    renderer_state->back_buffer_height,
-                    Texture_Format::DEPTH_F32_STENCIL_U8,
                     Attachment_Operation::CLEAR,
-                    renderer_state->sample_count
+                    Texture_Format::DEPTH_F32_STENCIL_U8,
+                    true,
+                    renderer_state->sample_count,
+                    0,
+                    0,
+                    true,
+                    1.0f,
+                    1.0f,
                 }
             }
         };
@@ -452,11 +448,29 @@ bool init_renderer_state(Engine *engine)
                 "rt0"
             }
         };
-        
+
         add_node(&renderer_state->render_graph, "ui", to_array_view(render_targets), render);
     }
 
     compile(&renderer_state->render_graph, renderer);
+
+    Render_Graph_Node_Handle world_node_handle = get_node(&renderer_state->render_graph, "world_msaa");
+    HE_ASSERT(world_node_handle != -1);
+    Render_Graph_Node &world_node = renderer_state->render_graph.nodes[world_node_handle]; 
+
+    renderer_state->mesh_pipeline = aquire_handle(&renderer_state->pipeline_states);
+    Pipeline_State_Descriptor mesh_pipeline_state_descriptor = {};
+    mesh_pipeline_state_descriptor.cull_mode = Cull_Mode::BACK;
+    mesh_pipeline_state_descriptor.fill_mode = Fill_Mode::SOLID;
+    mesh_pipeline_state_descriptor.front_face = Front_Face::COUNTER_CLOCKWISE;
+    mesh_pipeline_state_descriptor.sample_shading = true;
+    mesh_pipeline_state_descriptor.shader_group = renderer_state->mesh_shader_group;
+    mesh_pipeline_state_descriptor.render_pass = world_node.render_pass;
+    bool pipeline_created = renderer->create_pipeline_state(renderer_state->mesh_pipeline, mesh_pipeline_state_descriptor);
+    HE_ASSERT(pipeline_created);
+
+    bool imgui_inited = init_imgui(engine);
+    HE_ASSERT(imgui_inited);
 
     _transfer_allocator = &renderer_state->transfer_allocator;
     _stbi_allocator = &engine->memory.free_list_allocator;
@@ -1450,6 +1464,8 @@ void renderer_on_resize(U32 width, U32 height)
         {
             renderer->on_resize(width, height);
         }
+        
+        invalidate(&renderer_state->render_graph, renderer, renderer_state, width, height);
     }
 }
 
@@ -1733,7 +1749,7 @@ void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle)
     static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
 }
 
-void init_imgui(Engine *engine)
+bool init_imgui(Engine *engine)
 {
     renderer_state->imgui_docking = false;
 
@@ -1759,6 +1775,7 @@ void init_imgui(Engine *engine)
     }
 
     platform_init_imgui(engine);
+    return renderer->init_imgui();
 }
 
 void imgui_new_frame()
