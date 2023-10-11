@@ -1,3 +1,5 @@
+#define PI 3.14159265359
+
 struct Globals
 {
     mat4 view;
@@ -5,6 +7,8 @@ struct Globals
 
     vec3 directional_light_direction;
     vec3 directional_light_color;
+
+    float gamma;
 };
 
 struct Object_Data

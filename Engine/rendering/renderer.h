@@ -29,8 +29,6 @@ enum RenderingAPI
 #define HE_MAX_BIND_GROUP_COUNT 4096
 #define HE_MAX_SCENE_NODE_COUNT 4096
 
-#define HE_RENDER_GRAPH 1
-
 struct Directional_Light
 {
     glm::vec3 direction;
@@ -42,7 +40,6 @@ struct Scene_Data
 {
     glm::mat4 view;
     glm::mat4 projection;
-
     Directional_Light directional_light;
 };
 
@@ -107,8 +104,6 @@ struct Renderer
     void (*imgui_render)();
 };
 
-bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);
-
 struct Renderer_State
 {
     struct Engine *engine;
@@ -141,8 +136,9 @@ struct Renderer_State
     Scene_Node *root_scene_node;
 
     F32 gamma;
-    U32 sample_count;
-    U32 anisotropic_filtering;
+    bool triple_buffering;
+    MSAA_Setting msaa_setting;
+    Anisotropic_Filtering_Setting anisotropic_filtering_setting;
 
     Shader_Handle mesh_vertex_shader;
     Shader_Handle mesh_fragment_shader;
@@ -151,21 +147,6 @@ struct Renderer_State
 
     Bind_Group_Handle per_frame_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
     Bind_Group_Handle per_render_pass_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
-
-    Texture_Handle color_attachments[HE_MAX_FRAMES_IN_FLIGHT];
-    Texture_Handle depth_attachments[HE_MAX_FRAMES_IN_FLIGHT];
-    Texture_Handle resolve_color_attachments[HE_MAX_FRAMES_IN_FLIGHT];
-
-    Frame_Buffer_Handle world_frame_buffers[HE_MAX_FRAMES_IN_FLIGHT];
-    Frame_Buffer_Handle ui_frame_buffers[HE_MAX_FRAMES_IN_FLIGHT];
-
-    Render_Pass_Handle world_render_pass;
-    Render_Pass_Handle ui_render_pass;
-
-    Texture_Handle white_pixel_texture;
-    Texture_Handle normal_pixel_texture;
-
-    Sampler_Handle default_sampler;
 
     Buffer_Handle globals_uniform_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
@@ -185,17 +166,28 @@ struct Renderer_State
     Buffer_Handle index_buffer;
     U64 index_offset;
 
-    Scene_Data scene_data;
-
     Free_List_Allocator transfer_allocator;
 
     U32 frames_in_flight;
     U32 current_frame_in_flight_index;
 
     Mutex render_commands_mutex;
-
+    
+    Texture_Handle white_pixel_texture;
+    Texture_Handle normal_pixel_texture;
+    Sampler_Handle default_sampler;
+    
+    Scene_Data scene_data;
     Render_Graph render_graph;
 };
+
+struct Render_Context
+{
+    Renderer *renderer;
+    Renderer_State *renderer_state;
+};
+
+bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);
 
 bool pre_init_renderer_state(struct Engine *engine);
 
@@ -203,26 +195,18 @@ bool init_renderer_state(struct Engine *engine);
 
 void deinit_renderer_state();
 
-void invalidate_render_entities();
-
 Scene_Node *add_child_scene_node(Scene_Node *parent);
 
 bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *arena);
-
 Scene_Node* load_model_threaded(const String &path);
 
 void render_scene_node(Scene_Node *scene_node, const glm::mat4 &transform);
-
-U8 *get_property(Material *material, const String &name, Shader_Data_Type data_type);
 
 glm::vec4 srgb_to_linear(const glm::vec4 &color);
 glm::vec4 linear_to_srgb(const glm::vec4 &color);
 
 void renderer_on_resize(U32 width, U32 height);
 
-glm::vec2 renderer_get_viewport();
-
-Scene_Data *renderer_get_scene_data();
 void renderer_wait_for_gpu_to_finish_all_work();
 
 //
@@ -317,13 +301,25 @@ void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle);
 //
 Material_Handle renderer_create_material(const Material_Descriptor &descriptor);
 Material* renderer_get_material(Material_Handle material_handle);
+U8 *get_property(Material *material, const String &name, Shader_Data_Type data_type);
 void renderer_destroy_material(Material_Handle &material_handle);
+
+//
+// Render Context
+//
+
+Render_Context get_render_context();
+
+//
+// Settings
+//
+
+void renderer_set_anisotropic_filtering(Anisotropic_Filtering_Setting anisotropic_filtering_setting);
+void renderer_set_msaa(MSAA_Setting msaa_setting);
+
+//
+// ImGui
+//
 
 bool init_imgui(Engine *engine);
 void imgui_new_frame();
-
-// todo(amer): Temprary
-Renderer *get_renderer();
-Renderer_State *get_renderer_state();
-
-U32 get_size_of_shader_data_type(Shader_Data_Type data_type);

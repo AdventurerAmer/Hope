@@ -724,6 +724,7 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
     globals.projection[1][1] *= -1;
     globals.directional_light_direction = glm::vec4(scene_data->directional_light.direction, 0.0f);
     globals.directional_light_color = srgb_to_linear(scene_data->directional_light.color) * scene_data->directional_light.intensity;
+    globals.gamma = renderer_state->gamma;
 
     Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[current_frame_in_flight_index]);
     memcpy(global_uniform_buffer->data, &globals, sizeof(Globals));
@@ -806,19 +807,6 @@ void vulkan_renderer_end_frame()
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
-
-    // Texture_Handle color_attachment_handle = Resource_Pool< Texture >::invalid_handle;
-
-    // if (renderer_state->sample_count != 1)
-    // {
-    //     color_attachment_handle = renderer_state->resolve_color_attachments[renderer_state->current_frame_in_flight_index];
-    // }
-    // else
-    // {
-    //     color_attachment_handle = renderer_state->color_attachments[renderer_state->current_frame_in_flight_index];
-    // }
-
-    // HE_ASSERT(is_valid_handle(&renderer_state->textures, color_attachment_handle));
     
     VkImage swapchain_image = context->swapchain.images[context->current_swapchain_image_index];
 
@@ -840,19 +828,14 @@ void vulkan_renderer_end_frame()
 
     transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    Vulkan_Image *color_attachment = nullptr;
-
-#if HE_RENDER_GRAPH
     // todo(amer): make the final pass / final image to be copied to the swapchain image in the definition of the graph
-    S32 index = find(&renderer_state->render_graph.resource_cache, HE_STRING_LITERAL("rt0"));
-    HE_ASSERT(index != -1);
-    Render_Graph_Resource_Handle resource_handle = renderer_state->render_graph.resource_cache.values[index];
-    Texture_Handle rt0 = renderer_state->render_graph.resources[resource_handle].info.handles[renderer_state->current_frame_in_flight_index];
-    color_attachment = &context->textures[rt0.index];
-#else
-    // todo(amer): not optimal...
-    color_attachment = &context->textures[color_attachment_handle.index];
-#endif
+    Render_Graph_Node_Handle ui_pass_handle = get_node(&renderer_state->render_graph, "ui");
+    HE_ASSERT(ui_pass_handle != -1);
+    Render_Graph_Node &ui_pass = renderer_state->render_graph.nodes[ui_pass_handle];
+    Render_Graph_Resource_Handle main_resource_handle = ui_pass.render_targets[0];
+    Render_Graph_Resource &main_resource = renderer_state->render_graph.resources[main_resource_handle];
+    Texture_Handle main = main_resource.info.handles[renderer_state->current_frame_in_flight_index];
+    Vulkan_Image *color_attachment = &context->textures[main.index];
     
     transtion_image_to_layout(context->command_buffer, color_attachment->handle, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     vkCmdCopyImage(context->command_buffer, color_attachment->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
@@ -1485,45 +1468,6 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
         attachment_index++;
     }
 
-    for (const Attachment_Info &attachment_info : descriptor.resolve_attachments)
-    {
-        VkAttachmentDescription *attachment = &attachments[attachment_index];
-        attachment->format = get_texture_format(attachment_info.format);
-        attachment->samples = get_sample_count(attachment_info.sample_count);
-        attachment->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        switch (attachment_info.operation)
-        {
-            case Attachment_Operation::DONT_CARE:
-            {
-                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-                attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            } break;
-
-            case Attachment_Operation::LOAD:
-            {
-                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                attachment->initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            } break;
-
-            case Attachment_Operation::CLEAR:
-            {
-                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            } break;
-        }
-
-        attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        attachment->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        attachment->finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        VkAttachmentReference *attachment_ref = &attachment_refs[attachment_index];
-        attachment_ref->attachment = attachment_index;
-        attachment_ref->layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        attachment_index++;
-    }
-
     for (const Attachment_Info &attachment_info : descriptor.depth_stencil_attachments)
     {
         VkAttachmentDescription *attachment = &attachments[attachment_index];
@@ -1580,6 +1524,45 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
         attachment_index++;
     }
 
+    for (const Attachment_Info &attachment_info : descriptor.resolve_attachments)
+    {
+        VkAttachmentDescription *attachment = &attachments[attachment_index];
+        attachment->format = get_texture_format(attachment_info.format);
+        attachment->samples = get_sample_count(attachment_info.sample_count);
+        attachment->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        switch (attachment_info.operation)
+        {
+            case Attachment_Operation::DONT_CARE:
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            } break;
+
+            case Attachment_Operation::LOAD:
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                attachment->initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            } break;
+
+            case Attachment_Operation::CLEAR:
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            } break;
+        }
+
+        attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachment->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachment->finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference *attachment_ref = &attachment_refs[attachment_index];
+        attachment_ref->attachment = attachment_index;
+        attachment_ref->layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        attachment_index++;
+    }
+
     VkSubpassDescription subpass = {};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 
@@ -1589,14 +1572,14 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
         subpass.pColorAttachments = attachment_refs;
     }
 
-    if (descriptor.resolve_attachments.count)
-    {
-        subpass.pResolveAttachments = &attachment_refs[descriptor.color_attachments.count];
-    }
-
     if (descriptor.depth_stencil_attachments.count)
     {
-        subpass.pDepthStencilAttachment = &attachment_refs[descriptor.color_attachments.count + descriptor.resolve_attachments.count];
+        subpass.pDepthStencilAttachment = &attachment_refs[descriptor.color_attachments.count];
+    }
+    
+    if (descriptor.resolve_attachments.count)
+    {
+        subpass.pResolveAttachments = &attachment_refs[descriptor.color_attachments.count + descriptor.depth_stencil_attachments.count];
     }
 
     VkRenderPassCreateInfo render_pass_create_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
@@ -1618,7 +1601,7 @@ void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Fr
     Frame_Buffer *frame_buffer = get(&renderer_state->frame_buffers, frame_buffer_handle);
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
-    HE_ASSERT(frame_buffer->attachments.count == clear_values.count);
+    HE_ASSERT(frame_buffer->attachments.count <= clear_values.count);
 
     Texture *attachment = get(&renderer_state->textures, frame_buffer->attachments[0]);
     
@@ -1676,8 +1659,13 @@ void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle)
 bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
+
     Frame_Buffer *frame_buffer = get(&context->renderer_state->frame_buffers, frame_buffer_handle);
     copy(&frame_buffer->attachments, &descriptor.attachments);
+    frame_buffer->width = descriptor.width;
+    frame_buffer->height = descriptor.height;
+    frame_buffer->render_pass = descriptor.render_pass;
+
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
 
     Temprary_Memory_Arena temprary_arena = {};
@@ -1704,8 +1692,6 @@ bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle
     frame_buffer_create_info.layers = 1;
 
     HE_CHECK_VKRESULT(vkCreateFramebuffer(context->logical_device, &frame_buffer_create_info, nullptr, &vulkan_frame_buffer->handle));
-    frame_buffer->width = descriptor.width;
-    frame_buffer->height = descriptor.height;
     return true;
 }
 

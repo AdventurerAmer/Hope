@@ -20,8 +20,6 @@ typedef S32 Render_Graph_Resource_Handle;
 
 struct Render_Graph_Resource_Info
 {
-    Attachment_Operation operation = Attachment_Operation::DONT_CARE;
-
     Texture_Format format;
 
     bool resizable_sample = false;
@@ -45,6 +43,7 @@ struct Render_Graph_Resource_Info
 struct Render_Target_Info
 {
     const char *name;
+    Attachment_Operation operation = Attachment_Operation::CLEAR;
     Render_Graph_Resource_Info info;
 };
 
@@ -54,7 +53,9 @@ struct Render_Graph_Resource
     Render_Graph_Resource_Info info;
 
     Render_Graph_Node_Handle node_handle;
-    
+
+    Render_Graph_Resource_Handle resolver_handle;
+
     U32 ref_count;
 };
 
@@ -64,12 +65,18 @@ struct Render_Graph_Node
 {
     String name;
 
+    bool enabled;
+
     Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT > clear_values;
 
     Render_Pass_Handle render_pass;
     Frame_Buffer_Handle frame_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
+    Array< Render_Graph_Resource_Handle, HE_MAX_ATTACHMENT_COUNT > original_render_targets;
     Array< Render_Graph_Resource_Handle, HE_MAX_ATTACHMENT_COUNT > render_targets;
+    Array< Attachment_Operation, HE_MAX_ATTACHMENT_COUNT > render_target_operations;
+
+    Array< Render_Graph_Resource_Handle, HE_MAX_ATTACHMENT_COUNT > resolve_render_targets;
 
     Dynamic_Array< Render_Graph_Node_Handle > edges;
 
@@ -96,10 +103,13 @@ struct Render_Graph
 void init(Render_Graph *render_graph, Allocator allocator);
 
 Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const Array_View< Render_Target_Info > &render_targets, render_proc render);
-Render_Graph_Node_Handle get_node(Render_Graph *render_graph, const char *name);
+void add_resolve_color_attachment(Render_Graph *render_graph, Render_Graph_Node *node, const char *render_target, const char *resolve_render_target);
 
-void compile(Render_Graph *render_graph, Renderer *renderer);
+void compile(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
+
+void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
 
 void render(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
 
-void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state, U32 width, U32 height);
+Render_Graph_Node_Handle get_node(Render_Graph *render_graph, const char *name);
+Render_Pass_Handle get_render_pass(Render_Graph *render_graph, const char *name);

@@ -2,20 +2,18 @@
 
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_scalar_block_layout : enable
 
 #include "common.glsl"
 
-#define GAMMA 2.2
-#define PI 3.14159265359
-
-vec3 srgb_to_linear(vec3 color)
+vec3 srgb_to_linear(vec3 color, float gamma)
 {
-    return pow(color, vec3(GAMMA));
+    return pow(color, vec3(gamma));
 }
 
-vec3 linear_to_srgb(vec3 color)
+vec3 linear_to_srgb(vec3 color, float gamma)
 {
-    return pow(color, vec3(1.0/GAMMA));
+    return pow(color, vec3(1.0/gamma));
 }
 
 in vec3 in_position;
@@ -24,7 +22,7 @@ in vec2 in_uv;
 in vec3 in_tangent;
 in vec3 in_bitangent;
 
-layout (std140, set = 0, binding = 0) uniform u_Globals
+layout (std430, set = 0, binding = 0) uniform u_Globals
 {
     Globals globals;
 };
@@ -42,7 +40,7 @@ struct Material_Properties
     float reflectance;
 };
 
-layout (std140, set = 2, binding = 0) uniform u_Material
+layout (std430, set = 2, binding = 0) uniform u_Material
 {
     Material_Properties material;
 };
@@ -77,8 +75,8 @@ float geometry_smith(float NdotV, float NdotL, float roughness)
 
 void main()
 {
-    vec3 albedo = srgb_to_linear( texture( u_textures[ nonuniformEXT( material.albedo_texture_index) ], in_uv ).rgb );
-    albedo *= srgb_to_linear( material.albedo_color );
+    vec3 albedo = srgb_to_linear( texture( u_textures[ nonuniformEXT( material.albedo_texture_index) ], in_uv ).rgb, globals.gamma );
+    albedo *= srgb_to_linear( material.albedo_color, globals.gamma );
 
     vec3 occlusion_roughness_metallic = texture( u_textures[ nonuniformEXT( material.occlusion_roughness_metallic_texture_index ) ], in_uv ).rgb;
     float occlusion = occlusion_roughness_metallic.r;
@@ -124,6 +122,6 @@ void main()
     vec3 ambient = 0.03 * albedo * occlusion;
     vec3 color = ambient + Lo;
     color = color / (color + vec3(1.0));
-    color = linear_to_srgb(color);
+    color = linear_to_srgb(color, globals.gamma);
     out_color = vec4(color, 1.0);
 }

@@ -1,6 +1,7 @@
 #version 450
 
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_scalar_block_layout : enable
 
 #include "common.glsl"
 
@@ -15,12 +16,12 @@ out vec2 out_uv;
 out vec3 out_tangent;
 out vec3 out_bitangent;
 
-layout (std140, set = 0, binding = 0) uniform u_Globals
+layout (std430, set = 0, binding = 0) uniform u_Globals
 {
     Globals globals;
 };
 
-layout (std140, set = 0, binding = 1) readonly buffer u_Object_Buffer
+layout (std430, set = 0, binding = 1) readonly buffer u_Object_Buffer
 {
     Object_Data objects[];
 };

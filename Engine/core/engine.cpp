@@ -21,14 +21,13 @@ void hock_engine_api(Engine_API *api)
     api->control_camera = &control_camera;
     api->update_camera = &update_camera;
     api->load_model_threaded = &load_model_threaded;
-    api->get_viewport = &renderer_get_viewport;
-    api->get_scene_data = &renderer_get_scene_data;
+    api->get_render_context = &get_render_context;
 }
 
 bool startup(Engine *engine, void *platform_state)
 {
-    U64 permenent_memory_size = HE_GIGA(1);
-    U64 transient_memory_size = HE_GIGA(1);
+    U64 permenent_memory_size = HE_GIGA(2);
+    U64 transient_memory_size = HE_GIGA(2);
     Size required_memory_size = permenent_memory_size + transient_memory_size;
 
     void *memory = platform_allocate_memory(required_memory_size);
@@ -132,7 +131,9 @@ bool startup(Engine *engine, void *platform_state)
         return false;
     }
 
-    Scene_Data *scene_data = renderer_get_scene_data();
+    Render_Context render_context = get_render_context();
+    Scene_Data *scene_data = &render_context.renderer_state->scene_data;
+
     scene_data->directional_light.direction = { 0.0f, -1.0f, 0.0f };
     scene_data->directional_light.color = { 1.0f, 1.0f, 1.0f, 1.0f };
     scene_data->directional_light.intensity = 1.0f;
@@ -162,7 +163,8 @@ void game_loop(Engine *engine, F32 delta_time)
 {
     imgui_new_frame();
 
-    Scene_Data *scene_data = renderer_get_scene_data();
+    Render_Context render_context = get_render_context();
+    Scene_Data *scene_data = &render_context.renderer_state->scene_data;
     Directional_Light *directional_light = &scene_data->directional_light;
 
     ImGui::Begin("Graphics");
@@ -190,22 +192,48 @@ void game_loop(Engine *engine, F32 delta_time)
 
     ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, HE_MAX_F32);
 
-    Renderer *renderer = get_renderer();
-    Renderer_State *renderer_state = get_renderer_state();
+    Render_Context context = get_render_context();
+
+    Renderer *renderer = context.renderer;
+    Renderer_State *renderer_state = context.renderer_state;
+
+    ImGui::Text("");
+    ImGui::Text("Settings");
+    ImGui::Separator();
+
+    //
+    // Triple Buffering
+    //
+    {
+        ImGui::Text("Triple Buffering");
+        ImGui::SameLine();
+
+        if (ImGui::Checkbox("##Triple Buffering", &renderer_state->triple_buffering))
+        {
+            if (renderer_state->triple_buffering)
+            {
+                renderer_state->frames_in_flight = 3;
+            }
+            else
+            {
+                renderer_state->frames_in_flight = 2;
+            }
+        }
+    }
+
+    //
+    // Gamma
+    //
+    {
+        ImGui::Text("Gamma");
+        ImGui::SameLine();
+        ImGui::SliderFloat("##Gamma", &renderer_state->gamma, 2.0, 2.4, "%.4f", ImGuiSliderFlags_AlwaysClamp);
+    }
 
     //
     // Anisotropic Filtering
     //
     {
-        U32 anisotropic_filtering[] =
-        {
-            0,
-            2,
-            4,
-            8,
-            16
-        };
-
         const char *anisotropic_filtering_text[] =
         {
             "NONE",
@@ -219,40 +247,25 @@ void game_loop(Engine *engine, F32 delta_time)
         ImGui::SameLine();
 
         const char *selected_anisotropic_filtering = nullptr;
-        for (U32 i = 0; i < HE_ARRAYCOUNT(anisotropic_filtering); i++)
+        for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
         {
-            if (renderer_state->anisotropic_filtering == anisotropic_filtering[i])
+            if ((U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index)
             {
-                selected_anisotropic_filtering = anisotropic_filtering_text[i];
+                selected_anisotropic_filtering = anisotropic_filtering_text[anisotropic_filtering_index];
                 break;
             }
         }
 
         if (ImGui::BeginCombo("##Anistropic Filtering", selected_anisotropic_filtering))
         {
-            for (U32 i = 0; i < HE_ARRAYCOUNT(anisotropic_filtering); i++)
+            for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
             {
-                bool is_selected = renderer_state->anisotropic_filtering == anisotropic_filtering[i];
-                if (ImGui::Selectable(anisotropic_filtering_text[i], is_selected))
+                bool is_selected = (U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index;
+                if (ImGui::Selectable(anisotropic_filtering_text[anisotropic_filtering_index], is_selected))
                 {
-                    if (renderer_state->anisotropic_filtering != anisotropic_filtering[i])
-                    {
-                        renderer_state->anisotropic_filtering = anisotropic_filtering[i];
-                        renderer->wait_for_gpu_to_finish_all_work();
-
-                        Sampler_Descriptor default_sampler_descriptor = {};
-                        default_sampler_descriptor.min_filter = Filter::LINEAR;
-                        default_sampler_descriptor.mag_filter = Filter::NEAREST;
-                        default_sampler_descriptor.mip_filter = Filter::LINEAR;
-                        default_sampler_descriptor.address_mode_u = Address_Mode::REPEAT;
-                        default_sampler_descriptor.address_mode_v = Address_Mode::REPEAT;
-                        default_sampler_descriptor.address_mode_w = Address_Mode::REPEAT;
-                        default_sampler_descriptor.anisotropy = renderer_state->anisotropic_filtering;
-
-                        renderer->destroy_sampler(renderer_state->default_sampler);
-                        renderer->create_sampler(renderer_state->default_sampler, default_sampler_descriptor);
-                    }
+                    renderer_set_anisotropic_filtering((Anisotropic_Filtering_Setting)anisotropic_filtering_index);
                 }
+                
                 if (is_selected)
                 {
                     ImGui::SetItemDefaultFocus();
@@ -266,14 +279,6 @@ void game_loop(Engine *engine, F32 delta_time)
     // MSAA
     //
     {
-        U32 msaa[] =
-        {
-            1,
-            2,
-            4,
-            8
-        };
-
         const char* msaa_text[] =
         {
             "NONE",
@@ -286,28 +291,25 @@ void game_loop(Engine *engine, F32 delta_time)
         ImGui::SameLine();
 
         const char *selected_msaa = nullptr;
-        for (U32 i = 0; i < HE_ARRAYCOUNT(msaa); i++)
+        for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
         {
-            if (renderer_state->sample_count == msaa[i])
+            if ((U32)renderer_state->msaa_setting == msaa_setting_index)
             {
-                selected_msaa = msaa_text[i];
+                selected_msaa = msaa_text[msaa_setting_index];
                 break;
             }
         }
 
         if (ImGui::BeginCombo("##MSAA", selected_msaa))
         {
-            for (U32 i = 0; i < HE_ARRAYCOUNT(msaa); i++)
+            for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
             {
-                bool is_selected = renderer_state->sample_count == msaa[i];
-                if (ImGui::Selectable(msaa_text[i], is_selected))
+                bool is_selected = (U32)renderer_state->msaa_setting == msaa_setting_index;
+                if (ImGui::Selectable(msaa_text[msaa_setting_index], is_selected))
                 {
-                    if (renderer_state->sample_count != msaa[i])
-                    {
-                        renderer_state->sample_count = msaa[i];
-                        invalidate(&renderer_state->render_graph, renderer, renderer_state, renderer_state->back_buffer_width, renderer_state->back_buffer_height);
-                    }
+                    renderer_set_msaa((MSAA_Setting)msaa_setting_index);
                 }
+                
                 if (is_selected)
                 {
                     ImGui::SetItemDefaultFocus();
@@ -316,7 +318,6 @@ void game_loop(Engine *engine, F32 delta_time)
             ImGui::EndCombo();
         }
     }
-
 
     ImGui::End();
 
@@ -332,106 +333,11 @@ void game_loop(Engine *engine, F32 delta_time)
     renderer_state->object_data_count = 0;
     
     renderer->begin_frame(scene_data);
-    
-#if HE_RENDER_GRAPH
     render(&renderer_state->render_graph, renderer, renderer_state);
-#else
-    Frame_Buffer *frame_buffer = get(&renderer_state->frame_buffers, renderer_state->world_frame_buffers[current_frame_in_flight_index]);
-    if ((frame_buffer->width != renderer_state->back_buffer_width || frame_buffer->height != renderer_state->back_buffer_height)
-        && (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0))
-    {
-        invalidate_render_entities();
-    }
-
-    renderer->set_viewport(renderer_state->back_buffer_width, renderer_state->back_buffer_height);
-
-    Clear_Value clear_values[3] = {};
-    U32 clear_value_count = 3;
-
-    if (renderer_state->sample_count != 1)
-    {
-        clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-        clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-        clear_values[2].depth = 1.0f;
-
-    }
-    else
-    {
-        clear_value_count = 2;
-        clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-        clear_values[1].depth = 1.0f;
-    }
-
-    renderer->begin_render_pass(renderer_state->world_render_pass, renderer_state->world_frame_buffers[current_frame_in_flight_index], to_array_view(clear_values));
-
-    Buffer_Handle vertex_buffers[] =
-    {
-        renderer_state->position_buffer,
-        renderer_state->normal_buffer,
-        renderer_state->uv_buffer,
-        renderer_state->tangent_buffer
-    };
-
-    U64 offsets[] =
-    {
-        0,
-        0,
-        0,
-        0
-    };
-
-    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
-    renderer->set_index_buffer(renderer_state->index_buffer, 0);
-
-    U32 texture_count = renderer_state->textures.capacity;
-    Texture_Handle *textures = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Texture_Handle, texture_count);
-    Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Sampler_Handle, texture_count);
-
-    for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
-    {
-        if (renderer_state->textures.data[it.index].is_attachment)
-        {
-            textures[it.index] = renderer_state->white_pixel_texture;
-        }
-        else
-        {
-            textures[it.index] = it;
-        }
-
-        samplers[it.index] = renderer_state->default_sampler;
-    }
-
-    Update_Binding_Descriptor update_textures_binding_descriptors[1] = {};
-    update_textures_binding_descriptors[0].binding_number = 0;
-    update_textures_binding_descriptors[0].element_index = 0;
-    update_textures_binding_descriptors[0].count = texture_count;
-    update_textures_binding_descriptors[0].textures = textures;
-    update_textures_binding_descriptors[0].samplers = samplers;
-    renderer->update_bind_group(renderer_state->per_render_pass_bind_groups[current_frame_in_flight_index], to_array_view(update_textures_binding_descriptors));
-
-    Bind_Group_Handle bind_groups[] =
-    {
-        renderer_state->per_frame_bind_groups[current_frame_in_flight_index],
-        renderer_state->per_render_pass_bind_groups[current_frame_in_flight_index]
-    };
-
-    renderer->set_bind_groups(0, to_array_view(bind_groups));
-
-    render_scene_node(renderer_state->root_scene_node, glm::mat4(1.0f));
-
-    renderer->end_render_pass(renderer_state->world_render_pass);
-
-    Clear_Value ui_clear_values[1] = {};
-    renderer->begin_render_pass(renderer_state->ui_render_pass, renderer_state->ui_frame_buffers[current_frame_in_flight_index], to_array_view(ui_clear_values));
-    renderer->imgui_render();
-    renderer->end_render_pass(renderer_state->ui_render_pass);
-
-#endif
-
     renderer->end_frame();
 
     renderer_state->current_frame_in_flight_index++;
-    if (renderer_state->current_frame_in_flight_index == renderer_state->frames_in_flight)
+    if (renderer_state->current_frame_in_flight_index >= renderer_state->frames_in_flight)
     {
         renderer_state->current_frame_in_flight_index = 0;
     }

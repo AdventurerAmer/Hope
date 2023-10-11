@@ -10,6 +10,8 @@
 
 #include "containers/dynamic_array.h"
 
+#include "rendering/renderer_utils.h"
+
 static Vulkan_Context *vulkan_context;
 
 enum class SPRIV_Shader_Entity_Kind

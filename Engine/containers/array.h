@@ -136,7 +136,7 @@ S32 find(const Array< T, N > *array, const T &target)
     {
         if (array->data[index] == target)
         {
-            return it;
+            return index;
         }
     }
 

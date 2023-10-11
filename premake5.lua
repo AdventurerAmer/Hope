@@ -42,7 +42,7 @@ project "Engine"
     kind "WindowedApp"
     location "Engine"
     language "C++"
-    cppdialect "C++17"
+    cppdialect "C++20"
     staticruntime "on"
 
     files { "Engine/**.h", "Engine/**.hpp", "Engine/**.cpp", "Data/**.vert", "Data/**.frag", "Data/**.glsl" }
@@ -63,7 +63,7 @@ project "Game"
     kind "SharedLib"
     location "Game"
     language "C++"
-    cppdialect "C++17"
+    cppdialect "C++20"
     staticruntime "on"
 
     defines { "HE_EXPORT" }

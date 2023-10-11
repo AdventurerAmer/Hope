@@ -50,8 +50,7 @@ struct Engine_API
     void (*set_window_mode)(Window *window, Window_Mode mode);
     void (*debug_printf)(const char *message);
 
-    glm::vec2 (*get_viewport)();
-    Scene_Data* (*get_scene_data)();
+    Render_Context (*get_render_context)();
 };
 
 struct Engine

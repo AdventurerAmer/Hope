@@ -516,9 +516,29 @@ struct Globals
 
     glm::vec3 directional_light_direction;
     alignas(16) glm::vec3 directional_light_color;
+
+    float gamma;
 };
 
 static_assert( offsetof(Globals, view) == 0 );
 static_assert( offsetof(Globals, projection) == 64 );
 static_assert( offsetof(Globals, directional_light_direction) == 128 );
 static_assert( offsetof(Globals, directional_light_color) == 144 );
+static_assert( offsetof(Globals, gamma) == 156 );
+
+enum class Anisotropic_Filtering_Setting : U8
+{
+    NONE,
+    X2,
+    X4,
+    X8,
+    X16
+};
+
+enum class MSAA_Setting : U8
+{
+    NONE,
+    X2,
+    X4,
+    X8
+};

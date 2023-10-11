@@ -12,8 +12,9 @@ static Game_State game_state;
 
 HE_API bool init_game(Engine *engine)
 {
-    glm::vec2 viewport = engine->api.get_viewport();
-
+    Render_Context render_context = engine->api.get_render_context();
+    glm::vec2 viewport = { render_context.renderer_state->back_buffer_width, render_context.renderer_state->back_buffer_height };
+    
     F32 aspect_ratio = viewport.x / viewport.y;
     glm::quat camera_rotation = glm::quat({ 0.0f, 0.0f, 0.0f });
     Camera *camera = &game_state.camera;
@@ -112,7 +113,8 @@ HE_API void on_update(Engine *engine, F32 delta_time)
 
     if (!engine->is_minimized)
     {
-        Scene_Data *scene_data = engine->api.get_scene_data();
+        Render_Context render_context = engine->api.get_render_context();
+        Scene_Data *scene_data = &render_context.renderer_state->scene_data;
         scene_data->view = camera->view;
         scene_data->projection = camera->projection;
     }

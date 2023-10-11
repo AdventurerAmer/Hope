@@ -315,6 +315,11 @@ static void declare_cvar(const String &category_name, const String &cvar_name, v
     }
 }
 
+void declare_cvar(const char *category, const char *name, bool *memory, CVar_Flags flags)
+{
+    declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::BOOL, flags);
+}
+
 void declare_cvar(const char *category, const char *name, U8 *memory, CVar_Flags flags)
 {
     declare_cvar(HE_STRING(category), HE_STRING(name), memory, CVar_Type::U8, flags);

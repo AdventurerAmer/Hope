@@ -1,8 +1,8 @@
-#pragma warning(push, 0)
+#include "rendering/renderer.h"
+#include "rendering/renderer_utils.h"
 
-#define CGLTF_IMPLEMENTATION
-#include <cgltf.h>
-
+#include "core/platform.h"
+#include "core/cvars.h"
 #include "core/memory.h"
 #include "core/engine.h"
 #include "core/file_system.h"
@@ -11,14 +11,23 @@
 
 #include "containers/queue.h"
 
-#include <imgui.h>
+#if HE_OS_WINDOWS
+#define HE_RHI_VULKAN
+#endif
 
-static Renderer_State *renderer_state;
-static Renderer *renderer;
+#ifdef HE_RHI_VULKAN
+#include "rendering/vulkan/vulkan_renderer.h"
+#endif
+
+#pragma warning(push, 0)
+
+#define CGLTF_IMPLEMENTATION
+#include <cgltf.h>
+
+#include <imgui.h>
 
 static Free_List_Allocator *_transfer_allocator;
 static Free_List_Allocator *_stbi_allocator;
-
 #define STBI_MALLOC(sz) allocate(_stbi_allocator, sz, 0);
 #define STBI_REALLOC(p, newsz) reallocate(_stbi_allocator, p, newsz, 0)
 #define STBI_FREE(p) deallocate(_stbi_allocator, p)
@@ -28,17 +37,8 @@ static Free_List_Allocator *_stbi_allocator;
 
 #pragma warning(pop)
 
-#include "rendering/renderer.h"
-#include "core/platform.h"
-#include "core/cvars.h"
-
-#if HE_OS_WINDOWS
-#define HE_RHI_VULKAN
-#endif
-
-#ifdef HE_RHI_VULKAN
-#include "rendering/vulkan/vulkan_renderer.h"
-#endif
+static Renderer_State *renderer_state;
+static Renderer *renderer;
 
 bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
 {
@@ -134,24 +134,40 @@ bool pre_init_renderer_state(Engine *engine)
     bool render_commands_mutex_created = platform_create_mutex(&renderer_state->render_commands_mutex);
     HE_ASSERT(render_commands_mutex_created);
 
-    renderer_state->current_frame_in_flight_index = 0;
-    renderer_state->frames_in_flight = 2;
-    HE_ASSERT(renderer_state->frames_in_flight <= HE_MAX_FRAMES_IN_FLIGHT);
-
-    U32 &back_buffer_width = renderer_state->back_buffer_width;
-    U32 &back_buffer_height = renderer_state->back_buffer_height;
-    U32 &sample_count = renderer_state->sample_count;
-    U32 &anisotropic_filtering = renderer_state->anisotropic_filtering;
+    U32& back_buffer_width = renderer_state->back_buffer_width;
+    U32& back_buffer_height = renderer_state->back_buffer_height;
+    bool& triple_buffering = renderer_state->triple_buffering;
+    U8& msaa_setting = (U8&)renderer_state->msaa_setting;
+    U8& anisotropic_filtering_setting = (U8&)renderer_state->anisotropic_filtering_setting;
+    F32& gamma = renderer_state->gamma;
+    
+    // defaults
     back_buffer_width = 1280;
     back_buffer_height = 720;
-    sample_count = 4;
-    anisotropic_filtering = 16;
+    msaa_setting = (U8)MSAA_Setting::X4;
+    anisotropic_filtering_setting = (U8)Anisotropic_Filtering_Setting::X16;
+    triple_buffering = true;
+    gamma = 2.2f;
 
     HE_DECLARE_CVAR("renderer", back_buffer_width, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", back_buffer_height, CVarFlag_None);
-    HE_DECLARE_CVAR("renderer", sample_count, CVarFlag_None);
-    HE_DECLARE_CVAR("renderer", anisotropic_filtering, CVarFlag_None);
-    
+    HE_DECLARE_CVAR("renderer", triple_buffering, CVarFlag_None);
+    HE_DECLARE_CVAR("renderer", gamma, CVarFlag_None);
+    HE_DECLARE_CVAR("renderer", msaa_setting, CVarFlag_None);
+    HE_DECLARE_CVAR("renderer", anisotropic_filtering_setting, CVarFlag_None);
+
+    renderer_state->current_frame_in_flight_index = 0;
+    HE_ASSERT(renderer_state->frames_in_flight <= HE_MAX_FRAMES_IN_FLIGHT);
+
+    if (renderer_state->triple_buffering)
+    {
+        renderer_state->frames_in_flight = 3;
+    }
+    else
+    {
+        renderer_state->frames_in_flight = 2;
+    }
+
     bool renderer_requested = request_renderer(RenderingAPI_Vulkan, &renderer_state->renderer);
     if (!renderer_requested)
     {
@@ -209,7 +225,7 @@ bool init_renderer_state(Engine *engine)
     default_sampler_descriptor.address_mode_u = Address_Mode::REPEAT;
     default_sampler_descriptor.address_mode_v = Address_Mode::REPEAT;
     default_sampler_descriptor.address_mode_w = Address_Mode::REPEAT;
-    default_sampler_descriptor.anisotropy = renderer_state->anisotropic_filtering;
+    default_sampler_descriptor.anisotropy = get_anisotropic_filtering_value(renderer_state->anisotropic_filtering_setting);
     renderer_state->default_sampler = renderer_create_sampler(default_sampler_descriptor);
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -305,24 +321,8 @@ bool init_renderer_state(Engine *engine)
         };
         
         renderer->update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
-
-        renderer_state->per_render_pass_bind_groups[frame_index] = aquire_handle(&renderer_state->bind_groups);
-        renderer->create_bind_group(renderer_state->per_render_pass_bind_groups[frame_index], per_render_pass_bind_group_descriptor);
+        renderer_state->per_render_pass_bind_groups[frame_index] = renderer_create_bind_group(per_render_pass_bind_group_descriptor);
     }
-
-    // renderer_state->world_render_pass = Resource_Pool< Render_Pass >::invalid_handle;
-    // renderer_state->ui_render_pass = Resource_Pool< Render_Pass >::invalid_handle;
-
-    // for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    // {
-    //     renderer_state->world_frame_buffers[frame_index] = Resource_Pool< Frame_Buffer >::invalid_handle;
-    //     renderer_state->ui_frame_buffers[frame_index] = Resource_Pool< Frame_Buffer >::invalid_handle;
-    //     renderer_state->color_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
-    //     renderer_state->resolve_color_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
-    //     renderer_state->depth_attachments[frame_index] = Resource_Pool< Texture >::invalid_handle;
-    // }
-
-    // invalidate_render_entities();
 
     init(&renderer_state->render_graph, &engine->memory.free_list_allocator);
     
@@ -387,53 +387,41 @@ bool init_renderer_state(Engine *engine)
         Render_Target_Info render_targets[] =
         {
             {
-                "msaa_rt0",
+                .name = "multisample_main",
+                .operation = Attachment_Operation::CLEAR,
+                .info =
                 {
-                    Attachment_Operation::CLEAR,
-                    Texture_Format::B8G8R8A8_SRGB,
-                    true,
-                    renderer_state->sample_count,
-                    0,
-                    0,
-                    true,
-                    1.0f,
-                    1.0f,
+                    .format = Texture_Format::B8G8R8A8_SRGB,
+                    .resizable_sample = true,
+                    .sample_count = get_sample_count(renderer_state->msaa_setting),
+                    .width = 0,
+                    .height = 0,
+                    .resizable = true,
+                    .scale_x = 1.0f,
+                    .scale_y = 1.0f,
                 }
             },
             {
-                "rt0",
+                .name = "depth",
+                .operation = Attachment_Operation::CLEAR,
+                .info = 
                 {
-                    Attachment_Operation::DONT_CARE,
-                    Texture_Format::B8G8R8A8_SRGB,
-                    false,
-                    1,
-                    0,
-                    0,
-                    true,
-                    1.0f,
-                    1.0f,
-                }
-            },
-            {
-                "msaa_depth",
-                {
-                    Attachment_Operation::CLEAR,
-                    Texture_Format::DEPTH_F32_STENCIL_U8,
-                    true,
-                    renderer_state->sample_count,
-                    0,
-                    0,
-                    true,
-                    1.0f,
-                    1.0f,
+                    .format = Texture_Format::DEPTH_F32_STENCIL_U8,
+                    .resizable_sample = true,
+                    .sample_count = get_sample_count(renderer_state->msaa_setting),
+                    .width = 0,
+                    .height = 0,
+                    .resizable = true,
+                    .scale_x = 1.0f,
+                    .scale_y = 1.0f,
                 }
             }
         };
 
-        Render_Graph_Node &node = add_node(&renderer_state->render_graph, "world_msaa", to_array_view(render_targets), render);
+        Render_Graph_Node &node = add_node(&renderer_state->render_graph, "world", to_array_view(render_targets), render);
+        add_resolve_color_attachment(&renderer_state->render_graph, &node, "multisample_main", "main");
         node.clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-        node.clear_values[1].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-        node.clear_values[2].depth = 1.0f;
+        node.clear_values[1].depth = 1.0f;
     }
 
     {
@@ -445,29 +433,24 @@ bool init_renderer_state(Engine *engine)
         Render_Target_Info render_targets[] =
         {
             {
-                "rt0"
+                .name = "main",
+                .operation = Attachment_Operation::LOAD
             }
         };
-
+        
         add_node(&renderer_state->render_graph, "ui", to_array_view(render_targets), render);
     }
 
-    compile(&renderer_state->render_graph, renderer);
+    compile(&renderer_state->render_graph, renderer, renderer_state);
 
-    Render_Graph_Node_Handle world_node_handle = get_node(&renderer_state->render_graph, "world_msaa");
-    HE_ASSERT(world_node_handle != -1);
-    Render_Graph_Node &world_node = renderer_state->render_graph.nodes[world_node_handle]; 
-
-    renderer_state->mesh_pipeline = aquire_handle(&renderer_state->pipeline_states);
     Pipeline_State_Descriptor mesh_pipeline_state_descriptor = {};
     mesh_pipeline_state_descriptor.cull_mode = Cull_Mode::BACK;
     mesh_pipeline_state_descriptor.fill_mode = Fill_Mode::SOLID;
     mesh_pipeline_state_descriptor.front_face = Front_Face::COUNTER_CLOCKWISE;
     mesh_pipeline_state_descriptor.sample_shading = true;
     mesh_pipeline_state_descriptor.shader_group = renderer_state->mesh_shader_group;
-    mesh_pipeline_state_descriptor.render_pass = world_node.render_pass;
-    bool pipeline_created = renderer->create_pipeline_state(renderer_state->mesh_pipeline, mesh_pipeline_state_descriptor);
-    HE_ASSERT(pipeline_created);
+    mesh_pipeline_state_descriptor.render_pass = get_render_pass(&renderer_state->render_graph, "world");
+    renderer_state->mesh_pipeline = renderer_create_pipeline_state(mesh_pipeline_state_descriptor);
 
     bool imgui_inited = init_imgui(engine);
     HE_ASSERT(imgui_inited);
@@ -535,216 +518,6 @@ void deinit_renderer_state()
 
     platform_shutdown_imgui();
     ImGui::DestroyContext();
-}
-
-void invalidate_render_entities()
-{
-    renderer->wait_for_gpu_to_finish_all_work();
-
-    if (is_valid_handle(&renderer_state->render_passes, renderer_state->world_render_pass))
-    {
-        renderer->destroy_render_pass(renderer_state->world_render_pass);
-    }
-    else
-    {
-        renderer_state->world_render_pass = aquire_handle(&renderer_state->render_passes);
-    }
-
-    if (is_valid_handle(&renderer_state->render_passes, renderer_state->ui_render_pass))
-    {
-        renderer->destroy_render_pass(renderer_state->ui_render_pass);
-    }
-    else
-    {
-        renderer_state->ui_render_pass = aquire_handle(&renderer_state->render_passes);
-    }
-
-    Render_Pass_Descriptor world_render_pass_descriptor = {};
-    world_render_pass_descriptor.color_attachments =
-    {
-        {
-            Texture_Format::B8G8R8A8_SRGB,
-            renderer_state->sample_count,
-            Attachment_Operation::CLEAR
-        }
-    };
-
-    if (renderer_state->sample_count != 1)
-    {
-        world_render_pass_descriptor.resolve_attachments =
-        {
-            {
-                Texture_Format::B8G8R8A8_SRGB,
-                1,
-                Attachment_Operation::DONT_CARE
-            }
-        };
-    }
-
-    world_render_pass_descriptor.depth_stencil_attachments =
-    {
-        {
-            Texture_Format::DEPTH_F32_STENCIL_U8,
-            renderer_state->sample_count,
-            Attachment_Operation::CLEAR
-        }
-    };
-
-    world_render_pass_descriptor.stencil_operation = Attachment_Operation::DONT_CARE;
-    renderer->create_render_pass(renderer_state->world_render_pass, world_render_pass_descriptor);
-
-    Render_Pass_Descriptor ui_render_pass_descriptor = {};
-    ui_render_pass_descriptor.color_attachments =
-    {
-        {
-            Texture_Format::B8G8R8A8_SRGB,
-            1,
-            Attachment_Operation::LOAD
-        }
-    };
-    ui_render_pass_descriptor.stencil_operation = Attachment_Operation::DONT_CARE;
-
-    renderer->create_render_pass(renderer_state->ui_render_pass, ui_render_pass_descriptor);
-
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        if (is_valid_handle(&renderer_state->frame_buffers, renderer_state->world_frame_buffers[frame_index]))
-        {
-            renderer->destroy_frame_buffer(renderer_state->world_frame_buffers[frame_index]);
-        }
-        else
-        {
-            renderer_state->world_frame_buffers[frame_index] = aquire_handle(&renderer_state->frame_buffers);
-        }
-
-        if (is_valid_handle(&renderer_state->frame_buffers, renderer_state->ui_frame_buffers[frame_index]))
-        {
-            renderer->destroy_frame_buffer(renderer_state->ui_frame_buffers[frame_index]);
-        }
-        else
-        {
-            renderer_state->ui_frame_buffers[frame_index] = aquire_handle(&renderer_state->frame_buffers);
-        }
-
-        if (is_valid_handle(&renderer_state->textures, renderer_state->color_attachments[frame_index]))
-        {
-            renderer->destroy_texture(renderer_state->color_attachments[frame_index]);
-        }
-        else
-        {
-            renderer_state->color_attachments[frame_index] = aquire_handle(&renderer_state->textures);
-        }
-
-        if (is_valid_handle(&renderer_state->textures, renderer_state->resolve_color_attachments[frame_index]))
-        {
-            renderer->destroy_texture(renderer_state->resolve_color_attachments[frame_index]);
-        }
-        else
-        {
-            renderer_state->resolve_color_attachments[frame_index] = aquire_handle(&renderer_state->textures);
-        }
-
-        if (is_valid_handle(&renderer_state->textures, renderer_state->depth_attachments[frame_index]))
-        {
-            renderer->destroy_texture(renderer_state->depth_attachments[frame_index]);
-        }
-        else
-        {
-            renderer_state->depth_attachments[frame_index] = aquire_handle(&renderer_state->textures);
-        }
-    }
-
-    Texture_Descriptor color_attachment_descriptor = {};
-    color_attachment_descriptor.format = Texture_Format::B8G8R8A8_SRGB;
-    color_attachment_descriptor.data = nullptr;
-    color_attachment_descriptor.mipmapping = false;
-    color_attachment_descriptor.width = renderer_state->back_buffer_width;
-    color_attachment_descriptor.height = renderer_state->back_buffer_height;
-    color_attachment_descriptor.sample_count = renderer_state->sample_count;
-    color_attachment_descriptor.is_attachment = true;
-
-    Texture_Descriptor resolve_color_attachment_descriptor = {};
-    resolve_color_attachment_descriptor.format = Texture_Format::B8G8R8A8_SRGB;
-    resolve_color_attachment_descriptor.data = nullptr;
-    resolve_color_attachment_descriptor.mipmapping = false;
-    resolve_color_attachment_descriptor.width = renderer_state->back_buffer_width;
-    resolve_color_attachment_descriptor.height = renderer_state->back_buffer_height;
-    resolve_color_attachment_descriptor.sample_count = 1;
-    resolve_color_attachment_descriptor.is_attachment = true;
-
-    Texture_Descriptor depth_attachment_descriptor = {};
-    depth_attachment_descriptor.format = Texture_Format::DEPTH_F32_STENCIL_U8;
-    depth_attachment_descriptor.data = nullptr;
-    depth_attachment_descriptor.mipmapping = false;
-    depth_attachment_descriptor.width = renderer_state->back_buffer_width;
-    depth_attachment_descriptor.height = renderer_state->back_buffer_height;
-    depth_attachment_descriptor.sample_count = renderer_state->sample_count;
-    depth_attachment_descriptor.is_attachment = true;
-
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        renderer->create_texture(renderer_state->color_attachments[frame_index], color_attachment_descriptor);
-        renderer->create_texture(renderer_state->resolve_color_attachments[frame_index], resolve_color_attachment_descriptor);
-        renderer->create_texture(renderer_state->depth_attachments[frame_index], depth_attachment_descriptor);
-
-        Frame_Buffer_Descriptor world_frame_buffer_descriptor;
-        world_frame_buffer_descriptor.render_pass = renderer_state->world_render_pass;
-        world_frame_buffer_descriptor.width = renderer_state->back_buffer_width;
-        world_frame_buffer_descriptor.height = renderer_state->back_buffer_height;
-
-        if (renderer_state->sample_count != 1)
-        {
-            world_frame_buffer_descriptor.attachments =
-            {
-                renderer_state->color_attachments[frame_index],
-                renderer_state->resolve_color_attachments[frame_index],
-                renderer_state->depth_attachments[frame_index]
-            };
-        }
-        else
-        {
-            world_frame_buffer_descriptor.attachments =
-            {
-                renderer_state->color_attachments[frame_index],
-                renderer_state->depth_attachments[frame_index]
-            };
-        }
-
-        renderer->create_frame_buffer(renderer_state->world_frame_buffers[frame_index], world_frame_buffer_descriptor);
-
-        Frame_Buffer_Descriptor ui_frame_buffer_descriptor;
-        ui_frame_buffer_descriptor.render_pass = renderer_state->ui_render_pass;
-        ui_frame_buffer_descriptor.width = renderer_state->back_buffer_width;
-        ui_frame_buffer_descriptor.height = renderer_state->back_buffer_height;
-
-        if (renderer_state->sample_count != 1)
-        {
-            ui_frame_buffer_descriptor.attachments =
-            {
-                renderer_state->resolve_color_attachments[frame_index],
-            };
-        }
-        else
-        {
-            ui_frame_buffer_descriptor.attachments =
-            {
-                renderer_state->color_attachments[frame_index],
-            };
-        }
-
-        renderer->create_frame_buffer(renderer_state->ui_frame_buffers[frame_index], ui_frame_buffer_descriptor);
-    }
-
-    for (auto it = iterator(&renderer_state->pipeline_states); next(&renderer_state->pipeline_states, it); )
-    {
-        Pipeline_State *pipeline_state = &renderer_state->pipeline_states.data[it.index];
-
-        if (pipeline_state->descriptor.render_pass == renderer_state->world_render_pass)
-        {
-            renderer->destroy_pipeline_state(it);
-            renderer->create_pipeline_state(it, pipeline_state->descriptor);
-        }
-    }
 }
 
 Scene_Node* add_child_scene_node(Scene_Node *parent)
@@ -994,7 +767,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
 
     if (!result.success)
     {
-        return nullptr;
+        return false;
     }
 
     U8 *buffer = result.data;
@@ -1011,12 +784,12 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
 
     if (cgltf_parse(&options, buffer, result.size, &model_data) != cgltf_result_success)
     {
-        return nullptr;
+        return false;
     }
 
     if (cgltf_load_buffers(&options, model_data, path.data) != cgltf_result_success) // @Leak
     {
-        return nullptr;
+        return false;
     }
 
     for (U32 material_index = 0; material_index < model_data->materials_count; material_index++)
@@ -1310,103 +1083,6 @@ void render_scene_node(Scene_Node *scene_node, const glm::mat4 &parent_transform
     }
 }
 
-Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
-{
-    Material_Handle material_handle = aquire_handle(&renderer_state->materials);
-    Material *material = get(&renderer_state->materials, material_handle);
-    Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, descriptor.pipeline_state_handle);
-    Shader_Group *shader_group = get(&renderer_state->shader_groups, pipeline_state->descriptor.shader_group);
-
-    Shader_Struct *properties = nullptr;
-
-    for (U32 shader_index = 0; shader_index < shader_group->shaders.count; shader_index++)
-    {
-        Shader *shader = get(&renderer_state->shaders, shader_group->shaders[shader_index]);
-        for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
-        {
-            Shader_Struct *shader_struct = &shader->structs[struct_index];
-            if (shader_struct->name == "Material_Properties")
-            {
-                properties = shader_struct;
-                break;
-            }
-        }
-    }
-
-    HE_ASSERT(properties);
-
-    Shader_Struct_Member *last_member = &properties->members[properties->member_count - 1];
-    U32 last_member_size = get_size_of_shader_data_type(last_member->data_type);
-    U32 size = last_member->offset + last_member_size;
-
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        Buffer_Descriptor material_buffer_descriptor = {};
-        material_buffer_descriptor.usage = Buffer_Usage::UNIFORM;
-        material_buffer_descriptor.size = size;
-        material_buffer_descriptor.is_device_local = false;
-        material->buffers[frame_index] = renderer_create_buffer(material_buffer_descriptor);
-    }
-
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        Bind_Group_Descriptor bind_group_descriptor = {};
-        bind_group_descriptor.shader_group = pipeline_state->descriptor.shader_group;
-        bind_group_descriptor.layout = shader_group->bind_group_layouts[2]; // todo(amer): @Hardcoding
-        material->bind_groups[frame_index] = renderer_create_bind_group(bind_group_descriptor);
-
-        Update_Binding_Descriptor update_binding_descriptors[1] = {};
-        update_binding_descriptors[0].binding_number = 0;
-        update_binding_descriptors[0].element_index = 0;
-        update_binding_descriptors[0].count = 1;
-        update_binding_descriptors[0].buffers = &material->buffers[frame_index];
-
-        renderer->update_bind_group(material->bind_groups[frame_index], to_array_view(update_binding_descriptors));
-    }
-
-    material->pipeline_state_handle = descriptor.pipeline_state_handle;
-    material->data = HE_ALLOCATE_ARRAY(&renderer_state->engine->memory.free_list_allocator, U8, size);
-    material->size = size;
-    material->properties = properties;
-
-    return material_handle;
-}
-
-Material *renderer_get_material(Material_Handle material_handle)
-{
-    return get(&renderer_state->materials, material_handle);
-}
-
-void renderer_destroy_material(Material_Handle &material_handle)
-{
-    Material *material = get(&renderer_state->materials, material_handle);
-
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        renderer_destroy_buffer(material->buffers[frame_index]);
-        renderer_destroy_bind_group(material->bind_groups[frame_index]);
-    }
-
-    deallocate(&renderer_state->engine->memory.free_list_allocator, material->data);
-    release_handle(&renderer_state->materials, material_handle);
-
-    material_handle = Resource_Pool< Material >::invalid_handle;
-}
-
-U8 *get_property(Material *material, const String &name, Shader_Data_Type data_type)
-{
-    Shader_Struct *properties = material->properties;
-    for (U32 member_index = 0; member_index < properties->member_count; member_index++)
-    {
-        Shader_Struct_Member *member = &properties->members[member_index];
-        if (name == member->name && member->data_type == data_type)
-        {
-            return material->data + member->offset;
-        }
-    }
-    return nullptr;
-}
-
 glm::vec4 srgb_to_linear(const glm::vec4 &color)
 {
     return glm::pow(color, glm::vec4(renderer_state->gamma));
@@ -1415,42 +1091,6 @@ glm::vec4 srgb_to_linear(const glm::vec4 &color)
 glm::vec4 linear_to_srgb(const glm::vec4 &color)
 {
     return glm::pow(color, glm::vec4(1.0f / renderer_state->gamma));
-}
-
-U32 get_size_of_shader_data_type(Shader_Data_Type data_type)
-{
-    switch (data_type)
-    {
-        case Shader_Data_Type::BOOL: return 1;
-
-        case Shader_Data_Type::S8: return 1;
-        case Shader_Data_Type::S16: return 2;
-        case Shader_Data_Type::S32: return 4;
-        case Shader_Data_Type::S64: return 8;
-
-        case Shader_Data_Type::U8: return 1;
-        case Shader_Data_Type::U16: return 2;
-        case Shader_Data_Type::U32: return 4;
-        case Shader_Data_Type::U64: return 8;
-
-        case Shader_Data_Type::F16: return 2;
-        case Shader_Data_Type::F32: return 4;
-        case Shader_Data_Type::F64: return 8;
-
-        case Shader_Data_Type::VECTOR2F: return 2 * 4;
-        case Shader_Data_Type::VECTOR3F: return 3 * 4;
-        case Shader_Data_Type::VECTOR4F: return 4 * 4;
-
-        case Shader_Data_Type::MATRIX3F: return 9 * 4;
-        case Shader_Data_Type::MATRIX4F: return 16 * 4;
-
-        default:
-        {
-            HE_ASSERT(!"unsupported type");
-        } break;
-    }
-
-    return 0;
 }
 
 void renderer_on_resize(U32 width, U32 height)
@@ -1465,18 +1105,10 @@ void renderer_on_resize(U32 width, U32 height)
             renderer->on_resize(width, height);
         }
         
-        invalidate(&renderer_state->render_graph, renderer, renderer_state, width, height);
+        renderer->wait_for_gpu_to_finish_all_work();
+        compile(&renderer_state->render_graph, renderer, renderer_state);
+        // invalidate(&renderer_state->render_graph, renderer, renderer_state);
     }
-}
-
-glm::vec2 renderer_get_viewport()
-{
-    return { renderer_state->back_buffer_width, renderer_state->back_buffer_height };
-}
-
-Scene_Data *renderer_get_scene_data()
-{
-    return &renderer_state->scene_data;
 }
 
 void renderer_wait_for_gpu_to_finish_all_work()
@@ -1730,6 +1362,10 @@ void renderer_destroy_frame_buffer(Frame_Buffer_Handle &frame_buffer_handle)
     frame_buffer_handle = Resource_Pool< Frame_Buffer >::invalid_handle;
 }
 
+//
+// Static Meshes
+//
+
 Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &descriptor)
 {
     Static_Mesh_Handle static_mesh_handle = aquire_handle(&renderer_state->static_meshes);
@@ -1748,6 +1384,166 @@ void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle)
     release_handle(&renderer_state->static_meshes, static_mesh_handle);
     static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
 }
+
+//
+// Materials
+//
+
+Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
+{
+    Material_Handle material_handle = aquire_handle(&renderer_state->materials);
+    Material *material = get(&renderer_state->materials, material_handle);
+    Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, descriptor.pipeline_state_handle);
+    Shader_Group *shader_group = get(&renderer_state->shader_groups, pipeline_state->descriptor.shader_group);
+
+    Shader_Struct *properties = nullptr;
+
+    for (U32 shader_index = 0; shader_index < shader_group->shaders.count; shader_index++)
+    {
+        Shader *shader = get(&renderer_state->shaders, shader_group->shaders[shader_index]);
+        for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
+        {
+            Shader_Struct *shader_struct = &shader->structs[struct_index];
+            if (shader_struct->name == "Material_Properties")
+            {
+                properties = shader_struct;
+                break;
+            }
+        }
+    }
+
+    HE_ASSERT(properties);
+
+    Shader_Struct_Member *last_member = &properties->members[properties->member_count - 1];
+    U32 last_member_size = get_size_of_shader_data_type(last_member->data_type);
+    U32 size = last_member->offset + last_member_size;
+
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        Buffer_Descriptor material_buffer_descriptor = {};
+        material_buffer_descriptor.usage = Buffer_Usage::UNIFORM;
+        material_buffer_descriptor.size = size;
+        material_buffer_descriptor.is_device_local = false;
+        material->buffers[frame_index] = renderer_create_buffer(material_buffer_descriptor);
+    }
+
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        Bind_Group_Descriptor bind_group_descriptor = {};
+        bind_group_descriptor.shader_group = pipeline_state->descriptor.shader_group;
+        bind_group_descriptor.layout = shader_group->bind_group_layouts[2]; // todo(amer): @Hardcoding
+        material->bind_groups[frame_index] = renderer_create_bind_group(bind_group_descriptor);
+
+        Update_Binding_Descriptor update_binding_descriptors[1] = {};
+        update_binding_descriptors[0].binding_number = 0;
+        update_binding_descriptors[0].element_index = 0;
+        update_binding_descriptors[0].count = 1;
+        update_binding_descriptors[0].buffers = &material->buffers[frame_index];
+
+        renderer->update_bind_group(material->bind_groups[frame_index], to_array_view(update_binding_descriptors));
+    }
+
+    material->pipeline_state_handle = descriptor.pipeline_state_handle;
+    material->data = HE_ALLOCATE_ARRAY(&renderer_state->engine->memory.free_list_allocator, U8, size);
+    material->size = size;
+    material->properties = properties;
+
+    return material_handle;
+}
+
+Material *renderer_get_material(Material_Handle material_handle)
+{
+    return get(&renderer_state->materials, material_handle);
+}
+
+void renderer_destroy_material(Material_Handle &material_handle)
+{
+    Material *material = get(&renderer_state->materials, material_handle);
+
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        renderer_destroy_buffer(material->buffers[frame_index]);
+        renderer_destroy_bind_group(material->bind_groups[frame_index]);
+    }
+
+    deallocate(&renderer_state->engine->memory.free_list_allocator, material->data);
+    release_handle(&renderer_state->materials, material_handle);
+
+    material_handle = Resource_Pool< Material >::invalid_handle;
+}
+
+U8 *get_property(Material *material, const String &name, Shader_Data_Type data_type)
+{
+    Shader_Struct *properties = material->properties;
+    for (U32 member_index = 0; member_index < properties->member_count; member_index++)
+    {
+        Shader_Struct_Member *member = &properties->members[member_index];
+        if (name == member->name && member->data_type == data_type)
+        {
+            return material->data + member->offset;
+        }
+    }
+    return nullptr;
+}
+
+//
+// Render Context
+//
+
+Render_Context get_render_context()
+{
+    return { renderer, renderer_state };
+}
+
+//
+// Settings
+//
+
+void renderer_set_anisotropic_filtering(Anisotropic_Filtering_Setting anisotropic_filtering_setting)
+{  
+    if (renderer_state->anisotropic_filtering_setting == anisotropic_filtering_setting)
+    {
+        return;
+    }
+    
+    renderer->wait_for_gpu_to_finish_all_work();
+    
+    Sampler_Descriptor default_sampler_descriptor = {};
+    default_sampler_descriptor.min_filter = Filter::LINEAR;
+    default_sampler_descriptor.mag_filter = Filter::NEAREST;
+    default_sampler_descriptor.mip_filter = Filter::LINEAR;
+    default_sampler_descriptor.address_mode_u = Address_Mode::REPEAT;
+    default_sampler_descriptor.address_mode_v = Address_Mode::REPEAT;
+    default_sampler_descriptor.address_mode_w = Address_Mode::REPEAT;
+    default_sampler_descriptor.anisotropy = get_anisotropic_filtering_value(anisotropic_filtering_setting);
+
+    if (is_valid_handle(&renderer_state->samplers, renderer_state->default_sampler))
+    {
+        renderer->destroy_sampler(renderer_state->default_sampler);
+    }
+
+    renderer->create_sampler(renderer_state->default_sampler, default_sampler_descriptor);
+    renderer_state->anisotropic_filtering_setting = anisotropic_filtering_setting;
+}
+
+void renderer_set_msaa(MSAA_Setting msaa_setting)
+{
+    if (renderer_state->msaa_setting == msaa_setting)
+    {
+        return;
+    }
+
+    renderer->wait_for_gpu_to_finish_all_work();
+
+    renderer_state->msaa_setting = msaa_setting;
+    compile(&renderer_state->render_graph, renderer, renderer_state);
+
+    // invalidate(&renderer_state->render_graph, renderer, renderer_state);
+}
+
+//
+// ImGui
+//
 
 bool init_imgui(Engine *engine)
 {
@@ -1845,14 +1641,4 @@ void imgui_new_frame()
             style.WindowMinSize.x = minWindowSizeX;
         }
     }
-}
-
-Renderer *get_renderer()
-{
-    return renderer;
-}
-
-Renderer_State *get_renderer_state()
-{
-    return renderer_state;
 }

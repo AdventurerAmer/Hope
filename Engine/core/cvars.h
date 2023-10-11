@@ -33,6 +33,8 @@ enum CVar_Flags
 bool init_cvars(const char *filepath, struct Engine *engine);
 void deinit_cvars(struct Engine *engine);
 
+void declare_cvar(const char *category, const char *name, bool *memory, CVar_Flags flags);
+
 void declare_cvar(const char *category, const char *name, U8 *memory, CVar_Flags flags);
 void declare_cvar(const char *category, const char *name, U16 *memory, CVar_Flags flags);
 void declare_cvar(const char *category, const char *name, U32 *memory, CVar_Flags flags);
