@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/defines.h"
+#include "core/memory.h"
+
 #include <initializer_list>
 
 template< typename T, const U32 N >
@@ -23,7 +25,12 @@ struct Array
         return data[index];
     }
 
-    Array< T, N >& operator=(const Array< T, N > &other) = delete;
+    Array< T, N >& operator=(const Array< T, N >& other)
+    {
+        count = other.count;
+        copy_memory(data, other.data, sizeof(T) * other.count);
+        return *this;
+    }
 
     Array< T, N >& operator=(const std::initializer_list< T > &&items)
     {
@@ -87,7 +94,8 @@ void append(Array< T, N > *array, const T &datum)
 {
     HE_ASSERT(array);
     HE_ASSERT(array->count < N);
-    array->data[array->count++] = datum;
+    copy_memory(array->data + array->count, &datum, sizeof(T));
+    array->count++;
 }
 
 template< typename T, const U32 N >
@@ -111,7 +119,7 @@ void remove_and_swap_back(Array< T, N > *array, U32 index)
 {
     HE_ASSERT(array);
     HE_ASSERT(index < array->count);
-    array->data[index] = array->data[array->count - 1];
+    copy_memory(&array->data[index], &array->data[array->count - 1], sizeof(T));
     array->count--;
 }
 
@@ -122,7 +130,7 @@ void remove_ordered(Array< T, N > *array, U32 index)
     HE_ASSERT(index < array->count);
     for (U32 i = index; i < array->count - 1; i++)
     {
-        array->data[i] = array->data[i + 1];
+        copy_memory(&array->data[i], &array->data[i + 1], sizeof(T));
     }
     array->count--;
 }

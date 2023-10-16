@@ -234,6 +234,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     context->render_passes = HE_ALLOCATE_ARRAY(arena, Vulkan_Render_Pass, HE_MAX_RENDER_PASS_COUNT);
     context->frame_buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Frame_Buffer, HE_MAX_FRAME_BUFFER_COUNT);
     context->static_meshes = HE_ALLOCATE_ARRAY(arena, Vulkan_Static_Mesh, HE_MAX_STATIC_MESH_COUNT);
+    context->semaphores = HE_ALLOCATE_ARRAY(arena, Vulkan_Semaphore, HE_MAX_SEMAPHORE_COUNT);
 
     const char *required_instance_extensions[] =
     {
@@ -248,7 +249,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
 #endif
     };
 
-    U32 required_api_version = VK_API_VERSION_1_1;
+    U32 required_api_version = VK_API_VERSION_1_2;
     U32 driver_api_version = 0;
 
     // vkEnumerateInstanceVersion requires at least vulkan 1.1
@@ -335,10 +336,18 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     descriptor_indexing_features.descriptorBindingVariableDescriptorCount = VK_TRUE;
     descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
 
+    VkPhysicalDeviceTimelineSemaphoreFeatures physical_device_timelint_semaphore_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES };
+    physical_device_timelint_semaphore_features.timelineSemaphore = VK_TRUE;
+    physical_device_timelint_semaphore_features.pNext = &descriptor_indexing_features; 
+
+    VkPhysicalDeviceSynchronization2FeaturesKHR physical_device_sync2_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES };
+    physical_device_sync2_features.synchronization2 = VK_TRUE;
+    physical_device_sync2_features.pNext = &physical_device_timelint_semaphore_features;
+
     VkPhysicalDeviceFeatures2 physical_device_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
     physical_device_features2.features.samplerAnisotropy = VK_TRUE;
     physical_device_features2.features.sampleRateShading = VK_TRUE;
-    physical_device_features2.pNext = &descriptor_indexing_features;
+    physical_device_features2.pNext = &physical_device_sync2_features;
 
     context->physical_device = pick_physical_device(context->instance, context->surface, physical_device_features2, descriptor_indexing_features, arena);
     HE_ASSERT(context->physical_device != VK_NULL_HANDLE);
@@ -457,6 +466,8 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
             "VK_KHR_swapchain",
             "VK_KHR_push_descriptor",
             "VK_EXT_descriptor_indexing",
+            "VK_KHR_timeline_semaphore",
+            "VK_KHR_synchronization2"
         };
 
         U32 extension_property_count = 0;
@@ -602,6 +613,12 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
         HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &semaphore_create_info, nullptr, &context->rendering_finished_semaphores[frame_index]));
         HE_CHECK_VKRESULT(vkCreateFence(context->logical_device, &fence_create_info, nullptr, &context->frame_in_flight_fences[frame_index]));
     }
+
+    context->vkQueueSubmit2KHR = (PFN_vkQueueSubmit2KHR)vkGetDeviceProcAddr(context->logical_device, "vkQueueSubmit2KHR");
+    HE_ASSERT(context->vkQueueSubmit2KHR);
+    
+    context->vkCmdPipelineBarrier2KHR = (PFN_vkCmdPipelineBarrier2KHR)vkGetDeviceProcAddr(context->logical_device, "vkCmdPipelineBarrier2KHR");
+    HE_ASSERT(context->vkCmdPipelineBarrier2KHR);
 
     return true;
 }
@@ -827,24 +844,18 @@ void vulkan_renderer_end_frame()
     region.extent = { context->swapchain.width, context->swapchain.height, 1 };
 
     transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-    // todo(amer): make the final pass / final image to be copied to the swapchain image in the definition of the graph
-    Render_Graph_Node_Handle ui_pass_handle = get_node(&renderer_state->render_graph, "ui");
-    HE_ASSERT(ui_pass_handle != -1);
-    Render_Graph_Node &ui_pass = renderer_state->render_graph.nodes[ui_pass_handle];
-    Render_Graph_Resource_Handle main_resource_handle = ui_pass.render_targets[0];
-    Render_Graph_Resource &main_resource = renderer_state->render_graph.resources[main_resource_handle];
-    Texture_Handle main = main_resource.info.handles[renderer_state->current_frame_in_flight_index];
-    Vulkan_Image *color_attachment = &context->textures[main.index];
     
-    transtion_image_to_layout(context->command_buffer, color_attachment->handle, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    vkCmdCopyImage(context->command_buffer, color_attachment->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    Texture_Handle presentable_attachment = renderer_state->render_graph.presentable_resource->info.handles[renderer_state->current_frame_in_flight_index];
+    Vulkan_Image *vulkan_presentable_attachment = &context->textures[presentable_attachment.index];
+    
+    transtion_image_to_layout(context->command_buffer, vulkan_presentable_attachment->handle, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    vkCmdCopyImage(context->command_buffer, vulkan_presentable_attachment->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     vkEndCommandBuffer(context->command_buffer);
 
     VkPipelineStageFlags wait_stage =  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
+    
     VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
 
     submit_info.pWaitDstStageMask = &wait_stage;
@@ -960,7 +971,7 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
         U64 transfered_data_offset = (U8 *)descriptor.data - renderer_state->transfer_allocator.base;
 
         Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
-        copy_data_to_image_from_buffer(context, image, descriptor.width, descriptor.height, transfer_buffer, transfered_data_offset, size);
+        copy_data_to_image_from_buffer(context, image, descriptor.width, descriptor.height, transfer_buffer, transfered_data_offset, size, descriptor.allocation_group);
     }
 
     texture->width = descriptor.width;
@@ -1862,11 +1873,31 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, index_buffer->handle, 1, &index_copy_region);
 
     vkEndCommandBuffer(command_buffer);
+    
+    VkCommandBufferSubmitInfo command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    command_buffer_submit_info.commandBuffer = command_buffer;
 
-    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffer;
-    vkQueueSubmit(context->transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
+    VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
+    submit_info.commandBufferInfoCount = 1;
+    submit_info.pCommandBufferInfos = &command_buffer_submit_info;
+
+    VkSemaphoreSubmitInfoKHR semaphore_submit_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+
+    if (descriptor.allocation_group)
+    {
+        Allocation_Group* allocation_group = descriptor.allocation_group;
+        allocation_group->target_value++;
+        Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[allocation_group->semaphore.index];
+        
+        semaphore_submit_info.semaphore = vulkan_semaphore->handle;
+        semaphore_submit_info.value = allocation_group->target_value;
+        semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
+
+        submit_info.signalSemaphoreInfoCount = 1;
+        submit_info.pSignalSemaphoreInfos = &semaphore_submit_info;
+    }
+
+    context->vkQueueSubmit2KHR(context->transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
 
     vulkan_static_mesh->first_vertex = (S32)u64_to_u32(renderer_state->vertex_count);
     vulkan_static_mesh->first_index = u64_to_u32(renderer_state->index_offset / sizeof(U16));
@@ -1881,6 +1912,42 @@ void vulkan_renderer_destroy_static_mesh(Static_Mesh_Handle static_mesh_handle)
 {
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
+}
+
+bool vulkan_renderer_create_semaphore(Semaphore_Handle semaphore_handle, const Renderer_Semaphore_Descriptor &descriptor)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[semaphore_handle.index];
+
+    VkSemaphoreTypeCreateInfo semaphore_type_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+    semaphore_type_create_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    semaphore_type_create_info.initialValue = descriptor.initial_value;
+
+    VkSemaphoreCreateInfo semaphore_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    semaphore_create_info.pNext = &semaphore_type_create_info;
+    if (descriptor.is_signaled)
+    {
+        semaphore_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    }
+    HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &semaphore_create_info, nullptr, &vulkan_semaphore->handle));
+    return true;
+}
+
+U64 vulkan_renderer_get_semaphore_value(Semaphore_Handle semaphore_handle)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[semaphore_handle.index];
+    U64 value = 0;
+    HE_CHECK_VKRESULT(vkGetSemaphoreCounterValue(context->logical_device, vulkan_semaphore->handle, &value));
+    return value;
+}
+
+void vulkan_renderer_destroy_semaphore(Semaphore_Handle semaphore_handle)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[semaphore_handle.index];
+    vkDestroySemaphore(context->logical_device, vulkan_semaphore->handle, nullptr);
+    vulkan_semaphore->handle = VK_NULL_HANDLE;
 }
 
 bool vulkan_renderer_init_imgui()

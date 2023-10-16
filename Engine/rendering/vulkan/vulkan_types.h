@@ -83,6 +83,11 @@ struct Vulkan_Frame_Buffer
     VkFramebuffer handle;
 };
 
+struct Vulkan_Semaphore
+{
+    VkSemaphore handle;
+};
+
 struct Vulkan_Swapchain_Support
 {
     U32 surface_format_count;
@@ -174,6 +179,10 @@ struct Vulkan_Context
     Vulkan_Render_Pass *render_passes;
     Vulkan_Frame_Buffer *frame_buffers;
     Vulkan_Static_Mesh *static_meshes;
+    Vulkan_Semaphore *semaphores;
+
+    PFN_vkQueueSubmit2KHR vkQueueSubmit2KHR;
+    PFN_vkCmdPipelineBarrier2KHR vkCmdPipelineBarrier2KHR;
 
 #if HE_GRAPHICS_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;

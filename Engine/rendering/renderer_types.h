@@ -106,6 +106,7 @@ struct Texture_Descriptor
     U32 sample_count = 1;
     bool is_attachment = false;
     Texture_Handle alias = Resource_Pool< Texture >::invalid_handle;
+    struct Allocation_Group *allocation_group = nullptr;
 };
 
 //
@@ -457,6 +458,45 @@ struct Material
 using Material_Handle = Resource_Handle< Material >;
 
 //
+// Semaphore
+//
+
+struct Renderer_Semaphore_Descriptor
+{
+    bool is_signaled;
+    U64 initial_value = 0;
+};
+
+struct Renderer_Semaphore
+{
+    Renderer_Semaphore_Descriptor descriptor;
+};
+
+using Semaphore_Handle = Resource_Handle< Renderer_Semaphore >;
+
+//
+// Allocation Group
+//
+
+#define HE_MAX_ALLOCATION_COUNT 8
+
+enum class Allocation_Group_Type : U8
+{
+    GENERAL,
+    MODEL
+};
+
+struct Allocation_Group
+{
+    Allocation_Group_Type type;
+
+    Semaphore_Handle semaphore;
+    U64 target_value;
+
+    Array< void*, HE_MAX_ALLOCATION_COUNT > allocations;
+};
+
+//
 // Mesh
 //
 
@@ -471,6 +511,8 @@ struct Static_Mesh_Descriptor
 
     U16 *indices;
     U32 index_count;
+
+    Allocation_Group *allocation_group;
 };
 
 struct Static_Mesh
@@ -484,6 +526,10 @@ struct Static_Mesh
 };
 
 using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;
+
+//
+// Scene
+//
 
 struct Scene_Node
 {
@@ -499,6 +545,10 @@ struct Scene_Node
 
     glm::mat4 transform;
 };
+
+//
+// Shader Structs
+//
 
 // todo(amer): @HardCoding per object data and globals struct layouts here
 struct Object_Data
@@ -525,6 +575,10 @@ static_assert( offsetof(Globals, projection) == 64 );
 static_assert( offsetof(Globals, directional_light_direction) == 128 );
 static_assert( offsetof(Globals, directional_light_color) == 144 );
 static_assert( offsetof(Globals, gamma) == 156 );
+
+//
+// Settings
+//
 
 enum class Anisotropic_Filtering_Setting : U8
 {

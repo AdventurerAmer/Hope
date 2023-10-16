@@ -13,11 +13,12 @@ void init(Render_Graph *render_graph, Allocator allocator)
     reset(&render_graph->texture_free_list);
     
     render_graph->allocator = allocator;
+    render_graph->presentable_resource = nullptr; 
 }
 
 Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const Array_View< Render_Target_Info > &render_targets, render_proc render)
 {
-    HE_ASSERT(find(&render_graph->node_cache, HE_STRING(name)) == -1);
+    HE_ASSERT(!is_valid(find(&render_graph->node_cache, HE_STRING(name))));
     
     Render_Graph_Node &node = append(&render_graph->nodes);
     node.enabled = true;
@@ -48,9 +49,8 @@ Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const 
         String render_target_name = HE_STRING(render_target.name);
         Render_Graph_Resource_Handle resource_handle = -1;
 
-        // todo(amer): iterator...
-        S32 index = find(&render_graph->resource_cache, render_target_name);
-        if (index == -1)
+        Hash_Map_Iterator it = find(&render_graph->resource_cache, render_target_name);
+        if (!is_valid(it))
         {
             Render_Graph_Resource &resource = append(&render_graph->resources);
             resource.name = render_target_name;
@@ -73,7 +73,7 @@ Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const 
         }
         else
         {
-            resource_handle = render_graph->resource_cache.values[index];
+            resource_handle = *it.value;
         }
         
         append(&node.original_render_targets, resource_handle);
@@ -94,10 +94,10 @@ void add_resolve_color_attachment(Render_Graph *render_graph, Render_Graph_Node 
 
     Render_Graph_Node_Handle node_handle = (Render_Graph_Node_Handle)(node - render_graph->nodes.data);
     
-    S32 render_target_index = find(&render_graph->resource_cache, render_target_name);
-    HE_ASSERT(render_target_index != -1);
+    auto render_target_it = find(&render_graph->resource_cache, render_target_name);
+    HE_ASSERT(is_valid(render_target_it));
     
-    Render_Graph_Node_Handle render_target_resource_handle = render_graph->resource_cache.values[render_target_index];
+    Render_Graph_Node_Handle render_target_resource_handle = *render_target_it.value;
     Render_Graph_Resource &render_target_resource = render_graph->resources[render_target_resource_handle];
     
     HE_ASSERT(render_target_resource.info.resizable_sample || (!render_target_resource.info.resizable_sample && render_target_resource.info.sample_count > 1));
@@ -116,9 +116,8 @@ void add_resolve_color_attachment(Render_Graph *render_graph, Render_Graph_Node 
 
     Render_Graph_Resource_Handle resource_handle = -1;
 
-    // todo(amer): iterator...
-    S32 index = find(&render_graph->resource_cache, resolve_render_target_name);
-    if (index == -1)
+    auto resolve_render_target_it = find(&render_graph->resource_cache, resolve_render_target_name);
+    if (!is_valid(resolve_render_target_it))
     {
         Render_Graph_Resource &resource = append(&render_graph->resources);
         resource.name = resolve_render_target_name;
@@ -147,7 +146,7 @@ void add_resolve_color_attachment(Render_Graph *render_graph, Render_Graph_Node 
     }
     else
     {
-        resource_handle = render_graph->resource_cache.values[index];
+        resource_handle = *resolve_render_target_it.value;
         Render_Graph_Resource &resource = render_graph->resources[resource_handle];
         HE_ASSERT(resource.info.sample_count == 1);
         HE_ASSERT(resource.info.resizable_sample == false);
@@ -157,14 +156,23 @@ void add_resolve_color_attachment(Render_Graph *render_graph, Render_Graph_Node 
     node->clear_values.count++;
 }
 
+void set_presentable_attachment(Render_Graph *render_graph, const char *render_target)
+{
+    auto it = find(&render_graph->resource_cache, HE_STRING(render_target));
+    HE_ASSERT(is_valid(it));
+
+    Render_Graph_Resource_Handle resource_handle = *it.value;
+    render_graph->presentable_resource = &render_graph->resources[resource_handle];
+}
+
 Render_Graph_Node_Handle get_node(Render_Graph *render_graph, const char *name)
 {
     Render_Graph_Node_Handle node_handle = -1;
 
-    S32 index = find(&render_graph->node_cache, HE_STRING(name));
-    if (index != -1)
+    auto it = find(&render_graph->node_cache, HE_STRING(name));
+    if (is_valid(it))
     {
-        node_handle = render_graph->node_cache.values[index];
+        node_handle = *it.value;
     }
     
     return node_handle;
@@ -304,7 +312,29 @@ void compile(Render_Graph *render_graph, Renderer *renderer, Renderer_State *ren
         sorted_nodes[node_index] = sorted_nodes[corresponding_node_index];
         sorted_nodes[corresponding_node_index] = temp; 
     }
+}
 
+void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *renderer_state)
+{
+    auto &sorted_nodes = render_graph->topologically_sorted_nodes;
+
+    for (Render_Graph_Node_Handle node_handle : sorted_nodes)
+    {
+        Render_Graph_Node &node = render_graph->nodes[node_handle];
+
+        Frame_Buffer *frame_buffer = renderer_get_frame_buffer(node.frame_buffers[renderer_state->current_frame_in_flight_index]);
+        renderer->set_viewport(frame_buffer->width, frame_buffer->height);
+
+        renderer->begin_render_pass(node.render_pass, node.frame_buffers[renderer_state->current_frame_in_flight_index], to_array_view(node.clear_values));
+        node.render(renderer, renderer_state);
+        renderer->end_render_pass(node.render_pass);
+    }
+}
+
+void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state)
+{
+    auto &sorted_nodes = render_graph->topologically_sorted_nodes;
+    
     for (const Render_Graph_Node_Handle &node_handle : sorted_nodes)
     {
         Render_Graph_Node &node = render_graph->nodes[node_handle];
@@ -615,149 +645,6 @@ void compile(Render_Graph *render_graph, Renderer *renderer, Renderer_State *ren
                 {
                     renderer->destroy_pipeline_state(it);
                     renderer->create_pipeline_state(it, pipeline_state->descriptor);
-                }
-            }
-        }
-    }
-}
-
-void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *renderer_state)
-{
-    auto &sorted_nodes = render_graph->topologically_sorted_nodes;
-
-    for (Render_Graph_Node_Handle node_handle : sorted_nodes)
-    {
-        Render_Graph_Node &node = render_graph->nodes[node_handle];
-
-        Frame_Buffer *frame_buffer = renderer_get_frame_buffer(node.frame_buffers[renderer_state->current_frame_in_flight_index]);
-        renderer->set_viewport(frame_buffer->width, frame_buffer->height);
-
-        renderer->begin_render_pass(node.render_pass, node.frame_buffers[renderer_state->current_frame_in_flight_index], to_array_view(node.clear_values));
-        node.render(renderer, renderer_state);
-        renderer->end_render_pass(node.render_pass);
-    }
-}
-
-void invalidate(Render_Graph *render_graph, Renderer *renderer, Renderer_State *renderer_state)
-{
-    renderer->wait_for_gpu_to_finish_all_work();
-
-    for (Render_Graph_Resource &resource : render_graph->resources)
-    {
-        if (resource.info.resizable)
-        {
-            resource.info.width = (U32)(resource.info.scale_x * renderer_state->back_buffer_width);
-            resource.info.height = (U32)(resource.info.scale_y * renderer_state->back_buffer_height);
-        }
-
-        if (resource.info.resizable_sample)
-        {
-            resource.info.sample_count = get_sample_count(renderer_state->msaa_setting);
-        }
-
-        Texture_Descriptor texture_descriptor = {};
-        texture_descriptor.width = resource.info.width;
-        texture_descriptor.height = resource.info.width;
-        texture_descriptor.format = resource.info.format;
-        texture_descriptor.sample_count = resource.info.sample_count;
-        texture_descriptor.is_attachment = true;
-
-        for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-        {
-            if (is_valid_handle(&renderer_state->textures, resource.info.handles[frame_index]))
-            {
-                renderer->destroy_texture(resource.info.handles[frame_index]);
-                renderer->create_texture(resource.info.handles[frame_index], texture_descriptor);
-            }
-        }
-    }
-
-    for (Render_Graph_Node_Handle node_handle : render_graph->topologically_sorted_nodes)
-    {
-        Render_Graph_Node &node = render_graph->nodes[node_handle];
-        Render_Graph_Resource_Handle render_target_handle = node.render_targets[0];
-        Render_Graph_Resource &render_target = render_graph->resources[render_target_handle];
-        
-        if (render_target.info.resizable || render_target.info.resizable_sample)
-        {
-            Render_Pass_Descriptor render_pass_descriptor = {};
-            Frame_Buffer_Descriptor frame_buffer_descriptors[HE_MAX_FRAMES_IN_FLIGHT] = {};
-
-            for (U32 render_target_index = 0; render_target_index < node.render_targets.count; render_target_index++)
-            {
-                Render_Graph_Resource_Handle resource_handle = node.render_targets[render_target_index];
-                Render_Graph_Resource &resource = render_graph->resources[resource_handle];
-
-                Attachment_Info attachment_info = {};
-                attachment_info.format = resource.info.format;
-                attachment_info.sample_count = resource.info.sample_count;
-                attachment_info.operation = node.render_target_operations[render_target_index];
-
-                if (is_color_format(resource.info.format))
-                {
-                    append(&render_pass_descriptor.color_attachments, attachment_info);   
-                }
-                else
-                {
-                    append(&render_pass_descriptor.depth_stencil_attachments, attachment_info);
-                }
-
-                for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-                {
-                    append(&frame_buffer_descriptors[frame_index].attachments, resource.info.handles[frame_index]);
-                }
-            }
-
-            if (renderer_state->msaa_setting != MSAA_Setting::NONE)
-            {
-                for (Render_Graph_Resource_Handle resource_handle : node.resolve_render_targets)
-                {
-                    Render_Graph_Resource &resource = render_graph->resources[resource_handle];
-
-                    Attachment_Info attachment_info = {};
-                    attachment_info.format = resource.info.format;
-                    attachment_info.sample_count = resource.info.sample_count;
-                    attachment_info.operation = Attachment_Operation::DONT_CARE;
-
-                    append(&render_pass_descriptor.resolve_attachments, attachment_info);
-
-                    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-                    {
-                        append(&frame_buffer_descriptors[frame_index].attachments, resource.info.handles[frame_index]);
-                    }
-                }
-            }
-
-            if (is_valid_handle(&renderer_state->render_passes, node.render_pass))
-            {
-                renderer->destroy_render_pass(node.render_pass);
-                renderer->create_render_pass(node.render_pass, render_pass_descriptor);
-            }
-
-            for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-            {
-                frame_buffer_descriptors[frame_index].width = renderer_state->back_buffer_width;
-                frame_buffer_descriptors[frame_index].height = renderer_state->back_buffer_height;
-                frame_buffer_descriptors[frame_index].render_pass = node.render_pass;
-
-                if (is_valid_handle(&renderer_state->frame_buffers, node.frame_buffers[frame_index]))
-                {
-                    renderer->destroy_frame_buffer(node.frame_buffers[frame_index]);
-                    renderer->create_frame_buffer(node.frame_buffers[frame_index], frame_buffer_descriptors[frame_index]);
-                }
-            }
-
-            if (render_target.info.resizable_sample)
-            {
-                for (auto it = iterator(&renderer_state->pipeline_states); next(&renderer_state->pipeline_states, it); )
-                {
-                    Pipeline_State *pipeline_state = &renderer_state->pipeline_states.data[it.index];
-
-                    if (pipeline_state->descriptor.render_pass == node.render_pass)
-                    {
-                        renderer->destroy_pipeline_state(it);
-                        renderer->create_pipeline_state(it, pipeline_state->descriptor);
-                    }
                 }
             }
         }

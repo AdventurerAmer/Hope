@@ -343,6 +343,36 @@ void game_loop(Engine *engine, F32 delta_time)
     }
 
     end_temprary_memory_arena(&renderer_state->frame_arena);
+
+    platform_lock_mutex(&renderer_state->allocation_groups_mutex);
+
+    for (U32 allocation_group_index = 0; allocation_group_index < renderer_state->allocation_groups.count; allocation_group_index++)
+    {
+        Allocation_Group &allocation_group = renderer_state->allocation_groups[allocation_group_index];
+        if (allocation_group.target_value == renderer->get_semaphore_value(allocation_group.semaphore))
+        {
+            renderer->destroy_semaphore(allocation_group.semaphore);
+            switch (allocation_group.type)
+            {
+                case Allocation_Group_Type::GENERAL:
+                {
+                    for (void *memory : allocation_group.allocations)
+                    {
+                        deallocate(&renderer_state->transfer_allocator, memory);
+                    }
+                } break;
+
+                case Allocation_Group_Type::MODEL:
+                {
+                    unload_model(&allocation_group);
+                } break;
+            };
+
+            remove_and_swap_back(&renderer_state->allocation_groups, allocation_group_index);
+        }
+    }
+    
+    platform_unlock_mutex(&renderer_state->allocation_groups_mutex);
 }
 
 void shutdown(Engine *engine)

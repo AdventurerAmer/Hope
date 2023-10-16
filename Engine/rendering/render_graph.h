@@ -98,6 +98,8 @@ struct Render_Graph
     Array< Render_Graph_Node_Handle, HE_MAX_RENDER_GRAPH_NODE_COUNT > topologically_sorted_nodes;
     
     Array< Texture_Handle, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT > texture_free_list;
+
+    Render_Graph_Resource *presentable_resource;
 };
 
 void init(Render_Graph *render_graph, Allocator allocator);
@@ -105,10 +107,10 @@ void init(Render_Graph *render_graph, Allocator allocator);
 Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const Array_View< Render_Target_Info > &render_targets, render_proc render);
 void add_resolve_color_attachment(Render_Graph *render_graph, Render_Graph_Node *node, const char *render_target, const char *resolve_render_target);
 
+void set_presentable_attachment(Render_Graph *render_graph, const char *render_target);
+
 void compile(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
-
 void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
-
 void render(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
 
 Render_Graph_Node_Handle get_node(Render_Graph *render_graph, const char *name);

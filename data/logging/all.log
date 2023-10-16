@@ -1,7 +1,8 @@
-[Core-Trace]: assets loaded 194.22 ms to finish
-[Rendering-Trace]: Validation Error: [ VUID-vkCmdDrawIndexed-renderPass-02684 ] Object 0: handle = 0x84be4c0000000138, type = VK_OBJECT_TYPE_RENDER_PASS; Object 1: handle = 0x852b56000000006a, type = VK_OBJECT_TYPE_RENDER_PASS; | MessageID = 0x8cb637c2 | vkCmdDrawIndexed: RenderPasses incompatible between active render pass w/ VkRenderPass 0x84be4c0000000138[] and pipeline state object w/ VkRenderPass 0x852b56000000006a[] Attachment 0 is not compatible with 0: They have different samples.. The Vulkan spec states: The current render pass must be compatible with the renderPass member of the VkGraphicsPipelineCreateInfo structure specified when creating the VkPipeline bound to VK_PIPELINE_BIND_POINT_GRAPHICS (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-vkCmdDrawIndexed-renderPass-02684)
-ndexed-renderPass-02684)
-pledRenderToSingleSampled-06853)
-_IMAGE_SAMPLER, the imageView member of each element of pImageInfo must have been created with VK_IMAGE_USAGE_SAMPLED_BIT set (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-VkWriteDescriptorSet-descriptorType-00337)
+[Rendering-Trace]: Layer VK_LAYER_RTSS uses API version 1.1 which is older than the application specified API version of 1.2. May cause issues.
+[Core-Trace]: assets loaded 568.90 ms to finish
+dCopyBufferToImage-pRegions-00171 ] Object 0: handle = 0x248b1af15e0, type = VK_OBJECT_TYPE_COMMAND_BUFFER; Object 1: handle = 0x84c0580000000017, type = VK_OBJECT_TYPE_BUFFER; | MessageID = 0x6f4d3c00 | vkCmdCopyBufferToImage: pRegion[0] is trying to copy  4194304 bytes plus 18446744071346342016 offset to/from the VkBuffer (VkBuffer 0x84c0580000000017[]) which exceeds the VkBuffer total size of 2147483648 bytes. The Vulkan spec states: srcBuffer must be large enough to contain all buffer locations that are accessed according to Buffer and Image Addressing, for each element of pRegions (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-vkCmdCopyBufferToImage-pRegions-00171)
+eSubmit2-commandBuffer-03878)
+VUID-VkSubmitInfo2-semaphore-03882)
+er of each element of pImageInfo must have been created with VK_IMAGE_USAGE_SAMPLED_BIT set (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-VkWriteDescriptorSet-descriptorType-00337)
 -image-04441)
 r member of pRenderPassBegin must have been created with a usage value including VK_IMAGE_USAGE_TRANSFER_SRC_BIT (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-vkCmdBeginRenderPass-initialLayout-00898)

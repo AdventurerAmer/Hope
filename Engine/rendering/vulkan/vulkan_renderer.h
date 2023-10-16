@@ -46,6 +46,10 @@ void vulkan_renderer_destroy_frame_buffer(Frame_Buffer_Handle frame_buffer_handl
 bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
 void vulkan_renderer_destroy_static_mesh(Static_Mesh_Handle static_mesh_handle);
 
+bool vulkan_renderer_create_semaphore(Semaphore_Handle semaphore_handle, const Renderer_Semaphore_Descriptor &descriptor);
+U64 vulkan_renderer_get_semaphore_value(Semaphore_Handle semaphore_handle);
+void vulkan_renderer_destroy_semaphore(Semaphore_Handle semaphore_handle);
+
 void vulkan_renderer_begin_frame(const struct Scene_Data *scene_data);
 
 void vulkan_renderer_set_viewport(U32 width, U32 height);

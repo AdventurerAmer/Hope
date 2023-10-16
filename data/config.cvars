@@ -1,13 +1,13 @@
 @platform
 :engine_name Hope
 :app_name Hope
-:window_width 1327
-:window_height 784
+:window_width 1371
+:window_height 819
 :window_mode 0
 @renderer
-:back_buffer_width 1311
-:back_buffer_height 745
-:msaa_setting 1
+:back_buffer_width 1355
+:back_buffer_height 780
+:msaa_setting 2
 :triple_buffering 1
 :anisotropic_filtering_setting 4
-:gamma 2.200600
+:gamma 2.200000

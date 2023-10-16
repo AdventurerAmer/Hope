@@ -28,6 +28,7 @@ enum RenderingAPI
 #define HE_MAX_BIND_GROUP_LAYOUT_COUNT 4096
 #define HE_MAX_BIND_GROUP_COUNT 4096
 #define HE_MAX_SCENE_NODE_COUNT 4096
+#define HE_MAX_SEMAPHORE_COUNT 4096
 
 struct Directional_Light
 {
@@ -97,6 +98,9 @@ struct Renderer
     bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
     void (*destroy_static_mesh)(Static_Mesh_Handle static_mesh_handle);
 
+    U64 (*get_semaphore_value)(Semaphore_Handle semaphore_handle);
+    void (*destroy_semaphore)(Semaphore_Handle semaphore_handle);
+
     Memory_Requirements (*get_texture_memory_requirements)(const Texture_Descriptor &descriptor);
 
     bool (*init_imgui)();
@@ -130,6 +134,7 @@ struct Renderer_State
     Resource_Pool< Frame_Buffer > frame_buffers;
     Resource_Pool< Material > materials;
     Resource_Pool< Static_Mesh > static_meshes;
+    Resource_Pool< Renderer_Semaphore > semaphores;
 
     std::atomic< U32 > scene_node_count;
     Scene_Node *scene_nodes;
@@ -179,6 +184,9 @@ struct Renderer_State
     
     Scene_Data scene_data;
     Render_Graph render_graph;
+
+    Mutex allocation_groups_mutex;
+    Array< Allocation_Group, HE_MAX_SEMAPHORE_COUNT > allocation_groups;
 };
 
 struct Render_Context
@@ -197,8 +205,9 @@ void deinit_renderer_state();
 
 Scene_Node *add_child_scene_node(Scene_Node *parent);
 
-bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *arena);
+bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *arena, Allocation_Group *allocation_group);
 Scene_Node* load_model_threaded(const String &path);
+void unload_model(Allocation_Group *allocation_group);
 
 void render_scene_node(Scene_Node *scene_node, const glm::mat4 &transform);
 

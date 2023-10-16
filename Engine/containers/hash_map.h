@@ -69,14 +69,29 @@ void deinit(Hash_Map< Key_Type, Value_Type > *hash_map)
     }, hash_map->allocator);
 }
 
+template< typename Value_Type >
+struct Hash_Map_Iterator
+{
+    Value_Type *value;
+};
+
+template< typename Value_Type >
+HE_FORCE_INLINE bool is_valid(const Hash_Map_Iterator< Value_Type > &iterator)
+{
+    return iterator.value != nullptr;
+}
+
 template< typename Key_Type, typename Value_Type >
-S32 find(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, S32 *out_insert_index = nullptr)
+Hash_Map_Iterator< Value_Type > find(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, S32 *out_insert_index = nullptr)
 {
     HE_ASSERT(hash_map);
 
     U32 slot_index = hash(key) & (hash_map->capacity - 1);
     U32 start_slot = slot_index;
     S32 insert_index = -1;
+
+    Hash_Map_Iterator< Value_Type > result;
+    result.value = nullptr;
 
     do
     {
@@ -94,7 +109,9 @@ S32 find(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, S32 *o
         {
             if (hash_map->keys[slot_index] == key)
             {
-                return slot_index;
+                result.value = &hash_map->values[slot_index];
+                insert_index = slot_index;
+                break;
             }
         }
         else if (*state == Slot_State::DELETED)
@@ -114,7 +131,7 @@ S32 find(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, S32 *o
         *out_insert_index = insert_index;
     }
 
-    return -1;
+    return result;
 }
 
 template< typename Key_Type, typename Value_Type >
@@ -124,8 +141,8 @@ void insert(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, con
     HE_ASSERT(hash_map->count < hash_map->capacity);
 
     S32 insert_index = -1;
-    S32 slot_index = find(hash_map, key, &insert_index);
-    if (slot_index != -1)
+    auto it = find(hash_map, key, &insert_index);
+    if (is_valid(it))
     {
         hash_map->values[insert_index] = value;
     }
@@ -145,8 +162,9 @@ void remove(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key)
     HE_ASSERT(hash_map);
     HE_ASSERT(hash_map->count);
 
-    S32 slot_index = find(hash_map, key);
-    if (slot_index != -1)
+    S32 slot_index = -1;
+    auto it = find(hash_map, key, &slot_index);
+    if (is_valid(it))
     {
         hash_map->states[slot_index] = Slot_State::DELETED;
         hash_map->count--;
