@@ -1,7 +1,24 @@
 [Rendering-Trace]: Layer VK_LAYER_RTSS uses API version 1.1 which is older than the application specified API version of 1.2. May cause issues.
-[Rendering-Trace]: Validation Error: [ VUID-vkCmdCopyBufferToImage-pRegions-00171 ] Object 0: handle = 0x248b1af15e0, type = VK_OBJECT_TYPE_COMMAND_BUFFER; Object 1: handle = 0x84c0580000000017, type = VK_OBJECT_TYPE_BUFFER; | MessageID = 0x6f4d3c00 | vkCmdCopyBufferToImage: pRegion[0] is trying to copy  4194304 bytes plus 18446744071346342016 offset to/from the VkBuffer (VkBuffer 0x84c0580000000017[]) which exceeds the VkBuffer total size of 2147483648 bytes. The Vulkan spec states: srcBuffer must be large enough to contain all buffer locations that are accessed according to Buffer and Image Addressing, for each element of pRegions (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-vkCmdCopyBufferToImage-pRegions-00171)
-eSubmit2-commandBuffer-03878)
-VUID-VkSubmitInfo2-semaphore-03882)
-t (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-VkWriteDescriptorSet-descriptorType-00337)
-unarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-VkImageViewCreateInfo-image-04441)
-ted with a usage value including VK_IMAGE_USAGE_TRANSFER_SRC_BIT (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-vkCmdBeginRenderPass-initialLayout-00898)
+[Rendering-Trace]: loading model: models/FlightHelmet/FlightHelmet.gltf
+[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_BaseColor.png
+[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_Normal.png
+[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_BaseColor.png
+[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_Normal.png
+[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_BaseColor.png
+[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_Normal.png
+[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_BaseColor.png
+[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_Normal.png
+[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_LensesMat_BaseColor.png
+[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_LensesMat_Normal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet.gltf
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LensesMat_Normal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LensesMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_Normal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_Normal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_Normal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_Normal.png
+[Rendering-Trace]: Validation Error: [ UNASSIGNED-CoreValidation-DrawState-InvalidImageLayout ] Object 0: handle = 0x21897ba3630, type = VK_OBJECT_TYPE_COMMAND_BUFFER; Object 1: handle = 0x73b89b0000000057, type = VK_OBJECT_TYPE_IMAGE; | MessageID = 0x4dae5635 | vkQueueSubmit(): pSubmits[0].pCommandBuffers[0] command buffer VkCommandBuffer 0x21897ba3630[] expects VkImage 0x73b89b0000000057[] (subresource: aspectMask 0x1 array layer 0, mip level 0) to be in layout VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL.

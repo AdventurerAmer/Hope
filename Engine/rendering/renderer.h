@@ -98,6 +98,7 @@ struct Renderer
     bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
     void (*destroy_static_mesh)(Static_Mesh_Handle static_mesh_handle);
 
+    bool (*create_semaphore)(Semaphore_Handle semaphore_handle, const Renderer_Semaphore_Descriptor &descriptor);
     U64 (*get_semaphore_value)(Semaphore_Handle semaphore_handle);
     void (*destroy_semaphore)(Semaphore_Handle semaphore_handle);
 
@@ -312,6 +313,13 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor);
 Material* renderer_get_material(Material_Handle material_handle);
 U8 *get_property(Material *material, const String &name, Shader_Data_Type data_type);
 void renderer_destroy_material(Material_Handle &material_handle);
+
+//
+// Semaphores
+//
+Semaphore_Handle renderer_create_semaphore(const Renderer_Semaphore_Descriptor &descriptor);
+Renderer_Semaphore *renderer_get_semaphore(Semaphore_Handle semaphore_handle);
+void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle);
 
 //
 // Render Context

@@ -349,9 +349,13 @@ void game_loop(Engine *engine, F32 delta_time)
     for (U32 allocation_group_index = 0; allocation_group_index < renderer_state->allocation_groups.count; allocation_group_index++)
     {
         Allocation_Group &allocation_group = renderer_state->allocation_groups[allocation_group_index];
+        
         if (allocation_group.target_value == renderer->get_semaphore_value(allocation_group.semaphore))
         {
-            renderer->destroy_semaphore(allocation_group.semaphore);
+            HE_LOG(Rendering, Trace, "unloading resource: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
+            
+            renderer_destroy_semaphore(allocation_group.semaphore);
+            
             switch (allocation_group.type)
             {
                 case Allocation_Group_Type::GENERAL:

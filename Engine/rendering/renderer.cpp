@@ -79,6 +79,7 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->destroy_render_pass = &vulkan_renderer_destroy_render_pass;
             renderer->create_frame_buffer = &vulkan_renderer_create_frame_buffer;
             renderer->destroy_frame_buffer = &vulkan_renderer_destroy_frame_buffer;
+            renderer->create_semaphore = &vulkan_renderer_create_semaphore;
             renderer->get_semaphore_value = &vulkan_renderer_get_semaphore_value;
             renderer->destroy_semaphore = &vulkan_renderer_destroy_semaphore;
             renderer->begin_frame = &vulkan_renderer_begin_frame;
@@ -325,7 +326,6 @@ bool init_renderer_state(Engine *engine)
         renderer_state->mesh_vertex_shader,
         renderer_state->mesh_fragment_shader
     };
-
     renderer_state->mesh_shader_group = renderer_create_shader_group(mesh_shader_group_descriptor);
 
     Shader_Group *mesh_shader_group = get(&renderer_state->shader_groups, renderer_state->mesh_shader_group);
@@ -493,13 +493,15 @@ bool init_renderer_state(Engine *engine)
     compile(&renderer_state->render_graph, renderer, renderer_state);
     invalidate(&renderer_state->render_graph, renderer, renderer_state);
 
-    Pipeline_State_Descriptor mesh_pipeline_state_descriptor = {};
-    mesh_pipeline_state_descriptor.cull_mode = Cull_Mode::BACK;
-    mesh_pipeline_state_descriptor.fill_mode = Fill_Mode::SOLID;
-    mesh_pipeline_state_descriptor.front_face = Front_Face::COUNTER_CLOCKWISE;
-    mesh_pipeline_state_descriptor.sample_shading = true;
-    mesh_pipeline_state_descriptor.shader_group = renderer_state->mesh_shader_group;
-    mesh_pipeline_state_descriptor.render_pass = get_render_pass(&renderer_state->render_graph, "world");
+    Pipeline_State_Descriptor mesh_pipeline_state_descriptor =
+    {
+        .cull_mode = Cull_Mode::BACK,
+        .front_face = Front_Face::COUNTER_CLOCKWISE,
+        .fill_mode = Fill_Mode::SOLID,
+        .sample_shading = true,
+        .shader_group = renderer_state->mesh_shader_group,
+        .render_pass = get_render_pass(&renderer_state->render_graph, "world"),
+    };
     renderer_state->mesh_pipeline = renderer_create_pipeline_state(mesh_pipeline_state_descriptor);
 
     bool imgui_inited = init_imgui(engine);
@@ -564,6 +566,11 @@ void deinit_renderer_state()
         renderer->destroy_pipeline_state(it);
     }
 
+    for (auto it = iterator(&renderer_state->semaphores); next(&renderer_state->semaphores, it);)
+    {
+        renderer->destroy_semaphore(it);
+    }
+
     renderer->deinit();
 
     platform_shutdown_imgui();
@@ -624,6 +631,7 @@ static bool create_texture(Texture_Handle texture_handle, void *pixels, U32 text
     U64 data_size = texture_width * texture_height * sizeof(U32);
     U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, data_size);
     memcpy(data, pixels, data_size);
+
     append(&allocation_group->allocations, (void*)data);
 
     Texture_Descriptor descriptor = {};
@@ -654,6 +662,8 @@ static Job_Result load_texture_job(const Job_Parameters &params)
     Load_Texture_Job_Data *job_data = (Load_Texture_Job_Data *)params.data;
     const String &path = job_data->path;
 
+    HE_LOG(Rendering, Trace, "loading texture: %.*s\n", HE_EXPAND_STRING(path));
+    
     S32 texture_width;
     S32 texture_height;
     S32 texture_channels;
@@ -672,7 +682,7 @@ static Job_Result load_texture_job(const Job_Parameters &params)
     return Job_Result::SUCCEEDED;
 }
 
-static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path, Memory_Arena *arena)
+static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path, Memory_Arena *arena, Allocation_Group *model_allocation_group)
 {
     Temprary_Memory_Arena temprary_arena;
     begin_temprary_memory_arena(&temprary_arena, arena);
@@ -723,14 +733,11 @@ static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const
 
         if (platform_file_exists(texture_path.data))
         {
-            Semaphore_Handle semaphore_handle = aquire_handle(&renderer_state->semaphores);
             Renderer_Semaphore_Descriptor semaphore_descriptor =
             {
                 .is_signaled = false,
                 .initial_value = 0
             };
-            // todo(amer): temprary
-            vulkan_renderer_create_semaphore(semaphore_handle, semaphore_descriptor);
             
             Load_Texture_Job_Data load_texture_job_data =
             {
@@ -738,8 +745,9 @@ static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const
                 .texture_handle = texture_handle,
                 .allocation_group =
                 {
+                    .resource_name = texture->name,
                     .type = Allocation_Group_Type::GENERAL,
-                    .semaphore = semaphore_handle,
+                    .semaphore =  renderer_create_semaphore(semaphore_descriptor),
                 }
             };
             
@@ -751,6 +759,7 @@ static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const
         }
         else
         {
+            // todo(amer): untested code path...
             const auto *view = image->buffer_view;
             U8 *data_ptr = (U8*)view->buffer->data;
             U8 *image_data = data_ptr + view->offset;
@@ -761,10 +770,9 @@ static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const
 
             stbi_uc *pixels = nullptr;
             pixels = stbi_load_from_memory(image_data, u64_to_u32(view->size), &texture_width, &texture_height, &texture_channels, STBI_rgb_alpha);
-
             HE_ASSERT(pixels);
-            // todo(amer): get model alloction group
-            bool texture_created = create_texture(texture_handle, pixels, texture_width, texture_height, nullptr);
+
+            bool texture_created = create_texture(texture_handle, pixels, texture_width, texture_height, model_allocation_group);
             HE_ASSERT(texture_created);
             stbi_image_free(pixels);
         }
@@ -798,6 +806,7 @@ Job_Result load_model_job(const Job_Parameters &params)
 {
     Temprary_Memory_Arena *tempray_memory_arena = params.temprary_memory_arena;
     Load_Model_Job_Data *data = (Load_Model_Job_Data *)params.data;
+    HE_LOG(Rendering, Trace, "loading model: %.*s\n", HE_EXPAND_STRING(data->path));
     bool model_loaded = load_model(data->scene_node, data->path, tempray_memory_arena->arena, &data->allocation_group);
     if (!model_loaded)
     {
@@ -813,25 +822,22 @@ Scene_Node* load_model_threaded(const String &path)
 {
     Scene_Node *scene_node = add_child_scene_node(renderer_state->root_scene_node);
     
-    Semaphore_Handle semaphore_handle = aquire_handle(&renderer_state->semaphores);
     Renderer_Semaphore_Descriptor semaphore_descriptor =
     {
         .is_signaled = false,
         .initial_value = 0
-    };
-    // todo(amer): temprary
-    vulkan_renderer_create_semaphore(semaphore_handle, semaphore_descriptor);
-    Allocation_Group allocation_group =
-    {
-        .type = Allocation_Group_Type::MODEL,
-        .semaphore = semaphore_handle,
     };
 
     Load_Model_Job_Data data =
     {
         .path = path,
         .scene_node = scene_node,
-        .allocation_group = allocation_group
+        .allocation_group =
+        {
+            .resource_name = path,
+            .type = Allocation_Group_Type::MODEL,
+            .semaphore = renderer_create_semaphore(semaphore_descriptor),
+        }
     };
 
     Job job = {};
@@ -906,7 +912,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
         {
             if (material->pbr_metallic_roughness.base_color_texture.texture)
             {
-                albedo = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture, model_path, arena);
+                albedo = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture, model_path, arena, allocation_group);
             }
             else
             {
@@ -915,7 +921,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
 
             if (material->pbr_metallic_roughness.metallic_roughness_texture.texture)
             {
-                metallic_roughness = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture, model_path, arena);
+                metallic_roughness = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture, model_path, arena, allocation_group);
             }
             else
             {
@@ -925,7 +931,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
 
         if (material->normal_texture.texture)
         {
-            normal = cgltf_load_texture(&material->normal_texture, model_path, arena);
+            normal = cgltf_load_texture(&material->normal_texture, model_path, arena, allocation_group);
         }
         else
         {
@@ -1129,7 +1135,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
 
 void unload_model(Allocation_Group *allocation_group)
 {
-    cgltf_free((cgltf_data*)allocation_group->allocations[0]);
+    cgltf_free((cgltf_data *)allocation_group->allocations[0]);
     deallocate(&renderer_state->transfer_allocator, allocation_group->allocations[1]);
 }
 
@@ -1572,6 +1578,28 @@ U8 *get_property(Material *material, const String &name, Shader_Data_Type data_t
         }
     }
     return nullptr;
+}
+
+//
+// Semaphores
+//
+Semaphore_Handle renderer_create_semaphore(const Renderer_Semaphore_Descriptor &descriptor)
+{
+    Semaphore_Handle semaphore_handle = aquire_handle(&renderer_state->semaphores);
+    renderer->create_semaphore(semaphore_handle, descriptor);
+    return semaphore_handle;
+}
+
+Renderer_Semaphore* renderer_get_semaphore(Semaphore_Handle semaphore_handle)
+{
+    return get(&renderer_state->semaphores, semaphore_handle);
+}
+
+void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle)
+{
+    renderer->destroy_semaphore(semaphore_handle);
+    release_handle(&renderer_state->semaphores, semaphore_handle);
+    semaphore_handle = Resource_Pool< Renderer_Semaphore >::invalid_handle;
 }
 
 //

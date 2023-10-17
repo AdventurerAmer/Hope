@@ -844,8 +844,8 @@ void vulkan_renderer_end_frame()
     region.extent = { context->swapchain.width, context->swapchain.height, 1 };
 
     transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    
-    Texture_Handle presentable_attachment = renderer_state->render_graph.presentable_resource->info.handles[renderer_state->current_frame_in_flight_index];
+
+    Texture_Handle presentable_attachment = get_presentable_attachment(&renderer_state->render_graph, renderer_state);
     Vulkan_Image *vulkan_presentable_attachment = &context->textures[presentable_attachment.index];
     
     transtion_image_to_layout(context->command_buffer, vulkan_presentable_attachment->handle, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
