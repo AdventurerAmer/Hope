@@ -50,6 +50,8 @@ bool vulkan_renderer_create_semaphore(Semaphore_Handle semaphore_handle, const R
 U64 vulkan_renderer_get_semaphore_value(Semaphore_Handle semaphore_handle);
 void vulkan_renderer_destroy_semaphore(Semaphore_Handle semaphore_handle);
 
+void vulkan_renderer_set_vsync(bool enabled);
+
 void vulkan_renderer_begin_frame(const struct Scene_Data *scene_data);
 
 void vulkan_renderer_set_viewport(U32 width, U32 height);

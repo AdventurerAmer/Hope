@@ -28,6 +28,13 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageS
     (void)message_severity;
     (void)message_type;
     (void)user_data;
+    // todo(amer): validation layer bug...
+    if (strcmp(callback_data->pMessageIdName, "VUID-VkSwapchainCreateInfoKHR-imageFormat-01778") == 0 ||
+        strcmp(callback_data->pMessageIdName, "VUID-VkImageViewCreateInfo-usage-02275") == 0)
+    {
+        return VK_FALSE;
+    }
+    
     HE_LOG(Rendering, Trace, "%s\n", callback_data->pMessage);
     HE_ASSERT(message_severity != VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT);
     return VK_FALSE;
@@ -521,20 +528,17 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
 
     VkFormat image_formats[] =
     {
-        VK_FORMAT_B8G8R8A8_SRGB
+        VK_FORMAT_B8G8R8A8_SRGB,
+        VK_FORMAT_R8G8B8A8_SRGB
     };
 
-    VkFormat depth_stencil_formats[] =
-    {
-        VK_FORMAT_D32_SFLOAT_S8_UINT
-    };
+    VkColorSpaceKHR color_space = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    init_swapchain_support(context, image_formats, HE_ARRAYCOUNT(image_formats), color_space, arena, &context->swapchain_support);
 
-    init_swapchain_support(context, image_formats, HE_ARRAYCOUNT(image_formats), depth_stencil_formats, HE_ARRAYCOUNT(depth_stencil_formats), VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, arena, &context->swapchain_support);
-
-    VkPresentModeKHR present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+    VkPresentModeKHR present_mode = pick_present_mode(renderer_state->vsync, &context->swapchain_support);
     U32 min_image_count = HE_MAX_FRAMES_IN_FLIGHT;
-    U32 width = (U32)engine->window.width;
-    U32 height = (U32)engine->window.height;
+    U32 width = renderer_state->back_buffer_width;
+    U32 height = renderer_state->back_buffer_height;
 
     bool swapchain_created = create_swapchain(context, width, height, min_image_count, present_mode, &context->swapchain);
     HE_ASSERT(swapchain_created);
@@ -690,6 +694,7 @@ void vulkan_renderer_on_resize(U32 width, U32 height)
     Vulkan_Context *context = &vulkan_context;
     if (width != 0 && height != 0)
     {
+        vkDeviceWaitIdle(context->logical_device);
         recreate_swapchain(context, &context->swapchain, width, height, context->swapchain.present_mode);
     }
 }
@@ -707,6 +712,7 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
 
     if ((width != context->swapchain.width || height != context->swapchain.height) && width != 0 && height != 0)
     {
+        vkDeviceWaitIdle(context->logical_device);
         recreate_swapchain(context, &context->swapchain, width, height, context->swapchain.present_mode);
     }
 
@@ -716,6 +722,7 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
     {
         if (width != 0 && height != 0)
         {
+            vkDeviceWaitIdle(context->logical_device);
             recreate_swapchain(context, &context->swapchain, width, height, context->swapchain.present_mode);
         }
     }
@@ -892,6 +899,7 @@ void vulkan_renderer_end_frame()
     {
         if (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
         {
+            vkDeviceWaitIdle(context->logical_device);
             recreate_swapchain(context, &context->swapchain, renderer_state->back_buffer_width, renderer_state->back_buffer_height, context->swapchain.present_mode);
         }
     }
@@ -1948,6 +1956,21 @@ void vulkan_renderer_destroy_semaphore(Semaphore_Handle semaphore_handle)
     Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[semaphore_handle.index];
     vkDestroySemaphore(context->logical_device, vulkan_semaphore->handle, nullptr);
     vulkan_semaphore->handle = VK_NULL_HANDLE;
+}
+
+void vulkan_renderer_set_vsync(bool enabled)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Renderer_State *renderer_state = context->renderer_state;
+
+    VkPresentModeKHR present_mode = pick_present_mode(enabled, &context->swapchain_support);
+
+    if (present_mode == context->swapchain.present_mode)
+    {
+        return;
+    }
+
+    recreate_swapchain(context, &context->swapchain, renderer_state->back_buffer_width, renderer_state->back_buffer_height, present_mode);
 }
 
 bool vulkan_renderer_init_imgui()

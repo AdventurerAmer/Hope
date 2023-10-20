@@ -89,10 +89,12 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->set_pipeline_state = &vulkan_renderer_set_pipeline_state;
             renderer->draw_static_mesh = &vulkan_renderer_draw_static_mesh;
             renderer->end_frame = &vulkan_renderer_end_frame;
+            renderer->set_vsync = &vulkan_renderer_set_vsync;
+            renderer->get_texture_memory_requirements = &vulkan_renderer_get_texture_memory_requirements;
+
             renderer->init_imgui = &vulkan_renderer_init_imgui;
             renderer->imgui_new_frame = &vulkan_renderer_imgui_new_frame;
             renderer->imgui_render = &vulkan_renderer_imgui_render;
-            renderer->get_texture_memory_requirements = &vulkan_renderer_get_texture_memory_requirements;
         } break;
 #endif
 
@@ -146,6 +148,7 @@ bool pre_init_renderer_state(Engine *engine)
     U32 &back_buffer_width = renderer_state->back_buffer_width;
     U32 &back_buffer_height = renderer_state->back_buffer_height;
     bool &triple_buffering = renderer_state->triple_buffering;
+    bool &vsync = renderer_state->vsync;
     U8 &msaa_setting = (U8&)renderer_state->msaa_setting;
     U8 &anisotropic_filtering_setting = (U8&)renderer_state->anisotropic_filtering_setting;
     F32 &gamma = renderer_state->gamma;
@@ -156,6 +159,7 @@ bool pre_init_renderer_state(Engine *engine)
     msaa_setting = (U8)MSAA_Setting::X4;
     anisotropic_filtering_setting = (U8)Anisotropic_Filtering_Setting::X16;
     triple_buffering = true;
+    vsync = false;
     gamma = 2.2f;
 
     HE_DECLARE_CVAR("renderer", back_buffer_width, CVarFlag_None);
@@ -164,6 +168,7 @@ bool pre_init_renderer_state(Engine *engine)
     HE_DECLARE_CVAR("renderer", gamma, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", msaa_setting, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", anisotropic_filtering_setting, CVarFlag_None);
+    HE_DECLARE_CVAR("renderer", vsync, CVarFlag_None);
 
     renderer_state->current_frame_in_flight_index = 0;
     HE_ASSERT(renderer_state->frames_in_flight <= HE_MAX_FRAMES_IN_FLIGHT);
@@ -1653,6 +1658,18 @@ void renderer_set_msaa(MSAA_Setting msaa_setting)
     renderer_state->msaa_setting = msaa_setting;
     compile(&renderer_state->render_graph, renderer, renderer_state);
     invalidate(&renderer_state->render_graph, renderer, renderer_state);
+}
+
+void renderer_set_vsync(bool enabled)
+{
+    if (renderer_state->vsync == enabled)
+    {
+        return;
+    }
+
+    renderer->wait_for_gpu_to_finish_all_work();
+    renderer_state->vsync = enabled;
+    renderer->set_vsync(enabled);
 }
 
 //

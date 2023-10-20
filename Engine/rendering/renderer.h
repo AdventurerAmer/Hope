@@ -102,6 +102,8 @@ struct Renderer
     U64 (*get_semaphore_value)(Semaphore_Handle semaphore_handle);
     void (*destroy_semaphore)(Semaphore_Handle semaphore_handle);
 
+    void (*set_vsync)(bool enabled);
+
     Memory_Requirements (*get_texture_memory_requirements)(const Texture_Descriptor &descriptor);
 
     bool (*init_imgui)();
@@ -143,6 +145,7 @@ struct Renderer_State
 
     F32 gamma;
     bool triple_buffering;
+    bool vsync;
     MSAA_Setting msaa_setting;
     Anisotropic_Filtering_Setting anisotropic_filtering_setting;
 
@@ -333,6 +336,7 @@ Render_Context get_render_context();
 
 void renderer_set_anisotropic_filtering(Anisotropic_Filtering_Setting anisotropic_filtering_setting);
 void renderer_set_msaa(MSAA_Setting msaa_setting);
+void renderer_set_vsync(bool enabled);
 
 //
 // ImGui

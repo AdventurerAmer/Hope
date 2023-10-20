@@ -97,7 +97,6 @@ struct Vulkan_Swapchain_Support
     VkPresentModeKHR *present_modes;
 
     VkFormat image_format;
-    VkFormat depth_stencil_format;
 };
 
 struct Vulkan_Swapchain

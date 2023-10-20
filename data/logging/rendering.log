@@ -14,11 +14,13 @@
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LensesMat_Normal.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LensesMat_BaseColor.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_BaseColor.png
-[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_Normal.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_Normal.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_Normal.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_BaseColor.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_Normal.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_BaseColor.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_Normal.png
-[Rendering-Trace]: Validation Error: [ UNASSIGNED-CoreValidation-DrawState-InvalidImageLayout ] Object 0: handle = 0x21897ba3630, type = VK_OBJECT_TYPE_COMMAND_BUFFER; Object 1: handle = 0x73b89b0000000057, type = VK_OBJECT_TYPE_IMAGE; | MessageID = 0x4dae5635 | vkQueueSubmit(): pSubmits[0].pCommandBuffers[0] command buffer VkCommandBuffer 0x21897ba3630[] expects VkImage 0x73b89b0000000057[] (subresource: aspectMask 0x1 array layer 0, mip level 0) to be in layout VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL.
+[Rendering-Trace]: Validation Error: [ VUID-VkFramebufferCreateInfo-pAttachments-00877 ] | MessageID = 0x60bcc0b7 | vkCreateFramebuffer:  Framebuffer Attachment (0) conflicts with the image's IMAGE_USAGE flags (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT). The Vulkan spec states: If flags does not include VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT, each element of pAttachments that is used as a color attachment or resolve attachment by renderPass must have been created with a usage value including VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-VkFramebufferCreateInfo-pAttachments-00877)
+ec states: If usage contains VK_IMAGE_USAGE_STORAGE_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-VkImageViewCreateInfo-usage-02275)
+-VkImageViewCreateInfo-usage-02275)

@@ -1,4 +1,5 @@
 #include "vulkan_utils.h"
+#include "vulkan_swapchain.h"
 
 S32 find_memory_type_index(VkMemoryRequirements memory_requirements, VkMemoryPropertyFlags memory_property_flags, Vulkan_Context *context)
 {
@@ -40,4 +41,30 @@ VkSampleCountFlagBits get_sample_count(U32 sample_count)
     }
 
     return VK_SAMPLE_COUNT_FLAG_BITS_MAX_ENUM;
+}
+
+VkPresentModeKHR pick_present_mode(bool vsync, Vulkan_Swapchain_Support *swapchain_support)
+{
+    VkPresentModeKHR present_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+
+    if (vsync)
+    {
+        if (is_present_mode_supported(swapchain_support, VK_PRESENT_MODE_FIFO_RELAXED_KHR))
+        {
+            present_mode = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+        }
+        else if (is_present_mode_supported(swapchain_support, VK_PRESENT_MODE_FIFO_KHR))
+        {
+            present_mode = VK_PRESENT_MODE_FIFO_KHR;
+        }
+    }
+    else
+    {
+        if (is_present_mode_supported(swapchain_support, VK_PRESENT_MODE_MAILBOX_KHR))
+        {
+            present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+        }
+    }
+
+    return present_mode;
 }

@@ -1,8 +1,7 @@
 #include "vulkan_swapchain.h"
 #include "vulkan_image.h"
 
-bool init_swapchain_support(Vulkan_Context *context, VkFormat *image_formats, U32 image_format_count, VkFormat *depth_stencil_formats, U32 depth_stencil_format_count,
-                            VkColorSpaceKHR color_space, Memory_Arena *arena, Vulkan_Swapchain_Support *swapchain_support)
+bool init_swapchain_support(Vulkan_Context *context, VkFormat *image_formats, U32 image_format_count, VkColorSpaceKHR color_space, Memory_Arena *arena, Vulkan_Swapchain_Support *swapchain_support)
 {
     swapchain_support->surface_format_count = 0;
     vkGetPhysicalDeviceSurfaceFormatsKHR(context->physical_device, context->surface, &swapchain_support->surface_format_count, nullptr);
@@ -24,14 +23,14 @@ bool init_swapchain_support(Vulkan_Context *context, VkFormat *image_formats, U3
 
     swapchain_support->image_format = VK_FORMAT_UNDEFINED;
 
-    for (U32 format_index = 0; format_index < image_format_count; format_index++)
+    for (U32 i = 0; i < image_format_count; i++)
     {
-        VkFormat format = image_formats[format_index];
+        VkFormat format = image_formats[i];
         bool found = false;
 
-        for (U32 format_index = 0; format_index < swapchain_support->surface_format_count; format_index++)
+        for (U32 j = 0; j < swapchain_support->surface_format_count; j++)
         {
-            const VkSurfaceFormatKHR *surface_format = &swapchain_support->surface_formats[format_index];
+            const VkSurfaceFormatKHR *surface_format = &swapchain_support->surface_formats[j];
 
             if (surface_format->format == format && surface_format->colorSpace == color_space)
             {
@@ -47,21 +46,20 @@ bool init_swapchain_support(Vulkan_Context *context, VkFormat *image_formats, U3
         }
     }
 
-    for (U32 format_index = 0; format_index < depth_stencil_format_count; format_index++)
+    return true;
+}
+
+bool is_present_mode_supported(Vulkan_Swapchain_Support *swapchain_support, VkPresentModeKHR present_mode)
+{
+    for (U32 present_mode_index = 0; present_mode_index < swapchain_support->present_mode_count; present_mode_index++)
     {
-        VkFormat format = depth_stencil_formats[format_index];
-
-        VkFormatProperties format_properties;
-        vkGetPhysicalDeviceFormatProperties(context->physical_device, format, &format_properties);
-
-        if (format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        if (swapchain_support->present_modes[present_mode_index] == present_mode)
         {
-            swapchain_support->depth_stencil_format = format;
-            break;
+            return true;
         }
     }
 
-    return true;
+    return false;
 }
 
 bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_image_count, VkPresentModeKHR present_mode, Vulkan_Swapchain *swapchain)
@@ -82,21 +80,10 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
     height = HE_CLAMP(height, surface_capabilities.minImageExtent.height, surface_capabilities.maxImageExtent.height);
 
     swapchain->image_format = swapchain_support->image_format;
-    swapchain->depth_stencil_format = swapchain_support->depth_stencil_format;
     swapchain->image_color_space = image_color_space;
     swapchain->width = width;
     swapchain->height = height;
-    swapchain->present_mode = VK_PRESENT_MODE_FIFO_KHR;
-
-    for (U32 present_mode_index = 0; present_mode_index < swapchain_support->present_mode_count; present_mode_index++)
-    {
-        VkPresentModeKHR supported_present_mode = swapchain_support->present_modes[present_mode_index];
-        if (supported_present_mode == present_mode)
-        {
-            swapchain->present_mode = present_mode;
-            break;
-        }
-    }
+    swapchain->present_mode = present_mode;
 
     min_image_count = HE_MAX(min_image_count, surface_capabilities.minImageCount);
 
@@ -107,7 +94,7 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
 
     VkExtent2D extent = { width, height };
 
-    VkCompositeAlphaFlagsKHR composite_alpha_flags = 0;
+    VkCompositeAlphaFlagBitsKHR composite_alpha_flags = VK_COMPOSITE_ALPHA_FLAG_BITS_MAX_ENUM_KHR;
 
     if ((surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR))
     {
@@ -131,7 +118,7 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
     swapchain_create_info.imageArrayLayers = 1;
     swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     swapchain_create_info.preTransform = surface_capabilities.currentTransform;
-    swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    swapchain_create_info.compositeAlpha = composite_alpha_flags;
     swapchain_create_info.presentMode = swapchain->present_mode;
     swapchain_create_info.clipped = VK_TRUE;
     swapchain_create_info.oldSwapchain = VK_NULL_HANDLE;
@@ -150,11 +137,11 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
 
     HE_ASSERT(swapchain->handle == VK_NULL_HANDLE);
     HE_CHECK_VKRESULT(vkCreateSwapchainKHR(context->logical_device, &swapchain_create_info, nullptr, &swapchain->handle));
+
     HE_CHECK_VKRESULT(vkGetSwapchainImagesKHR(context->logical_device, swapchain->handle, &swapchain->image_count, nullptr));
 
     swapchain->images = HE_ALLOCATE_ARRAY(context->allocator, VkImage, swapchain->image_count);
     swapchain->image_views = HE_ALLOCATE_ARRAY(context->allocator, VkImageView, swapchain->image_count);
-    // swapchain->frame_buffers = HE_ALLOCATE_ARRAY(context->allocator, VkFramebuffer, swapchain->image_count);
 
     HE_CHECK_VKRESULT(vkGetSwapchainImagesKHR(context->logical_device, swapchain->handle, &swapchain->image_count, swapchain->images));
 
@@ -173,57 +160,8 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
         image_view_create_info.subresourceRange.levelCount = 1;
         image_view_create_info.subresourceRange.baseArrayLayer = 0;
         image_view_create_info.subresourceRange.layerCount = 1;
-
         HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, nullptr, &swapchain->image_views[image_index]));
     }
-
-    // bool mipmapping = false;
-    // create_image(&swapchain->color_attachment, context, width, height, swapchain->image_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapping, VK_SAMPLE_COUNT_1_BIT);
-
-    // if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
-    // {
-    //     create_image(&swapchain->color_attachment, context, width, height, swapchain->image_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapping, context->msaa_samples);
-    // }
-
-    // create_image(&swapchain->depth_stencil_attachment, context, width, height, swapchain->depth_stencil_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-    //              VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapping, context->msaa_samples);
-
-
-    // for (U32 image_index = 0; image_index < swapchain->image_count; image_index++)
-    // {
-    //     VkImageView image_views_msaa[] =
-    //     {
-    //         swapchain->color_attachment.view,
-    //         swapchain->image_views[image_index],
-    //         swapchain->depth_stencil_attachment.view
-    //     };
-
-    //     VkImageView image_views[] =
-    //     {
-    //         swapchain->image_views[image_index],
-    //         swapchain->depth_stencil_attachment.view
-    //     };
-
-    //     VkFramebufferCreateInfo frame_buffer_create_info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
-    //     frame_buffer_create_info.renderPass = context->render_pass;
-
-    //     if (context->msaa_samples != VK_SAMPLE_COUNT_1_BIT)
-    //     {
-    //         frame_buffer_create_info.attachmentCount = HE_ARRAYCOUNT(image_views_msaa);
-    //         frame_buffer_create_info.pAttachments = image_views_msaa;
-    //     }
-    //     else
-    //     {
-    //         frame_buffer_create_info.attachmentCount = HE_ARRAYCOUNT(image_views);
-    //         frame_buffer_create_info.pAttachments = image_views;
-    //     }
-
-    //     frame_buffer_create_info.width = swapchain->width;
-    //     frame_buffer_create_info.height = swapchain->height;
-    //     frame_buffer_create_info.layers = 1;
-
-    //     HE_CHECK_VKRESULT(vkCreateFramebuffer(context->logical_device, &frame_buffer_create_info, nullptr, &swapchain->frame_buffers[image_index]));
-    // }
 
     return true;
 }
@@ -236,9 +174,6 @@ void destroy_swapchain(Vulkan_Context *context, Vulkan_Swapchain *swapchain)
         swapchain->image_views[image_index] = VK_NULL_HANDLE;
     }
 
-    // destroy_image(&swapchain->color_attachment, context);
-    // destroy_image(&swapchain->depth_stencil_attachment, context);
-
     deallocate(context->allocator, swapchain->images);
     deallocate(context->allocator, swapchain->image_views);
 
@@ -246,12 +181,8 @@ void destroy_swapchain(Vulkan_Context *context, Vulkan_Swapchain *swapchain)
     swapchain->handle = VK_NULL_HANDLE;
 }
 
-void
-recreate_swapchain(Vulkan_Context *context, Vulkan_Swapchain *swapchain,
-                   U32 width, U32 height, VkPresentModeKHR present_mode)
+void recreate_swapchain(Vulkan_Context *context, Vulkan_Swapchain *swapchain, U32 width, U32 height, VkPresentModeKHR present_mode)
 {
-    vkDeviceWaitIdle(context->logical_device);
     destroy_swapchain(context, swapchain);
-    create_swapchain(context, width, height,
-                     swapchain->image_count, present_mode, swapchain);
+    create_swapchain(context, width, height, swapchain->image_count, present_mode, swapchain);
 }

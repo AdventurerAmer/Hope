@@ -202,6 +202,20 @@ void game_loop(Engine *engine, F32 delta_time)
     ImGui::Separator();
 
     //
+    // VSync
+    //
+    {
+        ImGui::Text("VSync");
+        ImGui::SameLine();
+
+        static bool vsync = renderer_state->vsync;
+        if (ImGui::Checkbox("##VSync", &vsync))
+        {
+            renderer_set_vsync(vsync);
+        }
+    }
+
+    //
     // Triple Buffering
     //
     {
