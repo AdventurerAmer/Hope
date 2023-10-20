@@ -1,8 +1,7 @@
 @echo off
-
-pushd Tools
-glslangValidator.exe -V --auto-map-locations ../Data/shaders/mesh.vert -o ../Data/shaders/bin/mesh.vert.spv
-glslangValidator.exe -V --auto-map-locations ../Data/shaders/mesh.frag -o ../Data/shaders/bin/mesh.frag.spv
+if not exist "data/shaders/bin" mkdir "data/shaders/bin"
+pushd tools
+glslangValidator.exe -V --auto-map-locations ../data/shaders/mesh.vert -o ../data/shaders/bin/mesh.vert.spv
+glslangValidator.exe -V --auto-map-locations ../data/shaders/mesh.frag -o ../data/shaders/bin/mesh.frag.spv
 popd
-
 echo assets cooked successfully
