@@ -52,7 +52,7 @@ project "Engine"
 
     links { "vulkan-1", "ImGui" }
 
-    debugdir "Data"
+    debugdir "data"
     targetdir "bin/%{prj.name}"
     objdir "bin/intermediates/%{prj.name}"
 
