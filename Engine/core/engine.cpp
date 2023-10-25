@@ -155,8 +155,50 @@ void on_resize(Engine *engine, U32 window_width, U32 window_height, U32 client_w
     Window *window = &engine->window;
     window->width = window_width;
     window->height = window_height;
-    
+
     renderer_on_resize(client_width, client_height);
+}
+
+static void draw_tree(Scene_Node *node)
+{
+    ImGui::PushID(node);
+
+    if (ImGui::TreeNodeEx(node->name.data, 0, "%.*s", HE_EXPAND_STRING(node->name)))
+    {
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Framed|ImGuiTreeNodeFlags_Selected;
+
+        if (ImGui::TreeNodeEx("Transform", flags))
+        {
+            Transform &transform = node->transform;
+
+            ImGui::Text("Position");
+            ImGui::SameLine();
+            ImGui::DragFloat3("##Position", &transform.position.x, 0.1f);
+
+            ImGui::Text("Rotation");
+            ImGui::SameLine();
+
+            if (ImGui::DragFloat3("##Rotation", &transform.euler_angles.x, 10.0f, -360.0f, 360.0f))
+            {
+                transform.rotation = glm::quat(glm::radians(transform.euler_angles));
+            }
+
+            ImGui::Text("Scale");
+            ImGui::SameLine();
+            ImGui::DragFloat3("##Scale", &transform.scale.x, 0.25f);
+
+            ImGui::TreePop();
+        }
+
+        for (Scene_Node *child = node->first_child; child; child = child->next_sibling)
+        {
+            draw_tree(child);
+        }
+
+        ImGui::TreePop();
+    }
+
+    ImGui::PopID();
 }
 
 void game_loop(Engine *engine, F32 delta_time)
@@ -167,173 +209,185 @@ void game_loop(Engine *engine, F32 delta_time)
     Scene_Data *scene_data = &render_context.renderer_state->scene_data;
     Directional_Light *directional_light = &scene_data->directional_light;
 
-    ImGui::Begin("Graphics");
+    Renderer *renderer = render_context.renderer;
+    Renderer_State *renderer_state = render_context.renderer_state;
 
-    ImGui::Text("Directional Light");
-    ImGui::Separator();
-
-    ImGui::Text("Direction");
-    ImGui::SameLine();
-
-    ImGui::DragFloat3("##Direction", &directional_light->direction.x, 0.1f, -1.0f, 1.0f);
-
-    if (glm::length(directional_light->direction) > 0.0f)
     {
-        directional_light->direction = glm::normalize(directional_light->direction);
-    }
+        ImGui::Begin("Graphics");
 
-    ImGui::Text("Color");
-    ImGui::SameLine();
+        ImGui::Text("Directional Light");
+        ImGui::Separator();
 
-    ImGui::ColorEdit4("##Color", &directional_light->color.r);
-
-    ImGui::Text("Intensity");
-    ImGui::SameLine();
-
-    ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, HE_MAX_F32);
-
-    Render_Context context = get_render_context();
-
-    Renderer *renderer = context.renderer;
-    Renderer_State *renderer_state = context.renderer_state;
-
-    ImGui::Text("");
-    ImGui::Text("Settings");
-    ImGui::Separator();
-
-    //
-    // VSync
-    //
-    {
-        ImGui::Text("VSync");
+        ImGui::Text("Direction");
         ImGui::SameLine();
 
-        static bool vsync = renderer_state->vsync;
-        if (ImGui::Checkbox("##VSync", &vsync))
+        ImGui::DragFloat3("##Direction", &directional_light->direction.x, 0.1f, -1.0f, 1.0f);
+
+        if (glm::length(directional_light->direction) > 0.0f)
         {
-            renderer_set_vsync(vsync);
+            directional_light->direction = glm::normalize(directional_light->direction);
         }
-    }
 
-    //
-    // Triple Buffering
-    //
-    {
-        ImGui::Text("Triple Buffering");
+        ImGui::Text("Color");
         ImGui::SameLine();
 
-        if (ImGui::Checkbox("##Triple Buffering", &renderer_state->triple_buffering))
-        {
-            if (renderer_state->triple_buffering)
-            {
-                renderer_state->frames_in_flight = 3;
-            }
-            else
-            {
-                renderer_state->frames_in_flight = 2;
-            }
-        }
-    }
+        ImGui::ColorEdit4("##Color", &directional_light->color.r);
 
-    //
-    // Gamma
-    //
-    {
-        ImGui::Text("Gamma");
-        ImGui::SameLine();
-        ImGui::SliderFloat("##Gamma", &renderer_state->gamma, 2.0, 2.4, "%.4f", ImGuiSliderFlags_AlwaysClamp);
-    }
-
-    //
-    // Anisotropic Filtering
-    //
-    {
-        const char *anisotropic_filtering_text[] =
-        {
-            "NONE",
-            "X2  ",
-            "X4  ",
-            "X8  ",
-            "X16 "
-        };
-
-        ImGui::Text("Anisotropic Filtering");
+        ImGui::Text("Intensity");
         ImGui::SameLine();
 
-        const char *selected_anisotropic_filtering = nullptr;
-        for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
+        ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, HE_MAX_F32);
+
+        ImGui::Text("");
+        ImGui::Text("Settings");
+        ImGui::Separator();
+
+        //
+        // VSync
+        //
         {
-            if ((U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index)
+            ImGui::Text("VSync");
+            ImGui::SameLine();
+
+            static bool vsync = renderer_state->vsync;
+            if (ImGui::Checkbox("##VSync", &vsync))
             {
-                selected_anisotropic_filtering = anisotropic_filtering_text[anisotropic_filtering_index];
-                break;
+                renderer_set_vsync(vsync);
             }
         }
 
-        if (ImGui::BeginCombo("##Anistropic Filtering", selected_anisotropic_filtering))
+        //
+        // Triple Buffering
+        //
         {
+            ImGui::Text("Triple Buffering");
+            ImGui::SameLine();
+
+            if (ImGui::Checkbox("##Triple Buffering", &renderer_state->triple_buffering))
+            {
+                if (renderer_state->triple_buffering)
+                {
+                    renderer_state->frames_in_flight = 3;
+                }
+                else
+                {
+                    renderer_state->frames_in_flight = 2;
+                }
+            }
+        }
+
+        //
+        // Gamma
+        //
+        {
+            ImGui::Text("Gamma");
+            ImGui::SameLine();
+            ImGui::SliderFloat("##Gamma", &renderer_state->gamma, 2.0, 2.4, "%.4f", ImGuiSliderFlags_AlwaysClamp);
+        }
+
+        //
+        // Anisotropic Filtering
+        //
+        {
+            const char *anisotropic_filtering_text[] =
+            {
+                "NONE",
+                "X2  ",
+                "X4  ",
+                "X8  ",
+                "X16 "
+            };
+
+            ImGui::Text("Anisotropic Filtering");
+            ImGui::SameLine();
+
+            const char *selected_anisotropic_filtering = nullptr;
             for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
             {
-                bool is_selected = (U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index;
-                if (ImGui::Selectable(anisotropic_filtering_text[anisotropic_filtering_index], is_selected))
+                if ((U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index)
                 {
-                    renderer_set_anisotropic_filtering((Anisotropic_Filtering_Setting)anisotropic_filtering_index);
-                }
-                
-                if (is_selected)
-                {
-                    ImGui::SetItemDefaultFocus();
+                    selected_anisotropic_filtering = anisotropic_filtering_text[anisotropic_filtering_index];
+                    break;
                 }
             }
-            ImGui::EndCombo();
-        }
-    }
 
-    //
-    // MSAA
-    //
-    {
-        const char* msaa_text[] =
-        {
-            "NONE",
-            "X2  ",
-            "X4  ",
-            "X8  "
-        };
-
-        ImGui::Text("MSAA");
-        ImGui::SameLine();
-
-        const char *selected_msaa = nullptr;
-        for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
-        {
-            if ((U32)renderer_state->msaa_setting == msaa_setting_index)
+            if (ImGui::BeginCombo("##Anistropic Filtering", selected_anisotropic_filtering))
             {
-                selected_msaa = msaa_text[msaa_setting_index];
-                break;
+                for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
+                {
+                    bool is_selected = (U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index;
+                    if (ImGui::Selectable(anisotropic_filtering_text[anisotropic_filtering_index], is_selected))
+                    {
+                        renderer_set_anisotropic_filtering((Anisotropic_Filtering_Setting)anisotropic_filtering_index);
+                    }
+
+                    if (is_selected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
             }
         }
 
-        if (ImGui::BeginCombo("##MSAA", selected_msaa))
+        //
+        // MSAA
+        //
         {
+            const char* msaa_text[] =
+            {
+                "NONE",
+                "X2  ",
+                "X4  ",
+                "X8  "
+            };
+
+            ImGui::Text("MSAA");
+            ImGui::SameLine();
+
+            const char *selected_msaa = nullptr;
             for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
             {
-                bool is_selected = (U32)renderer_state->msaa_setting == msaa_setting_index;
-                if (ImGui::Selectable(msaa_text[msaa_setting_index], is_selected))
+                if ((U32)renderer_state->msaa_setting == msaa_setting_index)
                 {
-                    renderer_set_msaa((MSAA_Setting)msaa_setting_index);
-                }
-                
-                if (is_selected)
-                {
-                    ImGui::SetItemDefaultFocus();
+                    selected_msaa = msaa_text[msaa_setting_index];
+                    break;
                 }
             }
-            ImGui::EndCombo();
+
+            if (ImGui::BeginCombo("##MSAA", selected_msaa))
+            {
+                for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
+                {
+                    bool is_selected = (U32)renderer_state->msaa_setting == msaa_setting_index;
+                    if (ImGui::Selectable(msaa_text[msaa_setting_index], is_selected))
+                    {
+                        renderer_set_msaa((MSAA_Setting)msaa_setting_index);
+                    }
+
+                    if (is_selected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
         }
+
+        ImGui::End();
     }
 
-    ImGui::End();
+    // Scene
+    {
+        ImGui::Begin("Scene");
+
+        for (Scene_Node *node = renderer_state->root_scene_node->first_child; node; node = node->next_sibling)
+        {
+            draw_tree(node);
+        }
+
+        ImGui::End();
+    }
 
     Game_Code *game_code = &engine->game_code;
     game_code->on_update(engine, delta_time);

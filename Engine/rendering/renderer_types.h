@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include "core/defines.h"
@@ -13,6 +14,7 @@
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/scalar_constants.hpp>
+#include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 #define HE_GRAPHICS_DEBUGGING 1
@@ -505,14 +507,13 @@ struct Allocation_Group
 struct Static_Mesh_Descriptor
 {
     U16 vertex_count;
-
     glm::vec3 *positions;
     glm::vec3 *normals;
     glm::vec2 *uvs;
     glm::vec4 *tangents;
 
-    U16 *indices;
     U32 index_count;
+    U16 *indices;
 
     Allocation_Group *allocation_group;
 };
@@ -521,10 +522,11 @@ struct Static_Mesh
 {
     String name;
 
+    U64 base_offset;
     U16 vertex_count;
     U32 index_count;
 
-    Material_Handle material_handle;
+    Material_Handle material;
 };
 
 using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;
@@ -532,6 +534,14 @@ using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;
 //
 // Scene
 //
+
+struct Transform
+{
+    glm::vec3 position;
+    glm::quat rotation;
+    glm::vec3 euler_angles;
+    glm::vec3 scale;
+};
 
 struct Scene_Node
 {
@@ -545,7 +555,7 @@ struct Scene_Node
     S32 start_mesh_index = -1;
     U32 static_mesh_count = 0;
 
-    glm::mat4 transform;
+    Transform transform;
 };
 
 //

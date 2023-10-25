@@ -30,12 +30,10 @@ HE_API bool init_game(Engine *engine)
 	F32 sensitivity_x = 1.0f;
 	F32 sensitivity_y = 1.0f;
     
-	engine->api.init_fps_camera_controller(camera_controller, /*pitch=*/0.0f, /*yaw=*/0.0f,
-                                           rotation_speed,
-                                           base_movement_speed,
-                                           max_movement_speed, sensitivity_x, sensitivity_y);
+	engine->api.init_fps_camera_controller(camera_controller, /*pitch=*/0.0f, /*yaw=*/0.0f, rotation_speed, base_movement_speed, max_movement_speed, sensitivity_x, sensitivity_y);
 
     engine->api.load_model_threaded(HE_STRING_LITERAL("models/FlightHelmet/FlightHelmet.gltf"));
+    engine->api.load_model_threaded(HE_STRING_LITERAL("models/Corset/Corset.gltf"));
     return true;
 }
 

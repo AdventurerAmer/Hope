@@ -136,6 +136,18 @@ void append(Dynamic_Array< T > *dynamic_array, const T &datum)
 }
 
 template< typename T >
+T& append(Dynamic_Array< T > *dynamic_array)
+{
+    HE_ASSERT(dynamic_array);
+
+    if (dynamic_array->count == dynamic_array->capacity)
+    {
+        set_capacity(dynamic_array, dynamic_array->count * 2);
+    }
+    return dynamic_array->data[dynamic_array->count++];
+}
+
+template< typename T >
 void remove_back(Dynamic_Array< T > *dynamic_array)
 {
     HE_ASSERT(dynamic_array);

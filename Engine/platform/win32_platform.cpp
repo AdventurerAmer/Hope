@@ -58,9 +58,54 @@ static void win32_get_window_size(U32 client_width, U32 client_height, U32 *widt
     *height = rect.bottom - rect.top;
 }
 
-LRESULT CALLBACK
-win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
+HE_FORCE_INLINE static void win32_handle_mouse_input(Event *event, UINT message, WPARAM w_param, LPARAM l_param)
 {
+    event->type = EventType_Mouse;
+
+    if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP)
+    {
+        event->button = VK_LBUTTON;
+    }
+
+    if (message == WM_MBUTTONDOWN || message == WM_MBUTTONUP)
+    {
+        event->button = VK_MBUTTON;
+    }
+
+    if (message == WM_RBUTTONDOWN || message == WM_RBUTTONUP)
+    {
+        event->button = VK_RBUTTON;
+    }
+
+    if (w_param & MK_XBUTTON1)
+    {
+        event->button = VK_XBUTTON1;
+    }
+
+    if (w_param & MK_XBUTTON2)
+    {
+        event->button = VK_XBUTTON2;
+    }
+
+    if (w_param & MK_SHIFT)
+    {
+        event->is_shift_down = true;
+    }
+
+    if (w_param & MK_CONTROL)
+    {
+        event->is_control_down = true;
+    }
+
+    U16 mouse_x = (U16)(l_param & 0xFF);
+    U16 mouse_y = (U16)(l_param >> 16);
+    event->mouse_x = mouse_x;
+    event->mouse_y = mouse_y;
+}
+
+static LRESULT CALLBACK win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
+{
+    static Engine *engine = win32_platform_state.engine;
     LRESULT result = 0;
 
     switch (message)
@@ -96,7 +141,6 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
 
         case WM_SIZE:
         {
-            Engine *engine = win32_platform_state.engine;
             Event event = {};
             event.type = EventType_Resize;
 
@@ -130,6 +174,137 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
             on_resize(engine, window_width, window_height, client_width, client_height);
         } break;
 
+        case WM_SYSKEYDOWN:
+        case WM_KEYDOWN:
+        case WM_SYSKEYUP:
+        case WM_KEYUP:
+        {
+            U16 key_code = (U16)w_param;
+            bool was_down = (l_param & (1u << 30));
+            bool is_down = (l_param & (1u << 31)) == 0;
+
+            if (key_code == VK_SHIFT)
+            {
+                if (GetKeyState(VK_LSHIFT) & 0x8000)
+                {
+                    key_code = VK_LSHIFT;
+                }
+                else if (GetKeyState(VK_RSHIFT) & 0x8000)
+                {
+                    key_code = VK_RSHIFT;
+                }
+            }
+
+            if (key_code == VK_MENU)
+            {
+                if (GetKeyState(VK_LMENU) & 0x8000)
+                {
+                    key_code = VK_LMENU;
+                }
+                else if (GetKeyState(VK_RMENU) & 0x8000)
+                {
+                    key_code = VK_RMENU;
+                }
+            }
+
+            Event event = {};
+            event.type = EventType_Key;
+            event.key = key_code;
+
+            if (is_down)
+            {
+                if (was_down)
+                {
+                    event.held = true;
+                    engine->input.key_states[key_code] = InputState_Held;
+                }
+                else
+                {
+                    event.pressed = true;
+                    engine->input.key_states[key_code] = InputState_Pressed;
+                }
+            }
+            else
+            {
+                engine->input.key_states[key_code] = InputState_Released;
+            }
+
+            engine->game_code.on_event(engine, event);
+        } break;
+
+        case WM_LBUTTONDOWN:
+        case WM_MBUTTONDOWN:
+        case WM_RBUTTONDOWN:
+        case WM_XBUTTONDOWN:
+        {
+            Event event = {};
+            win32_handle_mouse_input(&event, message, w_param, l_param);
+
+            event.pressed = true;
+            event.held = true;
+
+            Input *input = &engine->input;
+            input->button_states[event.button] = InputState_Pressed;
+
+            engine->game_code.on_event(engine, event);
+        } break;
+
+        case WM_LBUTTONUP:
+        case WM_MBUTTONUP:
+        case WM_RBUTTONUP:
+        case WM_XBUTTONUP:
+        {
+            Event event = {};
+            win32_handle_mouse_input(&event, message, w_param, l_param);
+
+            Input *input = &engine->input;
+            input->button_states[event.button] = InputState_Released;
+
+            engine->game_code.on_event(engine, event);
+        } break;
+
+        case WM_LBUTTONDBLCLK:
+        case WM_MBUTTONDBLCLK:
+        case WM_RBUTTONDBLCLK:
+        case WM_XBUTTONDBLCLK:
+        {
+            Event event = {};
+            win32_handle_mouse_input(&event, message, w_param, l_param);
+            event.double_click = true;
+            engine->game_code.on_event(engine, event);
+        } break;
+
+        case WM_NCMOUSEMOVE:
+        case WM_MOUSEMOVE:
+        {
+            Event event = {};
+            win32_handle_mouse_input(&event, message, w_param, l_param);
+            engine->game_code.on_event(engine, event);
+        } break;
+
+        case WM_MOUSEWHEEL:
+        {
+            S32 delta = u64_to_s32(w_param >> 16);
+            win32_platform_state.mouse_wheel_accumulated_delta += delta;
+
+            Event event = {};
+            event.type = EventType_Mouse;
+
+            while (win32_platform_state.mouse_wheel_accumulated_delta >= 120)
+            {
+                event.mouse_wheel_up = true;
+                engine->game_code.on_event(engine, event);
+                win32_platform_state.mouse_wheel_accumulated_delta -= 120;
+            }
+
+            while (win32_platform_state.mouse_wheel_accumulated_delta <= -120)
+            {
+                event.mouse_wheel_down = true;
+                engine->game_code.on_event(engine, event);
+                win32_platform_state.mouse_wheel_accumulated_delta += 120;
+            }
+        } break;
+
         default:
         {
             result = DefWindowProc(window, message, w_param, l_param);
@@ -137,52 +312,6 @@ win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
     }
 
     return result;
-}
-
-HE_FORCE_INLINE static void
-win32_handle_mouse_input(Event *event, MSG message)
-{
-    event->type = EventType_Mouse;
-
-    if (message.message == WM_LBUTTONDOWN || message.message == WM_LBUTTONUP)
-    {
-        event->button = VK_LBUTTON;
-    }
-
-    if (message.message == WM_MBUTTONDOWN || message.message == WM_MBUTTONUP)
-    {
-        event->button = VK_MBUTTON;
-    }
-
-    if (message.message == WM_RBUTTONDOWN || message.message == WM_RBUTTONUP)
-    {
-        event->button = VK_RBUTTON;
-    }
-
-    if (message.wParam & MK_XBUTTON1)
-    {
-        event->button = VK_XBUTTON1;
-    }
-
-    if (message.wParam & MK_XBUTTON2)
-    {
-        event->button = VK_XBUTTON2;
-    }
-
-    if (message.wParam & MK_SHIFT)
-    {
-        event->is_shift_down = true;
-    }
-
-    if (message.wParam & MK_CONTROL)
-    {
-        event->is_control_down = true;
-    }
-
-    U16 mouse_x = (U16)(message.lParam & 0xFF);
-    U16 mouse_y = (U16)(message.lParam >> 16);
-    event->mouse_x = mouse_x;
-    event->mouse_y = mouse_y;
 }
 
 INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command_line, INT show)
@@ -241,144 +370,8 @@ INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command
             // todo(amer): handle imgui input outside platform win32.
             ImGui_ImplWin32_WndProcHandler(window_handle, message.message, message.wParam, message.lParam);
 
-            switch (message.message)
-            {
-                case WM_SYSKEYDOWN:
-                case WM_KEYDOWN:
-                case WM_SYSKEYUP:
-                case WM_KEYUP:
-                {
-                    U16 key_code = (U16)message.wParam;
-                    bool was_down = (message.lParam & (1u << 30));
-                    bool is_down = (message.lParam & (1u << 31)) == 0;
-
-                    if (key_code == VK_SHIFT)
-                    {
-                        if (GetKeyState(VK_LSHIFT) & 0x8000)
-                        {
-                            key_code = VK_LSHIFT;
-                        }
-                        else if (GetKeyState(VK_RSHIFT) & 0x8000)
-                        {
-                            key_code = VK_RSHIFT;
-                        }
-                    }
-
-                    if (key_code == VK_MENU)
-                    {
-                        if (GetKeyState(VK_LMENU) & 0x8000)
-                        {
-                            key_code = VK_LMENU;
-                        }
-                        else if (GetKeyState(VK_RMENU) & 0x8000)
-                        {
-                            key_code = VK_RMENU;
-                        }
-                    }
-
-                    Event event = {};
-                    event.type = EventType_Key;
-                    event.key = key_code;
-
-                    if (is_down)
-                    {
-                        if (was_down)
-                        {
-                            event.held = true;
-                            engine->input.key_states[key_code] = InputState_Held;
-                        }
-                        else
-                        {
-                            event.pressed = true;
-                            engine->input.key_states[key_code] = InputState_Pressed;
-                        }
-                    }
-                    else
-                    {
-                        engine->input.key_states[key_code] = InputState_Released;
-                    }
-
-                    game_code->on_event(engine, event);
-                } break;
-
-                case WM_LBUTTONDOWN:
-                case WM_MBUTTONDOWN:
-                case WM_RBUTTONDOWN:
-                case WM_XBUTTONDOWN:
-                {
-                    Event event = {};
-                    win32_handle_mouse_input(&event, message);
-                    event.pressed = true;
-                    event.held = true;
-
-                    Input *input = &engine->input;
-                    input->button_states[event.button] = InputState_Pressed;
-
-                    game_code->on_event(engine, event);
-                } break;
-
-                case WM_LBUTTONUP:
-                case WM_MBUTTONUP:
-                case WM_RBUTTONUP:
-                case WM_XBUTTONUP:
-                {
-                    Event event = {};
-                    win32_handle_mouse_input(&event, message);
-
-                    Input *input = &engine->input;
-                    input->button_states[event.button] = InputState_Released;
-
-                    game_code->on_event(engine, event);
-                } break;
-
-                case WM_LBUTTONDBLCLK:
-                case WM_MBUTTONDBLCLK:
-                case WM_RBUTTONDBLCLK:
-                case WM_XBUTTONDBLCLK:
-                {
-                    Event event = {};
-                    win32_handle_mouse_input(&event, message);
-                    event.double_click = true;
-                    game_code->on_event(engine, event);
-                } break;
-
-                case WM_NCMOUSEMOVE:
-                case WM_MOUSEMOVE:
-                {
-                    Event event = {};
-                    win32_handle_mouse_input(&event, message);
-                    game_code->on_event(engine, event);
-                } break;
-
-                case WM_MOUSEWHEEL:
-                {
-                    S32 delta = u64_to_s32(message.wParam >> 16);
-                    win32_platform_state.mouse_wheel_accumulated_delta += delta;
-
-                    Event event = {};
-                    event.type = EventType_Mouse;
-
-                    while (win32_platform_state.mouse_wheel_accumulated_delta >= 120)
-                    {
-                        event.mouse_wheel_up = true;
-                        game_code->on_event(engine, event);
-                        win32_platform_state.mouse_wheel_accumulated_delta -= 120;
-                    }
-
-                    while (win32_platform_state.mouse_wheel_accumulated_delta <= -120)
-                    {
-                        event.mouse_wheel_down = true;
-                        game_code->on_event(engine, event);
-                        win32_platform_state.mouse_wheel_accumulated_delta += 120;
-                    }
-                } break;
-
-                default:
-                {
-                    // TranslateMessage(&message);
-                    DispatchMessageA(&message);
-                } break;
-            }
+            TranslateMessage(&message);
+            DispatchMessageA(&message);        
         }
 
         Input *input = &engine->input;

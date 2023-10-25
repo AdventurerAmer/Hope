@@ -207,13 +207,17 @@ bool init_renderer_state(struct Engine *engine);
 
 void deinit_renderer_state();
 
+Transform get_identity_transform();
+Transform combine(const Transform &a, const Transform &b);
+glm::mat4 get_world_matrix(const Transform &transform);
+
 Scene_Node *add_child_scene_node(Scene_Node *parent);
 
 bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *arena, Allocation_Group *allocation_group);
 Scene_Node* load_model_threaded(const String &path);
 void unload_model(Allocation_Group *allocation_group);
 
-void render_scene_node(Scene_Node *scene_node, const glm::mat4 &transform);
+void render_scene_node(Scene_Node *scene_node, const Transform &parent_transform = get_identity_transform());
 
 glm::vec4 srgb_to_linear(const glm::vec4 &color);
 glm::vec4 linear_to_srgb(const glm::vec4 &color);

@@ -132,8 +132,12 @@ bool pre_init_renderer_state(Engine *engine)
     renderer_state->root_scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
     Scene_Node *root_scene_node = renderer_state->root_scene_node;
     root_scene_node->name = HE_STRING_LITERAL("Root");
-    root_scene_node->transform = glm::mat4(1.0f);
+    root_scene_node->transform = get_identity_transform();
     root_scene_node->parent = nullptr;
+    root_scene_node->last_child = nullptr;
+    root_scene_node->first_child = nullptr;
+    root_scene_node->next_sibling = nullptr;
+
     root_scene_node->start_mesh_index = -1;
     root_scene_node->static_mesh_count = 0;
 
@@ -152,7 +156,7 @@ bool pre_init_renderer_state(Engine *engine)
     U8 &msaa_setting = (U8&)renderer_state->msaa_setting;
     U8 &anisotropic_filtering_setting = (U8&)renderer_state->anisotropic_filtering_setting;
     F32 &gamma = renderer_state->gamma;
-    
+
     // defaults
     back_buffer_width = 1280;
     back_buffer_height = 720;
@@ -201,7 +205,7 @@ bool pre_init_renderer_state(Engine *engine)
 
 bool init_renderer_state(Engine *engine)
 {
-    Buffer_Descriptor transfer_buffer_descriptor = 
+    Buffer_Descriptor transfer_buffer_descriptor =
     {
         .size = HE_GIGA(2),
         .usage = Buffer_Usage::TRANSFER,
@@ -211,11 +215,11 @@ bool init_renderer_state(Engine *engine)
 
     Buffer *transfer_buffer = get(&renderer_state->buffers, renderer_state->transfer_buffer);
     init_free_list_allocator(&renderer_state->transfer_allocator, transfer_buffer->data, transfer_buffer->size);
-    
+
     U32 *white_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
     *white_pixel_data = 0xFFFFFFFF;
 
-    Texture_Descriptor white_pixel_descriptor = 
+    Texture_Descriptor white_pixel_descriptor =
     {
         .width = 1,
         .height = 1,
@@ -238,7 +242,7 @@ bool init_renderer_state(Engine *engine)
     };
     renderer_state->normal_pixel_texture = renderer_create_texture(normal_pixel_descriptor);
 
-    Sampler_Descriptor default_sampler_descriptor = 
+    Sampler_Descriptor default_sampler_descriptor =
     {
         .address_mode_u = Address_Mode::REPEAT,
         .address_mode_v = Address_Mode::REPEAT,
@@ -310,7 +314,7 @@ bool init_renderer_state(Engine *engine)
         .usage = Buffer_Usage::INDEX,
         .is_device_local = true
     };
-    
+
     renderer_state->index_buffer = renderer_create_buffer(index_buffer_descriptor);
 
     Shader_Descriptor mesh_vertex_shader_descriptor =
@@ -334,13 +338,13 @@ bool init_renderer_state(Engine *engine)
     renderer_state->mesh_shader_group = renderer_create_shader_group(mesh_shader_group_descriptor);
 
     Shader_Group *mesh_shader_group = get(&renderer_state->shader_groups, renderer_state->mesh_shader_group);
-    
+
     Bind_Group_Descriptor per_frame_bind_group_descriptor =
     {
         .shader_group = renderer_state->mesh_shader_group,
         .layout = mesh_shader_group->bind_group_layouts[0]
     };
-    
+
     Bind_Group_Descriptor per_render_pass_bind_group_descriptor =
     {
         .shader_group = renderer_state->mesh_shader_group,
@@ -358,7 +362,7 @@ bool init_renderer_state(Engine *engine)
             .count = 1,
             .buffers = &renderer_state->globals_uniform_buffers[frame_index]
         };
-        
+
         Update_Binding_Descriptor object_data_storage_buffer_binding =
         {
             .binding_number = 1,
@@ -372,13 +376,13 @@ bool init_renderer_state(Engine *engine)
             globals_uniform_buffer_binding,
             object_data_storage_buffer_binding
         };
-        
+
         renderer->update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
         renderer_state->per_render_pass_bind_groups[frame_index] = renderer_create_bind_group(per_render_pass_bind_group_descriptor);
     }
 
     init(&renderer_state->render_graph, &engine->memory.free_list_allocator);
-    
+
     {
         auto render = [](Renderer *renderer, Renderer_State *renderer_state)
         {
@@ -429,7 +433,7 @@ bool init_renderer_state(Engine *engine)
                     .samplers = samplers
                 }
             };
-            
+
             renderer->update_bind_group(renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index], to_array_view(update_textures_binding_descriptors));
 
             Bind_Group_Handle bind_groups[] =
@@ -439,7 +443,7 @@ bool init_renderer_state(Engine *engine)
             };
 
             renderer->set_bind_groups(0, to_array_view(bind_groups));
-            render_scene_node(renderer_state->root_scene_node, glm::mat4(1.0f));
+            render_scene_node(renderer_state->root_scene_node);
         };
 
         Render_Target_Info render_targets[] =
@@ -459,7 +463,7 @@ bool init_renderer_state(Engine *engine)
             {
                 .name = "depth",
                 .operation = Attachment_Operation::CLEAR,
-                .info = 
+                .info =
                 {
                     .format = Texture_Format::DEPTH_F32_STENCIL_U8,
                     .resizable_sample = true,
@@ -489,7 +493,7 @@ bool init_renderer_state(Engine *engine)
                 .operation = Attachment_Operation::LOAD
             }
         };
-        
+
         add_node(&renderer_state->render_graph, "ui", to_array_view(render_targets), render);
     }
 
@@ -582,6 +586,35 @@ void deinit_renderer_state()
     ImGui::DestroyContext();
 }
 
+Transform get_identity_transform()
+{
+    Transform result =
+    {
+        .position = { 0.0f, 0.0f, 0.0f },
+        .rotation = { 1.0f, 0.0f, 0.0f, 0.0f },
+        .euler_angles = { 0.0f, 0.0f, 0.0f },
+        .scale = { 1.0f, 1.0f, 1.0f }
+    };
+    return result;
+}
+
+Transform combine(const Transform &a, const Transform &b)
+{
+    Transform result =
+    {
+        .position = a.position + b.position,
+        .rotation = a.rotation * b.rotation,
+        .scale = a.scale * b.scale
+    };
+    result.euler_angles = glm::degrees(glm::eulerAngles(result.rotation));
+    return result;
+}
+
+glm::mat4 get_world_matrix(const Transform &transform)
+{
+    return glm::translate(glm::mat4(1.0f), transform.position) * glm::toMat4(transform.rotation) * glm::scale(glm::mat4(1.0f), transform.scale);
+}
+
 Scene_Node* add_child_scene_node(Scene_Node *parent)
 {
     HE_ASSERT(renderer_state->scene_node_count < HE_MAX_SCENE_NODE_COUNT);
@@ -647,7 +680,7 @@ static bool create_texture(Texture_Handle texture_handle, void *pixels, U32 text
     descriptor.mipmapping = true;
     descriptor.sample_count = 1;
     descriptor.allocation_group = allocation_group;
-    
+
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     bool texture_created = renderer->create_texture(texture_handle, descriptor);
     HE_ASSERT(texture_created);
@@ -668,7 +701,7 @@ static Job_Result load_texture_job(const Job_Parameters &params)
     const String &path = job_data->path;
 
     HE_LOG(Rendering, Trace, "loading texture: %.*s\n", HE_EXPAND_STRING(path));
-    
+
     S32 texture_width;
     S32 texture_height;
     S32 texture_channels;
@@ -743,7 +776,7 @@ static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const
                 .is_signaled = false,
                 .initial_value = 0
             };
-            
+
             Load_Texture_Job_Data load_texture_job_data =
             {
                 .path = texture->name,
@@ -755,7 +788,7 @@ static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const
                     .semaphore =  renderer_create_semaphore(semaphore_descriptor),
                 }
             };
-            
+
             Job job = {};
             job.parameters.data = &load_texture_job_data;
             job.parameters.size = sizeof(load_texture_job_data);
@@ -826,7 +859,24 @@ Job_Result load_model_job(const Job_Parameters &params)
 Scene_Node* load_model_threaded(const String &path)
 {
     Scene_Node *scene_node = add_child_scene_node(renderer_state->root_scene_node);
-    
+
+    U32 index = 0;
+    U32 count = (U32)path.count;
+
+    S64 slash = find_first_char_from_right(path, "/\\");
+    if (slash != -1)
+    {
+        index = (U32)slash;
+    }
+
+    S64 dot = find_first_char_from_right(path, ".");
+    if (dot != -1)
+    {
+        count = (U32)(dot - index - 1);
+    }
+
+    scene_node->name = sub_string(path, index + 1, count);
+
     Renderer_Semaphore_Descriptor semaphore_descriptor =
     {
         .is_signaled = false,
@@ -926,7 +976,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
 
             if (material->pbr_metallic_roughness.metallic_roughness_texture.texture)
             {
-                metallic_roughness = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture, model_path, arena, allocation_group);
+                metallic_roughness = cgltf_load_texture(&material->pbr_metallic_roughness.metallic_roughness_texture, model_path, arena, allocation_group);
             }
             else
             {
@@ -959,23 +1009,8 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
         *orm_texture_index = metallic_roughness.index;
     }
 
-    U32 position_count = 0;
-    glm::vec3 *positions = nullptr;
-
-    U32 normal_count = 0;
-    glm::vec3 *normals = nullptr;
-
-    U32 uv_count = 0;
-    glm::vec2 *uvs = nullptr;
-
-    U32 tangent_count = 0;
-    glm::vec4 *tangents = nullptr;
-
-    U32 index_count = 0;
-    U16 *indices = nullptr;
-
     root_scene_node->parent = nullptr;
-    root_scene_node->transform = glm::mat4(1.0f);
+    root_scene_node->transform = get_identity_transform();
     root_scene_node->start_mesh_index = -1;
     root_scene_node->static_mesh_count = 0;
 
@@ -1014,11 +1049,15 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
         Scene_Node *scene_node = node_bundle.node;
         scene_node->start_mesh_index = -1;
         scene_node->static_mesh_count = 0;
-        scene_node->transform = glm::mat4(1.0f);
+        scene_node->transform = get_identity_transform();
 
         cgltf_node *node = node_bundle.cgltf_node;
+        scene_node->transform.position = *(glm::vec3*)&node->translation;
+        scene_node->transform.rotation = { node->rotation[3], node->rotation[0], node->rotation[1], node->rotation[2] };
+        scene_node->transform.euler_angles = glm::degrees(glm::eulerAngles(scene_node->transform.rotation));
+        scene_node->transform.scale = *(glm::vec3*)&node->scale;
 
-        cgltf_node_transform_world(node, glm::value_ptr(scene_node->transform));
+        scene_node->name = copy_string(HE_STRING(node->name), &renderer_state->engine->memory.free_list_allocator);
 
         if (node->mesh)
         {
@@ -1028,6 +1067,8 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
             for (U32 primitive_index = 0; primitive_index < node->mesh->primitives_count; primitive_index++)
             {
                 cgltf_primitive *primitive = &node->mesh->primitives[primitive_index];
+                HE_ASSERT(primitive->type == cgltf_primitive_type_triangles);
+
                 HE_ASSERT(primitive->material);
                 cgltf_material *material = primitive->material;
 
@@ -1036,9 +1077,19 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
 
                 Static_Mesh_Handle static_mesh_handle = aquire_handle(&renderer_state->static_meshes);
                 Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
-                static_mesh->material_handle = material_handle;
+                static_mesh->material = material_handle;
 
-                HE_ASSERT(primitive->type == cgltf_primitive_type_triangles);
+                U32 position_count = 0;
+                glm::vec3 *positions = nullptr;
+
+                U32 normal_count = 0;
+                glm::vec3 *normals = nullptr;
+
+                U32 uv_count = 0;
+                glm::vec2 *uvs = nullptr;
+
+                U32 tangent_count = 0;
+                glm::vec4 *tangents = nullptr;
 
                 for (U32 attribute_index = 0; attribute_index < primitive->attributes_count; attribute_index++)
                 {
@@ -1056,9 +1107,10 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
                             HE_ASSERT(attribute->data->type == cgltf_type_vec3);
                             HE_ASSERT(attribute->data->component_type == cgltf_component_type_r_32f);
 
-                            position_count = u64_to_u32(attribute->data->count);
                             U64 stride = attribute->data->stride;
                             HE_ASSERT(stride == sizeof(glm::vec3));
+
+                            position_count = u64_to_u32(attribute->data->count);
                             positions = (glm::vec3 *)(data_ptr + view->offset + accessor->offset);
                         } break;
 
@@ -1067,9 +1119,10 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
                             HE_ASSERT(attribute->data->type == cgltf_type_vec3);
                             HE_ASSERT(attribute->data->component_type == cgltf_component_type_r_32f);
 
-                            normal_count = u64_to_u32(attribute->data->count);
                             U64 stride = attribute->data->stride;
                             HE_ASSERT(stride == sizeof(glm::vec3));
+
+                            normal_count = u64_to_u32(attribute->data->count);
                             normals = (glm::vec3 *)(data_ptr + view->offset + accessor->offset);
                         } break;
 
@@ -1078,9 +1131,10 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
                             HE_ASSERT(attribute->data->type == cgltf_type_vec2);
                             HE_ASSERT(attribute->data->component_type == cgltf_component_type_r_32f);
 
-                            uv_count = u64_to_u32(attribute->data->count);
                             U64 stride = attribute->data->stride;
                             HE_ASSERT(stride == sizeof(glm::vec2));
+
+                            uv_count = u64_to_u32(attribute->data->count);
                             uvs = (glm::vec2 *)(data_ptr + view->offset + accessor->offset);
                         } break;
 
@@ -1088,9 +1142,11 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
                         {
                             HE_ASSERT(attribute->data->type == cgltf_type_vec4);
                             HE_ASSERT(attribute->data->component_type == cgltf_component_type_r_32f);
-                            tangent_count = u64_to_u32(attribute->data->count);
+
                             U64 stride = attribute->data->stride;
                             HE_ASSERT(stride == sizeof(glm::vec4));
+
+                            tangent_count = u64_to_u32(attribute->data->count);
                             tangents = (glm::vec4 *)(data_ptr + view->offset + accessor->offset);
                         } break;
                     }
@@ -1101,29 +1157,30 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
                 HE_ASSERT(primitive->indices->component_type == cgltf_component_type_r_16u);
                 HE_ASSERT(primitive->indices->stride == sizeof(U16));
 
-                index_count = u64_to_u32(primitive->indices->count);
+                U32 index_count = u64_to_u32(primitive->indices->count);
                 const auto *accessor = primitive->indices;
                 const auto *view = accessor->buffer_view;
                 U8 *data_ptr = (U8 *)view->buffer->data;
-                indices = (U16 *)(data_ptr + view->offset + accessor->offset);
+                U16 *indices = (U16 *)(data_ptr + view->offset + accessor->offset);
 
                 HE_ASSERT(position_count == normal_count);
                 HE_ASSERT(position_count == uv_count);
-                // HE_ASSERT(position_count == tangent_count); // note(amer): this fails when we load the sponza model.
-                U32 vertex_count = position_count;
+                // HE_ASSERT(position_count == tangent_count);
 
-                Static_Mesh_Descriptor descriptor = {};
-                descriptor.vertex_count = vertex_count;
-                descriptor.index_count = index_count;
-                descriptor.positions = positions;
-                descriptor.normals = normals;
-                descriptor.uvs = uvs;
-                descriptor.tangents = tangents;
-                descriptor.indices = indices;
-                descriptor.allocation_group = allocation_group;
+                Static_Mesh_Descriptor static_mesh_descriptor =
+                {
+                    .vertex_count = (U16)position_count,
+                    .positions = positions,
+                    .normals = normals,
+                    .uvs = uvs,
+                    .tangents = tangents,
+                    .index_count = index_count,
+                    .indices = indices,
+                    .allocation_group = allocation_group
+                };
 
                 platform_lock_mutex(&renderer_state->render_commands_mutex);
-                bool created = renderer->create_static_mesh(static_mesh_handle, descriptor);
+                bool created = renderer->create_static_mesh(static_mesh_handle, static_mesh_descriptor);
                 platform_unlock_mutex(&renderer_state->render_commands_mutex);
                 HE_ASSERT(created);
             }
@@ -1144,9 +1201,9 @@ void unload_model(Allocation_Group *allocation_group)
     deallocate(&renderer_state->transfer_allocator, allocation_group->allocations[1]);
 }
 
-void render_scene_node(Scene_Node *scene_node, const glm::mat4 &parent_transform)
+void render_scene_node(Scene_Node *scene_node, const Transform &parent_transform)
 {
-    glm::mat4 transform = parent_transform * scene_node->transform;
+    Transform transform = combine(scene_node->transform, parent_transform);
 
     for (U32 static_mesh_index = 0; static_mesh_index < scene_node->static_mesh_count; static_mesh_index++)
     {
@@ -1156,10 +1213,10 @@ void render_scene_node(Scene_Node *scene_node, const glm::mat4 &parent_transform
         HE_ASSERT(renderer_state->object_data_count < HE_MAX_OBJECT_DATA_COUNT);
         U32 object_data_index = renderer_state->object_data_count++;
         Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
-        object_data->model = transform;
+        object_data->model = get_world_matrix(transform);
 
         Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
-        Material *material = get(&renderer_state->materials, static_mesh->material_handle);
+        Material *material = get(&renderer_state->materials, static_mesh->material);
 
         Buffer *material_buffer = get(&renderer_state->buffers, material->buffers[renderer_state->current_frame_in_flight_index]);
         copy_memory(material_buffer->data, material->data, material->size);
