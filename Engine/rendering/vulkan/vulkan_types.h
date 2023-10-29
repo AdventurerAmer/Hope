@@ -151,13 +151,13 @@ struct Vulkan_Context
     Vulkan_Swapchain_Support swapchain_support;
     Vulkan_Swapchain swapchain;
     U32 current_swapchain_image_index;
-
-    VkPipelineCache pipeline_cache;
-
+    
     VkSemaphore image_available_semaphores[HE_MAX_FRAMES_IN_FLIGHT];
     VkSemaphore rendering_finished_semaphores[HE_MAX_FRAMES_IN_FLIGHT];
-    VkFence frame_in_flight_fences[HE_MAX_FRAMES_IN_FLIGHT];
-
+    
+    VkSemaphore timeline_semaphore;
+    U64 timeline_value;
+    
     VkDescriptorPool descriptor_pool;
     VkDescriptorPool imgui_descriptor_pool;
 
@@ -165,7 +165,12 @@ struct Vulkan_Context
     VkCommandBuffer graphics_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
     VkCommandBuffer command_buffer;
 
+    VkPipelineCache pipeline_cache;
+
     VkCommandPool transfer_command_pool;
+
+    PFN_vkQueueSubmit2KHR vkQueueSubmit2KHR;
+    PFN_vkCmdPipelineBarrier2KHR vkCmdPipelineBarrier2KHR;
 
     Vulkan_Buffer *buffers;
     Vulkan_Image *textures;
@@ -179,9 +184,6 @@ struct Vulkan_Context
     Vulkan_Frame_Buffer *frame_buffers;
     Vulkan_Static_Mesh *static_meshes;
     Vulkan_Semaphore *semaphores;
-
-    PFN_vkQueueSubmit2KHR vkQueueSubmit2KHR;
-    PFN_vkCmdPipelineBarrier2KHR vkCmdPipelineBarrier2KHR;
 
 #if HE_GRAPHICS_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;

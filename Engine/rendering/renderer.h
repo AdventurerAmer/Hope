@@ -200,11 +200,7 @@ struct Render_Context
 };
 
 bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);
-
-bool pre_init_renderer_state(struct Engine *engine);
-
 bool init_renderer_state(struct Engine *engine);
-
 void deinit_renderer_state();
 
 Transform get_identity_transform();

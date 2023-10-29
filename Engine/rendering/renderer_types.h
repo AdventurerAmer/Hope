@@ -465,7 +465,6 @@ using Material_Handle = Resource_Handle< Material >;
 
 struct Renderer_Semaphore_Descriptor
 {
-    bool is_signaled;
     U64 initial_value = 0;
 };
 

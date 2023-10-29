@@ -103,13 +103,14 @@ struct Render_Graph
 };
 
 void init(Render_Graph *render_graph, Allocator allocator);
+void reset(Render_Graph *render_graph);
 
 Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const Array_View< Render_Target_Info > &render_targets, render_proc render);
 void add_resolve_color_attachment(Render_Graph *render_graph, Render_Graph_Node *node, const char *render_target, const char *resolve_render_target);
 
 void set_presentable_attachment(Render_Graph *render_graph, const char *render_target);
 
-void compile(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
+bool compile(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
 void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
 void render(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
 Texture_Handle get_presentable_attachment(Render_Graph *render_graph, struct Renderer_State *renderer_state);

@@ -91,7 +91,6 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->end_frame = &vulkan_renderer_end_frame;
             renderer->set_vsync = &vulkan_renderer_set_vsync;
             renderer->get_texture_memory_requirements = &vulkan_renderer_get_texture_memory_requirements;
-
             renderer->init_imgui = &vulkan_renderer_init_imgui;
             renderer->imgui_new_frame = &vulkan_renderer_imgui_new_frame;
             renderer->imgui_render = &vulkan_renderer_imgui_render;
@@ -107,13 +106,22 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
     return result;
 }
 
-bool pre_init_renderer_state(Engine *engine)
+bool init_renderer_state(Engine *engine)
 {
-    Memory_Arena *arena = &engine->memory.transient_arena;
+    Memory_Arena *arena = &engine->memory.permanent_arena;
     renderer_state = HE_ALLOCATE(arena, Renderer_State);
     renderer_state->engine = engine;
     renderer_state->arena = create_sub_arena(arena, HE_MEGA(32));
-    
+
+    bool renderer_requested = request_renderer(RenderingAPI_Vulkan, &renderer_state->renderer);
+    if (!renderer_requested)
+    {
+        HE_LOG(Rendering, Fetal, "failed to request vulkan renderer\n");
+        return false;
+    }
+
+    renderer = &renderer_state->renderer;
+
     init(&renderer_state->buffers, arena, HE_MAX_BUFFER_COUNT);
     init(&renderer_state->textures, arena, HE_MAX_TEXTURE_COUNT);
     init(&renderer_state->samplers, arena, HE_MAX_SAMPLER_COUNT);
@@ -130,6 +138,7 @@ bool pre_init_renderer_state(Engine *engine)
 
     renderer_state->scene_nodes = HE_ALLOCATE_ARRAY(arena, Scene_Node, HE_MAX_SCENE_NODE_COUNT);
     renderer_state->root_scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
+    
     Scene_Node *root_scene_node = renderer_state->root_scene_node;
     root_scene_node->name = HE_STRING_LITERAL("Root");
     root_scene_node->transform = get_identity_transform();
@@ -137,7 +146,6 @@ bool pre_init_renderer_state(Engine *engine)
     root_scene_node->last_child = nullptr;
     root_scene_node->first_child = nullptr;
     root_scene_node->next_sibling = nullptr;
-
     root_scene_node->start_mesh_index = -1;
     root_scene_node->static_mesh_count = 0;
 
@@ -157,7 +165,7 @@ bool pre_init_renderer_state(Engine *engine)
     U8 &anisotropic_filtering_setting = (U8&)renderer_state->anisotropic_filtering_setting;
     F32 &gamma = renderer_state->gamma;
 
-    // defaults
+    // default settings
     back_buffer_width = 1280;
     back_buffer_height = 720;
     msaa_setting = (U8)MSAA_Setting::X4;
@@ -186,25 +194,13 @@ bool pre_init_renderer_state(Engine *engine)
         renderer_state->frames_in_flight = 2;
     }
 
-    bool renderer_requested = request_renderer(RenderingAPI_Vulkan, &renderer_state->renderer);
-    if (!renderer_requested)
-    {
-        return false;
-    }
-
-    renderer = &renderer_state->renderer;
-
     bool renderer_inited = renderer->init(engine, renderer_state);
     if (!renderer_inited)
     {
+        HE_LOG(Rendering, Fetal, "failed to initialize renderer\n");
         return false;
     }
 
-    return true;
-}
-
-bool init_renderer_state(Engine *engine)
-{
     Buffer_Descriptor transfer_buffer_descriptor =
     {
         .size = HE_GIGA(2),
@@ -216,7 +212,7 @@ bool init_renderer_state(Engine *engine)
     Buffer *transfer_buffer = get(&renderer_state->buffers, renderer_state->transfer_buffer);
     init_free_list_allocator(&renderer_state->transfer_allocator, transfer_buffer->data, transfer_buffer->size);
 
-    U32 *white_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
+    U32 *white_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32); // @Leak
     *white_pixel_data = 0xFFFFFFFF;
 
     Texture_Descriptor white_pixel_descriptor =
@@ -228,7 +224,7 @@ bool init_renderer_state(Engine *engine)
         .mipmapping = false
     };
     renderer_state->white_pixel_texture = renderer_create_texture(white_pixel_descriptor);
-    U32 *normal_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
+    U32 *normal_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32); // @Leak
     *normal_pixel_data = 0xFFFF8080; // todo(amer): endianness
     HE_ASSERT(HE_ARCH_X64);
 
@@ -499,7 +495,13 @@ bool init_renderer_state(Engine *engine)
 
     set_presentable_attachment(&renderer_state->render_graph, "main");
 
-    compile(&renderer_state->render_graph, renderer, renderer_state);
+    bool compiled = compile(&renderer_state->render_graph, renderer, renderer_state);
+    if (!compiled)
+    {
+        HE_LOG(Rendering, Fetal, "failed to compile render graph\n");
+        return false;
+    }
+
     invalidate(&renderer_state->render_graph, renderer, renderer_state);
 
     Pipeline_State_Descriptor mesh_pipeline_state_descriptor =
@@ -773,7 +775,6 @@ static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const
         {
             Renderer_Semaphore_Descriptor semaphore_descriptor =
             {
-                .is_signaled = false,
                 .initial_value = 0
             };
 
@@ -879,7 +880,6 @@ Scene_Node* load_model_threaded(const String &path)
 
     Renderer_Semaphore_Descriptor semaphore_descriptor =
     {
-        .is_signaled = false,
         .initial_value = 0
     };
 
@@ -1203,7 +1203,7 @@ void unload_model(Allocation_Group *allocation_group)
 
 void render_scene_node(Scene_Node *scene_node, const Transform &parent_transform)
 {
-    Transform transform = combine(scene_node->transform, parent_transform);
+    Transform transform = combine(parent_transform, scene_node->transform);
 
     for (U32 static_mesh_index = 0; static_mesh_index < scene_node->static_mesh_count; static_mesh_index++)
     {

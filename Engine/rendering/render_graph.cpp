@@ -9,7 +9,7 @@ void init(Render_Graph *render_graph, Allocator allocator)
 
     reset(&render_graph->resources);
     init(&render_graph->resource_cache, allocator, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT);
-    
+
     reset(&render_graph->texture_free_list);
     
     render_graph->allocator = allocator;
@@ -191,7 +191,7 @@ Render_Pass_Handle get_render_pass(Render_Graph *render_graph, const char *name)
     return node.render_pass;
 }
 
-void compile(Render_Graph *render_graph, Renderer *renderer, Renderer_State *renderer_state)
+bool compile(Render_Graph *render_graph, Renderer *renderer, Renderer_State *renderer_state)
 {
     for (Render_Graph_Node &node : render_graph->nodes)
     {
@@ -299,6 +299,10 @@ void compile(Render_Graph *render_graph, Renderer *renderer, Renderer_State *ren
                 {
                     append(&render_graph->node_stack, child_handle);
                 }
+                else if (render_graph->visited[child_handle] == 1)
+                {
+                    return false;
+                }
             }
         }
     }
@@ -312,6 +316,8 @@ void compile(Render_Graph *render_graph, Renderer *renderer, Renderer_State *ren
         sorted_nodes[node_index] = sorted_nodes[corresponding_node_index];
         sorted_nodes[corresponding_node_index] = temp; 
     }
+
+    return true;
 }
 
 void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *renderer_state)

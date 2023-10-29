@@ -40,93 +40,33 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageS
     return VK_FALSE;
 }
 
-static bool is_physical_device_supports_all_features(VkPhysicalDevice physical_device, VkPhysicalDeviceFeatures2 features2, VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features)
+static bool is_physical_device_supports_all_features(VkPhysicalDevice physical_device)
 {
-    VkPhysicalDeviceDescriptorIndexingFeatures supported_descriptor_indexing_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
-
-    VkPhysicalDeviceFeatures2 supported_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-    supported_features2.pNext = &supported_descriptor_indexing_features;
-    vkGetPhysicalDeviceFeatures2(physical_device, &supported_features2);
-
-    if (features2.features.robustBufferAccess && !supported_features2.features.robustBufferAccess ||
-        features2.features.fullDrawIndexUint32 && !supported_features2.features.fullDrawIndexUint32 ||
-        features2.features.imageCubeArray && !supported_features2.features.imageCubeArray ||
-        features2.features.independentBlend && !supported_features2.features.independentBlend ||
-        features2.features.geometryShader && !supported_features2.features.geometryShader ||
-        features2.features.tessellationShader && !supported_features2.features.tessellationShader ||
-        features2.features.sampleRateShading && !supported_features2.features.sampleRateShading ||
-        features2.features.dualSrcBlend && !supported_features2.features.dualSrcBlend ||
-        features2.features.logicOp && !supported_features2.features.logicOp ||
-        features2.features.multiDrawIndirect && !supported_features2.features.multiDrawIndirect ||
-        features2.features.drawIndirectFirstInstance && !supported_features2.features.drawIndirectFirstInstance ||
-        features2.features.depthClamp && !supported_features2.features.depthClamp ||
-        features2.features.depthBiasClamp && !supported_features2.features.depthBiasClamp ||
-        features2.features.fillModeNonSolid && !supported_features2.features.fillModeNonSolid ||
-        features2.features.depthBounds && !supported_features2.features.depthBounds ||
-        features2.features.wideLines && !supported_features2.features.wideLines ||
-        features2.features.largePoints && !supported_features2.features.largePoints ||
-        features2.features.alphaToOne && !supported_features2.features.alphaToOne ||
-        features2.features.multiViewport && !supported_features2.features.multiViewport ||
-        features2.features.samplerAnisotropy && !supported_features2.features.samplerAnisotropy ||
-        features2.features.textureCompressionETC2 && !supported_features2.features.textureCompressionETC2 ||
-        features2.features.textureCompressionASTC_LDR && !supported_features2.features.textureCompressionASTC_LDR ||
-        features2.features.textureCompressionBC && !supported_features2.features.textureCompressionBC ||
-        features2.features.occlusionQueryPrecise && !supported_features2.features.occlusionQueryPrecise ||
-        features2.features.pipelineStatisticsQuery && !supported_features2.features.pipelineStatisticsQuery ||
-        features2.features.vertexPipelineStoresAndAtomics && !supported_features2.features.vertexPipelineStoresAndAtomics ||
-        features2.features.fragmentStoresAndAtomics && !supported_features2.features.fragmentStoresAndAtomics ||
-        features2.features.shaderTessellationAndGeometryPointSize && !supported_features2.features.shaderTessellationAndGeometryPointSize ||
-        features2.features.shaderImageGatherExtended && !supported_features2.features.shaderImageGatherExtended ||
-        features2.features.shaderStorageImageExtendedFormats && !supported_features2.features.shaderStorageImageExtendedFormats ||
-        features2.features.shaderStorageImageMultisample && !supported_features2.features.shaderStorageImageMultisample ||
-        features2.features.shaderStorageImageReadWithoutFormat && !supported_features2.features.shaderStorageImageReadWithoutFormat ||
-        features2.features.shaderStorageImageWriteWithoutFormat && !supported_features2.features.shaderStorageImageWriteWithoutFormat ||
-        features2.features.shaderUniformBufferArrayDynamicIndexing && !supported_features2.features.shaderUniformBufferArrayDynamicIndexing ||
-        features2.features.shaderSampledImageArrayDynamicIndexing && !supported_features2.features.shaderSampledImageArrayDynamicIndexing ||
-        features2.features.shaderStorageBufferArrayDynamicIndexing && !supported_features2.features.shaderStorageBufferArrayDynamicIndexing ||
-        features2.features.shaderStorageImageArrayDynamicIndexing && !supported_features2.features.shaderStorageImageArrayDynamicIndexing ||
-        features2.features.shaderClipDistance && !supported_features2.features.shaderClipDistance ||
-        features2.features.shaderCullDistance && !supported_features2.features.shaderCullDistance ||
-        features2.features.shaderFloat64 && !supported_features2.features.shaderFloat64 ||
-        features2.features.shaderInt64 && !supported_features2.features.shaderInt64 ||
-        features2.features.shaderInt16 && !supported_features2.features.shaderInt16 ||
-        features2.features.shaderResourceResidency && !supported_features2.features.shaderResourceResidency ||
-        features2.features.shaderResourceMinLod && !supported_features2.features.shaderResourceMinLod ||
-        features2.features.sparseBinding && !supported_features2.features.sparseBinding ||
-        features2.features.sparseResidencyBuffer && !supported_features2.features.sparseResidencyBuffer ||
-        features2.features.sparseResidencyImage2D && !supported_features2.features.sparseResidencyImage2D ||
-        features2.features.sparseResidencyImage3D && !supported_features2.features.sparseResidencyImage3D ||
-        features2.features.sparseResidency2Samples && !supported_features2.features.sparseResidency2Samples ||
-        features2.features.sparseResidency4Samples && !supported_features2.features.sparseResidency4Samples ||
-        features2.features.sparseResidency8Samples && !supported_features2.features.sparseResidency8Samples ||
-        features2.features.sparseResidency16Samples && !supported_features2.features.sparseResidency16Samples ||
-        features2.features.sparseResidencyAliased && !supported_features2.features.sparseResidencyAliased ||
-        features2.features.variableMultisampleRate && !supported_features2.features.variableMultisampleRate ||
-        features2.features.inheritedQueries && !supported_features2.features.inheritedQueries)
+    VkPhysicalDeviceSynchronization2FeaturesKHR sync2_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES };
+    
+    VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
+    descriptor_indexing_features.pNext = &sync2_features;
+    
+    VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+    features2.pNext = &descriptor_indexing_features;
+    vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+    
+    if (!features2.features.samplerAnisotropy)
     {
         return false;
     }
 
-    if (descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing && !supported_descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing ||
-        descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing && !supported_descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing ||
-        descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing && !supported_descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing ||
-        descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing ||
-        descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing ||
-        descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing ||
-        descriptor_indexing_features.shaderStorageImageArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderStorageImageArrayNonUniformIndexing ||
-        descriptor_indexing_features.shaderInputAttachmentArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderInputAttachmentArrayNonUniformIndexing ||
-        descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing ||
-        descriptor_indexing_features.shaderStorageTexelBufferArrayNonUniformIndexing && !supported_descriptor_indexing_features.shaderStorageTexelBufferArrayNonUniformIndexing ||
-        descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind && !supported_descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind ||
-        descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind && !supported_descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind ||
-        descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind && !supported_descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind ||
-        descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind && !supported_descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind ||
-        descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind && !supported_descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind ||
-        descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind && !supported_descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind ||
-        descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending && !supported_descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending ||
-        descriptor_indexing_features.descriptorBindingPartiallyBound && !supported_descriptor_indexing_features.descriptorBindingPartiallyBound ||
-        descriptor_indexing_features.descriptorBindingVariableDescriptorCount && !supported_descriptor_indexing_features.descriptorBindingVariableDescriptorCount ||
-        descriptor_indexing_features.runtimeDescriptorArray && !supported_descriptor_indexing_features.runtimeDescriptorArray)
+    if (!features2.features.sampleRateShading)
+    {
+        return false;
+    }
+
+    if (!descriptor_indexing_features.runtimeDescriptorArray)
+    {
+        return false;
+    }
+
+    if (!sync2_features.synchronization2)
     {
         return false;
     }
@@ -134,7 +74,7 @@ static bool is_physical_device_supports_all_features(VkPhysicalDevice physical_d
     return true;
 }
 
-static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDeviceFeatures2 features, VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features, Memory_Arena *arena)
+static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *arena)
 {
     Temprary_Memory_Arena temprary_arena = {};
     begin_temprary_memory_arena(&temprary_arena, arena);
@@ -149,7 +89,6 @@ static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR s
 
     if (!physical_device_count)
     {
-        // todo(amer): logging
         return VK_NULL_HANDLE;
     }
 
@@ -160,13 +99,11 @@ static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR s
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
     U32 best_physical_device_score_so_far = 0;
 
-    for (U32 physical_device_index = 0;
-         physical_device_index < physical_device_count;
-         physical_device_index++)
+    for (U32 physical_device_index = 0; physical_device_index < physical_device_count; physical_device_index++)
     {
         VkPhysicalDevice *current_physical_device = &physical_devices[physical_device_index];
 
-        if (!is_physical_device_supports_all_features(*current_physical_device, features, descriptor_indexing_features))
+        if (!is_physical_device_supports_all_features(*current_physical_device))
         {
             continue;
         }
@@ -290,9 +227,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     VkDebugUtilsMessengerCreateInfoEXT debug_messenger_create_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
 
     debug_messenger_create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-
     debug_messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT;
-
     debug_messenger_create_info.pfnUserCallback = vulkan_debug_callback;
     debug_messenger_create_info.pUserData = nullptr;
 
@@ -321,42 +256,29 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     context->surface = (VkSurfaceKHR)platform_create_vulkan_surface(engine, context->instance);
     HE_ASSERT(context->surface);
 
-    VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
-    descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing = VK_TRUE;
-    descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing = VK_TRUE;
-    descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing = VK_TRUE;
-    descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing = VK_TRUE;
-    descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
-    descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
-    descriptor_indexing_features.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
-    descriptor_indexing_features.shaderInputAttachmentArrayNonUniformIndexing = VK_TRUE;
-    descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing = VK_TRUE;
-    descriptor_indexing_features.shaderStorageTexelBufferArrayNonUniformIndexing = VK_TRUE;
-    descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
-    descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
-    descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
-    descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
-    descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind = VK_TRUE;
-    descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
-    descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
-    descriptor_indexing_features.descriptorBindingPartiallyBound = VK_TRUE;
-    descriptor_indexing_features.descriptorBindingVariableDescriptorCount = VK_TRUE;
-    descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
-
-    VkPhysicalDeviceTimelineSemaphoreFeatures physical_device_timelint_semaphore_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES };
-    physical_device_timelint_semaphore_features.timelineSemaphore = VK_TRUE;
-    physical_device_timelint_semaphore_features.pNext = &descriptor_indexing_features; 
+    VkPhysicalDeviceVulkan12Features features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+    features.descriptorIndexing = VK_TRUE;
+    features.runtimeDescriptorArray = VK_TRUE;
+    features.shaderUniformBufferArrayNonUniformIndexing = VK_TRUE;
+    features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    features.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
+    features.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
+    features.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+    features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+    features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+    features.descriptorBindingPartiallyBound = VK_TRUE;
+    features.timelineSemaphore = VK_TRUE;
 
     VkPhysicalDeviceSynchronization2FeaturesKHR physical_device_sync2_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES };
     physical_device_sync2_features.synchronization2 = VK_TRUE;
-    physical_device_sync2_features.pNext = &physical_device_timelint_semaphore_features;
+    physical_device_sync2_features.pNext = &features;
 
     VkPhysicalDeviceFeatures2 physical_device_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
     physical_device_features2.features.samplerAnisotropy = VK_TRUE;
     physical_device_features2.features.sampleRateShading = VK_TRUE;
     physical_device_features2.pNext = &physical_device_sync2_features;
 
-    context->physical_device = pick_physical_device(context->instance, context->surface, physical_device_features2, descriptor_indexing_features, arena);
+    context->physical_device = pick_physical_device(context->instance, context->surface, arena);
     HE_ASSERT(context->physical_device != VK_NULL_HANDLE);
 
     vkGetPhysicalDeviceMemoryProperties(context->physical_device, &context->physical_device_memory_properties);
@@ -606,18 +528,27 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     descriptor_pool_create_info.maxSets = HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT * HE_ARRAYCOUNT(descriptor_pool_sizes);
 
     HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, nullptr, &context->descriptor_pool));
+    
+    context->timeline_value = HE_MAX_FRAMES_IN_FLIGHT;
+    
+    VkSemaphoreTypeCreateInfo timeline_semaphore_type_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+    timeline_semaphore_type_create_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timeline_semaphore_type_create_info.initialValue = context->timeline_value;
+    
+    VkSemaphoreCreateInfo timeline_semaphore_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    timeline_semaphore_create_info.pNext = &timeline_semaphore_type_create_info;
+    timeline_semaphore_create_info.flags = 0;
 
-    VkSemaphoreCreateInfo semaphore_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    VkFenceCreateInfo fence_create_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-    fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &timeline_semaphore_create_info, nullptr, &context->timeline_semaphore));
+
+    VkSemaphoreCreateInfo binary_semaphore_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    binary_semaphore_create_info.flags = 0;
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
-        HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &semaphore_create_info, nullptr, &context->image_available_semaphores[frame_index]));
-        HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &semaphore_create_info, nullptr, &context->rendering_finished_semaphores[frame_index]));
-        HE_CHECK_VKRESULT(vkCreateFence(context->logical_device, &fence_create_info, nullptr, &context->frame_in_flight_fences[frame_index]));
+        HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &binary_semaphore_create_info, nullptr, &context->image_available_semaphores[frame_index]));
+        HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &binary_semaphore_create_info, nullptr, &context->rendering_finished_semaphores[frame_index]));
     }
-
     context->vkQueueSubmit2KHR = (PFN_vkQueueSubmit2KHR)vkGetDeviceProcAddr(context->logical_device, "vkQueueSubmit2KHR");
     HE_ASSERT(context->vkQueueSubmit2KHR);
     
@@ -635,14 +566,13 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDestroyDescriptorPool(context->logical_device, context->imgui_descriptor_pool, nullptr);
 
     ImGui_ImplVulkan_Shutdown();
-
-    for (U32 frame_index = 0;
-         frame_index < HE_MAX_FRAMES_IN_FLIGHT;
-         frame_index++)
+    
+    vkDestroySemaphore(context->logical_device, context->timeline_semaphore, nullptr);
+    
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
         vkDestroySemaphore(context->logical_device, context->image_available_semaphores[frame_index], nullptr);
         vkDestroySemaphore(context->logical_device, context->rendering_finished_semaphores[frame_index], nullptr);
-        vkDestroyFence(context->logical_device, context->frame_in_flight_fences[frame_index], nullptr);
     }
 
     vkDestroyCommandPool(context->logical_device, context->graphics_command_pool, nullptr);
@@ -705,8 +635,14 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
     Renderer_State *renderer_state = context->renderer_state;
     U32 current_frame_in_flight_index = renderer_state->current_frame_in_flight_index;
 
-    vkWaitForFences(context->logical_device, 1, &context->frame_in_flight_fences[current_frame_in_flight_index], VK_TRUE, UINT64_MAX);
-
+    // todo(amer): note that we wait here because we need a command buffer this frame
+    U64 wait_value = context->timeline_value - (HE_MAX_FRAMES_IN_FLIGHT - 1);
+    VkSemaphoreWaitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
+    wait_info.semaphoreCount = 1;
+    wait_info.pSemaphores = &context->timeline_semaphore;
+    wait_info.pValues = &wait_value;
+    vkWaitSemaphores(context->logical_device, &wait_info, UINT64_MAX);
+    
     U32 width = renderer_state->back_buffer_width;
     U32 height = renderer_state->back_buffer_height;
 
@@ -716,7 +652,7 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
         recreate_swapchain(context, &context->swapchain, width, height, context->swapchain.present_mode);
     }
 
-    VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[current_frame_in_flight_index], VK_NULL_HANDLE,&context->current_swapchain_image_index);
+    VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[current_frame_in_flight_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
     {
@@ -730,8 +666,6 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
     {
         HE_ASSERT(result == VK_SUCCESS);
     }
-
-    vkResetFences(context->logical_device, 1, &context->frame_in_flight_fences[current_frame_in_flight_index]);
 
     VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
     vkResetCommandBuffer(command_buffer, 0);
@@ -861,22 +795,51 @@ void vulkan_renderer_end_frame()
 
     vkEndCommandBuffer(context->command_buffer);
 
-    VkPipelineStageFlags wait_stage =  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkSemaphoreSubmitInfoKHR wait_semaphore_infos[] = 
+    { 
+        {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+            .semaphore = context->image_available_semaphores[renderer_state->current_frame_in_flight_index],
+            .value = 0,
+            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+            .semaphore = context->timeline_semaphore,
+            .value = context->timeline_value - (HE_MAX_FRAMES_IN_FLIGHT - 1),
+            .stageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR
+        }
+    };
     
-    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    VkSemaphoreSubmitInfoKHR signal_semaphore_infos[] =
+    {
+        {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+            .semaphore = context->rendering_finished_semaphores[renderer_state->current_frame_in_flight_index],
+            .value = 0,
+            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+            .semaphore = context->timeline_semaphore,
+            .value = context->timeline_value + 1,
+            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+        },
+    };
+    
+    VkCommandBufferSubmitInfoKHR command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO_KHR };
+    command_buffer_submit_info.commandBuffer = context->command_buffer;
 
-    submit_info.pWaitDstStageMask = &wait_stage;
+    VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
+    submit_info.waitSemaphoreInfoCount = HE_ARRAYCOUNT(wait_semaphore_infos);
+    submit_info.pWaitSemaphoreInfos = wait_semaphore_infos;
 
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &context->image_available_semaphores[renderer_state->current_frame_in_flight_index];
+    submit_info.signalSemaphoreInfoCount = HE_ARRAYCOUNT(signal_semaphore_infos);
+    submit_info.pSignalSemaphoreInfos = signal_semaphore_infos;
 
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &context->rendering_finished_semaphores[renderer_state->current_frame_in_flight_index];
-
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &context->command_buffer;
-
-    vkQueueSubmit(context->graphics_queue, 1, &submit_info, context->frame_in_flight_fences[renderer_state->current_frame_in_flight_index]);
+    submit_info.commandBufferInfoCount = 1;
+    submit_info.pCommandBufferInfos = &command_buffer_submit_info;
+    context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
 
     ImGuiIO &io = ImGui::GetIO();
     if (io.ConfigFlags&ImGuiConfigFlags_ViewportsEnable)
@@ -886,10 +849,8 @@ void vulkan_renderer_end_frame()
     }
 
     VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-
     present_info.waitSemaphoreCount = 1;
     present_info.pWaitSemaphores = &context->rendering_finished_semaphores[renderer_state->current_frame_in_flight_index];
-
     present_info.swapchainCount = 1;
     present_info.pSwapchains = &context->swapchain.handle;
     present_info.pImageIndices = &context->current_swapchain_image_index;
@@ -907,6 +868,8 @@ void vulkan_renderer_end_frame()
     {
         HE_ASSERT(result == VK_SUCCESS);
     }
+
+    context->timeline_value++;
 }
 
 static VkFormat get_texture_format(Texture_Format texture_format)
@@ -1933,10 +1896,8 @@ bool vulkan_renderer_create_semaphore(Semaphore_Handle semaphore_handle, const R
 
     VkSemaphoreCreateInfo semaphore_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     semaphore_create_info.pNext = &semaphore_type_create_info;
-    if (descriptor.is_signaled)
-    {
-        semaphore_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    }
+    semaphore_create_info.flags = 0;
+
     HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &semaphore_create_info, nullptr, &vulkan_semaphore->handle));
     return true;
 }

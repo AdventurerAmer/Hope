@@ -119,12 +119,6 @@ bool startup(Engine *engine, void *platform_state)
     bool job_system_inited = init_job_system(engine);
     HE_ASSERT(job_system_inited);
 
-    bool renderer_state_per_inited = pre_init_renderer_state(engine);
-    if (!renderer_state_per_inited)
-    {
-        return false;
-    }
-
     bool renderer_state_inited = init_renderer_state(engine);
     if (!renderer_state_inited)
     {
@@ -165,8 +159,7 @@ static void draw_tree(Scene_Node *node)
 
     if (ImGui::TreeNodeEx(node->name.data, 0, "%.*s", HE_EXPAND_STRING(node->name)))
     {
-        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Framed|ImGuiTreeNodeFlags_Selected;
-
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Framed|ImGuiTreeNodeFlags_Bullet;
         if (ImGui::TreeNodeEx("Transform", flags))
         {
             Transform &transform = node->transform;
@@ -177,9 +170,23 @@ static void draw_tree(Scene_Node *node)
 
             ImGui::Text("Rotation");
             ImGui::SameLine();
-
-            if (ImGui::DragFloat3("##Rotation", &transform.euler_angles.x, 10.0f, -360.0f, 360.0f))
+            
+            auto mod_angle = [](F32 angle, F32 range) -> F32
             {
+                if (angle < 0.0f)
+                {
+                    F32 result = glm::mod(angle, -range);
+                    return result + 360.0f;
+                }
+                
+                return glm::mod(angle, range);
+            };
+            
+            if (ImGui::DragFloat3("##Rotation", &transform.euler_angles.x, 0.5f, -360.0f, 360.0f))
+            {
+                transform.euler_angles.x = mod_angle(transform.euler_angles.x, 360.0f);
+                transform.euler_angles.y = mod_angle(transform.euler_angles.y, 360.0f);
+                transform.euler_angles.z = mod_angle(transform.euler_angles.z, 360.0f);
                 transform.rotation = glm::quat(glm::radians(transform.euler_angles));
             }
 
