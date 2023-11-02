@@ -1,7 +1,6 @@
 #include <string.h>
 
 #include "vulkan_renderer.h"
-#include "vulkan_image.h"
 #include "vulkan_buffer.h"
 #include "vulkan_swapchain.h"
 #include "vulkan_shader.h"
@@ -18,7 +17,6 @@
 #include "core/cvars.h"
 
 #include "containers/dynamic_array.h"
-
 #include "ImGui/backends/imgui_impl_vulkan.cpp"
 
 static Vulkan_Context vulkan_context;
@@ -121,9 +119,7 @@ static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR s
 
         vkGetPhysicalDeviceQueueFamilyProperties(*current_physical_device, &queue_family_count, queue_families);
 
-        for (U32 queue_family_index = 0;
-             queue_family_index < queue_family_count;
-             queue_family_index++)
+        for (U32 queue_family_index = 0; queue_family_index < queue_family_count; queue_family_index++)
         {
             VkQueueFamilyProperties *queue_family = &queue_families[queue_family_index];
 
@@ -144,10 +140,12 @@ static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR s
         if (can_physical_device_do_graphics && can_physical_device_present)
         {
             U32 score = 0;
+            
             if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
             {
                 score++;
             }
+
             if (score >= best_physical_device_score_so_far)
             {
                 best_physical_device_score_so_far = score;
@@ -702,7 +700,7 @@ void vulkan_renderer_set_viewport(U32 width, U32 height)
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
     vkCmdSetViewport(context->command_buffer, 0, 1, &viewport);
-
+    
     VkRect2D scissor = {};
     scissor.offset.x = 0;
     scissor.offset.y = 0;
@@ -784,14 +782,14 @@ void vulkan_renderer_end_frame()
 
     region.extent = { context->swapchain.width, context->swapchain.height, 1 };
 
-    transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    transtion_image_to_layout(context->command_buffer, swapchain_image, 1, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     Texture_Handle presentable_attachment = get_presentable_attachment(&renderer_state->render_graph, renderer_state);
     Vulkan_Image *vulkan_presentable_attachment = &context->textures[presentable_attachment.index];
     
-    transtion_image_to_layout(context->command_buffer, vulkan_presentable_attachment->handle, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transtion_image_to_layout(context->command_buffer, vulkan_presentable_attachment->handle, 1, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     vkCmdCopyImage(context->command_buffer, vulkan_presentable_attachment->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    transtion_image_to_layout(context->command_buffer, swapchain_image, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    transtion_image_to_layout(context->command_buffer, swapchain_image, 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     vkEndCommandBuffer(context->command_buffer);
 
@@ -833,10 +831,8 @@ void vulkan_renderer_end_frame()
     VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
     submit_info.waitSemaphoreInfoCount = HE_ARRAYCOUNT(wait_semaphore_infos);
     submit_info.pWaitSemaphoreInfos = wait_semaphore_infos;
-
     submit_info.signalSemaphoreInfoCount = HE_ARRAYCOUNT(signal_semaphore_infos);
     submit_info.pSignalSemaphoreInfos = signal_semaphore_infos;
-
     submit_info.commandBufferInfoCount = 1;
     submit_info.pCommandBufferInfos = &command_buffer_submit_info;
     context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
@@ -872,38 +868,11 @@ void vulkan_renderer_end_frame()
     context->timeline_value++;
 }
 
-static VkFormat get_texture_format(Texture_Format texture_format)
-{
-    switch (texture_format)
-    {
-        case Texture_Format::R8G8B8A8_SRGB:
-        {
-            return VK_FORMAT_R8G8B8A8_SRGB;
-        } break;
-
-        case Texture_Format::B8G8R8A8_SRGB:
-        {
-            return VK_FORMAT_B8G8R8A8_SRGB;
-        } break;
-
-        case Texture_Format::DEPTH_F32_STENCIL_U8:
-        {
-            return VK_FORMAT_D32_SFLOAT_S8_UINT;
-        } break;
-
-        default:
-        {
-            HE_ASSERT(!"unsupported texture format");
-        } break;
-    }
-
-    return VK_FORMAT_UNDEFINED;
-}
-
 bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
+
     Texture *texture = get(&renderer_state->textures, texture_handle);
     Vulkan_Image *image = &context->textures[texture_handle.index];
 
@@ -926,28 +895,93 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     else
     {
         aspect = VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT;
-        usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        
+        if (descriptor.is_attachment)
+        {
+            usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        }
+        else
+        {
+            usage = VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        }
     }
 
     VkFormat format = get_texture_format(descriptor.format);
     VkSampleCountFlagBits sample_count = get_sample_count(descriptor.sample_count);
 
-    create_image(image, context, descriptor.width, descriptor.height, format, VK_IMAGE_TILING_OPTIMAL, usage, aspect, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                 descriptor.mipmapping, sample_count, descriptor.alias);
+    U32 mip_levels = 1;
 
-    if (descriptor.data)
+    if (descriptor.mipmapping)
     {
-        // todo(amer): only supporting RGBA for now.
-        U64 size = (U64)descriptor.width * (U64)descriptor.height * sizeof(U32);
-        U64 transfered_data_offset = (U8 *)descriptor.data - renderer_state->transfer_allocator.base;
+        mip_levels = (U32)glm::floor(glm::log2((F32)glm::max(descriptor.width, descriptor.height)));
+        usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
 
+    VkImageCreateInfo image_create_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    image_create_info.imageType = VK_IMAGE_TYPE_2D;
+    image_create_info.extent.width = descriptor.width;
+    image_create_info.extent.height = descriptor.height;
+    image_create_info.extent.depth = 1;
+    image_create_info.mipLevels = mip_levels;
+    image_create_info.arrayLayers = descriptor.layer_count;
+    image_create_info.format = format;
+    image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_create_info.usage = usage;
+    image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    image_create_info.samples = get_sample_count(descriptor.sample_count);
+    image_create_info.flags = descriptor.is_cubemap ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
+    
+    HE_CHECK_VKRESULT(vkCreateImage(context->logical_device, &image_create_info, nullptr, &image->handle));
+
+    VkMemoryRequirements memory_requirements = {};
+    vkGetImageMemoryRequirements(context->logical_device, image->handle, &memory_requirements);
+    image->memory_requirements = memory_requirements;
+
+    if (is_valid_handle(&context->renderer_state->textures, descriptor.alias))
+    {
+        Texture *alias_texture = renderer_get_texture(descriptor.alias);
+        Vulkan_Image *alias_image = &context->textures[descriptor.alias.index]; 
+        HE_ASSERT(alias_texture->size >= memory_requirements.size);
+        HE_ASSERT(alias_texture->alignment == memory_requirements.alignment);
+
+        vkBindImageMemory(context->logical_device, image->handle, alias_image->memory, 0);
+        image->memory = VK_NULL_HANDLE;
+    }
+    else
+    {
+        VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+        memory_allocate_info.allocationSize = memory_requirements.size;
+        memory_allocate_info.memoryTypeIndex = find_memory_type_index(memory_requirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, context);
+        HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info, nullptr, &image->memory));
+        vkBindImageMemory(context->logical_device, image->handle, image->memory, 0);
+    }
+
+    VkImageViewCreateInfo image_view_create_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    image_view_create_info.image = image->handle;
+    image_view_create_info.viewType = descriptor.is_cubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
+    image_view_create_info.format = format;
+    image_view_create_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    image_view_create_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    image_view_create_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    image_view_create_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+    image_view_create_info.subresourceRange.aspectMask = aspect;
+    image_view_create_info.subresourceRange.baseMipLevel = 0;
+    image_view_create_info.subresourceRange.levelCount = mip_levels;
+    image_view_create_info.subresourceRange.baseArrayLayer = 0;
+    image_view_create_info.subresourceRange.layerCount = descriptor.layer_count;
+    HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, nullptr, &image->view));
+    
+    if (descriptor.data.count > 0)
+    {
         Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
-        copy_data_to_image_from_buffer(context, image, descriptor.width, descriptor.height, transfer_buffer, transfered_data_offset, size, descriptor.allocation_group);
+        copy_data_to_image(context, image, descriptor.width, descriptor.height, mip_levels, descriptor.layer_count, get_texture_format(descriptor.format), descriptor.data, descriptor.allocation_group);
     }
 
     texture->width = descriptor.width;
     texture->height = descriptor.height;
     texture->is_attachment = descriptor.is_attachment;
+    texture->is_cubemap = descriptor.is_cubemap;
     texture->format = descriptor.format;
     texture->sample_count = descriptor.sample_count;
     texture->alias = descriptor.alias;
@@ -1183,7 +1217,8 @@ static VkDescriptorType get_descriptor_type(Binding_Type type)
         case Binding_Type::UNIFORM_BUFFER: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         case Binding_Type::STORAGE_BUFFER: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         case Binding_Type::COMBINED_IMAGE_SAMPLER: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-
+        case Binding_Type::COMBINED_CUBE_SAMPLER: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        
         default:
         {
             HE_ASSERT(!"unsupported binding type");
@@ -1379,7 +1414,7 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     Render_Pass *render_pass = get(&context->renderer_state->render_passes, render_pass_handle);
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
 
-    if (render_pass->color_attachments.count)
+    if (descriptor.color_attachments.count)
     {
         copy(&render_pass->color_attachments, &descriptor.color_attachments);
     }
@@ -1572,6 +1607,9 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     render_pass_create_info.pSubpasses = &subpass;
 
     HE_CHECK_VKRESULT(vkCreateRenderPass(context->logical_device, &render_pass_create_info, nullptr, &vulkan_render_pass->handle));
+
+    render_pass->name = descriptor.name;
+     
     return true;
 }
 

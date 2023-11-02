@@ -149,10 +149,10 @@ struct Renderer_State
     MSAA_Setting msaa_setting;
     Anisotropic_Filtering_Setting anisotropic_filtering_setting;
 
-    Shader_Handle mesh_vertex_shader;
-    Shader_Handle mesh_fragment_shader;
-    Shader_Group_Handle mesh_shader_group;
-    Pipeline_State_Handle mesh_pipeline;
+    Shader_Handle opaquePBR_vertex_shader;
+    Shader_Handle opaquePBR_fragment_shader;
+    Shader_Group_Handle opaquePBR_shader_group;
+    Pipeline_State_Handle opaquePBR_pipeline;
 
     Bind_Group_Handle per_frame_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
     Bind_Group_Handle per_render_pass_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
@@ -189,8 +189,20 @@ struct Renderer_State
     Scene_Data scene_data;
     Render_Graph render_graph;
 
+    Shader_Handle skybox_vertex_shader;
+    Shader_Handle skybox_fragment_shader;
+    Shader_Group_Handle skybox_shader_group;
+    Pipeline_State_Handle skybox_pipeline;
+
+    Bind_Group_Handle skybox_bind_groups[2];
+    
+    Texture_Handle skybox;
+    Sampler_Handle skybox_sampler;
+
     Mutex allocation_groups_mutex;
     Array< Allocation_Group, HE_MAX_SEMAPHORE_COUNT > allocation_groups;
+
+    Scene_Node *cube_mesh;
 };
 
 struct Render_Context
@@ -210,7 +222,7 @@ glm::mat4 get_world_matrix(const Transform &transform);
 Scene_Node *add_child_scene_node(Scene_Node *parent);
 
 bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *arena, Allocation_Group *allocation_group);
-Scene_Node* load_model_threaded(const String &path);
+Scene_Node* load_model_threaded(const String &path, bool add_to_scene = true);
 void unload_model(Allocation_Group *allocation_group);
 
 void render_scene_node(Scene_Node *scene_node, const Transform &parent_transform = get_identity_transform());

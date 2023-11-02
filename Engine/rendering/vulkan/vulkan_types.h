@@ -36,8 +36,6 @@ struct Vulkan_Image
     VkMemoryRequirements memory_requirements;
     VkDeviceMemory memory;
     VkImageView view;
-    VkFormat format;
-    U32 mip_levels;
 };
 
 struct Vulkan_Sampler

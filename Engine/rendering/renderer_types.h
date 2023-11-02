@@ -93,6 +93,7 @@ struct Texture
     U64 alignment;
 
     bool is_attachment;
+    bool is_cubemap;
     Resource_Handle< Texture > alias;
 };
 
@@ -100,13 +101,15 @@ using Texture_Handle = Resource_Handle< Texture >;
 
 struct Texture_Descriptor
 {
-    U32 width;
-    U32 height;
-    void *data = nullptr;
-    Texture_Format format;
+    U32 width = 1;
+    U32 height = 1;
+    Texture_Format format = Texture_Format::B8G8R8A8_SRGB;
+    int layer_count = 1;
+    Array_View< void * > data;
     bool mipmapping = false;
     U32 sample_count = 1;
     bool is_attachment = false;
+    bool is_cubemap = false;
     Texture_Handle alias = Resource_Pool< Texture >::invalid_handle;
     struct Allocation_Group *allocation_group = nullptr;
 };
@@ -156,7 +159,8 @@ enum class Binding_Type : U8
 {
     UNIFORM_BUFFER,
     STORAGE_BUFFER,
-    COMBINED_IMAGE_SAMPLER
+    COMBINED_IMAGE_SAMPLER,
+    COMBINED_CUBE_SAMPLER
 };
 
 struct Binding
@@ -219,6 +223,8 @@ struct Attachment_Info
 
 struct Render_Pass_Descriptor
 {
+    String name;
+    
     Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > color_attachments;
     Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > depth_stencil_attachments;
     Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > resolve_attachments;
@@ -288,6 +294,7 @@ enum class Shader_Data_Type
     MATRIX4F,
 
     COMBINED_IMAGE_SAMPLER,
+    COMBINED_CUBE_SAMPLER,
 
     STRUCT,
     ARRAY,

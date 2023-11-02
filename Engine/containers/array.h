@@ -90,12 +90,13 @@ HE_FORCE_INLINE T& back(Array< T, N > *array)
 }
 
 template< typename T, const U32 N >
-void append(Array< T, N > *array, const T &datum)
+T& append(Array< T, N > *array, const T &datum)
 {
     HE_ASSERT(array);
     HE_ASSERT(array->count < N);
     copy_memory(array->data + array->count, &datum, sizeof(T));
     array->count++;
+    return array->data[array->count - 1];
 }
 
 template< typename T, const U32 N >

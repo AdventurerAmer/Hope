@@ -72,8 +72,8 @@ struct SPIRV_Entity
 
     Dynamic_Array< SPIRV_Struct_Member > members;
 
-    S32 component_count = -1;
-    S32 element_count = -1;
+    S32 component_count = 1;
+    S32 element_count = 1;
 
     S32 location = -1;
 
@@ -340,6 +340,7 @@ bool load_shader(Shader_Handle shader_handle, const char *path, Vulkan_Context *
                 {
                     append(&entity.members, SPIRV_Struct_Member {});
                 }
+
                 SPIRV_Struct_Member &member = entity.members[member_index];
                 const char *name = (const char*)(instruction + 3);
                 member.name = copy_string(HE_STRING(name), context->allocator);
@@ -636,7 +637,6 @@ bool load_shader(Shader_Handle shader_handle, const char *path, Vulkan_Context *
                     append(&set, Binding {});
                     Binding &binding = back(&set);
                     binding.stage_flags = get_shader_stage(shader->stage);
-
                     binding.number = entity.binding;
 
                     const SPIRV_Entity &uniform = ids[ ids[ entity.id_of_type ].id_of_type ];
@@ -652,6 +652,12 @@ bool load_shader(Shader_Handle shader_handle, const char *path, Vulkan_Context *
                         binding.count = 1;
                         set_descriptor_type(binding, uniform);
                         parse_struct(uniform, structs, ids);
+                    }
+                    else if (uniform.type == SPRIV_Shader_Entity_Type::SAMPLED_IMAGE || 
+                    uniform.type == SPRIV_Shader_Entity_Type::POINTER)
+                    {
+                        binding.count = 1;
+                        set_descriptor_type(binding, uniform);
                     }
                 } break;
 

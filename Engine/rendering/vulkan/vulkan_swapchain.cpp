@@ -1,5 +1,5 @@
 #include "vulkan_swapchain.h"
-#include "vulkan_image.h"
+#include "vulkan_utils.h"
 
 bool init_swapchain_support(Vulkan_Context *context, VkFormat *image_formats, U32 image_format_count, VkColorSpaceKHR color_space, Memory_Arena *arena, Vulkan_Swapchain_Support *swapchain_support)
 {

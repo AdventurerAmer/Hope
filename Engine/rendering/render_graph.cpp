@@ -2,6 +2,8 @@
 #include "rendering/renderer.h"
 #include "rendering/renderer_utils.h"
 
+#include "core/debugging.h"
+
 void init(Render_Graph *render_graph, Allocator allocator)
 {
     reset(&render_graph->nodes);
@@ -59,13 +61,19 @@ Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const 
             resource.resolver_handle = -1;
             resource.ref_count = 0;
             
+            Render_Context context = get_render_context();
+            
             if (render_target.info.resizable)
             {
-                Render_Context context = get_render_context();
                 U32 width = (U32)(render_target.info.scale_x * context.renderer_state->back_buffer_width);
                 U32 height = (U32)(render_target.info.scale_y * context.renderer_state->back_buffer_height);
                 resource.info.width = width;
                 resource.info.height = height;
+            }
+
+            if (render_target.info.resizable_sample)
+            {
+                resource.info.sample_count = get_sample_count(context.renderer_state->msaa_setting);
             }
 
             resource_handle = (Render_Graph_Resource_Handle)(&resource - render_graph->resources.data);
@@ -184,6 +192,7 @@ Render_Pass_Handle get_render_pass(Render_Graph *render_graph, const char *name)
     
     if (node_handle == -1)
     {
+        HE_LOG(Rendering, Trace, "failed to find render graph node: %s\n", name);
         return Resource_Pool< Render_Pass >::invalid_handle;
     }
 
@@ -377,8 +386,6 @@ void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Re
 
             if (resource.node_handle == node_handle)
             {
-                Texture_Descriptor texture_descriptor = {};
-                
                 if (resource.info.resizable)
                 {
                     resource.info.width = (U32)(renderer_state->back_buffer_width * resource.info.scale_x);
@@ -389,13 +396,15 @@ void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Re
                 {
                     resource.info.sample_count = get_sample_count(renderer_state->msaa_setting);    
                 }
-                
-                texture_descriptor.width = resource.info.width;
-                texture_descriptor.height = resource.info.height;
-                texture_descriptor.format = resource.info.format;
-                texture_descriptor.sample_count = resource.info.sample_count;
-                texture_descriptor.is_attachment = true;
 
+                Texture_Descriptor texture_descriptor =
+                {
+                    .width = resource.info.width,
+                    .height = resource.info.height,
+                    .format = resource.info.format,
+                    .sample_count = resource.info.sample_count,
+                    .is_attachment = true
+                };
                 Memory_Requirements texture_memory_requirments = renderer->get_texture_memory_requirements(texture_descriptor);
 
                 for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -558,6 +567,8 @@ void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Re
         Render_Graph_Node &node = render_graph->nodes[node_handle];
         
         Render_Pass_Descriptor render_pass_descriptor = {};
+        render_pass_descriptor.name = node.name;
+        
         Frame_Buffer_Descriptor frame_buffer_descriptors[HE_MAX_FRAMES_IN_FLIGHT] = {};
 
         U32 width = 0;

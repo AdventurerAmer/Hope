@@ -212,31 +212,67 @@ bool init_renderer_state(Engine *engine)
     Buffer *transfer_buffer = get(&renderer_state->buffers, renderer_state->transfer_buffer);
     init_free_list_allocator(&renderer_state->transfer_allocator, transfer_buffer->data, transfer_buffer->size);
 
-    U32 *white_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32); // @Leak
-    *white_pixel_data = 0xFFFFFFFF;
+    _transfer_allocator = &renderer_state->transfer_allocator;
+    _stbi_allocator = &engine->memory.free_list_allocator;
 
-    Texture_Descriptor white_pixel_descriptor =
+    Renderer_Semaphore_Descriptor semaphore_descriptor =
     {
-        .width = 1,
-        .height = 1,
-        .data = white_pixel_data,
-        .format = Texture_Format::R8G8B8A8_SRGB,
-        .mipmapping = false
+        .initial_value = 0
     };
-    renderer_state->white_pixel_texture = renderer_create_texture(white_pixel_descriptor);
-    U32 *normal_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32); // @Leak
-    *normal_pixel_data = 0xFFFF8080; // todo(amer): endianness
-    HE_ASSERT(HE_ARCH_X64);
 
-    Texture_Descriptor normal_pixel_descriptor =
     {
-        .width = 1,
-        .height = 1,
-        .data = normal_pixel_data,
-        .format = Texture_Format::R8G8B8A8_SRGB,
-        .mipmapping = false
-    };
-    renderer_state->normal_pixel_texture = renderer_create_texture(normal_pixel_descriptor);
+        U32* white_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
+        *white_pixel_data = 0xFFFFFFFF;
+        void* while_pixel_datas[] = { white_pixel_data };
+
+        Allocation_Group allocation_group =
+        {
+            .resource_name = HE_STRING_LITERAL("white pixel"),
+            .type = Allocation_Group_Type::GENERAL,
+            .semaphore = renderer_create_semaphore(semaphore_descriptor)
+        };
+        append(&allocation_group.allocations, (void*)white_pixel_data);
+        
+        Texture_Descriptor white_pixel_descriptor =
+        {
+            .width = 1,
+            .height = 1,
+            .format = Texture_Format::R8G8B8A8_SRGB,
+            .data = to_array_view(while_pixel_datas),
+            .mipmapping = false,
+            .allocation_group = &append(&renderer_state->allocation_groups, allocation_group)
+        };
+
+        renderer_state->white_pixel_texture = renderer_create_texture(white_pixel_descriptor);
+    }
+
+    {
+        U32* normal_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
+        *normal_pixel_data = 0xFFFF8080; // todo(amer): endianness
+        HE_ASSERT(HE_ARCH_X64);
+
+        void* normal_pixel_datas[] = { normal_pixel_data };
+
+        Allocation_Group allocation_group =
+        {
+            .resource_name = HE_STRING_LITERAL("normal pixel"),
+            .type = Allocation_Group_Type::GENERAL,
+            .semaphore = renderer_create_semaphore(semaphore_descriptor),
+        };
+        append(&allocation_group.allocations, (void*)normal_pixel_data);
+
+        Texture_Descriptor normal_pixel_descriptor =
+        {
+            .width = 1,
+            .height = 1,
+            .format = Texture_Format::R8G8B8A8_SRGB,
+            .data = to_array_view(normal_pixel_datas),
+            .mipmapping = false,
+            .allocation_group = &append(&renderer_state->allocation_groups, allocation_group)
+        };
+
+        renderer_state->normal_pixel_texture = renderer_create_texture(normal_pixel_descriptor);
+    }
 
     Sampler_Descriptor default_sampler_descriptor =
     {
@@ -310,74 +346,69 @@ bool init_renderer_state(Engine *engine)
         .usage = Buffer_Usage::INDEX,
         .is_device_local = true
     };
-
     renderer_state->index_buffer = renderer_create_buffer(index_buffer_descriptor);
 
-    Shader_Descriptor mesh_vertex_shader_descriptor =
-    {
-        .path = "shaders/bin/mesh.vert.spv"
-    };
-    renderer_state->mesh_vertex_shader = renderer_create_shader(mesh_vertex_shader_descriptor);
-
-    Shader_Descriptor mesh_fragment_shader_descriptor =
-    {
-        .path = "shaders/bin/mesh.frag.spv"
-    };
-    renderer_state->mesh_fragment_shader = renderer_create_shader(mesh_fragment_shader_descriptor);
-
-    Shader_Group_Descriptor mesh_shader_group_descriptor;
-    mesh_shader_group_descriptor.shaders =
-    {
-        renderer_state->mesh_vertex_shader,
-        renderer_state->mesh_fragment_shader
-    };
-    renderer_state->mesh_shader_group = renderer_create_shader_group(mesh_shader_group_descriptor);
-
-    Shader_Group *mesh_shader_group = get(&renderer_state->shader_groups, renderer_state->mesh_shader_group);
-
-    Bind_Group_Descriptor per_frame_bind_group_descriptor =
-    {
-        .shader_group = renderer_state->mesh_shader_group,
-        .layout = mesh_shader_group->bind_group_layouts[0]
-    };
-
-    Bind_Group_Descriptor per_render_pass_bind_group_descriptor =
-    {
-        .shader_group = renderer_state->mesh_shader_group,
-        .layout = mesh_shader_group->bind_group_layouts[1]
-    };
-
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        renderer_state->per_frame_bind_groups[frame_index] = renderer_create_bind_group(per_frame_bind_group_descriptor);
-
-        Update_Binding_Descriptor globals_uniform_buffer_binding =
-        {
-            .binding_number = 0,
-            .element_index = 0,
-            .count = 1,
-            .buffers = &renderer_state->globals_uniform_buffers[frame_index]
-        };
-
-        Update_Binding_Descriptor object_data_storage_buffer_binding =
-        {
-            .binding_number = 1,
-            .element_index = 0,
-            .count = 1,
-            .buffers = &renderer_state->object_data_storage_buffers[frame_index]
-        };
-
-        Update_Binding_Descriptor update_binding_descriptors[] =
-        {
-            globals_uniform_buffer_binding,
-            object_data_storage_buffer_binding
-        };
-
-        renderer->update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
-        renderer_state->per_render_pass_bind_groups[frame_index] = renderer_create_bind_group(per_render_pass_bind_group_descriptor);
-    }
-
     init(&renderer_state->render_graph, &engine->memory.free_list_allocator);
+
+    {
+        auto render = [](Renderer *renderer, Renderer_State *renderer_state)
+        {
+            Buffer_Handle vertex_buffers[] =
+            {
+                renderer_state->position_buffer,
+            };
+
+            U64 offsets[] =
+            {
+                0,
+            };
+
+            renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
+            renderer->set_index_buffer(renderer_state->index_buffer, 0);
+
+            Update_Binding_Descriptor globals_uniform_buffer_bindings[] =
+            {
+                {
+                    .binding_number = 0,
+                    .element_index = 0,
+                    .count = 1,
+                    .buffers = &renderer_state->globals_uniform_buffers[renderer_state->current_frame_in_flight_index]
+                }
+            };
+            renderer->update_bind_group(renderer_state->skybox_bind_groups[0], to_array_view(globals_uniform_buffer_bindings));
+            
+            Bind_Group_Handle bind_groups[] =
+            {
+                renderer_state->skybox_bind_groups[0],
+                renderer_state->skybox_bind_groups[1]
+            };
+            renderer->set_pipeline_state(renderer_state->skybox_pipeline);
+            renderer->set_bind_groups(0, to_array_view(bind_groups));
+
+            U32 mesh_index = renderer_state->cube_mesh->first_child->start_mesh_index;
+            Static_Mesh_Handle static_mesh_handle = { (S32)mesh_index, renderer_state->static_meshes.generations[mesh_index] };
+            renderer->draw_static_mesh(static_mesh_handle, 0);
+        };
+
+        Render_Target_Info render_targets[] =
+        {
+            {
+                .name = "multisample_main",
+                .operation = Attachment_Operation::CLEAR,
+                .info =
+                {
+                    .format = Texture_Format::B8G8R8A8_SRGB,
+                    .resizable_sample = true,
+                    .resizable = true,
+                    .scale_x = 1.0f,
+                    .scale_y = 1.0f,
+                }
+            }
+        };
+
+        Render_Graph_Node &node = add_node(&renderer_state->render_graph, "skybox", to_array_view(render_targets), render);
+        node.clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+    }
 
     {
         auto render = [](Renderer *renderer, Renderer_State *renderer_state)
@@ -389,7 +420,7 @@ bool init_renderer_state(Engine *engine)
                 renderer_state->uv_buffer,
                 renderer_state->tangent_buffer
             };
-
+            
             U64 offsets[] =
             {
                 0,
@@ -446,15 +477,7 @@ bool init_renderer_state(Engine *engine)
         {
             {
                 .name = "multisample_main",
-                .operation = Attachment_Operation::CLEAR,
-                .info =
-                {
-                    .format = Texture_Format::B8G8R8A8_SRGB,
-                    .resizable_sample = true,
-                    .resizable = true,
-                    .scale_x = 1.0f,
-                    .scale_y = 1.0f,
-                }
+                .operation = Attachment_Operation::LOAD,
             },
             {
                 .name = "depth",
@@ -470,9 +493,8 @@ bool init_renderer_state(Engine *engine)
             }
         };
 
-        Render_Graph_Node &node = add_node(&renderer_state->render_graph, "world", to_array_view(render_targets), render);
+        Render_Graph_Node &node = add_node(&renderer_state->render_graph, "opaque", to_array_view(render_targets), render);
         add_resolve_color_attachment(&renderer_state->render_graph, &node, "multisample_main", "main");
-        node.clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
         node.clear_values[1].depth = 1.0f;
     }
 
@@ -504,22 +526,224 @@ bool init_renderer_state(Engine *engine)
 
     invalidate(&renderer_state->render_graph, renderer, renderer_state);
 
-    Pipeline_State_Descriptor mesh_pipeline_state_descriptor =
     {
-        .cull_mode = Cull_Mode::BACK,
-        .front_face = Front_Face::COUNTER_CLOCKWISE,
-        .fill_mode = Fill_Mode::SOLID,
-        .sample_shading = true,
-        .shader_group = renderer_state->mesh_shader_group,
-        .render_pass = get_render_pass(&renderer_state->render_graph, "world"),
-    };
-    renderer_state->mesh_pipeline = renderer_create_pipeline_state(mesh_pipeline_state_descriptor);
+        Shader_Descriptor opaquePBR_vertex_shader_descriptor =
+        {
+            .path = "shaders/bin/opaquePBR.vert.spv"
+        };
+        renderer_state->opaquePBR_vertex_shader = renderer_create_shader(opaquePBR_vertex_shader_descriptor);
+
+        Shader_Descriptor opaquePBR_fragment_shader_descriptor =
+        {
+            .path = "shaders/bin/opaquePBR.frag.spv"
+        };
+        renderer_state->opaquePBR_fragment_shader = renderer_create_shader(opaquePBR_fragment_shader_descriptor);
+
+        Shader_Group_Descriptor opaquePBR_shader_group_descriptor;
+        opaquePBR_shader_group_descriptor.shaders =
+        {
+            renderer_state->opaquePBR_vertex_shader,
+            renderer_state->opaquePBR_fragment_shader
+        };
+        renderer_state->opaquePBR_shader_group = renderer_create_shader_group(opaquePBR_shader_group_descriptor);
+
+        Shader_Group *opaquePBR_shader_group = get(&renderer_state->shader_groups, renderer_state->opaquePBR_shader_group);
+
+        Bind_Group_Descriptor per_frame_bind_group_descriptor =
+        {
+            .shader_group = renderer_state->opaquePBR_shader_group,
+            .layout = opaquePBR_shader_group->bind_group_layouts[0]
+        };
+
+        Bind_Group_Descriptor per_render_pass_bind_group_descriptor =
+        {
+            .shader_group = renderer_state->opaquePBR_shader_group,
+            .layout = opaquePBR_shader_group->bind_group_layouts[1]
+        };
+
+        for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+        {
+            renderer_state->per_frame_bind_groups[frame_index] = renderer_create_bind_group(per_frame_bind_group_descriptor);
+
+            Update_Binding_Descriptor globals_uniform_buffer_binding =
+            {
+                .binding_number = 0,
+                .element_index = 0,
+                .count = 1,
+                .buffers = &renderer_state->globals_uniform_buffers[frame_index]
+            };
+
+            Update_Binding_Descriptor object_data_storage_buffer_binding =
+            {
+                .binding_number = 1,
+                .element_index = 0,
+                .count = 1,
+                .buffers = &renderer_state->object_data_storage_buffers[frame_index]
+            };
+
+            Update_Binding_Descriptor update_binding_descriptors[] =
+            {
+                globals_uniform_buffer_binding,
+                object_data_storage_buffer_binding
+            };
+
+            renderer->update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
+            renderer_state->per_render_pass_bind_groups[frame_index] = renderer_create_bind_group(per_render_pass_bind_group_descriptor);
+        }
+
+        Pipeline_State_Descriptor opaquePBR_pipeline_state_descriptor =
+        {
+            .cull_mode = Cull_Mode::BACK,
+            .front_face = Front_Face::COUNTER_CLOCKWISE,
+            .fill_mode = Fill_Mode::SOLID,
+            .sample_shading = true,
+            .shader_group = renderer_state->opaquePBR_shader_group,
+            .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"),
+        };
+        renderer_state->opaquePBR_pipeline = renderer_create_pipeline_state(opaquePBR_pipeline_state_descriptor);
+    }
+
+    {
+        Allocation_Group allocation_group =
+        {
+            .resource_name = HE_STRING_LITERAL("skybox"),
+            .type = Allocation_Group_Type::GENERAL,
+            .semaphore = renderer_create_semaphore(semaphore_descriptor),
+        };
+        
+        String paths[] =
+        { 
+            HE_STRING_LITERAL("textures/skybox/right.jpg"),
+            HE_STRING_LITERAL("textures/skybox/left.jpg"),
+            HE_STRING_LITERAL("textures/skybox/top.jpg"),
+            HE_STRING_LITERAL("textures/skybox/bottom.jpg"),
+            HE_STRING_LITERAL("textures/skybox/front.jpg"),
+            HE_STRING_LITERAL("textures/skybox/back.jpg"),
+        };
+        
+        void* datas[6] = {};
+
+        U32 width = 1;
+        U32 height = 1;
+
+        for (U32 i = 0; i < HE_ARRAYCOUNT(paths); i++)
+        {
+            const String &path = paths[i];
+
+            S32 texture_width;
+            S32 texture_height;
+            S32 texture_channels;
+
+            stbi_uc *pixels = stbi_load(path.data, &texture_width, &texture_height, &texture_channels, STBI_rgb_alpha);
+            HE_ASSERT(pixels);
+
+            width = texture_width;
+            height = texture_height;
+
+            U64 data_size = texture_width * texture_height * sizeof(U32);
+            U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, data_size);
+            memcpy(data, pixels, data_size);
+            stbi_image_free(pixels);
+            
+            append(&allocation_group.allocations, (void*)data);
+            datas[i] = data;
+        }
+
+        Texture_Descriptor cubmap_texture_descriptor =
+        {
+            .width = width,
+            .height = height,
+            .format = Texture_Format::R8G8B8A8_SRGB,
+            .layer_count = HE_ARRAYCOUNT(paths),
+            .data = to_array_view(datas),
+            .mipmapping = true,
+            .is_cubemap = true,
+            .allocation_group = &append(&renderer_state->allocation_groups, allocation_group),
+        };
+        renderer_state->skybox = renderer_create_texture(cubmap_texture_descriptor);
+
+        Sampler_Descriptor skybox_sampler_descriptor =
+        {
+            .address_mode_u = Address_Mode::CLAMP,
+            .address_mode_v = Address_Mode::CLAMP,
+            .address_mode_w = Address_Mode::CLAMP,
+
+            .min_filter = Filter::LINEAR,
+            .mag_filter = Filter::LINEAR,
+            .mip_filter = Filter::LINEAR,
+
+            .anisotropy = 1
+        };
+        renderer_state->skybox_sampler = renderer_create_sampler(skybox_sampler_descriptor);
+
+        Shader_Descriptor skybox_vertex_shader_descriptor =
+        {
+            .path = "shaders/bin/skybox.vert.spv"
+        };
+        renderer_state->skybox_vertex_shader = renderer_create_shader(skybox_vertex_shader_descriptor);
+
+        Shader_Descriptor skybox_fragment_shader_descriptor =
+        {
+            .path = "shaders/bin/skybox.frag.spv"
+        };
+        renderer_state->skybox_fragment_shader = renderer_create_shader(skybox_fragment_shader_descriptor);
+        
+        Shader_Group_Descriptor skybox_shader_descriptor = {};
+        skybox_shader_descriptor.shaders =
+        {
+            renderer_state->skybox_vertex_shader,
+            renderer_state->skybox_fragment_shader
+        };
+        renderer_state->skybox_shader_group = renderer_create_shader_group(skybox_shader_descriptor);
+        
+        Pipeline_State_Descriptor skybox_pipeline_state_descriptor =
+        {
+            .cull_mode = Cull_Mode::NONE,
+            .front_face = Front_Face::COUNTER_CLOCKWISE,
+            .fill_mode = Fill_Mode::SOLID,
+            .sample_shading = true,
+            .shader_group = renderer_state->skybox_shader_group,
+            .render_pass = get_render_pass(&renderer_state->render_graph, "skybox"),
+        };
+        renderer_state->skybox_pipeline = renderer_create_pipeline_state(skybox_pipeline_state_descriptor);
+
+        Shader_Group *skybox_shader_group = get(&renderer_state->shader_groups, renderer_state->skybox_shader_group);
+
+        {
+            Bind_Group_Descriptor skybox_bind_group_descriptor =
+            {
+                .shader_group = renderer_state->skybox_shader_group,
+                .layout = skybox_shader_group->bind_group_layouts[0]
+            };
+            renderer_state->skybox_bind_groups[0] = renderer_create_bind_group(skybox_bind_group_descriptor);    
+        }
+
+        {
+            Bind_Group_Descriptor skybox_bind_group_descriptor =
+            {
+                .shader_group = renderer_state->skybox_shader_group,
+                .layout = skybox_shader_group->bind_group_layouts[1]
+            };
+            renderer_state->skybox_bind_groups[1] = renderer_create_bind_group(skybox_bind_group_descriptor);    
+        }
+
+        Update_Binding_Descriptor update_skybox_binding_descriptors[] =
+        {
+            {
+                .binding_number = 0,
+                .element_index = 0,
+                .count = 1,
+                .textures = &renderer_state->skybox,
+                .samplers = &renderer_state->skybox_sampler
+            }
+        };
+        renderer->update_bind_group(renderer_state->skybox_bind_groups[1], to_array_view(update_skybox_binding_descriptors));    
+    }
+
+    renderer_state->cube_mesh = load_model_threaded(HE_STRING_LITERAL("models/Cube/Cube.gltf"), false);
 
     bool imgui_inited = init_imgui(engine);
     HE_ASSERT(imgui_inited);
-
-    _transfer_allocator = &renderer_state->transfer_allocator;
-    _stbi_allocator = &engine->memory.free_list_allocator;
     return true;
 }
 
@@ -671,17 +895,20 @@ static bool create_texture(Texture_Handle texture_handle, void *pixels, U32 text
     U64 data_size = texture_width * texture_height * sizeof(U32);
     U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, data_size);
     memcpy(data, pixels, data_size);
-
+    
     append(&allocation_group->allocations, (void*)data);
+    void* datas[] = { (void*)data };
 
-    Texture_Descriptor descriptor = {};
-    descriptor.width = texture_width;
-    descriptor.height = texture_height;
-    descriptor.data = data;
-    descriptor.format = Texture_Format::R8G8B8A8_SRGB;
-    descriptor.mipmapping = true;
-    descriptor.sample_count = 1;
-    descriptor.allocation_group = allocation_group;
+    Texture_Descriptor descriptor =
+    {
+        .width = texture_width,
+        .height = texture_height,
+        .format = Texture_Format::R8G8B8A8_SRGB,
+        .data = to_array_view(datas),
+        .mipmapping = true,
+        .sample_count = 1,
+        .allocation_group = allocation_group,
+    };
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     bool texture_created = renderer->create_texture(texture_handle, descriptor);
@@ -710,7 +937,7 @@ static Job_Result load_texture_job(const Job_Parameters &params)
 
     stbi_uc *pixels = stbi_load(path.data, &texture_width, &texture_height, &texture_channels, STBI_rgb_alpha);
     HE_ASSERT(pixels);
-
+    
     bool texture_created = create_texture(job_data->texture_handle, pixels, texture_width, texture_height, &job_data->allocation_group);
     HE_ASSERT(texture_created);
     stbi_image_free(pixels);
@@ -857,9 +1084,19 @@ Job_Result load_model_job(const Job_Parameters &params)
     return Job_Result::SUCCEEDED;
 }
 
-Scene_Node* load_model_threaded(const String &path)
+Scene_Node* load_model_threaded(const String &path, bool add_to_scene)
 {
-    Scene_Node *scene_node = add_child_scene_node(renderer_state->root_scene_node);
+    Scene_Node *scene_node = nullptr;
+
+    if (add_to_scene)
+    {
+        scene_node = add_child_scene_node(renderer_state->root_scene_node);
+    }
+    else
+    {
+        scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
+        scene_node->parent = nullptr;
+    }
 
     U32 index = 0;
     U32 count = (U32)path.count;
@@ -945,7 +1182,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
         HE_ASSERT(renderer_state->materials.count < HE_MAX_MATERIAL_COUNT);
 
         Material_Descriptor material_descriptor = {};
-        material_descriptor.pipeline_state_handle = renderer_state->mesh_pipeline;
+        material_descriptor.pipeline_state_handle = renderer_state->opaquePBR_pipeline;
 
         platform_lock_mutex(&renderer_state->render_commands_mutex);
         Material_Handle material_handle = renderer_create_material(material_descriptor);
