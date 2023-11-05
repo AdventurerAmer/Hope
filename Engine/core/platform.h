@@ -75,14 +75,18 @@ void platform_set_window_mode(Window *window, Window_Mode window_mode);
 // files
 //
 
+bool platform_path_exists(const char *path, bool *is_file = nullptr);
+bool platform_get_current_working_directory(char *buffer, U64 *count);
+
+typedef void(*on_walk_directory_proc)(const char *path, U64 count);
+void platform_walk_directory(const char *path, on_walk_directory_proc on_walk_directory_proc);
+
 enum Open_File_Flags : U8
 {
     OpenFileFlag_Read     = 1 << 0,
     OpenFileFlag_Write    = 1 << 1,
     OpenFileFlag_Truncate = 1 << 2,
 };
-
-bool platform_file_exists(const char *filepath);
 
 struct Open_File_Result
 {

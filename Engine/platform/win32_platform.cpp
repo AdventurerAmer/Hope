@@ -510,11 +510,66 @@ void platform_set_window_mode(Window *window, Window_Mode window_mode)
 // files
 //
 
-bool platform_file_exists(const char *filepath)
+
+bool platform_path_exists(const char *path, bool *is_file)
 {
-    DWORD dwAttrib = GetFileAttributesA(filepath);
-    return (dwAttrib != INVALID_FILE_ATTRIBUTES &&
-           !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
+    DWORD attributes = GetFileAttributesA(path);
+    if (attributes == INVALID_FILE_ATTRIBUTES)
+    {
+        return false;
+    }
+    
+    if (is_file)
+    {
+        *is_file = !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+    }
+    
+    return true;
+}
+
+bool platform_get_current_working_directory(char *buffer, U64 *size)
+{
+    if (buffer)
+    {
+        DWORD result = GetCurrentDirectoryA((DWORD)*size, buffer);
+        return result + 1 <= *size;
+    }
+    
+    *size = GetCurrentDirectoryA(0, buffer);
+    return false;
+}
+
+void platform_walk_directory(const char *path, on_walk_directory_proc on_walk_directory)
+{
+    char path_buffer[MAX_PATH];
+    sprintf(path_buffer, "%s\\*", path);    
+
+    WIN32_FIND_DATAA find_data = {};
+    HANDLE handle = FindFirstFileA(path_buffer, &find_data);
+
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        return;
+    }
+    
+    do
+    {
+        if (strcmp(find_data.cFileName, ".") == 0 || strcmp(find_data.cFileName, "..") == 0)
+        {
+            continue;
+        }
+        
+        S32 count = sprintf(path_buffer, "%s\\%s", path, find_data.cFileName);
+        on_walk_directory(path_buffer, (U64)count);
+
+        if ((find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+        {
+            platform_walk_directory(path_buffer, on_walk_directory);
+        }
+    }
+    while (FindNextFileA(handle, &find_data));
+
+    FindClose(handle);
 }
 
 Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_file_flags)
@@ -538,7 +593,7 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
         access_flags = GENERIC_WRITE;
     }
 
-    if ((open_file_flags & OpenFileFlag_Truncate) && platform_file_exists(filepath))
+    if ((open_file_flags & OpenFileFlag_Truncate))
     {
         creation_disposition = TRUNCATE_EXISTING;
     }

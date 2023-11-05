@@ -510,6 +510,19 @@ struct Allocation_Group
 // Mesh
 //
 
+struct Sub_Mesh
+{
+    U16 vertex_count;
+
+    glm::vec3 *positions;
+    glm::vec3 *normals;
+    glm::vec2 *uvs;
+    glm::vec2 *tangents;
+
+    U32 index_count;
+    U16 *indices;
+};
+
 struct Static_Mesh_Descriptor
 {
     U16 vertex_count;
@@ -531,7 +544,7 @@ struct Static_Mesh
     U64 base_offset;
     U16 vertex_count;
     U32 index_count;
-
+    
     Material_Handle material;
 };
 

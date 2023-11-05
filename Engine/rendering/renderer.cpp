@@ -890,7 +890,7 @@ Material_Handle find_material(U64 hash)
     return Resource_Pool< Material >::invalid_handle;
 }
 
-static bool create_texture(Texture_Handle texture_handle, void *pixels, U32 texture_width, U32 texture_height, Allocation_Group *allocation_group)
+static bool internal_create_texture(Texture_Handle texture_handle, void *pixels, U32 texture_width, U32 texture_height, Allocation_Group *allocation_group)
 {
     U64 data_size = texture_width * texture_height * sizeof(U32);
     U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, data_size);
@@ -938,7 +938,7 @@ static Job_Result load_texture_job(const Job_Parameters &params)
     stbi_uc *pixels = stbi_load(path.data, &texture_width, &texture_height, &texture_channels, STBI_rgb_alpha);
     HE_ASSERT(pixels);
     
-    bool texture_created = create_texture(job_data->texture_handle, pixels, texture_width, texture_height, &job_data->allocation_group);
+    bool texture_created = internal_create_texture(job_data->texture_handle, pixels, texture_width, texture_height, &job_data->allocation_group);
     HE_ASSERT(texture_created);
     stbi_image_free(pixels);
 
@@ -998,7 +998,7 @@ static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const
         Texture *texture = get(&renderer_state->textures, texture_handle);
         texture->name = copy_string(texture_path.data, texture_path.count, &renderer_state->engine->memory.free_list_allocator);
 
-        if (platform_file_exists(texture_path.data))
+        if (file_exists(texture_path))
         {
             Renderer_Semaphore_Descriptor semaphore_descriptor =
             {
@@ -1013,7 +1013,7 @@ static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const
                 {
                     .resource_name = texture->name,
                     .type = Allocation_Group_Type::GENERAL,
-                    .semaphore =  renderer_create_semaphore(semaphore_descriptor),
+                    .semaphore = renderer_create_semaphore(semaphore_descriptor),
                 }
             };
 
@@ -1038,7 +1038,7 @@ static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const
             pixels = stbi_load_from_memory(image_data, u64_to_u32(view->size), &texture_width, &texture_height, &texture_channels, STBI_rgb_alpha);
             HE_ASSERT(pixels);
 
-            bool texture_created = create_texture(texture_handle, pixels, texture_width, texture_height, model_allocation_group);
+            bool texture_created = internal_create_texture(texture_handle, pixels, texture_width, texture_height, model_allocation_group);
             HE_ASSERT(texture_created);
             stbi_image_free(pixels);
         }
@@ -1194,6 +1194,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
         {
             renderer_material->name = copy_string(material->name, string_length(material->name), &renderer_state->engine->memory.free_list_allocator);
         }
+        
         renderer_material->hash = material_hash;
 
         Texture_Handle albedo = { -1 };
