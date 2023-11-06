@@ -27,18 +27,18 @@
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet.gltf
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LensesMat_BaseColor.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_BaseColor.png
-[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_Normal.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_BaseColor.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_OcclusionRoughMetal.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_Normal.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LensesMat_Normal.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LensesMat_OcclusionRoughMetal.png
-[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_BaseColor.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_Normal.png
-[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_OcclusionRoughMetal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_Normal.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_OcclusionRoughMetal.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_Normal.png
-[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_OcclusionRoughMetal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_BaseColor.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_OcclusionRoughMetal.png
 terials_LensesMat_BaseColor.png
 772.jpg

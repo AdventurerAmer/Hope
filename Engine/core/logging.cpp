@@ -108,17 +108,13 @@ void log(Logger *logger, Channel channel, Verbosity verbosity, Memory_Arena *are
 
     Logging_Channel *main_channel = &logger->main_channel;
 
-    if (platform_write_data_to_file(&main_channel->log_file_result,
-                                    main_channel->log_file_offset,
-                                    (void*)message.data, message.count))
+    if (platform_write_data_to_file(&main_channel->log_file_result, main_channel->log_file_offset, (void*)message.data, message.count))
     {
         main_channel->log_file_offset += message.count;
     }
 
     Logging_Channel *logging_channel = &logger->channels[U8(channel)];
-    if (platform_write_data_to_file(&logging_channel->log_file_result,
-                                    logging_channel->log_file_offset,
-                                    (void*)message.data, message.count))
+    if (platform_write_data_to_file(&logging_channel->log_file_result, logging_channel->log_file_offset, (void*)message.data, message.count))
     {
         logging_channel->log_file_offset += message.count;
     }

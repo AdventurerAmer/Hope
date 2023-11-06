@@ -5,6 +5,7 @@
 #include "cvars.h"
 #include "job_system.h"
 #include "file_system.h"
+#include "resources/resource_system.h"
 
 #include <chrono>
 #include <imgui.h>
@@ -27,6 +28,28 @@ void hock_engine_api(Engine_API *api)
 
 bool startup(Engine *engine, void *platform_state)
 {
+    hock_engine_api(&engine->api);
+
+#ifndef HE_SHIPPING
+
+    U64 debug_memory_size = HE_MEGA(64);
+    void *debug_memory = platform_allocate_memory(debug_memory_size);
+    if (!debug_memory)
+    {
+        return false;
+    }
+
+    global_debug_state.arena = create_memory_arena(debug_memory, debug_memory_size);
+    Logger* logger = &global_debug_state.main_logger;
+    U64 channel_mask = 0xFFFFFFFFFFFFFFFF;
+    bool logger_initied = init_logger(logger, "all", Verbosity_Trace, channel_mask, &global_debug_state.arena);
+    if (!logger_initied)
+    {
+        return false;
+    }
+
+#endif
+
     U64 permenent_memory_size = HE_GIGA(2);
     U64 transient_memory_size = HE_GIGA(2);
     Size required_memory_size = permenent_memory_size + transient_memory_size;
@@ -34,6 +57,7 @@ bool startup(Engine *engine, void *platform_state)
     void *memory = platform_allocate_memory(required_memory_size);
     if (!memory)
     {
+        HE_LOG(Core, Fetal, "failed to initialize memory system\n");
         return false;
     }
 
@@ -49,37 +73,29 @@ bool startup(Engine *engine, void *platform_state)
 
     init_cvars("config.cvars", engine);
 
-#ifndef HE_SHIPPING
+    engine->show_cursor = false;
+    engine->lock_cursor = false;
+    engine->platform_state = platform_state;
+    engine->name = HE_STRING_LITERAL("Hope");
+    engine->app_name = HE_STRING_LITERAL("Hope");
 
-    U64 debug_state_arena_size = HE_MEGA(64);
-    U8 *debug_state_arena_data = HE_ALLOCATE_ARRAY(&engine->memory.permanent_arena, U8, debug_state_arena_size);
-    global_debug_state.arena = create_memory_arena(debug_state_arena_data, debug_state_arena_size);
-
-    Logger* logger = &global_debug_state.main_logger;
-    U64 channel_mask = 0xFFFFFFFFFFFFFFFF;
-    bool logger_initied = init_logger(logger, "all", Verbosity_Trace, channel_mask, &engine->memory.transient_arena);
-    if (!logger_initied)
-    {
-        return false;
-    }
-
-#endif
-
-    String current_working_directory = get_current_working_directory(&engine->memory.permanent_arena);
-    HE_LOG(Core, Trace, "walking directory: %.*s\n", HE_EXPAND_STRING(current_working_directory));
+    String &engine_name = engine->name;
+    String &app_name = engine->app_name;
     
-    String parent_path = get_parent_path(current_working_directory);
-    HE_LOG(Core, Trace, "parent directory: %.*s\n", HE_EXPAND_STRING(parent_path));
+    Window *window = &engine->window;
+    window->width = 1296;
+    window->height = 759;
+    window->mode = Window_Mode::WINDOWED;
 
-    platform_walk_directory(current_working_directory.data, [](const char *data, U64 count)
-    {
-        String path = { data, count };
-        String ext = get_extension(path);
-        if (ext == "png")
-        {
-            HE_LOG(Core, Trace, "%.*s\n", HE_EXPAND_STRING(path));
-        }
-    });
+    U32 &window_width = window->width;
+    U32 &window_height = window->height;
+    U8 &window_mode = (U8 &)window->mode;
+
+    HE_DECLARE_CVAR("platform", engine_name, CVarFlag_None);
+    HE_DECLARE_CVAR("platform", app_name, CVarFlag_None);
+    HE_DECLARE_CVAR("platform", window_width, CVarFlag_None);
+    HE_DECLARE_CVAR("platform", window_height, CVarFlag_None);
+    HE_DECLARE_CVAR("platform", window_mode, CVarFlag_None);
 
     // note(amer): @HardCoding dynamic library extension (.dll)
     Dynamic_Library game_code_dll = {};
@@ -90,56 +106,44 @@ bool startup(Engine *engine, void *platform_state)
     game_code->init_game = (Init_Game_Proc)platform_get_proc_address(&game_code_dll, "init_game");
     game_code->on_event  = (On_Event_Proc)platform_get_proc_address(&game_code_dll, "on_event");
     game_code->on_update = (On_Update_Proc)platform_get_proc_address(&game_code_dll, "on_update");
-    HE_ASSERT(game_code->init_game);
-    HE_ASSERT(game_code->on_event);
-    HE_ASSERT(game_code->on_update);
-
-    hock_engine_api(&engine->api);
-
-    engine->show_cursor = false;
-    engine->lock_cursor = false;
-    engine->platform_state = platform_state;
-    engine->name = HE_STRING_LITERAL("Hope");
-    engine->app_name = HE_STRING_LITERAL("Hope");
-
-    String &engine_name = engine->name;
-    String &app_name = engine->app_name;
-
-    HE_DECLARE_CVAR("platform", engine_name, CVarFlag_None);
-    HE_DECLARE_CVAR("platform", app_name, CVarFlag_None);
-
-    Window *window = &engine->window;
-    window->width = 1296;
-    window->height = 759;
-    window->mode = Window_Mode::WINDOWED;
-
-    U32 &window_width = window->width;
-    U32 &window_height = window->height;
-    U8 &window_mode = (U8 &)window->mode;
-
-    HE_DECLARE_CVAR("platform", window_width, CVarFlag_None);
-    HE_DECLARE_CVAR("platform", window_height, CVarFlag_None);
-    HE_DECLARE_CVAR("platform", window_mode, CVarFlag_None);
+    if (!game_code->init_game || !game_code->on_event || !game_code->on_update)
+    {
+        HE_LOG(Core, Fetal, "failed to load game code\n");
+        return false;    
+    }
 
     bool window_created = platform_create_window(window, app_name.data, (U32)window_width, (U32)window_height, (Window_Mode)window_mode);
-
     if (!window_created)
     {
+        HE_LOG(Core, Fetal, "failed to create window\n");
         return false;
     }
 
     bool input_inited = init_input(&engine->input);
     if (!input_inited)
     {
+        HE_LOG(Core, Fetal, "failed to initialize input system\n");
         return false;
     }
 
     bool job_system_inited = init_job_system(engine);
-    HE_ASSERT(job_system_inited);
+    if (!job_system_inited)
+    {
+        HE_LOG(Core, Fetal, "failed to initialize job system\n");
+        return false;
+    }
 
     bool renderer_state_inited = init_renderer_state(engine);
     if (!renderer_state_inited)
     {
+        HE_LOG(Core, Fetal, "failed to initialize render system\n");
+        return false;
+    }
+
+    bool resource_system_inited = init_resource_system(HE_STRING_LITERAL("resources"), engine);
+    if (!resource_system_inited)
+    {
+        HE_LOG(Core, Fetal, "failed to initialize resource system\n");
         return false;
     }
 
@@ -151,7 +155,6 @@ bool startup(Engine *engine, void *platform_state)
     scene_data->directional_light.intensity = 1.0f;
 
     auto start = std::chrono::steady_clock::now();
-
     bool game_initialized = game_code->init_game(engine);
     wait_for_all_jobs_to_finish();
     renderer_wait_for_gpu_to_finish_all_work();
@@ -167,7 +170,6 @@ void on_resize(Engine *engine, U32 window_width, U32 window_height, U32 client_w
     Window *window = &engine->window;
     window->width = window_width;
     window->height = window_height;
-
     renderer_on_resize(client_width, client_height);
 }
 
@@ -454,9 +456,9 @@ void game_loop(Engine *engine, F32 delta_time)
 
     begin_temprary_memory_arena(&renderer_state->frame_arena, &renderer_state->arena);
 
-    U32 current_frame_in_flight_index = renderer_state->current_frame_in_flight_index;
+    U32 frame_index = renderer_state->current_frame_in_flight_index;
 
-    Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[current_frame_in_flight_index]);
+    Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[frame_index]);
     renderer_state->object_data_base = (Object_Data *)object_data_storage_buffer->data;
     renderer_state->object_data_count = 0;
     
@@ -480,7 +482,7 @@ void game_loop(Engine *engine, F32 delta_time)
         
         if (allocation_group.target_value == renderer->get_semaphore_value(allocation_group.semaphore))
         {
-            HE_LOG(Rendering, Trace, "unloading resource: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
+            // HE_LOG(Rendering, Trace, "unloading resource: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
 
             renderer_destroy_semaphore(allocation_group.semaphore);
             
@@ -509,6 +511,8 @@ void game_loop(Engine *engine, F32 delta_time)
 
 void shutdown(Engine *engine)
 {
+    deinit_resource_system();
+
     deinit_renderer_state();
 
     deinit_job_system();

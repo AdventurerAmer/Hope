@@ -929,7 +929,7 @@ static Job_Result load_texture_job(const Job_Parameters &params)
     Load_Texture_Job_Data *job_data = (Load_Texture_Job_Data *)params.data;
     const String &path = job_data->path;
 
-    HE_LOG(Rendering, Trace, "loading texture: %.*s\n", HE_EXPAND_STRING(path));
+    // HE_LOG(Rendering, Trace, "loading texture: %.*s\n", HE_EXPAND_STRING(path));
 
     S32 texture_width;
     S32 texture_height;
@@ -1072,7 +1072,7 @@ Job_Result load_model_job(const Job_Parameters &params)
 {
     Temprary_Memory_Arena *tempray_memory_arena = params.temprary_memory_arena;
     Load_Model_Job_Data *data = (Load_Model_Job_Data *)params.data;
-    HE_LOG(Rendering, Trace, "loading model: %.*s\n", HE_EXPAND_STRING(data->path));
+    // HE_LOG(Rendering, Trace, "loading model: %.*s\n", HE_EXPAND_STRING(data->path));
     bool model_loaded = load_model(data->scene_node, data->path, tempray_memory_arena->arena, &data->allocation_group);
     if (!model_loaded)
     {

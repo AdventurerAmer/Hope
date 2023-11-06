@@ -6,6 +6,7 @@
 #include "containers/dynamic_array.h"
 #include "platform.h"
 
+void sanitize_path(String &path);
 bool file_exists(const String &path);
 bool directory_exists(const String &path);
 String get_current_working_directory(Allocator allocator);

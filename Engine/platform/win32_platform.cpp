@@ -559,7 +559,7 @@ void platform_walk_directory(const char *path, on_walk_directory_proc on_walk_di
             continue;
         }
         
-        S32 count = sprintf(path_buffer, "%s\\%s", path, find_data.cFileName);
+        S32 count = sprintf(path_buffer, "%s/%s", path, find_data.cFileName);
         on_walk_directory(path_buffer, (U64)count);
 
         if ((find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))

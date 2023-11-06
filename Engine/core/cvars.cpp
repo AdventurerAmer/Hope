@@ -101,7 +101,6 @@ bool init_cvars(const char *filepath, Engine *engine)
     HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
 
     Read_Entire_File_Result result = read_entire_file(filepath, &temprary_arena);
-
     CVar_Category *category = nullptr;
 
     if (result.success)
@@ -139,6 +138,8 @@ bool init_cvars(const char *filepath, Engine *engine)
             str.data += new_line_index + 1;
             str.count -= new_line_index + 1;
         }
+
+        return true;
     }
 
     return false;

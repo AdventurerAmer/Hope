@@ -1,4 +1,19 @@
 #include "file_system.h"
+#include <ctype.h>
+
+void sanitize_path(String &path)
+{
+    char *data = const_cast< char* >(path.data);
+
+    for (U64 i = 0; i < path.count; i++)
+    {
+        data[i] = tolower(data[i]);
+        if (data[i] == '\\')
+        {
+            data[i] = '/';
+        }
+    }
+}
 
 bool file_exists(const String &path)
 {
@@ -7,7 +22,7 @@ bool file_exists(const String &path)
     return is_file;
 }
 
-bool directory_exits(const String &path)
+bool directory_exists(const String &path)
 {
     bool is_file = false;
     bool exists = platform_path_exists(path.data, &is_file);
