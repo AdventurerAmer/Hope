@@ -79,7 +79,7 @@ bool platform_path_exists(const char *path, bool *is_file = nullptr);
 bool platform_get_current_working_directory(char *buffer, U64 *count);
 
 typedef void(*on_walk_directory_proc)(const char *path, U64 count);
-void platform_walk_directory(const char *path, on_walk_directory_proc on_walk_directory_proc);
+void platform_walk_directory(const char *path, bool recursive, on_walk_directory_proc on_walk_directory_proc);
 
 enum Open_File_Flags : U8
 {

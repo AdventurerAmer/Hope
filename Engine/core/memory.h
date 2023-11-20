@@ -31,6 +31,8 @@
 void zero_memory(void *memory, Size size);
 void copy_memory(void *dst, const void *src, Size size);
 
+Size get_number_of_bytes_to_align_address(Size address, U16 alignment);
+
 //
 // Memory Arena
 //

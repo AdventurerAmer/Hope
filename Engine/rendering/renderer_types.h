@@ -75,8 +75,8 @@ enum class Texture_Format
 {
     R8G8B8A8_SRGB,
     B8G8R8A8_SRGB,
-    
-    DEPTH_F32_STENCIL_U8
+    DEPTH_F32_STENCIL_U8,
+    COUNT
 };
 
 struct Texture

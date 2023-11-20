@@ -49,7 +49,7 @@ HE_FORCE_INLINE static bool is_power_of_2(U16 value)
     return (value & (value - 1)) == 0;
 }
 
-static Size get_number_of_bytes_to_align_address(Size address, U16 alignment)
+Size get_number_of_bytes_to_align_address(Size address, U16 alignment)
 {
     // todo(amer): branchless version daddy
     Size result = 0;

@@ -539,7 +539,7 @@ bool platform_get_current_working_directory(char *buffer, U64 *size)
     return false;
 }
 
-void platform_walk_directory(const char *path, on_walk_directory_proc on_walk_directory)
+void platform_walk_directory(const char *path, bool recursive, on_walk_directory_proc on_walk_directory)
 {
     char path_buffer[MAX_PATH];
     sprintf(path_buffer, "%s\\*", path);    
@@ -562,9 +562,9 @@ void platform_walk_directory(const char *path, on_walk_directory_proc on_walk_di
         S32 count = sprintf(path_buffer, "%s/%s", path, find_data.cFileName);
         on_walk_directory(path_buffer, (U64)count);
 
-        if ((find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+        if (recursive && (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
         {
-            platform_walk_directory(path_buffer, on_walk_directory);
+            platform_walk_directory(path_buffer, recursive, on_walk_directory);
         }
     }
     while (FindNextFileA(handle, &find_data));
@@ -595,7 +595,7 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
 
     if ((open_file_flags & OpenFileFlag_Truncate))
     {
-        creation_disposition = TRUNCATE_EXISTING;
+        creation_disposition = CREATE_ALWAYS;
     }
 
     HANDLE file_handle = CreateFileA(filepath, access_flags, FILE_SHARE_READ,

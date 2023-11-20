@@ -114,7 +114,7 @@ String sub_string(const String &str, U64 index, U64 count)
     return { str.data + index, count };
 }
 
-String format_string(struct Memory_Arena *arena, const char *format, va_list args)
+String format_string(Memory_Arena *arena, const char *format, va_list args)
 {
     U8 *buffer = arena->base + arena->offset;
     S32 count = vsprintf((char *)buffer, format, args);
@@ -132,7 +132,6 @@ String format_string(Memory_Arena *arena, const char *format, ...)
     va_end(args);
     return result;
 }
-
 
 void begin_string_builder(String_Builder *string_builder, Memory_Arena *arena)
 {

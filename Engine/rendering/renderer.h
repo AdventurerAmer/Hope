@@ -334,6 +334,7 @@ void renderer_destroy_material(Material_Handle &material_handle);
 //
 Semaphore_Handle renderer_create_semaphore(const Renderer_Semaphore_Descriptor &descriptor);
 Renderer_Semaphore *renderer_get_semaphore(Semaphore_Handle semaphore_handle);
+U64 renderer_get_semaphore_value(Semaphore_Handle semaphore_handle);
 void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle);
 
 //

@@ -893,7 +893,7 @@ Material_Handle find_material(U64 hash)
 static bool internal_create_texture(Texture_Handle texture_handle, void *pixels, U32 texture_width, U32 texture_height, Allocation_Group *allocation_group)
 {
     U64 data_size = texture_width * texture_height * sizeof(U32);
-    U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, data_size);
+    U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, texture_width * texture_height);
     memcpy(data, pixels, data_size);
     
     append(&allocation_group->allocations, (void*)data);
@@ -1544,7 +1544,9 @@ void renderer_destroy_buffer(Buffer_Handle &buffer_handle)
 Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
 {
     Texture_Handle texture_handle = aquire_handle(&renderer_state->textures);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_texture(texture_handle, descriptor);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
     return texture_handle;
 }
 
@@ -1555,7 +1557,9 @@ Texture* renderer_get_texture(Texture_Handle texture_handle)
 
 void renderer_destroy_texture(Texture_Handle &texture_handle)
 {
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->destroy_texture(texture_handle);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
     release_handle(&renderer_state->textures, texture_handle);
     texture_handle = Resource_Pool< Texture >::invalid_handle;
 }
@@ -1893,6 +1897,11 @@ Semaphore_Handle renderer_create_semaphore(const Renderer_Semaphore_Descriptor &
 Renderer_Semaphore* renderer_get_semaphore(Semaphore_Handle semaphore_handle)
 {
     return get(&renderer_state->semaphores, semaphore_handle);
+}
+
+U64 renderer_get_semaphore_value(Semaphore_Handle semaphore_handle)
+{
+    return renderer->get_semaphore_value(semaphore_handle);
 }
 
 void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle)

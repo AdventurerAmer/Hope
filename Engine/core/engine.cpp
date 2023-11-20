@@ -90,7 +90,7 @@ bool startup(Engine *engine, void *platform_state)
     U32 &window_width = window->width;
     U32 &window_height = window->height;
     U8 &window_mode = (U8 &)window->mode;
-
+    
     HE_DECLARE_CVAR("platform", engine_name, CVarFlag_None);
     HE_DECLARE_CVAR("platform", app_name, CVarFlag_None);
     HE_DECLARE_CVAR("platform", window_width, CVarFlag_None);

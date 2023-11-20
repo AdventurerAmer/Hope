@@ -12,6 +12,7 @@ bool directory_exists(const String &path);
 String get_current_working_directory(Allocator allocator);
 String get_parent_path(const String &path);
 String get_extension(const String &path);
+String get_name(const String &path);
 
 struct Read_Entire_File_Result
 {

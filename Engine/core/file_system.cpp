@@ -49,6 +49,31 @@ String get_extension(const String &path)
     return HE_STRING_LITERAL("");
 }
 
+String get_name(const String &path)
+{
+    S64 start_index = find_first_char_from_right(path, "\\/");
+    if (start_index == -1)
+    {
+        start_index = 0;
+    }
+    else
+    {
+        start_index++;
+    }
+
+    S64 end_index = find_first_char_from_right(path, ".");
+    if (end_index == -1)
+    {
+        end_index = path.count - 1;
+    }
+    else
+    {
+        end_index--;
+    }
+
+    return sub_string(path, start_index, end_index - start_index + 1);
+}
+
 String get_current_working_directory(Allocator allocator)
 {
     U64 size = 0;
