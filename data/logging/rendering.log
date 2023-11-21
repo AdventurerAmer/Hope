@@ -1,22 +1,23 @@
 [Rendering-Trace]: Layer VK_LAYER_RTSS uses API version 1.1 which is older than the application specified API version of 1.2. May cause issues.
-[Rendering-Trace]: Validation Error: [ VUID-vkCmdCopyBufferToImage-dstImage-07975 ] Object 0: handle = 0x2680d675790, type = VK_OBJECT_TYPE_COMMAND_BUFFER; Object 1: handle = 0xc82a830000000099, type = VK_OBJECT_TYPE_IMAGE; | MessageID = 0x35cfc6de | vkCmdCopyBufferToImage: pRegion[0] bufferOffset 0xfffffd97e5dc0021 must be a multiple of this format's texel size (4). The Vulkan spec states: If pname:dstImage does not have either a depth/stencil or a multi-planar format, then for each element of pRegions, bufferOffset must be a multiple of the texel block size (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-vkCmdCopyBufferToImage-dstImage-07975)
-t_BaseColor.png
-[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_OcclusionRoughMetal.png
-[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_Normal.png
-[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_BaseColor.png
-[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_OcclusionRoughMetal.png
-[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_Normal.png
-[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_BaseColor.png
-[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_OcclusionRoughMetal.png
-[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_LensesMat_BaseColor.png
-[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_Normal.png
-[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_LensesMat_OcclusionRoughMetal.png
-[Rendering-Trace]: loading texture: models/FlightHelmet/FlightHelmet_Materials_LensesMat_Normal.png
-[Rendering-Trace]: unloading resource: white pixel
-[Rendering-Trace]: unloading resource: normal pixel
-[Rendering-Trace]: unloading resource: skybox
-[Rendering-Trace]: unloading resource: models/Cube/Cube.gltf
-[Rendering-Trace]: unloading resource: models/Cube/Cube_MetallicRoughness.png
+[Rendering-Trace]: resource loaded: cube_base_color.hres
+[Rendering-Trace]: Validation Error: [ VUID-VkSwapchainCreateInfoKHR-imageExtent-01689 ] | MessageID = 0x13140d69 | vkCreateSwapchainKHR(): pCreateInfo->imageExtent = (0, 0) which is illegal. The Vulkan spec states: imageExtent members width and height must both be non-zero (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-VkSwapchainCreateInfoKHR-imageExtent-01689)
+s/FlightHelmet/FlightHelmet.gltf
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LensesMat_Normal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_Normal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_OcclusionRoughMetal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LensesMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LeatherPartsMat_BaseColor.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_Normal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_OcclusionRoughMetal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_MetalPartsMat_OcclusionRoughMetal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_Normal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_RubberWoodMat_Normal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_GlassPlasticMat_OcclusionRoughMetal.png
+[Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LensesMat_OcclusionRoughMetal.png
+llicRoughness.png
 [Rendering-Trace]: unloading resource: models/Cube/Cube_BaseColor.png
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet.gltf
 [Rendering-Trace]: unloading resource: models/FlightHelmet/FlightHelmet_Materials_LensesMat_BaseColor.png

@@ -833,3 +833,13 @@ void platform_debug_printf(const char *message)
 {
     OutputDebugStringA(message);
 }
+
+//
+// misc
+//
+
+bool platform_execute_command(const char *command)
+{
+    S32 result = system(command);
+    return result != -1;
+}

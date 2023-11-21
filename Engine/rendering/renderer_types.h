@@ -497,12 +497,13 @@ enum class Allocation_Group_Type : U8
 struct Allocation_Group
 {
     String resource_name;
+    S32 resource_index = -1;
 
     Allocation_Group_Type type;
-    
+
     U64 target_value;
     Semaphore_Handle semaphore;
-    
+
     Array< void*, HE_MAX_ALLOCATION_COUNT > allocations;
 };
 

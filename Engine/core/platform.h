@@ -169,3 +169,9 @@ void platform_shutdown_imgui();
 //
 
 void platform_debug_printf(const char *message);
+
+//
+// misc
+//
+
+bool platform_execute_command(const char *command);

@@ -170,7 +170,10 @@ void on_resize(Engine *engine, U32 window_width, U32 window_height, U32 client_w
     Window *window = &engine->window;
     window->width = window_width;
     window->height = window_height;
-    renderer_on_resize(client_width, client_height);
+    if (client_width != 0 && client_height != 0)
+    {
+        renderer_on_resize(client_width, client_height);
+    }
 }
 
 static void draw_transform(Transform &transform)
@@ -482,8 +485,18 @@ void game_loop(Engine *engine, F32 delta_time)
         
         if (allocation_group.target_value == renderer->get_semaphore_value(allocation_group.semaphore))
         {
-            // HE_LOG(Rendering, Trace, "unloading resource: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
-
+            if (allocation_group.resource_index != -1)
+            {
+                Resource_Ref ref = { allocation_group.resource_index };
+                Resource *resource = get_resource(ref);
+                platform_lock_mutex(&resource->mutex);
+                HE_ASSERT(resource->state != Resource_State::LOADED);
+                resource->state = Resource_State::LOADED;
+                platform_unlock_mutex(&resource->mutex);
+                Texture *texture = get<Texture>(ref);
+                HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
+            }
+            
             renderer_destroy_semaphore(allocation_group.semaphore);
             
             switch (allocation_group.type)
