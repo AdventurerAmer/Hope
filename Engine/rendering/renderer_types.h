@@ -337,7 +337,8 @@ struct Shader_Struct
 
 struct Shader_Descriptor
 {
-    const char *path;
+    void *data;
+    U64 size;
 };
 
 enum class Shader_Stage : U8

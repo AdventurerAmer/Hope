@@ -2,7 +2,7 @@
 
 #include "vulkan_types.h"
 
-bool load_shader(Shader_Handle shader_handle, const char *path, Vulkan_Context *context);
+bool load_shader(Shader_Handle shader_handle, void *data, U64 size, Vulkan_Context *context);
 
 void destroy_shader(Shader_Handle shader_shader, Vulkan_Context *context);
 

@@ -527,15 +527,21 @@ bool init_renderer_state(Engine *engine)
     invalidate(&renderer_state->render_graph, renderer, renderer_state);
 
     {
+        Read_Entire_File_Result result = read_entire_file("shaders/bin/opaquePBR.vert.spv", &renderer_state->transfer_allocator);
         Shader_Descriptor opaquePBR_vertex_shader_descriptor =
         {
-            .path = "shaders/bin/opaquePBR.vert.spv"
+            .data = result.data,
+            .size = result.size
+            // .path = "shaders/bin/opaquePBR.vert.spv"
         };
         renderer_state->opaquePBR_vertex_shader = renderer_create_shader(opaquePBR_vertex_shader_descriptor);
 
+        result = read_entire_file("shaders/bin/opaquePBR.frag.spv", &renderer_state->transfer_allocator);
         Shader_Descriptor opaquePBR_fragment_shader_descriptor =
         {
-            .path = "shaders/bin/opaquePBR.frag.spv"
+            .data = result.data,
+            .size = result.size
+            // .path = "shaders/bin/opaquePBR.frag.spv"
         };
         renderer_state->opaquePBR_fragment_shader = renderer_create_shader(opaquePBR_fragment_shader_descriptor);
 
@@ -676,15 +682,21 @@ bool init_renderer_state(Engine *engine)
         };
         renderer_state->skybox_sampler = renderer_create_sampler(skybox_sampler_descriptor);
 
+        Read_Entire_File_Result result = read_entire_file("shaders/bin/skybox.vert.spv", &renderer_state->transfer_allocator);
         Shader_Descriptor skybox_vertex_shader_descriptor =
         {
-            .path = "shaders/bin/skybox.vert.spv"
+            .data = result.data,
+            .size = result.size
+            // .path = "shaders/bin/skybox.vert.spv"
         };
         renderer_state->skybox_vertex_shader = renderer_create_shader(skybox_vertex_shader_descriptor);
 
+        result = read_entire_file("shaders/bin/skybox.frag.spv", &renderer_state->transfer_allocator);
         Shader_Descriptor skybox_fragment_shader_descriptor =
         {
-            .path = "shaders/bin/skybox.frag.spv"
+            .data = result.data,
+            .size = result.size
+            // .path = "shaders/bin/skybox.frag.spv"
         };
         renderer_state->skybox_fragment_shader = renderer_create_shader(skybox_fragment_shader_descriptor);
         
@@ -1596,7 +1608,9 @@ void renderer_destroy_sampler(Sampler_Handle &sampler_handle)
 Shader_Handle renderer_create_shader(const Shader_Descriptor &descriptor)
 {
     Shader_Handle shader_handle = aquire_handle(&renderer_state->shaders);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_shader(shader_handle, descriptor);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
     return shader_handle;
 }
 
@@ -1607,7 +1621,9 @@ Shader* renderer_get_shader(Shader_Handle shader_handle)
 
 void renderer_destroy_shader(Shader_Handle &shader_handle)
 {
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->destroy_shader(shader_handle);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
     release_handle(&renderer_state->shaders, shader_handle);
     shader_handle = Resource_Pool< Shader >::invalid_handle;
 }
@@ -1890,7 +1906,9 @@ U8 *get_property(Material *material, const String &name, Shader_Data_Type data_t
 Semaphore_Handle renderer_create_semaphore(const Renderer_Semaphore_Descriptor &descriptor)
 {
     Semaphore_Handle semaphore_handle = aquire_handle(&renderer_state->semaphores);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_semaphore(semaphore_handle, descriptor);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
     return semaphore_handle;
 }
 
@@ -1901,12 +1919,17 @@ Renderer_Semaphore* renderer_get_semaphore(Semaphore_Handle semaphore_handle)
 
 U64 renderer_get_semaphore_value(Semaphore_Handle semaphore_handle)
 {
-    return renderer->get_semaphore_value(semaphore_handle);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
+    U64 value = renderer->get_semaphore_value(semaphore_handle);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+    return value;
 }
 
 void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle)
 {
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->destroy_semaphore(semaphore_handle);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
     release_handle(&renderer_state->semaphores, semaphore_handle);
     semaphore_handle = Resource_Pool< Renderer_Semaphore >::invalid_handle;
 }

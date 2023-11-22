@@ -1,0 +1,1 @@
+c:/dev/cpp/hope/data/resources/opaque_pbr.vert

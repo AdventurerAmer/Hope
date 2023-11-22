@@ -55,6 +55,12 @@ struct Texture_Resource_Info
     U64 data_offset;
 };
 
+struct Shader_Resource_Info
+{
+    U64 data_offset;
+    U64 data_size;
+};
+
 #pragma pack(pop)
 
 Resource_Header make_resource_header(Resource_Type type)
@@ -163,11 +169,88 @@ static bool load_texture_resource(Open_File_Result *open_file_result, Resource *
 
 static void unload_texture_resource(Resource *resource)
 {
+    HE_ASSERT(resource->state == Resource_State::LOADED);
     Texture_Handle texture_handle = { resource->index, resource->generation };
     renderer_destroy_texture(texture_handle);
-    resource->index = -1;
-    resource->generation = 0;
-    resource->state = Resource_State::UNLOADED;
+}
+
+static bool convert_shader_to_resource(const String &path, const String &output_path, Temprary_Memory_Arena *temp_arena)
+{
+    // for debugging > cmd.txt
+    String command = format_string(temp_arena->arena, "glslangValidator.exe -V --auto-map-locations %.*s -o %.*s > cmd.txt", HE_EXPAND_STRING(path), HE_EXPAND_STRING(output_path));
+    platform_execute_command(command.data);
+    
+    Read_Entire_File_Result spirv_binary_read_result = read_entire_file(output_path.data, temp_arena);
+    if (!spirv_binary_read_result.success)
+    {
+        return false;
+    }
+    
+    Open_File_Result open_file_result = platform_open_file(output_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
+    if (!open_file_result.success)
+    {
+        return false;
+    }
+
+    bool success = true;
+    U64 offset = 0;
+
+    Resource_Header header = make_resource_header(Resource_Type::SHADER);
+    
+    success &= platform_write_data_to_file(&open_file_result, offset, &header, sizeof(header));
+    offset += sizeof(header);
+
+    Shader_Resource_Info info =
+    {
+        .data_offset = sizeof(Resource_Header) + sizeof(Shader_Resource_Info),
+        .data_size = spirv_binary_read_result.size
+    };
+
+    success &= platform_write_data_to_file(&open_file_result, offset, &info, sizeof(info));
+    offset += sizeof(info);
+
+    success &= platform_write_data_to_file(&open_file_result, offset, spirv_binary_read_result.data, spirv_binary_read_result.size);
+    offset += spirv_binary_read_result.size;
+
+    success &= platform_close_file(&open_file_result);
+    return success;
+}
+
+static bool load_shader_resource(Open_File_Result *open_file_result, Resource *resource)
+{
+    bool success = true;
+    
+    Shader_Resource_Info info;
+    success &= platform_read_data_from_file(open_file_result, sizeof(Resource_Header), &info, sizeof(info));
+
+    U8 *data = HE_ALLOCATE_ARRAY(resource_system_state->resource_allocator, U8, info.data_size);
+    success &= platform_read_data_from_file(open_file_result, info.data_offset, data, info.data_size);
+
+    if (!success)
+    {
+        resource->ref_count = 0;
+        return false;
+    }
+    
+    Shader_Descriptor shader_descriptor =
+    {
+        .data = data,
+        .size = info.data_size
+    };
+
+    Shader_Handle shader_handle = renderer_create_shader(shader_descriptor);
+    resource->index = shader_handle.index;
+    resource->generation = shader_handle.generation;
+    resource->ref_count++;
+    resource->state = Resource_State::LOADED;
+    return true;
+}
+
+static void unload_shader_resource(Resource *resource)
+{
+    HE_ASSERT(resource->state == Resource_State::LOADED);
+    Shader_Handle shader_handle = { resource->index, resource->generation };
+    renderer_destroy_shader(shader_handle);
 }
 
 static Resource_Type_Info* find_resource_type_from_extension(const String &extension)
@@ -183,7 +266,6 @@ static Resource_Type_Info* find_resource_type_from_extension(const String &exten
             }
         }
     }
-
     return nullptr;
 }
 
@@ -231,7 +313,20 @@ static Job_Result load_resource_job(const Job_Parameters &params)
     Load_Resource_Job_Data *job_data = (Load_Resource_Job_Data *)params.data;
 
     Resource *resource = job_data->resource;
-    resource->allocation_group.resource_index = (S32)(resource - resource_system_state->resources);
+    bool use_allocation_group = resource_system_state->resource_type_infos[resource->type].loader.use_allocation_group;  
+    
+    if (use_allocation_group)
+    {
+        Renderer_Semaphore_Descriptor semaphore_descriptor =
+        {
+            .initial_value = 0
+        };
+
+        resource->allocation_group.resource_name = job_data->path;
+        resource->allocation_group.type = Allocation_Group_Type::GENERAL;
+        resource->allocation_group.semaphore = renderer_create_semaphore(semaphore_descriptor);
+        resource->allocation_group.resource_index = (S32)(resource - resource_system_state->resources);    
+    }
 
     platform_lock_mutex(&resource->mutex);
     HE_DEFER {  platform_unlock_mutex(&resource->mutex); };
@@ -284,13 +379,15 @@ static Job_Result load_resource_job(const Job_Parameters &params)
         return Job_Result::FAILED;
     }
 
-    Render_Context context = get_render_context();
-    Renderer_State *renderer_state = context.renderer_state;
-
-    platform_lock_mutex(&renderer_state->allocation_groups_mutex);
-    append(&renderer_state->allocation_groups, resource->allocation_group);
-    platform_unlock_mutex(&renderer_state->allocation_groups_mutex);
-
+    if (use_allocation_group)
+    {
+        Render_Context context = get_render_context();
+        Renderer_State *renderer_state = context.renderer_state;
+        platform_lock_mutex(&renderer_state->allocation_groups_mutex);
+        append(&renderer_state->allocation_groups, resource->allocation_group);
+        platform_unlock_mutex(&renderer_state->allocation_groups_mutex);
+    }
+    
     return Job_Result::SUCCEEDED; 
 }
 
@@ -318,15 +415,6 @@ static void walk_resource_directory(const char *data, U64 count)
     String name = get_name(relative_path);
     String resource_path = format_string(resource_system_state->arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(parent_absolute_path), HE_EXPAND_STRING(name)); // @Leak
     String relative_resource_path = sub_string(resource_path, resource_system_state->resource_path.count + 1);
-    
-    Renderer_Semaphore_Descriptor semaphore_descriptor =
-    {
-        .initial_value = 0
-    };
-
-    resource.allocation_group.resource_name = relative_resource_path;
-    resource.allocation_group.type = Allocation_Group_Type::GENERAL;
-    resource.allocation_group.semaphore = renderer_create_semaphore(semaphore_descriptor);
 
     insert(&resource_system_state->path_to_resource_index, relative_resource_path, resource_index);
 
@@ -371,10 +459,7 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
     }
     Render_Context render_context = get_render_context();
     resource_system_state->resource_path = resource_path;
-    resource_system_state->resource_allocator = &render_context.renderer_state->transfer_allocator; 
-    
-    Resource_Converter texture_converter = {};
-    texture_converter.convert = &convert_texture_to_resource;
+    resource_system_state->resource_allocator = &render_context.renderer_state->transfer_allocator;
     
     static String texture_extensions[] =
     {
@@ -383,14 +468,45 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
         HE_STRING_LITERAL("tga"),
         HE_STRING_LITERAL("psd")
     };
-    texture_converter.extension_count = HE_ARRAYCOUNT(texture_extensions);
-    texture_converter.extensions = texture_extensions;
 
-    Resource_Loader texture_loader;
-    texture_loader.load = &load_texture_resource;
-    texture_loader.unload = &unload_texture_resource;
-    register_resource(Resource_Type::TEXTURE, "texture", 1, texture_converter, texture_loader);
+    Resource_Converter texture_converter =
+    {
+        .extension_count = HE_ARRAYCOUNT(texture_extensions), 
+        .extensions = texture_extensions,
+        .convert = &convert_texture_to_resource
+    };
+
+    Resource_Loader texture_loader = 
+    {
+        .use_allocation_group = true,
+        .load = &load_texture_resource,
+        .unload = &unload_texture_resource
+    };
+
+    // register_resource(Resource_Type::TEXTURE, "texture", 1, texture_converter, texture_loader);
+
+    static String shader_extensions[] =
+    {
+        HE_STRING_LITERAL("vert"),
+        HE_STRING_LITERAL("frag"),
+    };
+
+    Resource_Converter shader_converter =
+    {
+        .extension_count = HE_ARRAYCOUNT(shader_extensions),
+        .extensions = shader_extensions,
+        .convert = &convert_shader_to_resource,
+    };
     
+    Resource_Loader shader_loader = 
+    {
+        .use_allocation_group = false,
+        .load = &load_shader_resource,
+        .unload = &unload_shader_resource,
+    };
+
+    register_resource(Resource_Type::SHADER, "shader", 1, shader_converter, shader_loader);
+
     bool recursive = true;
     platform_walk_directory(resource_path.data, recursive, &calculate_resource_count);
     
@@ -400,7 +516,8 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
     resource_system_state->resource_count = 0;
     platform_walk_directory(resource_path.data, recursive, &walk_resource_directory);
 
-    Resource_Ref cube_base_color = aquire_resource(HE_STRING_LITERAL("cube_base_color.hres"));
+    // Resource_Ref cube_base_color = aquire_resource(HE_STRING_LITERAL("cube_base_color.hres"));
+    Resource_Ref opaque_pbr = aquire_resource(HE_STRING_LITERAL("opaque_pbr.hres"));
     return true;
 }
 
@@ -473,6 +590,9 @@ void release_resource(Resource_Ref ref)
     {
         Resource_Type_Info &info = resource_system_state->resource_type_infos[resource->type];
         info.loader.unload(resource);
+        resource->index = -1;
+        resource->generation = 0;
+        resource->state = Resource_State::UNLOADED;
     }
     platform_unlock_mutex(&resource->mutex);
 }

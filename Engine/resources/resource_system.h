@@ -24,7 +24,6 @@ enum class Resource_State
 struct Resource
 {
     Mutex mutex;
-    
     Allocation_Group allocation_group;
 
     U32 type;
@@ -67,6 +66,7 @@ typedef void(*unload_resource_proc)(Resource *resource);
 
 struct Resource_Loader
 {
+    bool use_allocation_group;
     load_resource_proc load;
     unload_resource_proc unload;
 };

@@ -264,7 +264,7 @@ VkShaderStageFlagBits get_shader_stage(Shader_Stage shader_stage)
     return VK_SHADER_STAGE_ALL;
 }
 
-bool load_shader(Shader_Handle shader_handle, const char *path, Vulkan_Context *context)
+bool load_shader(Shader_Handle shader_handle, void *data, U64 size, Vulkan_Context *context)
 {
     if (!vulkan_context)
     {
@@ -278,19 +278,11 @@ bool load_shader(Shader_Handle shader_handle, const char *path, Vulkan_Context *
     
     Temprary_Memory_Arena temp_arena = {};
     begin_temprary_memory_arena(&temp_arena, arena);
-
-    Read_Entire_File_Result result = read_entire_file(path, &temp_arena);
-
-    if (!result.success)
-    {
-        return false;
-    }
-
-    U8 *data = result.data;
-    HE_ASSERT(result.size % 4 == 0);
+    
+    HE_ASSERT(size % 4 == 0);
 
     U32 *words = (U32 *)data;
-    U32 word_count = u64_to_u32(result.size / 4);
+    U32 word_count = u64_to_u32(size / 4);
 
     // note(amer): we can infer the endianness out of the magic number
     U32 magic_number = words[0];
@@ -691,7 +683,7 @@ bool load_shader(Shader_Handle shader_handle, const char *path, Vulkan_Context *
     }
 
     VkShaderModuleCreateInfo shader_create_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-    shader_create_info.codeSize = result.size;
+    shader_create_info.codeSize = size;
     shader_create_info.pCode = (U32 *)data;
 
     HE_CHECK_VKRESULT(vkCreateShaderModule(context->logical_device, &shader_create_info, nullptr, &vulkan_shader->handle));

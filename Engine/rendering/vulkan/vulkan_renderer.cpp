@@ -1089,7 +1089,7 @@ void vulkan_renderer_destroy_sampler(Sampler_Handle sampler_handle)
 bool vulkan_renderer_create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    bool loaded = load_shader(shader_handle, descriptor.path, context);
+    bool loaded = load_shader(shader_handle, descriptor.data, descriptor.size, context);
     return loaded;
 }
 

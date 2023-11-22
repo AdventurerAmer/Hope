@@ -146,7 +146,7 @@ bool startup(Engine *engine, void *platform_state)
         HE_LOG(Core, Fetal, "failed to initialize resource system\n");
         return false;
     }
-
+    
     Render_Context render_context = get_render_context();
     Scene_Data *scene_data = &render_context.renderer_state->scene_data;
 
@@ -161,7 +161,7 @@ bool startup(Engine *engine, void *platform_state)
 
     auto end = std::chrono::steady_clock::now();
     const std::chrono::duration< double > elapsed_seconds = end - start;
-    HE_LOG(Core, Trace, "assets loaded %.2f ms to finish\n", elapsed_seconds * 1000.0);
+    HE_LOG(Core, Trace, "assets loaded %.2f ms to finish\n", elapsed_seconds * 1000.0f);
     return game_initialized;
 }
 
@@ -170,10 +170,7 @@ void on_resize(Engine *engine, U32 window_width, U32 window_height, U32 client_w
     Window *window = &engine->window;
     window->width = window_width;
     window->height = window_height;
-    if (client_width != 0 && client_height != 0)
-    {
-        renderer_on_resize(client_width, client_height);
-    }
+    renderer_on_resize(client_width, client_height);
 }
 
 static void draw_transform(Transform &transform)
@@ -491,6 +488,7 @@ void game_loop(Engine *engine, F32 delta_time)
                 Resource *resource = get_resource(ref);
                 platform_lock_mutex(&resource->mutex);
                 HE_ASSERT(resource->state != Resource_State::LOADED);
+                resource->ref_count++;
                 resource->state = Resource_State::LOADED;
                 platform_unlock_mutex(&resource->mutex);
                 Texture *texture = get<Texture>(ref);
