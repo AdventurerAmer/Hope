@@ -86,7 +86,7 @@ Hash_Map_Iterator< Value_Type > find(Hash_Map< Key_Type, Value_Type > *hash_map,
 {
     HE_ASSERT(hash_map);
 
-    U32 slot_index = hash(key) & (hash_map->capacity - 1);
+    U32 slot_index = he_hash(key) & (hash_map->capacity - 1);
     U32 start_slot = slot_index;
     S32 insert_index = -1;
 

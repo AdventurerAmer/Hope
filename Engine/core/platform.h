@@ -146,6 +146,7 @@ struct Mutex
 bool platform_create_mutex(Mutex *mutex);
 void platform_lock_mutex(Mutex *mutex);
 void platform_unlock_mutex(Mutex *mutex);
+void platform_wait_for_mutexes(Mutex *mutexes, U32 mutex_count);
 
 struct Semaphore
 {

@@ -3,6 +3,7 @@
 #include "core/defines.h"
 #include "containers/string.h"
 #include "containers/array.h"
+#include "containers/dynamic_array.h"
 #include "rendering/renderer_types.h"
 
 enum class Resource_Type : U8
@@ -23,13 +24,19 @@ enum class Resource_State
 
 struct Resource
 {
+    U32 type;
+
+    String asset_absloute_path;
+    String absloute_path;
+    String relative_path;
+
+    U64 uuid;
+    Dynamic_Array< U64 > resource_refs;
+
     Mutex mutex;
     Allocation_Group allocation_group;
 
-    U32 type;
-
     Resource_State state;
-
     U32 ref_count;
     
     S32 index;
@@ -38,20 +45,30 @@ struct Resource
 
 struct Resource_Ref
 {
-    S32 index;
+    U64 uuid;
 
     HE_FORCE_INLINE bool operator==(Resource_Ref other)
     {
-        return index == other.index;
+        return uuid == other.uuid;
     }
 
     HE_FORCE_INLINE bool operator!=(Resource_Ref other)
     {
-        return index != other.index;
+        return uuid != other.uuid;
+    }
+
+    HE_FORCE_INLINE bool operator==(Resource_Ref other) const
+    {
+        return uuid == other.uuid;
+    }
+
+    HE_FORCE_INLINE bool operator!=(Resource_Ref other) const
+    {
+        return uuid != other.uuid;
     }
 };
 
-typedef bool(*convert_resource_proc)(const String &path, const String &output_path, struct Temprary_Memory_Arena *arena);
+typedef bool(*convert_resource_proc)(const String &path, const String &output_path, Resource *resource, struct Temprary_Memory_Arena *arena);
 
 struct Resource_Converter
 { 
@@ -75,18 +92,12 @@ bool init_resource_system(const String &resource_directory_name, struct Engine *
 void deinit_resource_system();
 
 bool register_resource(Resource_Type type, const char *name, U32 version, Resource_Converter converter, Resource_Loader loader);
+
 bool is_valid(Resource_Ref ref);
 
 Resource_Ref aquire_resource(const String &path);
+bool aquire_resource(Resource_Ref ref);
+
 void release_resource(Resource_Ref ref);
 
 Resource *get_resource(Resource_Ref ref);
-
-template<typename T>
-T *get(Resource_Ref ref)
-{
-    return nullptr;
-}
-
-template<>
-Texture *get<Texture>(Resource_Ref ref);

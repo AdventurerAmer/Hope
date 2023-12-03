@@ -764,6 +764,11 @@ void platform_unlock_mutex(Mutex *mutex)
     LeaveCriticalSection(critical_section);
 }
 
+void platform_wait_for_mutexes(Mutex *mutexes, U32 mutex_count)
+{
+    WaitForMultipleObjects(mutex_count, (HANDLE *)mutexes, true, INFINITE);
+}
+
 bool platform_create_semaphore(Semaphore *semaphore, U32 init_count)
 {
     HANDLE semaphore_handle = CreateSemaphoreA(0, init_count, LONG_MAX, NULL);

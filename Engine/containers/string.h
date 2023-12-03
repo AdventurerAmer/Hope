@@ -14,7 +14,7 @@ struct String
 #define HE_EXPAND_STRING(string) (U32)((string).count), (string).data
 
 U64 string_length(const char *str);
-U64 hash(const String &str);
+U64 he_hash(const String &str);
 
 String copy_string(const char *str, U64 count, Allocator allocator);
 

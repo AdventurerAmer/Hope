@@ -148,6 +148,15 @@ T& append(Dynamic_Array< T > *dynamic_array)
 }
 
 template< typename T >
+U32 index_of(Dynamic_Array< T > *dynamic_array, T &data_item)
+{
+    HE_ASSERT(dynamic_array);
+    U64 index = &data_item - dynamic_array->data;
+    HE_ASSERT(index >= 0 && index < dynamic_array->count);
+    return (U32)index;
+}
+
+template< typename T >
 void remove_back(Dynamic_Array< T > *dynamic_array)
 {
     HE_ASSERT(dynamic_array);

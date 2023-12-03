@@ -484,14 +484,13 @@ void game_loop(Engine *engine, F32 delta_time)
         {
             if (allocation_group.resource_index != -1)
             {
-                Resource_Ref ref = { allocation_group.resource_index };
+                Resource_Ref ref = { (U32)allocation_group.resource_index };
                 Resource *resource = get_resource(ref);
                 platform_lock_mutex(&resource->mutex);
                 HE_ASSERT(resource->state != Resource_State::LOADED);
                 resource->ref_count++;
                 resource->state = Resource_State::LOADED;
                 platform_unlock_mutex(&resource->mutex);
-                Texture *texture = get<Texture>(ref);
                 HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
             }
             

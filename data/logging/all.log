@@ -1,6 +1,5 @@
 [Rendering-Trace]: Layer VK_LAYER_RTSS uses API version 1.1 which is older than the application specified API version of 1.2. May cause issues.
-[Core-Trace]: assets loaded 786.06 ms to finish
-e: c:/dev/cpp/hope/data/resources/opaque_pbr.vert
-[Core-Trace]: assets loaded 688.84 ms to finish
-
-POOL; | MessageID = 0x141cb623 | THREADING ERROR : vkResetCommandBuffer(): object of type VkCommandPool is simultaneously used in thread 21208 and thread 20944
+[Resource-Trace]: successfully converted resource: c:/dev/cpp/hope/data/resources/cube_base_color.png
+[Resource-Trace]: successfully converted resource: c:/dev/cpp/hope/data/resources/opaque_pbr.vert
+[Core-Trace]: assets loaded 747.62 ms to finish
+ol is simultaneously used in thread 21208 and thread 20944

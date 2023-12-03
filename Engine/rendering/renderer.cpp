@@ -1845,7 +1845,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
     {
         Bind_Group_Descriptor bind_group_descriptor = {};
         bind_group_descriptor.shader_group = pipeline_state->descriptor.shader_group;
-        bind_group_descriptor.layout = shader_group->bind_group_layouts[2]; // todo(amer): @Hardcoding
+        bind_group_descriptor.layout = shader_group->bind_group_layouts[2]; // todo(amer): Hardcoding
         material->bind_groups[frame_index] = renderer_create_bind_group(bind_group_descriptor);
 
         Update_Binding_Descriptor update_binding_descriptors[1] = {};
