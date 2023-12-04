@@ -451,6 +451,11 @@ void game_loop(Engine *engine, F32 delta_time)
         ImGui::End();
     }
 
+    // Resource System
+    {
+        imgui_draw_resource_system();
+    }
+
     Game_Code *game_code = &engine->game_code;
     game_code->on_update(engine, delta_time);
 
@@ -484,8 +489,7 @@ void game_loop(Engine *engine, F32 delta_time)
         {
             if (allocation_group.resource_index != -1)
             {
-                Resource_Ref ref = { (U32)allocation_group.resource_index };
-                Resource *resource = get_resource(ref);
+                Resource *resource = get_resource((U32)allocation_group.resource_index);
                 platform_lock_mutex(&resource->mutex);
                 HE_ASSERT(resource->state != Resource_State::LOADED);
                 resource->ref_count++;

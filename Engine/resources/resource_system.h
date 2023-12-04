@@ -68,7 +68,7 @@ struct Resource_Ref
     }
 };
 
-typedef bool(*convert_resource_proc)(const String &path, const String &output_path, Resource *resource, struct Temprary_Memory_Arena *arena);
+typedef bool(*convert_resource_proc)(Resource *resource, struct Temprary_Memory_Arena *arena);
 
 struct Resource_Converter
 { 
@@ -97,7 +97,9 @@ bool is_valid(Resource_Ref ref);
 
 Resource_Ref aquire_resource(const String &path);
 bool aquire_resource(Resource_Ref ref);
-
 void release_resource(Resource_Ref ref);
 
 Resource *get_resource(Resource_Ref ref);
+Resource *get_resource(U64 index);
+
+void imgui_draw_resource_system();

@@ -1,1 +1,1 @@
-c:/dev/cpp/hope/data/resources/opaque_pbr.vert
+c:/dev/cpp/hope/data/resources/opaque_pbr_vert.vert

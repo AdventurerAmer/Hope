@@ -11,6 +11,7 @@
 #include "rendering/renderer.h"
 
 #include <stb/stb_image.h>
+#include <ImGui/imgui.h>
 #include <unordered_map> // todo(amer): to be removed
 
 struct Resource_Type_Info
@@ -19,7 +20,6 @@ struct Resource_Type_Info
     U32 version;
     Resource_Converter converter;
     Resource_Loader loader;
-    U32 count;
 };
 
 struct Resource_System_State
@@ -123,8 +123,11 @@ static U64 generate_uuid()
 
 // ========================== Resources ====================================
 
-static bool convert_texture_to_resource(const String &path, const String &output_path, Resource *resource, Temprary_Memory_Arena *temp_arena)
+static bool convert_texture_to_resource(Resource *resource, Temprary_Memory_Arena *temp_arena)
 {
+    const String& path = resource->asset_absloute_path;
+    const String& output_path = resource->absloute_path;
+
     Read_Entire_File_Result read_result = read_entire_file(path.data, temp_arena);
     if (!read_result.success)
     {
@@ -220,12 +223,15 @@ static void unload_texture_resource(Resource *resource)
     renderer_destroy_texture(texture_handle);
 }
 
-static bool convert_shader_to_resource(const String &path, const String &output_path, Resource *resource, Temprary_Memory_Arena *temp_arena)
+static bool convert_shader_to_resource(Resource *resource, Temprary_Memory_Arena *temp_arena)
 {
-    // for debugging > cmd.txt
-    String command = format_string(temp_arena->arena, "glslangValidator.exe -V --auto-map-locations %.*s -o %.*s > cmd.txt", HE_EXPAND_STRING(path), HE_EXPAND_STRING(output_path));
-    platform_execute_command(command.data);
-    
+    const String &path = resource->asset_absloute_path;
+    const String &output_path = resource->absloute_path;
+
+    String command = format_string(temp_arena->arena, "glslangValidator.exe -V --auto-map-locations %.*s -o %.*s", HE_EXPAND_STRING(path), HE_EXPAND_STRING(output_path));
+    bool executed = platform_execute_command(command.data);
+    HE_ASSERT(executed);
+
     Read_Entire_File_Result spirv_binary_read_result = read_entire_file(output_path.data, temp_arena);
     if (!spirv_binary_read_result.success)
     {
@@ -350,25 +356,22 @@ struct Convert_Resource_Job_Data
 {
     convert_resource_proc convert;
     Resource *resource;
-    String path;
-    String output_path;
 };
 
 static Job_Result convert_resource_job(const Job_Parameters &params)
 {
     Convert_Resource_Job_Data *job_data = (Convert_Resource_Job_Data *)params.data;
-    if (!job_data->convert(job_data->path, job_data->output_path, job_data->resource, params.temprary_memory_arena))
+    if (!job_data->convert(job_data->resource, params.temprary_memory_arena))
     {
-        HE_LOG(Resource, Trace, "failed to converted resource: %.*s\n", HE_EXPAND_STRING(job_data->path));
+        HE_LOG(Resource, Trace, "failed to converted resource: %.*s\n", HE_EXPAND_STRING(job_data->resource->relative_path));
         return Job_Result::FAILED;
     }
-    HE_LOG(Resource, Trace, "successfully converted resource: %.*s\n", HE_EXPAND_STRING(job_data->path));
+    HE_LOG(Resource, Trace, "successfully converted resource: %.*s\n", HE_EXPAND_STRING(job_data->resource->relative_path));
     return Job_Result::SUCCEEDED;
 }
 
 struct Load_Resource_Job_Data
 {
-    String path;
     Resource *resource;
 };
 
@@ -377,27 +380,11 @@ static Job_Result load_resource_job(const Job_Parameters &params)
     Load_Resource_Job_Data *job_data = (Load_Resource_Job_Data *)params.data;
 
     Resource *resource = job_data->resource;
-    bool use_allocation_group = resource_system_state->resource_type_infos[resource->type].loader.use_allocation_group;  
-    
-    if (use_allocation_group)
-    {
-        Renderer_Semaphore_Descriptor semaphore_descriptor =
-        {
-            .initial_value = 0
-        };
-
-        resource->allocation_group.resource_name = job_data->path;
-        resource->allocation_group.type = Allocation_Group_Type::GENERAL;
-        resource->allocation_group.semaphore = renderer_create_semaphore(semaphore_descriptor);
-        resource->allocation_group.resource_index = (S32)(resource - resource_system_state->resources.data);
-    }
 
     platform_lock_mutex(&resource->mutex);
     HE_DEFER {  platform_unlock_mutex(&resource->mutex); };
 
-    String path = format_string(params.temprary_memory_arena->arena, "%.*s/%.*s", HE_EXPAND_STRING(resource_system_state->resource_path), HE_EXPAND_STRING(job_data->path));
-    
-    Open_File_Result open_file_result = platform_open_file(path.data, OpenFileFlag_Read);
+    Open_File_Result open_file_result = platform_open_file(resource->absloute_path.data, OpenFileFlag_Read);
     if (!open_file_result.handle)
     {
         resource->ref_count = 0;
@@ -434,14 +421,25 @@ static Job_Result load_resource_job(const Job_Parameters &params)
         return Job_Result::ABORTED;
     }
     
-    resource->type = header.type;
-    resource->uuid = header.uuid;
+    bool use_allocation_group = resource_system_state->resource_type_infos[resource->type].loader.use_allocation_group;
+
+    if (use_allocation_group)
+    {
+        Renderer_Semaphore_Descriptor semaphore_descriptor =
+        {
+            .initial_value = 0
+        };
+
+        resource->allocation_group.resource_name = resource->relative_path;
+        resource->allocation_group.type = Allocation_Group_Type::GENERAL;
+        resource->allocation_group.semaphore = renderer_create_semaphore(semaphore_descriptor);
+        resource->allocation_group.resource_index = (S32)index_of(&resource_system_state->resources, resource);
+    }
 
     if (header.resource_ref_count)
     {
         U64 *uuids = HE_ALLOCATE_ARRAY(params.temprary_memory_arena->arena, U64, header.resource_ref_count);
         Mutex *mutexes = HE_ALLOCATE_ARRAY(params.temprary_memory_arena->arena, Mutex, header.resource_ref_count);
-
         bool read = platform_read_data_from_file(&open_file_result, sizeof(Resource_Header), uuids, sizeof(U64) * header.resource_ref_count);
         if (read)
         {
@@ -479,6 +477,10 @@ static Job_Result load_resource_job(const Job_Parameters &params)
         append(&renderer_state->allocation_groups, resource->allocation_group);
         platform_unlock_mutex(&renderer_state->allocation_groups_mutex);
     }
+    else
+    {
+        HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
+    }
     
     return Job_Result::SUCCEEDED; 
 }
@@ -509,27 +511,19 @@ static void walk_resource_directory(const char *data, U64 count)
     String name = get_name(relative_path);
     String resource_path = format_string(resource_system_state->arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(parent_absolute_path), HE_EXPAND_STRING(name)); // @Leak
     String relative_resource_path = sub_string(resource_path, resource_system_state->resource_path.count + 1);
-
-    U64 uuid = generate_uuid();
-    resource.uuid = uuid;
-
-    uuid_to_resource_index.emplace(uuid, resource_index);
-    string_to_resource_index.emplace(relative_resource_path, resource_index);
-
     String asset_absloute_path = format_string(resource_system_state->arena, "%.*s", HE_EXPAND_STRING(absolute_path));
     resource.asset_absloute_path = asset_absloute_path;
     resource.absloute_path = resource_path;
     resource.relative_path = relative_resource_path;
 
-    bool always_convert = true; // todo(amer): temprary for testing...
-    if (always_convert || !file_exists(resource_path))
+    if (!file_exists(resource_path))
     {
+        resource.uuid = generate_uuid();
+
         Convert_Resource_Job_Data convert_resource_job_data = 
         {
             .convert = resource_type_info->converter.convert,
             .resource = &resource,
-            .path = asset_absloute_path,
-            .output_path = resource_path
         };
 
         Job job = {};
@@ -538,6 +532,23 @@ static void walk_resource_directory(const char *data, U64 count)
         job.proc = convert_resource_job;
         execute_job(job);
     }
+    else
+    {
+        // todo(amer): we should convert assets that's doesn't have the last version.
+        Open_File_Result result = platform_open_file(resource_path.data, OpenFileFlag_Read);
+
+        Resource_Header header;
+        platform_read_data_from_file(&result, 0, &header, sizeof(Resource_Header));
+
+        platform_close_file(&result);
+
+        HE_ASSERT(header.uuid != HE_MAX_U64);
+        resource.uuid = header.uuid;
+        resource.type = header.type;
+    }
+
+    string_to_resource_index.emplace(relative_resource_path, resource_index);
+    uuid_to_resource_index.emplace(resource.uuid, resource_index);
 }
 
 bool init_resource_system(const String &resource_directory_name, Engine *engine)
@@ -618,8 +629,9 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
     bool recursive = true;
     platform_walk_directory(resource_path.data, recursive, &walk_resource_directory);
 
-    // Resource_Ref cube_base_color = aquire_resource(HE_STRING_LITERAL("cube_base_color.hres"));
-    // Resource_Ref opaque_pbr = aquire_resource(HE_STRING_LITERAL("opaque_pbr.hres"));
+    Resource_Ref cube_base_color = aquire_resource(HE_STRING_LITERAL("cube_base_color.hres"));
+    Resource_Ref opaque_pbr_vert = aquire_resource(HE_STRING_LITERAL("opaque_pbr_vert.hres"));
+    Resource_Ref opaque_pbr_frag = aquire_resource(HE_STRING_LITERAL("opaque_pbr_frag.hres"));
     return true;
 }
 
@@ -655,7 +667,6 @@ static void aquire_resource(Resource *resource)
 
         Load_Resource_Job_Data job_data
         {
-            .path = resource->absloute_path,
             .resource = resource
         };
 
@@ -722,4 +733,102 @@ Resource *get_resource(Resource_Ref ref)
     HE_ASSERT(is_valid(ref));
     auto it = uuid_to_resource_index.find(ref.uuid);
     return &resource_system_state->resources[it->second];
+}
+
+Resource *get_resource(U64 index)
+{
+    HE_ASSERT(index >= 0 && index < resource_system_state->resources.count);
+    return &resource_system_state->resources[index];
+}
+
+static String get_resource_state_string(Resource_State resource_state)
+{
+    switch (resource_state)
+    {
+        case Resource_State::UNLOADED:
+            return HE_STRING_LITERAL("Unloaded");
+
+        case Resource_State::PENDING:
+            return HE_STRING_LITERAL("Pending");
+
+        case Resource_State::LOADED:
+            return HE_STRING_LITERAL("Loaded");
+
+        default:
+            HE_ASSERT("unsupported resource state");
+            break;
+    }
+
+    return HE_STRING_LITERAL("");
+}
+
+void imgui_draw_resource_system()
+{
+    ImGui::Begin("Resources");
+
+    const char* coloum_names[] =
+    {
+        "No.",
+        "UUID",
+        "Type",
+        "Resource",
+        "State",
+        "Ref Count",
+        "Refs"
+    };
+
+    ImGuiTableFlags flags = ImGuiTableFlags_Borders|ImGuiTableFlags_Resizable;
+
+    if (ImGui::BeginTable("Table", HE_ARRAYCOUNT(coloum_names), flags))
+    {
+        for (U32 col = 0; col < HE_ARRAYCOUNT(coloum_names); col++)
+        {
+            ImGui::TableSetupColumn(coloum_names[col]);
+        }
+
+        ImGui::TableHeadersRow();
+
+        for (U32 row = 0; row < resource_system_state->resources.count; row++)
+        {
+            Resource &resource = resource_system_state->resources[row];
+            Resource_Type_Info &info = resource_system_state->resource_type_infos[resource.type];
+
+            ImGui::TableNextRow();
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", row + 1);
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%llu", resource.uuid);
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%.*s", HE_EXPAND_STRING(info.name));
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%.*s", HE_EXPAND_STRING(resource.relative_path));
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%.*s", HE_EXPAND_STRING(get_resource_state_string(resource.state)));
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%u", resource.ref_count);
+
+            ImGui::TableNextColumn();
+            if (resource.resource_refs.count)
+            {
+                for (U64 ref : resource.resource_refs)
+                {
+                    ImGui::Text("%llu ", ref);
+                }
+            }
+            else
+            {
+                ImGui::Text("None");
+            }
+        }
+
+        ImGui::EndTable();
+    }
+
+    ImGui::End();
 }
