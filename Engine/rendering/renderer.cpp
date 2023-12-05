@@ -599,10 +599,13 @@ bool init_renderer_state(Engine *engine)
 
         Pipeline_State_Descriptor opaquePBR_pipeline_state_descriptor =
         {
-            .cull_mode = Cull_Mode::BACK,
-            .front_face = Front_Face::COUNTER_CLOCKWISE,
-            .fill_mode = Fill_Mode::SOLID,
-            .sample_shading = true,
+            .settings =
+            {
+                .cull_mode = Cull_Mode::BACK,
+                .front_face = Front_Face::COUNTER_CLOCKWISE,
+                .fill_mode = Fill_Mode::SOLID,
+                .sample_shading = true,
+            },
             .shader_group = renderer_state->opaquePBR_shader_group,
             .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"),
         };
@@ -710,10 +713,13 @@ bool init_renderer_state(Engine *engine)
         
         Pipeline_State_Descriptor skybox_pipeline_state_descriptor =
         {
-            .cull_mode = Cull_Mode::NONE,
-            .front_face = Front_Face::COUNTER_CLOCKWISE,
-            .fill_mode = Fill_Mode::SOLID,
-            .sample_shading = true,
+            .settings =
+            {
+                .cull_mode = Cull_Mode::NONE,
+                .front_face = Front_Face::COUNTER_CLOCKWISE,
+                .fill_mode = Fill_Mode::SOLID,
+                .sample_shading = true,
+            },
             .shader_group = renderer_state->skybox_shader_group,
             .render_pass = get_render_pass(&renderer_state->render_graph, "skybox"),
         };

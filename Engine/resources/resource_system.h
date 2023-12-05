@@ -1,9 +1,12 @@
 #pragma once
 
 #include "core/defines.h"
+
 #include "containers/string.h"
 #include "containers/array.h"
 #include "containers/dynamic_array.h"
+#include "containers/resource_pool.h"
+
 #include "rendering/renderer_types.h"
 
 enum class Resource_Type : U8
@@ -95,11 +98,24 @@ bool register_resource(Resource_Type type, const char *name, U32 version, Resour
 
 bool is_valid(Resource_Ref ref);
 
-Resource_Ref aquire_resource(const String &path);
+Resource_Ref aquire_resource(const String &relative_path);
 bool aquire_resource(Resource_Ref ref);
 void release_resource(Resource_Ref ref);
 
 Resource *get_resource(Resource_Ref ref);
-Resource *get_resource(U64 index);
+Resource *get_resource(U32 index);
+
+template<typename T>
+T *get_resource_as(Resource_Ref ref);
+
+template<typename T>
+Resource_Handle<T> get_resource_handle_as(Resource_Ref ref)
+{
+    Resource *resource = get_resource(ref);
+    HE_ASSERT(resource->state == Resource_State::LOADED);
+    return { resource->index, resource->generation };
+}
+
+Resource_Ref create_material_resource(const String &relative_path, const String &render_pass_name, Array_View< Resource_Ref > shader_refs, const Pipeline_State_Settings &settings);
 
 void imgui_draw_resource_system();

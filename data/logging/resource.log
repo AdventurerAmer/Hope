@@ -1,5 +1,5 @@
-[Resource-Trace]: resource loaded: opaque_pbr_frag.hres
 [Resource-Trace]: resource loaded: opaque_pbr_vert.hres
+[Resource-Trace]: resource loaded: opaque_pbr_frag.hres
 [Resource-Trace]: resource loaded: cube_base_color.hres
 sfully converted resource: opaque_pbr_frag.hres
 race]: successfully converted resource: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag

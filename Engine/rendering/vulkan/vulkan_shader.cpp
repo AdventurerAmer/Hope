@@ -963,10 +963,10 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
 
     rasterization_state_create_info.depthClampEnable = VK_FALSE;
     rasterization_state_create_info.rasterizerDiscardEnable = VK_FALSE;
-    rasterization_state_create_info.polygonMode = get_polygon_mode(descriptor.fill_mode);
+    rasterization_state_create_info.polygonMode = get_polygon_mode(descriptor.settings.fill_mode);
     rasterization_state_create_info.lineWidth = 1.0f;
-    rasterization_state_create_info.cullMode = get_cull_mode(descriptor.cull_mode);
-    rasterization_state_create_info.frontFace = get_front_face(descriptor.front_face);
+    rasterization_state_create_info.cullMode = get_cull_mode(descriptor.settings.cull_mode);
+    rasterization_state_create_info.frontFace = get_front_face(descriptor.settings.front_face);
     rasterization_state_create_info.depthBiasEnable = VK_FALSE;
     rasterization_state_create_info.depthBiasConstantFactor = 0.0f;
     rasterization_state_create_info.depthBiasClamp = 0.0f;
@@ -987,7 +987,7 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     multisampling_state_create_info.rasterizationSamples = sample_count;
     multisampling_state_create_info.alphaToCoverageEnable = VK_FALSE;
     multisampling_state_create_info.alphaToOneEnable = VK_FALSE;
-    multisampling_state_create_info.sampleShadingEnable = descriptor.sample_shading ? VK_TRUE : VK_FALSE;
+    multisampling_state_create_info.sampleShadingEnable = descriptor.settings.sample_shading ? VK_TRUE : VK_FALSE;
     multisampling_state_create_info.minSampleShading = 0.2f;
     multisampling_state_create_info.pSampleMask = nullptr;
 

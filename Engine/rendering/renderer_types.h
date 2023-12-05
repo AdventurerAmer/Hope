@@ -421,12 +421,17 @@ enum class Fill_Mode : U8
     WIREFRAME
 };
 
-struct Pipeline_State_Descriptor
+struct Pipeline_State_Settings
 {
     Cull_Mode cull_mode = Cull_Mode::BACK;
     Front_Face front_face = Front_Face::COUNTER_CLOCKWISE;
     Fill_Mode fill_mode = Fill_Mode::SOLID;
     bool sample_shading = false;
+};
+
+struct Pipeline_State_Descriptor
+{
+    Pipeline_State_Settings settings;
     Shader_Group_Handle shader_group;
     Render_Pass_Handle render_pass;
 };

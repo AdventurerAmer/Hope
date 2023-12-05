@@ -45,7 +45,7 @@ struct std::hash<String>
     }
 };
 
-static std::unordered_map< String, U32 > string_to_resource_index;
+static std::unordered_map< String, U32 > path_to_resource_index;
 
 static Resource_System_State *resource_system_state;
 
@@ -305,6 +305,11 @@ static void unload_shader_resource(Resource *resource)
     renderer_destroy_shader(shader_handle);
 }
 
+static bool convert_material_to_resource(Resource* resource, Temprary_Memory_Arena* temp_arena)
+{
+    return true;
+}
+
 static bool load_material_resource(Open_File_Result *open_file_result, Resource *resource)
 {
     bool success = true;
@@ -547,7 +552,7 @@ static void walk_resource_directory(const char *data, U64 count)
         resource.type = header.type;
     }
 
-    string_to_resource_index.emplace(relative_resource_path, resource_index);
+    path_to_resource_index.emplace(relative_resource_path, resource_index);
     uuid_to_resource_index.emplace(resource.uuid, resource_index);
 }
 
@@ -580,51 +585,78 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
     resource_system_state->resource_path = resource_path;
     resource_system_state->resource_allocator = &render_context.renderer_state->transfer_allocator;
     
-    static String texture_extensions[] =
     {
-        HE_STRING_LITERAL("jpeg"),
-        HE_STRING_LITERAL("png"),
-        HE_STRING_LITERAL("tga"),
-        HE_STRING_LITERAL("psd")
-    };
+        static String texture_extensions[] =
+        {
+            HE_STRING_LITERAL("jpeg"),
+            HE_STRING_LITERAL("png"),
+            HE_STRING_LITERAL("tga"),
+            HE_STRING_LITERAL("psd")
+        };
 
-    Resource_Converter texture_converter =
+        Resource_Converter texture_converter =
+        {
+            .extension_count = HE_ARRAYCOUNT(texture_extensions),
+            .extensions = texture_extensions,
+            .convert = &convert_texture_to_resource
+        };
+
+        Resource_Loader texture_loader =
+        {
+            .use_allocation_group = true,
+            .load = &load_texture_resource,
+            .unload = &unload_texture_resource
+        };
+
+        register_resource(Resource_Type::TEXTURE, "texture", 1, texture_converter, texture_loader);
+    }
+
     {
-        .extension_count = HE_ARRAYCOUNT(texture_extensions), 
-        .extensions = texture_extensions,
-        .convert = &convert_texture_to_resource
-    };
+        static String shader_extensions[] =
+        {
+            HE_STRING_LITERAL("vert"),
+            HE_STRING_LITERAL("frag"),
+        };
 
-    Resource_Loader texture_loader = 
+        Resource_Converter shader_converter =
+        {
+            .extension_count = HE_ARRAYCOUNT(shader_extensions),
+            .extensions = shader_extensions,
+            .convert = &convert_shader_to_resource,
+        };
+
+        Resource_Loader shader_loader =
+        {
+            .use_allocation_group = false,
+            .load = &load_shader_resource,
+            .unload = &unload_shader_resource,
+        };
+
+        register_resource(Resource_Type::SHADER, "shader", 1, shader_converter, shader_loader);
+    }
+
     {
-        .use_allocation_group = true,
-        .load = &load_texture_resource,
-        .unload = &unload_texture_resource
-    };
+        static String material_extensions[] =
+        {
+            HE_STRING_LITERAL("mat"),
+        };
 
-    register_resource(Resource_Type::TEXTURE, "texture", 1, texture_converter, texture_loader);
+        Resource_Converter material_converter =
+        {
+            .extension_count = HE_ARRAYCOUNT(material_extensions),
+            .extensions = material_extensions,
+            .convert = &convert_material_to_resource,
+        };
 
-    static String shader_extensions[] =
-    {
-        HE_STRING_LITERAL("vert"),
-        HE_STRING_LITERAL("frag"),
-    };
+        Resource_Loader material_loader =
+        {
+            .use_allocation_group = false,
+            .load = &load_material_resource,
+            .unload = &unload_material_resource,
+        };
 
-    Resource_Converter shader_converter =
-    {
-        .extension_count = HE_ARRAYCOUNT(shader_extensions),
-        .extensions = shader_extensions,
-        .convert = &convert_shader_to_resource,
-    };
-    
-    Resource_Loader shader_loader = 
-    {
-        .use_allocation_group = false,
-        .load = &load_shader_resource,
-        .unload = &unload_shader_resource,
-    };
-
-    register_resource(Resource_Type::SHADER, "shader", 1, shader_converter, shader_loader);
+        register_resource(Resource_Type::MATERIAL, "material", 1, material_converter, material_loader);
+    }
 
     bool recursive = true;
     platform_walk_directory(resource_path.data, recursive, &walk_resource_directory);
@@ -632,6 +664,25 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
     Resource_Ref cube_base_color = aquire_resource(HE_STRING_LITERAL("cube_base_color.hres"));
     Resource_Ref opaque_pbr_vert = aquire_resource(HE_STRING_LITERAL("opaque_pbr_vert.hres"));
     Resource_Ref opaque_pbr_frag = aquire_resource(HE_STRING_LITERAL("opaque_pbr_frag.hres"));
+
+    wait_for_all_jobs_to_finish();
+
+    Resource_Ref shaders[] =
+    {
+        opaque_pbr_vert,
+        opaque_pbr_frag
+    };
+
+    Pipeline_State_Settings settings =
+    {
+        .cull_mode = Cull_Mode::BACK,
+        .front_face = Front_Face::COUNTER_CLOCKWISE,
+        .fill_mode = Fill_Mode::SOLID,
+        .sample_shading = true,
+    };
+
+    // create_material_resource
+    Resource_Ref opaque = create_material_resource(HE_STRING_LITERAL("opaque_pbr"), HE_STRING_LITERAL("opaque"), to_array_view(shaders), settings);
     return true;
 }
 
@@ -685,8 +736,8 @@ static void aquire_resource(Resource *resource)
 
 Resource_Ref aquire_resource(const String &path)
 {
-    auto it = string_to_resource_index.find(path);
-    if (it == string_to_resource_index.end())
+    auto it = path_to_resource_index.find(path);
+    if (it == path_to_resource_index.end())
     {
         return { HE_MAX_U64 };
     }
@@ -735,11 +786,87 @@ Resource *get_resource(Resource_Ref ref)
     return &resource_system_state->resources[it->second];
 }
 
-Resource *get_resource(U64 index)
+Resource *get_resource(U32 index)
 {
     HE_ASSERT(index >= 0 && index < resource_system_state->resources.count);
     return &resource_system_state->resources[index];
 }
+
+template<>
+Texture *get_resource_as<Texture>(Resource_Ref ref)
+{
+    Resource *resource = get_resource(ref);
+    HE_ASSERT(resource->state == Resource_State::LOADED);
+    return renderer_get_texture({ resource->index, resource->generation });
+}
+
+template<>
+Shader *get_resource_as<Shader>(Resource_Ref ref)
+{
+    Resource *resource = get_resource(ref);
+    HE_ASSERT(resource->state == Resource_State::LOADED);
+    return renderer_get_shader({ resource->index, resource->generation });
+}
+
+Resource_Ref create_material_resource(const String &relative_path, const String &render_pass_name, Array_View< Resource_Ref > shader_refs, const Pipeline_State_Settings &settings)
+{
+    Array< Shader_Handle, HE_MAX_SHADER_COUNT_PER_PIPELINE > shaders;
+
+    for (Resource_Ref ref : shader_refs)
+    {
+        aquire_resource(ref);
+        Shader_Handle shader_handle = get_resource_handle_as< Shader >(ref);
+        append(&shaders, shader_handle);
+    }
+
+    // todo(amer): wait for all refs.
+
+    Shader_Group_Descriptor shader_group_descriptor =
+    {
+        .shaders = shaders
+    };
+    Shader_Group_Handle shader_group = renderer_create_shader_group(shader_group_descriptor);
+
+    Render_Context render_context = get_render_context();
+    Render_Pass_Handle render_pass = get_render_pass(&render_context.renderer_state->render_graph, render_pass_name.data);
+
+    Pipeline_State_Descriptor pipeline_state_descriptor =
+    {
+        .settings = settings,
+        .shader_group = shader_group,
+        .render_pass = render_pass,
+    };
+
+    Pipeline_State_Handle pipeline_state = renderer_create_pipeline_state(pipeline_state_descriptor);
+
+    Resource &resource = append(&resource_system_state->resources);
+    resource.uuid = generate_uuid();
+    resource.type = (U32)Resource_Type::MATERIAL;
+    resource.asset_absloute_path = HE_STRING_LITERAL(""); // todo(amer): what resources are based on assets...
+    resource.absloute_path = HE_STRING_LITERAL(""); // todo(amer): absolute path fill this
+    resource.relative_path = copy_string(relative_path, resource_system_state->arena);
+    resource.index = pipeline_state.index;
+    resource.generation = pipeline_state.generation;
+    resource.ref_count = 1;
+    resource.state = Resource_State::LOADED;
+
+    init(&resource.resource_refs, resource_system_state->free_list_allocator);
+
+    for (Resource_Ref ref : shader_refs)
+    {
+        append(&resource.resource_refs, ref.uuid);
+    }
+
+    platform_create_mutex(&resource.mutex);
+
+    uuid_to_resource_index.emplace(resource.uuid, index_of(&resource_system_state->resources, resource));
+    path_to_resource_index.emplace(relative_path, index_of(&resource_system_state->resources, resource));
+
+    Resource_Ref ref = { resource.uuid };
+    return ref;
+}
+
+// =============================== Editor ==========================================
 
 static String get_resource_state_string(Resource_State resource_state)
 {
@@ -783,7 +910,7 @@ void imgui_draw_resource_system()
     {
         for (U32 col = 0; col < HE_ARRAYCOUNT(coloum_names); col++)
         {
-            ImGui::TableSetupColumn(coloum_names[col]);
+            ImGui::TableSetupColumn(coloum_names[col], ImGuiTableColumnFlags_WidthStretch);
         }
 
         ImGui::TableHeadersRow();
