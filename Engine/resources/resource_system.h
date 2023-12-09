@@ -29,7 +29,7 @@ struct Resource
 {
     U32 type;
 
-    String asset_absloute_path;
+    // String asset_absloute_path;
     String absloute_path;
     String relative_path;
 
@@ -71,14 +71,16 @@ struct Resource_Ref
     }
 };
 
-typedef bool(*convert_resource_proc)(Resource *resource, struct Temprary_Memory_Arena *arena);
+typedef bool(*condition_resource_proc)(const String &asset_path, const String &resource_path, struct Temprary_Memory_Arena *arena);
+typedef bool(*save_resource_proc)(Resource *resource, Open_File_Result *open_file_result, struct Temprary_Memory_Arena *arena);
 
-struct Resource_Converter
+struct Resource_Conditioner
 { 
     U32 extension_count;
     String *extensions;
     
-    convert_resource_proc convert;
+    condition_resource_proc condition;
+    save_resource_proc save;
 };
 
 typedef bool(*load_resource_proc)(Open_File_Result *open_file_result, Resource *resource);
@@ -94,7 +96,7 @@ struct Resource_Loader
 bool init_resource_system(const String &resource_directory_name, struct Engine *engine);
 void deinit_resource_system();
 
-bool register_resource(Resource_Type type, const char *name, U32 version, Resource_Converter converter, Resource_Loader loader);
+bool register_resource(Resource_Type type, const char *name, U32 version, Resource_Conditioner conditioner, Resource_Loader loader);
 
 bool is_valid(Resource_Ref ref);
 
