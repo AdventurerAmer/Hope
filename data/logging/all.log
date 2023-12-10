@@ -1,8 +1,12 @@
 [Rendering-Trace]: Layer VK_LAYER_RTSS uses API version 1.1 which is older than the application specified API version of 1.2. May cause issues.
-[Core-Trace]: assets loaded 609.53 ms to finish
-: c:/dev/cpp/hope/data/resources/cube_base_color.png
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_vert.vert
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag
+[Resource-Trace]: resource loaded: opaque_pbr_vert.hres
+[Resource-Trace]: resource loaded: opaque_pbr_frag.hres
+[Resource-Trace]: resource loaded: opaque_pbr_mat.hres
+[Core-Trace]: assets loaded 726.05 ms to finish
+[Resource-Trace]: resource loaded: cube_base_color.hres
+or.hres
+
+ces/opaque_pbr_frag.frag
 [Core-Trace]: assets loaded 720.55 ms to finish
 
 ID-VkImageCreateInfo-extent-00944)

@@ -353,7 +353,7 @@ static bool load_material_resource(Open_File_Result *open_file_result, Resource 
 {
     bool success = true;
 
-    U64 file_offset = sizeof(Resource_Header);
+    U64 file_offset = sizeof(Resource_Header) + sizeof(U64) * resource->resource_refs.count;
 
     Material_Resource_Info info;
     success &= platform_read_data_from_file(open_file_result, file_offset, &info, sizeof(info));
@@ -499,7 +499,6 @@ static Job_Result load_resource_job(const Job_Parameters &params)
     platform_lock_mutex(&resource->mutex);
     HE_DEFER {  platform_unlock_mutex(&resource->mutex); };
     
-    
     Resource_Type_Info &info = resource_system_state->resource_type_infos[resource->type];
     bool use_allocation_group = info.loader.use_allocation_group;
 
@@ -516,8 +515,15 @@ static Job_Result load_resource_job(const Job_Parameters &params)
         resource->allocation_group.resource_index = (S32)index_of(&resource_system_state->resources, resource);
     }
     Open_File_Result open_file_result = platform_open_file(resource->absloute_path.data, OpenFileFlag_Read);
-    HE_DEFER { platform_close_file(&open_file_result);  };
     
+    if (!open_file_result.success)
+    {
+        HE_LOG(Resource, Fetal, "failed to open resource file: %.*s", HE_EXPAND_STRING(resource->relative_path));
+        return Job_Result::FAILED;
+    }
+
+    HE_DEFER { platform_close_file(&open_file_result); };
+
     bool success = info.loader.load(&open_file_result, resource);
 
     if (!success)
@@ -644,6 +650,11 @@ static void on_resource(const char *data, U64 count)
     {
         init(&resource.resource_refs, resource_system_state->free_list_allocator, header.resource_ref_count);
         bool read = platform_read_data_from_file(&open_file_result, sizeof(Resource_Header), resource.resource_refs.data, sizeof(U64) * header.resource_ref_count);
+        if (!read)
+        {
+            HE_LOG(Resource, Fetal, "failed to read resource refs at: %.*s\n", HE_EXPAND_STRING(resource_relative_path));
+            return;
+        }
     }
     else
     {
@@ -766,31 +777,30 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
 
     platform_walk_directory(resource_path.data, recursive, &on_resource);
 
-    /*
     Resource_Ref cube_base_color = aquire_resource(HE_STRING_LITERAL("cube_base_color.hres"));
-    Resource_Ref opaque_pbr_vert = aquire_resource(HE_STRING_LITERAL("opaque_pbr_vert.hres"));
-    Resource_Ref opaque_pbr_frag = aquire_resource(HE_STRING_LITERAL("opaque_pbr_frag.hres"));
+    // Resource_Ref opaque_pbr_vert = aquire_resource(HE_STRING_LITERAL("opaque_pbr_vert.hres"));
+    // Resource_Ref opaque_pbr_frag = aquire_resource(HE_STRING_LITERAL("opaque_pbr_frag.hres"));
 
     wait_for_all_jobs_to_finish();
 
-    Resource_Ref shaders[] =
-    {
-        opaque_pbr_vert,
-        opaque_pbr_frag
-    };
-
-    Pipeline_State_Settings settings =
-    {
-        .cull_mode = Cull_Mode::BACK,
-        .front_face = Front_Face::COUNTER_CLOCKWISE,
-        .fill_mode = Fill_Mode::SOLID,
-        .sample_shading = true,
-    };
-
     // create_material_resource
+    // Resource_Ref shaders[] =
+    // {
+    //     find_resource(HE_STRING_LITERAL("opaque_pbr_vert.hres")),
+    //     find_resource(HE_STRING_LITERAL("opaque_pbr_frag.hres"))
+    // };
+
+    // Pipeline_State_Settings settings =
+    // {
+    //     .cull_mode = Cull_Mode::BACK,
+    //     .front_face = Front_Face::COUNTER_CLOCKWISE,
+    //     .fill_mode = Fill_Mode::SOLID,
+    //     .sample_shading = true,
+    // };
+
     // Resource_Ref opaque_pbr = create_material_resource(HE_STRING_LITERAL("opaque_pbr_mat.hres"), HE_STRING_LITERAL("opaque"), to_array_view(shaders), settings);
+
     Resource_Ref opaque_pbr_mat = aquire_resource(HE_STRING_LITERAL("opaque_pbr_mat.hres"));
-    */
     return true;
 }
 
@@ -815,8 +825,53 @@ bool is_valid(Resource_Ref ref)
     return ref.uuid != HE_MAX_U64 && uuid_to_resource_index.find(ref.uuid) != uuid_to_resource_index.end();
 }
 
+Resource_Ref find_resource(const String &relative_path)
+{
+    auto it = path_to_resource_index.find(relative_path);
+    U64 uuid = HE_MAX_U64;
+
+    if (it != path_to_resource_index.end())
+    {
+        uuid = resource_system_state->resources[it->second].uuid;
+    }
+
+    Resource_Ref ref = { uuid };
+    return ref;
+}
+
 static void aquire_resource(Resource *resource)
 {
+    if (resource->resource_refs.count)
+    {
+        for (U64 uuid : resource->resource_refs)
+        {
+            Resource_Ref ref = { uuid };
+            aquire_resource(ref);
+        }
+
+        // todo(amer): make this efficient with semaphores 
+        while (true)
+        {
+            bool all_loaded = true;
+
+            for (U64 uuid : resource->resource_refs)
+            {
+                Resource_Ref ref = { uuid };
+                Resource *ref_resource = get_resource(ref);
+                if (ref_resource->state != Resource_State::LOADED)
+                {
+                    all_loaded = false;
+                    break;
+                }
+            }
+
+            if (all_loaded)
+            {
+                break;
+            }
+        }
+    }
+
     platform_lock_mutex(&resource->mutex);
 
     if (resource->state == Resource_State::UNLOADED)

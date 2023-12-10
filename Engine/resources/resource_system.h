@@ -100,6 +100,8 @@ bool register_resource(Resource_Type type, const char *name, U32 version, Resour
 
 bool is_valid(Resource_Ref ref);
 
+Resource_Ref find_resource(const String &relative_path);
+
 Resource_Ref aquire_resource(const String &relative_path);
 bool aquire_resource(Resource_Ref ref);
 void release_resource(Resource_Ref ref);
