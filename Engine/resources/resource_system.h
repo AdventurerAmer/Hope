@@ -9,7 +9,7 @@
 
 #include "rendering/renderer_types.h"
 
-enum class Resource_Type : U8
+enum class Resource_Type : U32
 {
     TEXTURE,
     SHADER,
@@ -30,7 +30,7 @@ struct Resource
     U32 type;
 
     // String asset_absloute_path;
-    String absloute_path;
+    String absolute_path;
     String relative_path;
 
     U64 uuid;
@@ -71,7 +71,7 @@ struct Resource_Ref
     }
 };
 
-typedef bool(*condition_resource_proc)(const String &asset_path, const String &resource_path, struct Temprary_Memory_Arena *arena);
+typedef bool(*condition_resource_proc)(Resource *resource, const String &asset_path, Temprary_Memory_Arena *temp_arena);
 typedef bool(*save_resource_proc)(Resource *resource, Open_File_Result *open_file_result, struct Temprary_Memory_Arena *arena);
 
 struct Resource_Conditioner

@@ -560,9 +560,12 @@ void platform_walk_directory(const char *path, bool recursive, on_walk_directory
         }
         
         S32 count = sprintf(path_buffer, "%s/%s", path, find_data.cFileName);
-        on_walk_directory(path_buffer, (U64)count);
+        String path = { path_buffer, (U64)count };
+        
+        bool is_directory = (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+        on_walk_directory(&path, is_directory);
 
-        if (recursive && (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+        if (recursive && is_directory)
         {
             platform_walk_directory(path_buffer, recursive, on_walk_directory);
         }

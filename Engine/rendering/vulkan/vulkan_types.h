@@ -119,7 +119,7 @@ struct Vulkan_Render_Pass
 
 struct Vulkan_Static_Mesh
 {
-    S32 first_vertex;
+    U32 first_vertex;
     U32 first_index;
 };
 

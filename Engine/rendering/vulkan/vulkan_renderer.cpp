@@ -759,6 +759,20 @@ void vulkan_renderer_draw_static_mesh(Static_Mesh_Handle static_mesh_handle, U32
     vkCmdDrawIndexed(context->command_buffer, static_mesh->index_count, instance_count, first_index, first_vertex, first_instance);
 }
 
+void vulkan_renderer_draw_static_mesh_vs(Static_Mesh_Handle static_mesh_handle, U32 first_instance)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Renderer_State *renderer_state = context->renderer_state;
+    Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
+    Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
+
+    U32 instance_count = 1;
+    U32 first_index = vulkan_static_mesh->first_index;
+    S32 first_vertex = vulkan_static_mesh->first_vertex;
+    
+    vkCmdDrawIndexed(context->command_buffer, static_mesh->index_count, instance_count, first_index, first_vertex, first_instance);
+}
+
 void vulkan_renderer_end_frame()
 {
     Vulkan_Context *context = &vulkan_context;
@@ -1817,8 +1831,11 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     U64 index_size = descriptor.index_count * sizeof(U16);
 
     HE_ASSERT(renderer_state->vertex_count + descriptor.vertex_count <= renderer_state->max_vertex_count);
-    static_mesh->index_count = descriptor.index_count;
-    static_mesh->vertex_count = descriptor.vertex_count;
+    // HE_ASSERT(descriptor.sub_meshes.data && descriptor.sub_meshes.count);
+
+    static_mesh->vertex_count = u64_to_u32(descriptor.vertex_count);
+    static_mesh->index_count = u64_to_u32(descriptor.index_count);
+    static_mesh->sub_meshes = descriptor.sub_meshes;
 
     Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
 
@@ -1908,11 +1925,13 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
 
     context->vkQueueSubmit2KHR(context->transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
 
-    vulkan_static_mesh->first_vertex = (S32)u64_to_u32(renderer_state->vertex_count);
+    // todo(amer): mesh allocator
+    vulkan_static_mesh->first_vertex = u64_to_u32(renderer_state->vertex_count);
     vulkan_static_mesh->first_index = u64_to_u32(renderer_state->index_offset / sizeof(U16));
 
     renderer_state->vertex_count += descriptor.vertex_count;
     renderer_state->index_offset += index_size;
+
     return true;
 }
 

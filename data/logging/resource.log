@@ -1,7 +1,9 @@
-[Resource-Trace]: resource loaded: opaque_pbr_vert.hres
-[Resource-Trace]: resource loaded: opaque_pbr_frag.hres
-[Resource-Trace]: resource loaded: opaque_pbr_mat.hres
-[Resource-Trace]: resource loaded: cube_base_color.hres
-or.hres
-ly conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag
-ag
+[Resource-Trace]: resource loaded: Cube/Cube.hres
+c:/dev/cpp/hope/data/resources/Cube/Cube.gltf
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_MetallicRoughness.png
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_BaseColor.png
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_vert.vert
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag
+ed asset: c:/dev/cpp/hope/data/resources/opaque_pbr_vert.vert
+data/resources/Corset/Corset_occlusionRoughnessMetallic.png
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Corset/Corset_normal.png

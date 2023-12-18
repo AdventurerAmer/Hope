@@ -1,2 +1,3 @@
 [Rendering-Trace]: Layer VK_LAYER_RTSS uses API version 1.1 which is older than the application specified API version of 1.2. May cause issues.
-[Rendering-Trace]: Validation Error: [ VUID-VkImageCreateInfo-extent-00944 ] | MessageID = 0x8869da08 | vkCreateImage: parameter pCreateInfo->extent.width is zero The Vulkan spec states: extent.width must be greater than 0 (https://vulkan.lunarg.com/doc/view/1.3.261.0/windows/1.3-extensions/vkspec.html#VUID-VkImageCreateInfo-extent-00944)
+[Rendering-Trace]: Validation Error: [ UNASSIGNED-Threading-MultipleThreads ] Object 0: handle = 0xec4bec000000000b, type = VK_OBJECT_TYPE_COMMAND_POOL; | MessageID = 0x141cb623 | THREADING ERROR : vkCmdPipelineBarrier(): object of type VkCommandPool is simultaneously used in thread 18936 and thread 16420
+D-VkImageCreateInfo-extent-00944)

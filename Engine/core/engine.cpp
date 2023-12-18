@@ -156,9 +156,12 @@ bool startup(Engine *engine, void *platform_state)
 
     auto start = std::chrono::steady_clock::now();
     bool game_initialized = game_code->init_game(engine);
+
     wait_for_all_jobs_to_finish();
     renderer_wait_for_gpu_to_finish_all_work();
 
+    render_context.renderer_state->cube = aquire_resource(HE_STRING_LITERAL("Cube/Cube.hres")).uuid;
+    
     auto end = std::chrono::steady_clock::now();
     const std::chrono::duration< double > elapsed_seconds = end - start;
     HE_LOG(Core, Trace, "assets loaded %.2f ms to finish\n", elapsed_seconds * 1000.0f);

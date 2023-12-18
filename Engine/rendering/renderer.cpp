@@ -11,6 +11,8 @@
 
 #include "containers/queue.h"
 
+#include "resources/resource_system.h"
+
 #if HE_OS_WINDOWS
 #define HE_RHI_VULKAN
 #endif
@@ -387,6 +389,15 @@ bool init_renderer_state(Engine *engine)
 
             U32 mesh_index = renderer_state->cube_mesh->first_child->start_mesh_index;
             Static_Mesh_Handle static_mesh_handle = { (S32)mesh_index, renderer_state->static_meshes.generations[mesh_index] };
+            
+            Resource_Ref ref = { renderer_state->cube };
+            Resource *cube_resource = get_resource(ref);
+            if (cube_resource->state == Resource_State::LOADED)
+            {
+                // HE_LOG(Core, Trace, "using cube resource\n");
+                static_mesh_handle = get_resource_handle_as<Static_Mesh>(ref);
+            }
+            
             renderer->draw_static_mesh(static_mesh_handle, 0);
         };
 
@@ -1414,6 +1425,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
                 HE_ASSERT(primitive->indices->stride == sizeof(U16));
 
                 U32 index_count = u64_to_u32(primitive->indices->count);
+
                 const auto *accessor = primitive->indices;
                 const auto *view = accessor->buffer_view;
                 U8 *data_ptr = (U8 *)view->buffer->data;
@@ -1426,11 +1438,11 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
                 Static_Mesh_Descriptor static_mesh_descriptor =
                 {
                     .vertex_count = (U16)position_count,
+                    .index_count = index_count,
                     .positions = positions,
                     .normals = normals,
                     .uvs = uvs,
                     .tangents = tangents,
-                    .index_count = index_count,
                     .indices = indices,
                     .allocation_group = allocation_group
                 };
@@ -1454,7 +1466,7 @@ bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *a
 void unload_model(Allocation_Group *allocation_group)
 {
     cgltf_free((cgltf_data *)allocation_group->allocations[0]);
-    deallocate(&renderer_state->transfer_allocator, allocation_group->allocations[1]);
+    deallocate(&renderer_state->transfer_allocator, allocation_group->allocations[1]);    
 }
 
 void render_scene_node(Scene_Node *scene_node, const Transform &parent_transform)

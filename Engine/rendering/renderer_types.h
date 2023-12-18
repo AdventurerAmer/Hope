@@ -3,6 +3,7 @@
 
 #include "core/defines.h"
 #include "containers/array.h"
+#include "containers/dynamic_array.h"
 #include "containers/string.h"
 #include "containers/resource_pool.h"
 
@@ -520,27 +521,24 @@ struct Allocation_Group
 struct Sub_Mesh
 {
     U16 vertex_count;
-
-    glm::vec3 *positions;
-    glm::vec3 *normals;
-    glm::vec2 *uvs;
-    glm::vec2 *tangents;
-
     U32 index_count;
-    U16 *indices;
+    
+    Material_Handle material;
 };
 
 struct Static_Mesh_Descriptor
 {
-    U16 vertex_count;
+    U64 vertex_count;
+    U64 index_count;
+
     glm::vec3 *positions;
     glm::vec3 *normals;
     glm::vec2 *uvs;
     glm::vec4 *tangents;
-
-    U32 index_count;
     U16 *indices;
 
+    Dynamic_Array< Sub_Mesh > sub_meshes;
+    
     Allocation_Group *allocation_group;
 };
 
@@ -549,8 +547,11 @@ struct Static_Mesh
     String name;
 
     U64 base_offset;
-    U16 vertex_count;
+
+    U32 vertex_count;
     U32 index_count;
+
+    Dynamic_Array< Sub_Mesh > sub_meshes;
     
     Material_Handle material;
 };

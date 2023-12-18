@@ -203,6 +203,7 @@ struct Renderer_State
     Array< Allocation_Group, HE_MAX_SEMAPHORE_COUNT > allocation_groups;
 
     Scene_Node *cube_mesh;
+    U64 cube;
 };
 
 struct Render_Context
