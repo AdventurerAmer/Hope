@@ -97,7 +97,7 @@ struct Sub_Mesh_Info
     U16 vertex_count;
     U32 index_count;
 
-    U64 material;
+    U64 material_uuid;
 };
 
 struct Static_Mesh_Resource_Info
@@ -502,6 +502,56 @@ static bool condition_static_mesh_to_resource(Resource *resource, Open_File_Resu
 
     HE_DEFER { cgltf_free(data); };
 
+    U64 *material_uuids = HE_ALLOCATE_ARRAY(temp_arena, U64, data->materials_count);
+
+    auto get_texture_uuid = [&](const cgltf_image *image) -> U64
+    {
+        if (!image->uri)
+        {
+            return HE_MAX_U64;
+        }
+
+        String uri = HE_STRING(image->uri);
+        String name = get_name(uri);
+        String parent_path = get_parent_path(asset_path);
+        String resource_path = format_string(temp_arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(parent_path), HE_EXPAND_STRING(name));
+        String relative_resource_path = sub_string(resource_path, resource_system_state->resource_path.count + 1);;
+
+        auto it = path_to_resource_index.find(relative_resource_path);
+        if (it == path_to_resource_index.end())
+        {
+            return HE_MAX_U64;
+        }
+
+        Resource &resource = resource_system_state->resources[it->second];
+        return resource.uuid;
+    };
+
+    for (U32 material_index = 0; material_index < data->materials_count; material_index++)
+    {
+        cgltf_material *material = &data->materials[material_index];
+
+        if (material->has_pbr_metallic_roughness)
+        {
+            if (material->pbr_metallic_roughness.base_color_texture.texture)
+            {
+                const cgltf_image *image = material->pbr_metallic_roughness.base_color_texture.texture->image;
+                U64 albedo_texture_uuid = get_texture_uuid(image);
+                HE_LOG(Resource, Trace, "albedo texture uuid is %#x\n", albedo_texture_uuid);
+            }
+
+            if (material->pbr_metallic_roughness.metallic_roughness_texture.texture)
+            {
+                const cgltf_image *image = material->pbr_metallic_roughness.metallic_roughness_texture.texture->image;
+                U64 metallic_roughness_occlusion = get_texture_uuid(image);
+                HE_LOG(Resource, Trace, "metallic_roughness_occlusion texture uuid is %#x\n", metallic_roughness_occlusion);
+            }
+        }
+
+        U64 material_uuid = generate_uuid();
+        material_uuids[material_index] = material_uuid;
+    }
+
     U64 file_offset = 0;
 
     Resource_Header header = make_resource_header((U32)Resource_Type::STATIC_MESH, resource->uuid);
@@ -598,11 +648,14 @@ static bool condition_static_mesh_to_resource(Resource *resource, Open_File_Resu
         HE_ASSERT(position_count == normal_count);
         HE_ASSERT(position_count == tangent_count);
 
+        HE_ASSERT(primitive->material - data->materials >= 0);
+        U32 material_index = (U32)(primitive->material - data->materials);
+
         Sub_Mesh_Info sub_mesh_info =
         {
             .vertex_count = (U16)position_count,
             .index_count = (U32)index_count,
-            .material = HE_MAX_U64
+            .material_uuid = material_uuids[material_index]
         };
 
         platform_write_data_to_file(resource_file, file_offset, &sub_mesh_info, sizeof(sub_mesh_info));
@@ -1113,7 +1166,10 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
         U64 uuid = generate_uuid();
         resource.uuid = uuid;
         uuid_to_resource_index.emplace(uuid, resource_index);
+    }
 
+    for (U32 resource_index : resource_system_state->assets_to_condition)
+    {
         Condition_Resource_Job_Data condition_resource_job_data
         {
             .resource_index = resource_index

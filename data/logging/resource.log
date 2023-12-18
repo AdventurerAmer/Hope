@@ -1,10 +1,9 @@
-[Resource-Trace]: resource loaded: Cube/Cube.hres
-c:/dev/cpp/hope/data/resources/Cube/Cube.gltf
+[Resource-Trace]: albedo texture uuid is 0x83b8c235
+[Resource-Trace]: metallic_roughness_occlusion texture uuid is 0x5d284844
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube.gltf
 [Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_MetallicRoughness.png
 [Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_BaseColor.png
 [Resource-Trace]: resource loaded: Cube/Cube.hres
-seColor.png
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_vert.vert
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag
+ace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag
 data/resources/Corset/Corset_occlusionRoughnessMetallic.png
 [Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Corset/Corset_normal.png
