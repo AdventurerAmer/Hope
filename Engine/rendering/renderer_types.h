@@ -542,6 +542,7 @@ struct Static_Mesh_Descriptor
     Allocation_Group *allocation_group;
 };
 
+// todo(amer): should material is be here or in a component
 struct Static_Mesh
 {
     String name;

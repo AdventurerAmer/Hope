@@ -26,6 +26,52 @@ void hock_engine_api(Engine_API *api)
     api->get_render_context = &get_render_context;
 }
 
+static void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state)
+{
+    platform_lock_mutex(&renderer_state->allocation_groups_mutex);
+
+    for (U32 allocation_group_index = 0; allocation_group_index < renderer_state->allocation_groups.count; allocation_group_index++)
+    {
+        Allocation_Group &allocation_group = renderer_state->allocation_groups[allocation_group_index];
+
+        if (allocation_group.target_value == renderer->get_semaphore_value(allocation_group.semaphore))
+        {
+            if (allocation_group.resource_index != -1)
+            {
+                Resource *resource = get_resource((U32)allocation_group.resource_index);
+                platform_lock_mutex(&resource->mutex);
+                HE_ASSERT(resource->state != Resource_State::LOADED);
+                resource->ref_count++;
+                resource->state = Resource_State::LOADED;
+                platform_unlock_mutex(&resource->mutex);
+                HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
+            }
+
+            renderer_destroy_semaphore(allocation_group.semaphore);
+
+            switch (allocation_group.type)
+            {
+                case Allocation_Group_Type::GENERAL:
+                {
+                    for (void *memory : allocation_group.allocations)
+                    {
+                        deallocate(&renderer_state->transfer_allocator, memory);
+                    }
+                } break;
+
+                case Allocation_Group_Type::MODEL:
+                {
+                    unload_model(&allocation_group);
+                } break;
+            };
+
+            remove_and_swap_back(&renderer_state->allocation_groups, allocation_group_index);
+        }
+    }
+
+    platform_unlock_mutex(&renderer_state->allocation_groups_mutex);
+}
+
 bool startup(Engine *engine, void *platform_state)
 {
     hock_engine_api(&engine->api);
@@ -161,7 +207,10 @@ bool startup(Engine *engine, void *platform_state)
     renderer_wait_for_gpu_to_finish_all_work();
 
     render_context.renderer_state->cube = aquire_resource(HE_STRING_LITERAL("Cube/Cube.hres")).uuid;
-    
+
+    wait_for_all_jobs_to_finish();
+    finalize_asset_loads(render_context.renderer, render_context.renderer_state);
+
     auto end = std::chrono::steady_clock::now();
     const std::chrono::duration< double > elapsed_seconds = end - start;
     HE_LOG(Core, Trace, "assets loaded %.2f ms to finish\n", elapsed_seconds * 1000.0f);
@@ -257,6 +306,8 @@ void game_loop(Engine *engine, F32 delta_time)
 
     Renderer *renderer = render_context.renderer;
     Renderer_State *renderer_state = render_context.renderer_state;
+
+    finalize_asset_loads(renderer, renderer_state);
 
     // ImGui Graphics Settings
     {
@@ -481,49 +532,6 @@ void game_loop(Engine *engine, F32 delta_time)
     }
 
     end_temprary_memory_arena(&renderer_state->frame_arena);
-
-    platform_lock_mutex(&renderer_state->allocation_groups_mutex);
-
-    for (U32 allocation_group_index = 0; allocation_group_index < renderer_state->allocation_groups.count; allocation_group_index++)
-    {
-        Allocation_Group &allocation_group = renderer_state->allocation_groups[allocation_group_index];
-        
-        if (allocation_group.target_value == renderer->get_semaphore_value(allocation_group.semaphore))
-        {
-            if (allocation_group.resource_index != -1)
-            {
-                Resource *resource = get_resource((U32)allocation_group.resource_index);
-                platform_lock_mutex(&resource->mutex);
-                HE_ASSERT(resource->state != Resource_State::LOADED);
-                resource->ref_count++;
-                resource->state = Resource_State::LOADED;
-                platform_unlock_mutex(&resource->mutex);
-                HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
-            }
-            
-            renderer_destroy_semaphore(allocation_group.semaphore);
-            
-            switch (allocation_group.type)
-            {
-                case Allocation_Group_Type::GENERAL:
-                {
-                    for (void *memory : allocation_group.allocations)
-                    {
-                        deallocate(&renderer_state->transfer_allocator, memory);
-                    }
-                } break;
-
-                case Allocation_Group_Type::MODEL:
-                {
-                    unload_model(&allocation_group);
-                } break;
-            };
-
-            remove_and_swap_back(&renderer_state->allocation_groups, allocation_group_index);
-        }
-    }
-    
-    platform_unlock_mutex(&renderer_state->allocation_groups_mutex);
 }
 
 void shutdown(Engine *engine)

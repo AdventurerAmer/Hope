@@ -1,13 +1,13 @@
 [Rendering-Trace]: Layer VK_LAYER_RTSS uses API version 1.1 which is older than the application specified API version of 1.2. May cause issues.
-[Core-Trace]: assets loaded 574.15 ms to finish
+[Core-Trace]: assets loaded 583.79 ms to finish
 [Resource-Trace]: resource loaded: Cube/Cube.hres
 esource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_MetallicRoughness.png
 [Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_BaseColor.png
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_vert.vert
+[Core-Trace]: assets loaded 755.50 ms to finish
+[Resource-Trace]: resource loaded: Cube/Cube.hres
+tioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_vert.vert
 [Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag
-[Core-Trace]: assets loaded 901.01 ms to finish
-pbr_vert.vert
-[Core-Trace]: assets loaded 905.46 ms to finish
+[Core-Trace]: assets loaded 871.80 ms to finish
 cube resource
 [Core-Trace]: using cube resource
 [Core-Trace]: using cube resource

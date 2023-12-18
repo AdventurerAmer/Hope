@@ -29,7 +29,7 @@ struct Resource
 {
     U32 type;
 
-    // String asset_absloute_path;
+    String asset_absolute_path;
     String absolute_path;
     String relative_path;
 
@@ -71,7 +71,7 @@ struct Resource_Ref
     }
 };
 
-typedef bool(*condition_resource_proc)(Resource *resource, const String &asset_path, Temprary_Memory_Arena *temp_arena);
+typedef bool(*condition_resource_proc)(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Temprary_Memory_Arena *temp_arena);
 typedef bool(*save_resource_proc)(Resource *resource, Open_File_Result *open_file_result, struct Temprary_Memory_Arena *arena);
 
 struct Resource_Conditioner

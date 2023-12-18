@@ -17,12 +17,7 @@ U64 string_length(const char *str);
 U64 he_hash(const String &str);
 
 String copy_string(const char *str, U64 count, Allocator allocator);
-
-template< typename Allocator >
-String copy_string(const String &string, Allocator *allocator)
-{
-    return copy_string(string.data, string.count, allocator);
-}
+String copy_string(const String &string, Allocator allocator);
 
 bool equal(const char *a, U64 a_length, const char *b, U64 b_length);
 
@@ -68,6 +63,9 @@ String sub_string(const String &str, U64 index, U64 count);
 
 String format_string(struct Memory_Arena *arena, const char *format, ...);
 String format_string(struct Memory_Arena *arena, const char *format, va_list args);
+
+String format_string(struct Temprary_Memory_Arena *temprary_memory_arena, const char *format, ...);
+String format_string(struct Temprary_Memory_Arena *temprary_memory_arena, const char *format, va_list args);
 
 template< U64 Count >
 constexpr U64 comptime_string_length(const char(&)[Count])

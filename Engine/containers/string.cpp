@@ -101,6 +101,11 @@ String copy_string(const char *str, U64 count, Allocator allocator)
     return { data, count };
 }
 
+String copy_string(const String &string, Allocator allocator)
+{
+    return copy_string(string.data, string.count, allocator);
+}
+
 String sub_string(const String &str, U64 index)
 {
     HE_ASSERT(index < str.count);
@@ -131,6 +136,20 @@ String format_string(Memory_Arena *arena, const char *format, ...)
     String result = format_string(arena, format, args);
     va_end(args);
     return result;
+}
+
+String format_string(Temprary_Memory_Arena *temprary_memory_arena, const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    String result = format_string(temprary_memory_arena->arena, format, args);
+    va_end(args);
+    return result;
+}
+
+String format_string(Temprary_Memory_Arena *temprary_memory_arena, const char *format, va_list args)
+{
+    return format_string(temprary_memory_arena->arena, format, args);
 }
 
 void begin_string_builder(String_Builder *string_builder, Memory_Arena *arena)
