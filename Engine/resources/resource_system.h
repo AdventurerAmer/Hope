@@ -120,6 +120,5 @@ Resource_Handle<T> get_resource_handle_as(Resource_Ref ref)
     return { resource->index, resource->generation };
 }
 
-Resource_Ref create_material_resource(const String &relative_path, const String &render_pass_name, Array_View< Resource_Ref > shader_refs, const Pipeline_State_Settings &settings);
-
+bool create_material_resource(Resource *resource, const String &render_pass_name, Array_View< Resource_Ref > shader_refs, const Pipeline_State_Settings &settings);
 void imgui_draw_resource_system();

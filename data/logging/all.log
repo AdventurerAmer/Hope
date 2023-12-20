@@ -1,12 +1,15 @@
 [Rendering-Trace]: Layer VK_LAYER_RTSS uses API version 1.1 which is older than the application specified API version of 1.2. May cause issues.
-[Resource-Trace]: albedo texture uuid is 0x83b8c235
-[Resource-Trace]: metallic_roughness_occlusion texture uuid is 0x5d284844
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube.gltf
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_MetallicRoughness.png
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_BaseColor.png
-[Core-Trace]: assets loaded 762.28 ms to finish
+[Resource-Fetal]: failed to read header of resource file: c:/dev/cpp/hope/data/resources/Cube/Cube.hres
+[Core-Trace]: assets loaded 587.46 ms to finish
+[Resource-Trace]: resource loaded: Cube/static_mesh_Cube.hres
+urce-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_BaseColor.png
+[Core-Trace]: assets loaded 752.88 ms to finish
 [Resource-Trace]: resource loaded: Cube/Cube.hres
-/hope/data/resources/opaque_pbr_frag.frag
+BaseColor.png
+[Core-Trace]: assets loaded 798.72 ms to finish
+[Resource-Trace]: resource loaded: Cube/Cube.hres
+race]: resource loaded: Cube/Cube.hres
+ue_pbr_frag.frag
 [Core-Trace]: assets loaded 871.80 ms to finish
 cube resource
 [Core-Trace]: using cube resource
