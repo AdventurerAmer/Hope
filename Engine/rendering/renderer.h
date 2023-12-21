@@ -139,6 +139,8 @@ struct Renderer_State
     Resource_Pool< Static_Mesh > static_meshes;
     Resource_Pool< Renderer_Semaphore > semaphores;
 
+    Dynamic_Array< Scene_Node > nodes;
+
     std::atomic< U32 > scene_node_count;
     Scene_Node *scene_nodes;
     Scene_Node *root_scene_node;

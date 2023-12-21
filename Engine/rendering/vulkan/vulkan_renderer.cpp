@@ -759,20 +759,6 @@ void vulkan_renderer_draw_static_mesh(Static_Mesh_Handle static_mesh_handle, U32
     vkCmdDrawIndexed(context->command_buffer, static_mesh->index_count, instance_count, first_index, first_vertex, first_instance);
 }
 
-void vulkan_renderer_draw_static_mesh_vs(Static_Mesh_Handle static_mesh_handle, U32 first_instance)
-{
-    Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = context->renderer_state;
-    Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
-    Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
-
-    U32 instance_count = 1;
-    U32 first_index = vulkan_static_mesh->first_index;
-    S32 first_vertex = vulkan_static_mesh->first_vertex;
-    
-    vkCmdDrawIndexed(context->command_buffer, static_mesh->index_count, instance_count, first_index, first_vertex, first_instance);
-}
-
 void vulkan_renderer_end_frame()
 {
     Vulkan_Context *context = &vulkan_context;

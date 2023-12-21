@@ -138,6 +138,8 @@ bool init_renderer_state(Engine *engine)
     init(&renderer_state->static_meshes, arena, HE_MAX_STATIC_MESH_COUNT);
     init(&renderer_state->semaphores, arena, HE_MAX_SEMAPHORE_COUNT);
 
+    init(&renderer_state->nodes, &engine->memory.free_list_allocator);
+
     renderer_state->scene_nodes = HE_ALLOCATE_ARRAY(arena, Scene_Node, HE_MAX_SCENE_NODE_COUNT);
     renderer_state->root_scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
     

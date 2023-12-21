@@ -1,11 +1,11 @@
-[Resource-Fetal]: failed to read header of resource file: c:/dev/cpp/hope/data/resources/Cube/Cube.hres
 [Resource-Trace]: resource loaded: Cube/static_mesh_Cube.hres
-/resources/Cube/Cube_MetallicRoughness.png
+[Resource-Trace]: resource loaded: Cube/Cube.hres
+v/cpp/hope/data/resources/Cube/Cube.gltf
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_MetallicRoughness.png
 [Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_BaseColor.png
+[Resource-Trace]: resource loaded: Cube/static_mesh_Cube.hres
 [Resource-Trace]: resource loaded: Cube/Cube.hres
-asset: c:/dev/cpp/hope/data/resources/Cube/Cube_BaseColor.png
-[Resource-Trace]: resource loaded: Cube/Cube.hres
-race]: resource loaded: Cube/Cube.hres
+resource loaded: Cube/Cube.hres
 ioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag
 data/resources/Corset/Corset_occlusionRoughnessMetallic.png
 [Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Corset/Corset_normal.png

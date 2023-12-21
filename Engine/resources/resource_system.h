@@ -15,6 +15,7 @@ enum class Resource_Type : U32
     SHADER,
     MATERIAL,
     STATIC_MESH,
+    SCENE,
     COUNT
 };
 

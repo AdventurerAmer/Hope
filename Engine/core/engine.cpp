@@ -207,6 +207,7 @@ bool startup(Engine *engine, void *platform_state)
     renderer_wait_for_gpu_to_finish_all_work();
 
     render_context.renderer_state->cube = aquire_resource(HE_STRING_LITERAL("Cube/static_mesh_Cube.hres")).uuid;
+    U64 uuid = aquire_resource(HE_STRING_LITERAL("Cube/Cube.hres")).uuid;
 
     wait_for_all_jobs_to_finish();
     finalize_asset_loads(render_context.renderer, render_context.renderer_state);

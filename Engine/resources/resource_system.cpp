@@ -109,6 +109,21 @@ struct Static_Mesh_Resource_Info
     U64 data_offset;
 };
 
+struct Scene_Node_Info
+{
+    U32 name_count;
+    U64 name_offset;
+    S32 parent_index;
+    Transform transform;
+    U64 static_mesh_uuid;
+};
+
+struct Scene_Resource_Info
+{
+    U32 node_count;
+    U64 node_data_offset;
+};
+
 #pragma pack(pop)
 
 Resource_Header make_resource_header(U32 type, U64 uuid)
@@ -633,11 +648,15 @@ static bool create_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cg
 
 static bool condition_static_mesh_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Temprary_Memory_Arena *temp_arena)
 {
+    return true;
+}
+
+
+static bool condition_scene_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Temprary_Memory_Arena *temp_arena)
+{
     String asset_path = resource->asset_absolute_path;
     String asset_name = get_name(asset_path);
     String asset_parent_path = get_parent_path(asset_path);
-    String extension = get_extension(asset_path);
-    HE_ASSERT(extension == "gltf");
 
     bool success = true;
 
@@ -812,11 +831,93 @@ static bool condition_static_mesh_to_resource(Resource *resource, Open_File_Resu
         static_mesh_resource.uuid = static_mesh_uuid;
 
         create_static_mesh_resource(&static_mesh_resource, static_mesh, data, material_uuids);
-
         static_mesh_uuids[static_mesh_index] = static_mesh_uuid;
     }
 
-    return true;
+    U64 file_offset = 0;
+    Resource_Header header = make_resource_header((U32)Resource_Type::SCENE, resource->uuid);
+    success &= platform_write_data_to_file(resource_file, 0, &header, sizeof(header));
+    file_offset += sizeof(header);
+
+    U64 string_size = 0;
+
+    for (U32 node_index = 0; node_index < data->nodes_count; node_index++)
+    {
+        cgltf_node *node = &data->nodes[node_index];
+        HE_ASSERT(node->name);
+
+        String node_name = HE_STRING(node->name);
+        string_size += node_name.count;
+    }
+
+    Scene_Resource_Info info =
+    {
+        .node_count = u64_to_u32(data->nodes_count),
+        .node_data_offset = file_offset + sizeof(Scene_Resource_Info) + string_size
+    };
+
+    success &= platform_write_data_to_file(resource_file, file_offset, &info, sizeof(info));
+    file_offset += sizeof(info);
+
+    U64 node_name_data_file_offset = file_offset;
+
+    for (U32 node_index = 0; node_index < data->nodes_count; node_index++)
+    {
+        cgltf_node *node = &data->nodes[node_index];
+        String node_name = HE_STRING(node->name);
+        U64 node_name_size = sizeof(char) * node_name.count;
+
+        success &= platform_write_data_to_file(resource_file, file_offset, (void *)node_name.data, node_name_size);
+
+        file_offset += node_name_size;
+    }
+
+    for (U32 node_index = 0; node_index < data->nodes_count; node_index++)
+    {
+        cgltf_node *node = &data->nodes[node_index];
+
+        U64 static_mesh_uuid = HE_MAX_U64;
+        if (node->mesh)
+        {
+            U32 mesh_index = (U32)(node->mesh - data->meshes);
+            static_mesh_uuid = static_mesh_uuids[mesh_index];
+        }
+
+        String node_name = HE_STRING(node->name);
+
+        HE_LOG(Resource, Trace, "node: %.*s ===> static mesh: %#x\n", HE_EXPAND_STRING(node_name), static_mesh_uuid);
+
+        glm::quat rotation = { node->rotation[3], node->rotation[0], node->rotation[1], node->rotation[2] };
+
+        S32 parent_index = -1;
+
+        if (node->parent)
+        {
+            parent_index = (S32)(node->parent - data->nodes);
+        }
+
+        Scene_Node_Info scene_node_info =
+        {
+            .name_count = u64_to_u32(node_name.count),
+            .name_offset = node_name_data_file_offset,
+            .parent_index = parent_index,
+            .transform =
+            {
+                .position = *(glm::vec3*)&node->translation,
+                .rotation = rotation,
+                .euler_angles = glm::degrees(glm::eulerAngles(rotation)),
+                .scale = *(glm::vec3*)&node->scale
+            },
+            .static_mesh_uuid = static_mesh_uuid
+        };
+
+        success &= platform_write_data_to_file(resource_file, file_offset, &scene_node_info, sizeof(scene_node_info));
+        file_offset += sizeof(scene_node_info);
+
+        node_name_data_file_offset += node_name.count;
+    }
+
+    return success;
 }
 
 static Resource_Type_Info* find_resource_type_from_extension(const String &extension)
@@ -902,6 +1003,67 @@ static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resour
 
 static void unload_static_mesh_resource(Resource *resource)
 {
+    // todo(amer): unloade scene resource
+}
+
+static bool load_scene_resource(Open_File_Result *open_file_result, Resource *resource)
+{
+    U64 file_offset = sizeof(Resource_Header) + sizeof(U64) * resource->resource_refs.count;
+
+    Render_Context render_context = get_render_context();
+
+    bool success = true;
+
+    Scene_Resource_Info info;
+    success &= platform_read_data_from_file(open_file_result, file_offset, &info, sizeof(info));
+
+    Scene_Node *first_node = nullptr;
+
+    for (U32 node_index = 0; node_index < info.node_count; node_index++)
+    {
+        Scene_Node_Info node_info;
+        success &= platform_read_data_from_file(open_file_result, info.node_data_offset + sizeof(Scene_Node_Info) * node_index, &node_info, sizeof(node_info));
+
+        U64 node_name_data_size = sizeof(char) * node_info.name_count;
+        char *node_name_data = HE_ALLOCATE_ARRAY(resource_system_state->free_list_allocator, char, node_info.name_count + 1);
+        node_name_data[node_info.name_count] = '\0';
+
+        success &= platform_read_data_from_file(open_file_result, node_info.name_offset, node_name_data, node_name_data_size);
+
+        String node_name = { node_name_data, node_info.name_count };
+
+        Scene_Node *node = &append(&render_context.renderer_state->nodes);
+        if (!first_node)
+        {
+            first_node = node;
+        }
+
+        node->name = node_name;
+        node->static_mesh_uuid = node_info.static_mesh_uuid;
+        node->transform = node_info.transform;
+
+        if (node_info.parent_index != -1)
+        {
+            Scene_Node *parent = first_node + node_info.parent_index;
+            if (parent->last_child)
+            {
+                parent->last_child->next_sibling = node;
+                parent->last_child = node;
+            }
+            else
+            {
+                parent->first_child = parent->last_child = node;
+            }
+        }
+    }
+
+    resource->index = index_of(&render_context.renderer_state->nodes, first_node);
+    return success;
+}
+
+static void unload_scene_resource(Resource *resource)
+{
+    // todo(amer): unloade scene resource
 }
 
 //==================================== Jobs ==================================================
@@ -1276,7 +1438,7 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
     {
         static String extensions[] =
         {
-            HE_STRING_LITERAL("gltf")
+            HE_STRING_LITERAL("static_meshxxx") // todo(amer): are we going to support static mesh assets
         };
 
         Resource_Conditioner conditioner =
@@ -1294,6 +1456,29 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
         };
 
         register_resource(Resource_Type::STATIC_MESH, "static mesh", 1, conditioner, loader);
+    }
+
+    {
+        static String extensions[] =
+        {
+            HE_STRING_LITERAL("gltf")
+        };
+
+        Resource_Conditioner conditioner =
+        {
+            .extension_count = HE_ARRAYCOUNT(extensions),
+            .extensions = extensions,
+            .condition = &condition_scene_to_resource
+        };
+
+        Resource_Loader loader =
+        {
+            .use_allocation_group = true,
+            .load = &load_scene_resource,
+            .unload = &unload_scene_resource
+        };
+
+        register_resource(Resource_Type::SCENE, "scene", 1, conditioner, loader);
     }
 
     bool recursive = true;

@@ -547,7 +547,7 @@ struct Static_Mesh
 {
     String name;
 
-    U64 base_offset;
+    // U64 base_offset;
 
     U32 vertex_count;
     U32 index_count;
@@ -582,6 +582,8 @@ struct Scene_Node
 
     S32 start_mesh_index = -1;
     U32 static_mesh_count = 0;
+
+    U64 static_mesh_uuid;
 
     Transform transform;
 };
