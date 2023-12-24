@@ -86,3 +86,6 @@ void on_resize(Engine *engine, U32 window_width, U32 window_height, U32 client_w
 void game_loop(Engine *engine, F32 delta_time);
 
 void shutdown(Engine *engine);
+
+// temprary
+void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state);

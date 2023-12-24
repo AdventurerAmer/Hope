@@ -523,7 +523,7 @@ struct Sub_Mesh
     U16 vertex_count;
     U32 index_count;
     
-    Material_Handle material;
+    U64 material_uuid;
 };
 
 struct Static_Mesh_Descriptor

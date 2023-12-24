@@ -26,7 +26,7 @@ void hock_engine_api(Engine_API *api)
     api->get_render_context = &get_render_context;
 }
 
-static void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state)
+void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state)
 {
     platform_lock_mutex(&renderer_state->allocation_groups_mutex);
 
@@ -205,15 +205,24 @@ bool startup(Engine *engine, void *platform_state)
 
     wait_for_all_jobs_to_finish();
     renderer_wait_for_gpu_to_finish_all_work();
+    finalize_asset_loads(render_context.renderer, render_context.renderer_state);
 
     render_context.renderer_state->cube = aquire_resource(HE_STRING_LITERAL("Cube/static_mesh_Cube.hres")).uuid;
+
     U64 uuid = aquire_resource(HE_STRING_LITERAL("Cube/Cube.hres")).uuid;
+    aquire_resource(HE_STRING_LITERAL("Cube/material_Cube.hres"));
+
+    Resource_Ref ref = { uuid };
+    Resource *cube_resource = get_resource(ref);
+    Scene_Node *scene_node = &render_context.renderer_state->nodes[cube_resource->index];
+    add_child(render_context.renderer_state->root_scene_node, scene_node);
 
     wait_for_all_jobs_to_finish();
+    renderer_wait_for_gpu_to_finish_all_work();
     finalize_asset_loads(render_context.renderer, render_context.renderer_state);
 
     auto end = std::chrono::steady_clock::now();
-    const std::chrono::duration< double > elapsed_seconds = end - start;
+    const std::chrono::duration< F64 > elapsed_seconds = end - start;
     HE_LOG(Core, Trace, "assets loaded %.2f ms to finish\n", elapsed_seconds * 1000.0f);
     return game_initialized;
 }
@@ -226,8 +235,17 @@ void on_resize(Engine *engine, U32 window_width, U32 window_height, U32 client_w
     renderer_on_resize(client_width, client_height);
 }
 
-static void draw_transform(Transform &transform)
+static void draw_node(Scene_Node *node)
 {
+    ImGui::Text("Node: %.*s", HE_EXPAND_STRING(node->name));
+    ImGui::Separator();
+
+    ImGui::Text("");
+    ImGui::Text("Transfom");
+    ImGui::Separator();
+
+    Transform &transform = node->transform;
+
     ImGui::Text("Position");
     ImGui::SameLine();
     ImGui::DragFloat3("##Position", &transform.position.x, 0.1f);
@@ -257,6 +275,35 @@ static void draw_transform(Transform &transform)
     ImGui::Text("Scale");
     ImGui::SameLine();
     ImGui::DragFloat3("##Scale", &transform.scale.x, 0.25f);
+
+    if (node->static_mesh_uuid != HE_MAX_U64)
+    {
+        ImGui::Text("");
+        ImGui::Text("Static Mesh");
+        ImGui::Separator();
+
+        Resource_Ref ref = { node->static_mesh_uuid };
+        Resource *static_mesh_resource = get_resource(ref);
+
+        Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(ref);
+        Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+
+        ImGui::Text("path: %.*s", HE_EXPAND_STRING(static_mesh_resource->relative_path));
+        ImGui::Text("uuid: %#x", node->static_mesh_uuid);
+
+        ImGui::Text("vertex count: %llu", static_mesh->vertex_count);
+        ImGui::Text("index count: %llu", static_mesh->index_count);
+
+        U32 sub_mesh_index = 0;
+        for (Sub_Mesh &sub_mesh : static_mesh->sub_meshes)
+        {
+            ImGui::Text("");
+            ImGui::Text("Sub Mesh: %d", sub_mesh_index++);
+            ImGui::Text("vertex count: %llu", sub_mesh.vertex_count);
+            ImGui::Text("index count: %llu", sub_mesh.index_count);
+            ImGui::Text("material: %#x", sub_mesh.material_uuid);
+        }
+    }
 }
 
 Scene_Node *selected_node = nullptr;
@@ -494,13 +541,7 @@ void game_loop(Engine *engine, F32 delta_time)
         
         if (selected_node)
         {
-            ImGui::Text("Node: %.*s", HE_EXPAND_STRING(selected_node->name));
-            ImGui::Separator();
-            
-            ImGui::Text("Transfom");
-            ImGui::Separator();
-            
-            draw_transform(selected_node->transform);
+            draw_node(selected_node);
         }
 
         ImGui::End();

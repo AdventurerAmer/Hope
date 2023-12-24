@@ -40,6 +40,8 @@ struct Resource
     Mutex mutex;
     Allocation_Group allocation_group;
 
+    bool conditioned;
+
     Resource_State state;
     U32 ref_count;
     
@@ -73,7 +75,6 @@ struct Resource_Ref
 };
 
 typedef bool(*condition_resource_proc)(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Temprary_Memory_Arena *temp_arena);
-typedef bool(*save_resource_proc)(Resource *resource, Open_File_Result *open_file_result, struct Temprary_Memory_Arena *arena);
 
 struct Resource_Conditioner
 { 
@@ -81,10 +82,9 @@ struct Resource_Conditioner
     String *extensions;
     
     condition_resource_proc condition;
-    save_resource_proc save;
 };
 
-typedef bool(*load_resource_proc)(Open_File_Result *open_file_result, Resource *resource);
+typedef bool(*load_resource_proc)(Open_File_Result *open_file_result, Resource *resource, Temprary_Memory_Arena *temp_arena);
 typedef void(*unload_resource_proc)(Resource *resource);
 
 struct Resource_Loader
@@ -111,9 +111,6 @@ Resource *get_resource(Resource_Ref ref);
 Resource *get_resource(U32 index);
 
 template<typename T>
-T *get_resource_as(Resource_Ref ref);
-
-template<typename T>
 Resource_Handle<T> get_resource_handle_as(Resource_Ref ref)
 {
     Resource *resource = get_resource(ref);
@@ -121,5 +118,9 @@ Resource_Handle<T> get_resource_handle_as(Resource_Ref ref)
     return { resource->index, resource->generation };
 }
 
-bool create_material_resource(Resource *resource, const String &render_pass_name, Array_View< Resource_Ref > shader_refs, const Pipeline_State_Settings &settings);
+bool create_material_resource(Resource *resource, const String &render_pass_name, const Pipeline_State_Settings &settings, struct Material_Property_Info *properties, U16 property_count);
+
+void wait_for_resource_refs_to_condition(Array_View< Resource_Ref > resource_refs);
+void wait_for_resource_refs_to_load(Array_View< Resource_Ref > resource_refs);
+
 void imgui_draw_resource_system();

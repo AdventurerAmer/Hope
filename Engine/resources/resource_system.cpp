@@ -9,6 +9,7 @@
 #include "containers/hash_map.h"
 
 #include "rendering/renderer.h"
+#include "rendering/renderer_utils.h"
 
 #include <stb/stb_image.h>
 #include <cgltf.h>
@@ -82,6 +83,32 @@ struct Shader_Resource_Info
     U64 data_size;
 };
 
+union Material_Property_Data
+{
+    U8 u8;
+    U16 u16;
+    U32 u32;
+    U64 u64;
+
+    S8 s8;
+    S16 s16;
+    S32 s32;
+    S64 s64;
+
+    F32 f32;
+    F32 f64;
+
+    glm::vec2 v2;
+    glm::vec3 v3;
+    glm::vec4 v4;
+};
+
+struct Material_Property_Info
+{
+    bool is_texture_resource;
+    Material_Property_Data data;
+};
+
 struct Material_Resource_Info
 {
     Pipeline_State_Settings settings;
@@ -89,8 +116,8 @@ struct Material_Resource_Info
     U64 render_pass_name_count;
     U64 render_pass_name_offset;
 
-    U64 data_size;
-    S64 data_offset;
+    U16 property_count;
+    S64 property_data_offset;
 };
 
 struct Sub_Mesh_Info
@@ -167,11 +194,14 @@ static bool condition_texture_to_resource(Resource *resource, Open_File_Result *
     S32 width;
     S32 height;
     S32 channels;
+
     stbi_uc *pixels = stbi_load_from_memory(data, asset_file->size, &width, &height, &channels, STBI_rgb_alpha);
+
     if (!pixels)
     {
         return false;
     }
+
     HE_DEFER { stbi_image_free(pixels); };
 
     U64 offset = 0;
@@ -198,7 +228,7 @@ static bool condition_texture_to_resource(Resource *resource, Open_File_Result *
     return success;
 }
 
-static bool load_texture_resource(Open_File_Result *open_file_result, Resource *resource)
+static bool load_texture_resource(Open_File_Result *open_file_result, Resource *resource, Temprary_Memory_Arena *temp_arena)
 {
     Texture_Resource_Info info;
     platform_read_data_from_file(open_file_result, sizeof(Resource_Header), &info, sizeof(Texture_Resource_Info));
@@ -247,7 +277,7 @@ static void unload_texture_resource(Resource *resource)
 
 static bool condition_shader_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Temprary_Memory_Arena *temp_arena)
 {
-    // todo(amer): @Hack
+    // todo(amer): @Hack until we have a compiler instead of using cmd with glslangValidator
     platform_close_file(asset_file);
     platform_close_file(resource_file);
 
@@ -294,16 +324,14 @@ static bool condition_shader_to_resource(Resource *resource, Open_File_Result *a
     return success;
 }
 
-static bool load_shader_resource(Open_File_Result *open_file_result, Resource *resource)
+static bool load_shader_resource(Open_File_Result *open_file_result, Resource *resource, Temprary_Memory_Arena *temp_arena)
 {
     bool success = true;
 
     Shader_Resource_Info info;
     success &= platform_read_data_from_file(open_file_result, sizeof(Resource_Header), &info, sizeof(info));
 
-    U8 *data = HE_ALLOCATE_ARRAY(resource_system_state->resource_allocator, U8, info.data_size);
-    HE_DEFER { deallocate(resource_system_state->resource_allocator, data); };
-
+    U8 *data = HE_ALLOCATE_ARRAY(temp_arena, U8, info.data_size);
     success &= platform_read_data_from_file(open_file_result, info.data_offset, data, info.data_size);
 
     if (!success)
@@ -338,50 +366,48 @@ static bool condition_material_to_resource(Resource *resource, Open_File_Result 
     return true;
 }
 
-static bool save_material_resource(Resource *resource, Open_File_Result *open_file_result, struct Temprary_Memory_Arena *arena)
-{
-    Material *material = renderer_get_material({ resource->index, resource->generation });
-    Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
+// static bool save_material_resource(Resource *resource, Open_File_Result *open_file_result, struct Temprary_Memory_Arena *arena)
+// {
+//     Material *material = renderer_get_material({ resource->index, resource->generation });
+//     Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
 
-    Render_Pass *render_pass = renderer_get_render_pass(pipeline_state->descriptor.render_pass);
-    String &render_pass_name = render_pass->name;
+//     Render_Pass *render_pass = renderer_get_render_pass(pipeline_state->descriptor.render_pass);
+//     String &render_pass_name = render_pass->name;
 
-    Shader_Group *shader_group = renderer_get_shader_group(pipeline_state->descriptor.shader_group);
+//     Shader_Group *shader_group = renderer_get_shader_group(pipeline_state->descriptor.shader_group);
 
-    Resource_Header header = make_resource_header((U32)Resource_Type::MATERIAL, resource->uuid);
-    header.resource_ref_count += shader_group->shaders.count;
+//     Resource_Header header = make_resource_header((U32)Resource_Type::MATERIAL, resource->uuid);
+//     header.resource_ref_count += shader_group->shaders.count;
 
-    bool success = true;
+//     bool success = true;
 
-    U64 file_offset = 0;
-    success &= platform_write_data_to_file(open_file_result, file_offset, &header, sizeof(header));
-    file_offset += sizeof(header);
+//     U64 file_offset = 0;
+//     success &= platform_write_data_to_file(open_file_result, file_offset, &header, sizeof(header));
+//     file_offset += sizeof(header);
 
-    success &= platform_write_data_to_file(open_file_result, file_offset, resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
-    file_offset += sizeof(U64) * resource->resource_refs.count;
+//     success &= platform_write_data_to_file(open_file_result, file_offset, resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
+//     file_offset += sizeof(U64) * resource->resource_refs.count;
 
-    Material_Resource_Info info =
-    {
-        .settings = pipeline_state->descriptor.settings,
-        .render_pass_name_count = render_pass_name.count,
-        .render_pass_name_offset = file_offset + sizeof(Material_Resource_Info),
-        .data_size = material->size,
-        .data_offset = (S64)(file_offset + sizeof(Material_Resource_Info) + render_pass_name.count)
-    };
+//     Material_Resource_Info info =
+//     {
+//         .settings = pipeline_state->descriptor.settings,
+//         .render_pass_name_count = render_pass_name.count,
+//         .render_pass_name_offset = file_offset + sizeof(Material_Resource_Info),
+//     };
 
-    success &= platform_write_data_to_file(open_file_result, file_offset, &info, sizeof(info));
-    file_offset += sizeof(info);
+//     success &= platform_write_data_to_file(open_file_result, file_offset, &info, sizeof(info));
+//     file_offset += sizeof(info);
 
-    success &= platform_write_data_to_file(open_file_result, file_offset, (void *)render_pass_name.data, render_pass_name.count);
-    file_offset += sizeof(render_pass_name.count);
+//     success &= platform_write_data_to_file(open_file_result, file_offset, (void *)render_pass_name.data, render_pass_name.count);
+//     file_offset += sizeof(render_pass_name.count);
 
-    success &= platform_write_data_to_file(open_file_result, file_offset, material->data, material->size);
-    file_offset += material->size;
+//     success &= platform_write_data_to_file(open_file_result, file_offset, material->data, material->size);
+//     file_offset += material->size;
 
-    return success;
-}
+//     return success;
+// }
 
-static bool load_material_resource(Open_File_Result *open_file_result, Resource *resource)
+static bool load_material_resource(Open_File_Result *open_file_result, Resource *resource, Temprary_Memory_Arena *temp_arena)
 {
     bool success = true;
 
@@ -432,13 +458,23 @@ static bool load_material_resource(Open_File_Result *open_file_result, Resource 
     Material_Handle material_handle = renderer_create_material(material_descriptor);
     Material *material = renderer_get_material(material_handle);
 
-    if (info.data_offset == -1)
+    if (info.property_count == 0)
     {
         // todo(amer): load defaults and mark material as dirty aka needs saving...
     }
     else
     {
-        success &= platform_read_data_from_file(open_file_result, info.data_offset, material->data, material->size);
+        Material_Property_Info *infos = HE_ALLOCATE_ARRAY(temp_arena, Material_Property_Info, info.property_count);
+        success &= platform_read_data_from_file(open_file_result, info.property_data_offset, (void *)infos, sizeof(Material_Property_Info) * info.property_count);
+
+        for (U32 property_index = 0; property_index < info.property_count; property_index++)
+        {
+            Shader_Struct_Member *member = &material->properties->members[property_index];
+            Material_Property_Info *info = &infos[property_index];
+
+            U8 *data = get_property(material, member->name, member->data_type);
+            memcpy(data, &info->data, get_size_of_shader_data_type(member->data_type));
+        }
     }
 
     if (success)
@@ -724,7 +760,7 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
         }
 
         U64 albedo_texture_uuid = HE_MAX_U64;
-        U64 metallic_roughness_occlusion_texture_uuid = HE_MAX_U64;
+        U64 occlusion_roughness_metallic_texture_uuid = HE_MAX_U64;
         U64 normal_texture_uuid = HE_MAX_U64;
 
         if (material->has_pbr_metallic_roughness)
@@ -738,7 +774,7 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
             if (material->pbr_metallic_roughness.metallic_roughness_texture.texture)
             {
                 const cgltf_image *image = material->pbr_metallic_roughness.metallic_roughness_texture.texture->image;
-                metallic_roughness_occlusion_texture_uuid = get_texture_uuid(image);
+                occlusion_roughness_metallic_texture_uuid = get_texture_uuid(image);
             }
         }
 
@@ -776,12 +812,9 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
 
         for (Resource_Ref ref : shaders)
         {
+            HE_ASSERT(ref.uuid != HE_MAX_U64);
             append(&material_resource.resource_refs, ref.uuid);
         }
-
-        append(&material_resource.resource_refs, albedo_texture_uuid);
-        append(&material_resource.resource_refs, metallic_roughness_occlusion_texture_uuid);
-        append(&material_resource.resource_refs, normal_texture_uuid);
 
         Pipeline_State_Settings pipeline_state_settings =
         {
@@ -791,8 +824,97 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
             .sample_shading = true,
         };
 
-        create_material_resource(&material_resource, render_pass, to_array_view(shaders), pipeline_state_settings);
+        wait_for_resource_refs_to_condition(to_array_view(shaders));
 
+        for (Resource_Ref ref : shaders)
+        {
+            Resource *resource = get_resource(ref);
+            HE_ASSERT(resource->conditioned);
+            HE_ASSERT(resource->type == (U32)Resource_Type::SHADER);
+
+            bool aquired = aquire_resource(ref);
+            HE_ASSERT(aquired);
+        }
+
+        wait_for_resource_refs_to_load(to_array_view(shaders));
+
+        Shader_Struct *properties_struct = nullptr;
+
+        for (Resource_Ref ref : shaders)
+        {
+            Shader_Handle shader_handle = get_resource_handle_as<Shader>(ref);
+            Shader *shader = renderer_get_shader(shader_handle);
+
+            for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
+            {
+                Shader_Struct *struct_ = &shader->structs[struct_index];
+                if (struct_->name == "Material_Properties")
+                {
+                    if (!properties_struct)
+                    {
+                        properties_struct = struct_;
+                        break;
+                    }
+                    else
+                    {
+                        HE_ASSERT(!"invalid path");
+                    }
+                }
+            }
+        }
+
+        Material_Property_Info *properties = HE_ALLOCATE_ARRAY(temp_arena, Material_Property_Info, properties_struct->member_count);
+        String texture_signature = HE_STRING_LITERAL("_texture_index");
+
+        for (U32 member_index = 0; member_index < properties_struct->member_count; member_index++)
+        {
+            Material_Property_Info *property = &properties[member_index];
+            property->is_texture_resource = false;
+
+            Shader_Struct_Member *member = &properties_struct->members[member_index];
+
+            if (member->data_type != Shader_Data_Type::U32)
+            {
+                continue;
+            }
+
+            if (texture_signature.count >= member->name.count)
+            {
+                continue;
+            }
+
+            // todo(amer): string ends utility function
+            U64 offset = member->name.count - texture_signature.count;
+            if (sub_string(member->name, offset, texture_signature.count) == texture_signature)
+            {
+                property->is_texture_resource = true;
+            }
+        }
+
+        auto set_property = [&](const char *property_name, Material_Property_Data data)
+        {
+            String name = HE_STRING(property_name);
+
+            for (U32 member_index = 0; member_index < properties_struct->member_count; member_index++)
+            {
+                Shader_Struct_Member *member = &properties_struct->members[member_index];
+                if (member->name == name)
+                {
+                    properties[member_index].data = data;
+                    return;
+                }
+            }
+        };
+
+        set_property("albedo_texture_index",                       { .u64 = albedo_texture_uuid });
+        set_property("normal_texture_index",                       { .u64 = normal_texture_uuid });
+        set_property("occlusion_roughness_metallic_texture_index", { .u64 = occlusion_roughness_metallic_texture_uuid });
+        set_property("albedo_color",                               { .v3 = *(glm::vec3 *)material->pbr_metallic_roughness.base_color_factor });
+        set_property("roughness_factor",                           { .f32 = material->pbr_metallic_roughness.roughness_factor });
+        set_property("metallic_factor",                            { .f32 = material->pbr_metallic_roughness.metallic_factor });
+        set_property("reflectance",                                { .f32 = 0.04f });
+
+        create_material_resource(&material_resource, render_pass, pipeline_state_settings, properties, properties_struct->member_count);
         material_uuids[material_index] = material_uuid;
     }
 
@@ -819,7 +941,6 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
 
         resource_mutex.lock();
         U64 static_mesh_uuid = generate_uuid();
-        HE_ASSERT(resource_system_state->resources.count < resource_system_state->resources.capacity);
         Resource &static_mesh_resource = append(&resource_system_state->resources);
         U32 resource_index = index_of(&resource_system_state->resources, static_mesh_resource);
         uuid_to_resource_index.emplace(static_mesh_uuid, resource_index);
@@ -937,7 +1058,7 @@ static Resource_Type_Info* find_resource_type_from_extension(const String &exten
     return nullptr;
 }
 
-static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resource *resource)
+static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resource *resource, Temprary_Memory_Arena *temp_arena)
 {
     U64 file_offset = sizeof(Resource_Header) + sizeof(U64) * resource->resource_refs.count;
 
@@ -967,7 +1088,7 @@ static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resour
         Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
         sub_mesh->vertex_count = sub_mesh_info->vertex_count;
         sub_mesh->index_count = sub_mesh_info->index_count;
-        sub_mesh->material = Resource_Pool< Material >::invalid_handle;
+        sub_mesh->material_uuid = sub_mesh_info->material_uuid;
 
         index_count += sub_mesh_info->index_count;
         vertex_count += sub_mesh_info->vertex_count;
@@ -1006,7 +1127,7 @@ static void unload_static_mesh_resource(Resource *resource)
     // todo(amer): unloade scene resource
 }
 
-static bool load_scene_resource(Open_File_Result *open_file_result, Resource *resource)
+static bool load_scene_resource(Open_File_Result *open_file_result, Resource *resource, Temprary_Memory_Arena *temp_arena)
 {
     U64 file_offset = sizeof(Resource_Header) + sizeof(U64) * resource->resource_refs.count;
 
@@ -1045,15 +1166,7 @@ static bool load_scene_resource(Open_File_Result *open_file_result, Resource *re
         if (node_info.parent_index != -1)
         {
             Scene_Node *parent = first_node + node_info.parent_index;
-            if (parent->last_child)
-            {
-                parent->last_child->next_sibling = node;
-                parent->last_child = node;
-            }
-            else
-            {
-                parent->first_child = parent->last_child = node;
-            }
+            add_child(parent, node);
         }
     }
 
@@ -1109,37 +1222,38 @@ static Job_Result condition_resource_job(const Job_Parameters &params)
     }
 
     HE_LOG(Resource, Trace, "successfully conditioned asset: %.*s\n", HE_EXPAND_STRING(asset_path));
+    resource->conditioned = true;
     return Job_Result::SUCCEEDED;
 }
 
-struct Save_Resource_Job_Data
-{
-    Resource *resource;
-};
+// struct Save_Resource_Job_Data
+// {
+//     Resource *resource;
+// };
 
-static Job_Result save_resource_job(const Job_Parameters &params)
-{
-    Save_Resource_Job_Data *job_data = (Save_Resource_Job_Data *)params.data;
-    Resource *resource = job_data->resource;
-    Resource_Conditioner &conditioner = resource_system_state->resource_type_infos[resource->type].conditioner;
+// static Job_Result save_resource_job(const Job_Parameters &params)
+// {
+//     Save_Resource_Job_Data *job_data = (Save_Resource_Job_Data *)params.data;
+//     Resource *resource = job_data->resource;
+//     Resource_Conditioner &conditioner = resource_system_state->resource_type_infos[resource->type].conditioner;
 
-    Open_File_Result open_file_result = platform_open_file(resource->absolute_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
-    if (!open_file_result.success)
-    {
-        HE_LOG(Resource, Trace, "failed to open file %.*s\n", HE_EXPAND_STRING(resource->absolute_path));
-        return Job_Result::FAILED;
-    }
+//     Open_File_Result open_file_result = platform_open_file(resource->absolute_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
+//     if (!open_file_result.success)
+//     {
+//         HE_LOG(Resource, Trace, "failed to open file %.*s\n", HE_EXPAND_STRING(resource->absolute_path));
+//         return Job_Result::FAILED;
+//     }
 
-    HE_DEFER { platform_close_file(&open_file_result); };
-    if (conditioner.save(resource, &open_file_result, params.temprary_memory_arena))
-    {
-        HE_LOG(Resource, Trace, "failed to save resource: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
-        return Job_Result::FAILED;
-    }
+//     HE_DEFER { platform_close_file(&open_file_result); };
+//     if (conditioner.save(resource, &open_file_result, params.temprary_memory_arena))
+//     {
+//         HE_LOG(Resource, Trace, "failed to save resource: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
+//         return Job_Result::FAILED;
+//     }
 
-    HE_LOG(Resource, Trace, "successfully saved resource: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
-    return Job_Result::SUCCEEDED;
-}
+//     HE_LOG(Resource, Trace, "successfully saved resource: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
+//     return Job_Result::SUCCEEDED;
+// }
 
 struct Load_Resource_Job_Data
 {
@@ -1174,13 +1288,13 @@ static Job_Result load_resource_job(const Job_Parameters &params)
 
     if (!open_file_result.success)
     {
-        HE_LOG(Resource, Fetal, "failed to open resource file: %.*s", HE_EXPAND_STRING(resource->relative_path));
+        HE_LOG(Resource, Fetal, "failed to open resource file: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
         return Job_Result::FAILED;
     }
 
     HE_DEFER { platform_close_file(&open_file_result); };
 
-    bool success = info.loader.load(&open_file_result, resource);
+    bool success = info.loader.load(&open_file_result, resource, params.temprary_memory_arena);
 
     if (!success)
     {
@@ -1192,6 +1306,7 @@ static Job_Result load_resource_job(const Job_Parameters &params)
     {
         Render_Context context = get_render_context();
         Renderer_State *renderer_state = context.renderer_state;
+
         platform_lock_mutex(&renderer_state->allocation_groups_mutex);
         append(&renderer_state->allocation_groups, resource->allocation_group);
         platform_unlock_mutex(&renderer_state->allocation_groups_mutex);
@@ -1261,6 +1376,7 @@ static void on_path(String *path, bool is_directory)
         resource.absolute_path = resource_absolute_path;
         resource.relative_path = resource_relative_path;
         resource.uuid = header.uuid;
+        resource.conditioned = true;
         resource.state = Resource_State::UNLOADED;
         resource.type = header.type;
         resource.index = -1;
@@ -1317,6 +1433,7 @@ static void on_path(String *path, bool is_directory)
         resource.absolute_path = copy_string(resource_absolute_path, resource_system_state->arena);
         resource.relative_path = sub_string(resource.absolute_path, resource_system_state->resource_path.count + 1);
         resource.uuid = HE_MAX_U64;
+        resource.conditioned = false;
         resource.state = Resource_State::UNLOADED;
         resource.type = (U32)(resource_type_info - resource_system_state->resource_type_infos);
         resource.index = -1;
@@ -1422,7 +1539,6 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             .extension_count = HE_ARRAYCOUNT(extensions),
             .extensions = extensions,
             .condition = &condition_material_to_resource,
-            .save = &save_material_resource
         };
 
         Resource_Loader loader =
@@ -1576,6 +1692,9 @@ static void aquire_resource(Resource *resource)
             {
                 break;
             }
+
+            Render_Context render_context = get_render_context();
+            finalize_asset_loads(render_context.renderer, render_context.renderer_state);
         }
     }
 
@@ -1619,6 +1738,11 @@ Resource_Ref aquire_resource(const String &path)
 
 bool aquire_resource(Resource_Ref ref)
 {
+    if (ref.uuid == HE_MAX_U64)
+    {
+        return false;
+    }
+
     auto it = uuid_to_resource_index.find(ref.uuid);
     if (it == uuid_to_resource_index.end())
     {
@@ -1651,8 +1775,11 @@ void release_resource(Resource_Ref ref)
 
 Resource *get_resource(Resource_Ref ref)
 {
-    HE_ASSERT(is_valid(ref));
     auto it = uuid_to_resource_index.find(ref.uuid);
+    if (it == uuid_to_resource_index.end())
+    {
+        return nullptr;
+    }
     return &resource_system_state->resources[it->second];
 }
 
@@ -1662,23 +1789,56 @@ Resource *get_resource(U32 index)
     return &resource_system_state->resources[index];
 }
 
-template<>
-Texture *get_resource_as<Texture>(Resource_Ref ref)
+// @Hack: we should rely on the job system
+void wait_for_resource_refs_to_condition(Array_View< Resource_Ref > resource_refs)
 {
-    Resource *resource = get_resource(ref);
-    HE_ASSERT(resource->state == Resource_State::LOADED);
-    return renderer_get_texture({ resource->index, resource->generation });
+    while (true)
+    {
+        bool all_conditioned = true;
+
+        for (Resource_Ref ref : resource_refs)
+        {
+            Resource *resource = get_resource(ref);
+
+            if (!resource->conditioned)
+            {
+                all_conditioned = false;
+                break;
+            }
+        }
+
+        if (all_conditioned)
+        {
+            return;
+        }
+    }
 }
 
-template<>
-Shader *get_resource_as<Shader>(Resource_Ref ref)
+// @Hack: we should rely on the job system
+void wait_for_resource_refs_to_load(Array_View< Resource_Ref > resource_refs)
 {
-    Resource *resource = get_resource(ref);
-    HE_ASSERT(resource->state == Resource_State::LOADED);
-    return renderer_get_shader({ resource->index, resource->generation });
+    while (true)
+    {
+        bool all_loaded = true;
+
+        for (Resource_Ref ref : resource_refs)
+        {
+            Resource *resource = get_resource(ref);
+            if (resource->state != Resource_State::LOADED)
+            {
+                all_loaded = false;
+                break;
+            }
+        }
+
+        if (all_loaded)
+        {
+            break;
+        }
+    }
 }
 
-bool create_material_resource(Resource *resource, const String &render_pass_name, Array_View< Resource_Ref > shader_refs, const Pipeline_State_Settings &settings)
+bool create_material_resource(Resource *resource, const String &render_pass_name, const Pipeline_State_Settings &settings, Material_Property_Info *properties, U16 property_count)
 {
     resource->type = (U32)Resource_Type::MATERIAL;
     resource->state = Resource_State::UNLOADED;
@@ -1700,6 +1860,8 @@ bool create_material_resource(Resource *resource, const String &render_pass_name
         return false;
     }
 
+    HE_DEFER { platform_close_file(&open_file_result); };
+
     U64 file_offset = 0;
     success &= platform_write_data_to_file(&open_file_result, file_offset, &header, sizeof(header));
     file_offset += sizeof(header);
@@ -1712,8 +1874,8 @@ bool create_material_resource(Resource *resource, const String &render_pass_name
         .settings = settings,
         .render_pass_name_count = render_pass_name.count,
         .render_pass_name_offset = file_offset + sizeof(Material_Resource_Info),
-        .data_size = 0,
-        .data_offset = -1
+        .property_count = property_count,
+        .property_data_offset = (S64)(file_offset + sizeof(Material_Resource_Info) + render_pass_name.count)
     };
 
     success &= platform_write_data_to_file(&open_file_result, file_offset, &info, sizeof(info));
@@ -1721,6 +1883,10 @@ bool create_material_resource(Resource *resource, const String &render_pass_name
 
     success &= platform_write_data_to_file(&open_file_result, file_offset, (void *)render_pass_name.data, render_pass_name.count);
     file_offset += sizeof(render_pass_name.count);
+
+    U64 property_size = sizeof(Material_Property_Info) * property_count;
+    success &= platform_write_data_to_file(&open_file_result, file_offset, (void *)properties, property_size);
+    file_offset += property_size;
 
     return success;
 }

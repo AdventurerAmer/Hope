@@ -394,7 +394,7 @@ bool init_renderer_state(Engine *engine)
             
             Resource_Ref ref = { renderer_state->cube };
             Resource *cube_resource = get_resource(ref);
-            if (cube_resource->state == Resource_State::LOADED)
+            if (cube_resource && cube_resource->state == Resource_State::LOADED)
             {
                 // HE_LOG(Core, Trace, "using cube resource\n");
                 static_mesh_handle = get_resource_handle_as<Static_Mesh>(ref);
@@ -872,12 +872,31 @@ glm::mat4 get_world_matrix(const Transform &transform)
     return glm::translate(glm::mat4(1.0f), transform.position) * glm::toMat4(transform.rotation) * glm::scale(glm::mat4(1.0f), transform.scale);
 }
 
+void add_child(Scene_Node *parent, Scene_Node *node)
+{
+    HE_ASSERT(parent);
+    HE_ASSERT(node);
+
+    node->parent = parent;
+
+    if (parent->last_child)
+    {
+        parent->last_child->next_sibling = node;
+        parent->last_child = node;
+    }
+    else
+    {
+        parent->first_child = parent->last_child = node;
+    }
+}
+
 Scene_Node* add_child_scene_node(Scene_Node *parent)
 {
     HE_ASSERT(renderer_state->scene_node_count < HE_MAX_SCENE_NODE_COUNT);
     HE_ASSERT(parent);
 
     Scene_Node *node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
+    node->static_mesh_uuid = HE_MAX_U64;
     node->parent = parent;
 
     if (parent->last_child)

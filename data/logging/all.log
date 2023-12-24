@@ -1,22 +1,19 @@
 [Rendering-Trace]: Layer VK_LAYER_RTSS uses API version 1.1 which is older than the application specified API version of 1.2. May cause issues.
-[Core-Trace]: assets loaded 592.76 ms to finish
+[Resource-Trace]: resource loaded: opaque_pbr_vert.hres
+[Resource-Trace]: resource loaded: opaque_pbr_frag.hres
+[Resource-Trace]: resource loaded: Cube/material_Cube.hres
+[Core-Trace]: assets loaded 616.67 ms to finish
 [Resource-Trace]: resource loaded: Cube/static_mesh_Cube.hres
 [Resource-Trace]: resource loaded: Cube/Cube.hres
-ce-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_MetallicRoughness.png
+: c:/dev/cpp/hope/data/resources/Cube/Cube.gltf
 [Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_BaseColor.png
-[Core-Trace]: assets loaded 768.10 ms to finish
-[Resource-Trace]: resource loaded: Cube/static_mesh_Cube.hres
-[Resource-Trace]: resource loaded: Cube/Cube.hres
-resource loaded: Cube/Cube.hres
-ue_pbr_frag.frag
-[Core-Trace]: assets loaded 871.80 ms to finish
-cube resource
-[Core-Trace]: using cube resource
-[Core-Trace]: using cube resource
-[Core-Trace]: using cube resource
-[Core-Trace]: using cube resource
-[Core-Trace]: using cube resource
-[Core-Trace]: using cube resource
+[Core-Trace]: assets loaded 857.10 ms to finish
+s
+[Resource-Trace]: node: Cube ===> static mesh: 0xd8605df6
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube.gltf
+[Core-Trace]: assets loaded 794.09 ms to finish
+tal]: failed to open resource file: Cube/material_Cube.hres[Core-Trace]: assets loaded 758.26 ms to finish
+ce
 [Core-Trace]: using cube resource
 [Core-Trace]: using cube resource
 [Core-Trace]: using cube resource

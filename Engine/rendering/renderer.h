@@ -222,6 +222,8 @@ Transform get_identity_transform();
 Transform combine(const Transform &a, const Transform &b);
 glm::mat4 get_world_matrix(const Transform &transform);
 
+void add_child(Scene_Node *parent, Scene_Node *node);
+
 Scene_Node *add_child_scene_node(Scene_Node *parent);
 
 bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *arena, Allocation_Group *allocation_group);
