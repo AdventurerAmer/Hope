@@ -1,5 +1,6 @@
 bin
 .vs
+**.hres
 **.sln
 **.vcxproj
 **.vcxproj.filters
