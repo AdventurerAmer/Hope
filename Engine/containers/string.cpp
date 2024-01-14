@@ -84,6 +84,29 @@ S64 find_first_char_from_right(const String &str, const char *chars)
     return -1;
 }
 
+bool starts_with(const String &str, const char *start)
+{
+    String start_ = HE_STRING(start);
+    if (start_.count > str.count)
+    {
+        return false;
+    }
+    return sub_string(str, 0, start_.count) == start_;
+}
+
+bool ends_with(const String &str, const char *end)
+{
+    String end_ = HE_STRING(end);
+
+    if (end_.count > str.count)
+    {
+        return false;
+    }
+
+    U64 offset = str.count - end_.count;
+    return sub_string(str, offset, end_.count) == end_;
+}
+
 String copy_string(const char *str, U64 count, Allocator allocator)
 {
     if (!count)

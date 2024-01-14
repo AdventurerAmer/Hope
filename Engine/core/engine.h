@@ -43,8 +43,6 @@ struct Engine_API
 
     void (*update_camera)(Camera *camera);
 
-    Scene_Node* (*load_model_threaded)(const String &path, bool add_to_scene);
-
     void* (*allocate_memory)(U64 size);
     void (*deallocate_memory)(void *memory);
     void (*set_window_mode)(Window *window, Window_Mode mode);

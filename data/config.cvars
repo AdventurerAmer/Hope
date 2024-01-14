@@ -1,4 +1,6 @@
 @platform
+@renderer
+@platform
 :engine_name Hope
 :app_name Hope
 :window_width 1296
@@ -11,4 +13,4 @@
 :gamma 2.200000
 :msaa_setting 2
 :anisotropic_filtering_setting 4
-:vsync 1
+:vsync 0

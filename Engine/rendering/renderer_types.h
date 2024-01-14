@@ -453,22 +453,58 @@ using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
 struct Material_Descriptor
 {
     Pipeline_State_Handle pipeline_state_handle;
+    U32 property_info_count;
+    struct Material_Property_Info *property_infos;
+};
+
+union Material_Property_Data
+{
+    U8  u8;
+    U16 u16;
+    U32 u32;
+    U64 u64;
+
+    S8  s8;
+    S16 s16;
+    S32 s32;
+    S64 s64;
+
+    F32 f32;
+    F32 f64;
+
+    glm::vec2 v2;
+    glm::vec3 v3;
+    glm::vec4 v4;
+};
+
+struct Material_Property
+{
+    String name;
+
+    Shader_Data_Type data_type;
+    Material_Property_Data default_data;
+    Material_Property_Data data;
+
+    U64 offset_in_buffer;
+    bool is_texture_resource;
+    bool is_color;
 };
 
 struct Material
 {
     String name;
 
-    U64 hash; // todo(amer): temprary
-
     Pipeline_State_Handle pipeline_state_handle;
+
+    Dynamic_Array< Material_Property > properties;
 
     U8 *data;
     U64 size;
-    Shader_Struct *properties;
 
     Array< Buffer_Handle, HE_MAX_FRAMES_IN_FLIGHT > buffers;
     Array< Bind_Group_Handle, HE_MAX_FRAMES_IN_FLIGHT > bind_groups;
+
+    U32 dirty_count;
 };
 
 using Material_Handle = Resource_Handle< Material >;
@@ -495,18 +531,10 @@ using Semaphore_Handle = Resource_Handle< Renderer_Semaphore >;
 
 #define HE_MAX_ALLOCATION_COUNT 8
 
-enum class Allocation_Group_Type : U8
-{
-    GENERAL,
-    MODEL
-};
-
 struct Allocation_Group
 {
     String resource_name;
     S32 resource_index = -1;
-
-    Allocation_Group_Type type;
 
     U64 target_value;
     Semaphore_Handle semaphore;
@@ -522,7 +550,10 @@ struct Sub_Mesh
 {
     U16 vertex_count;
     U32 index_count;
-    
+
+    U32 vertex_offset;
+    U32 index_offset;
+
     U64 material_uuid;
 };
 
@@ -535,6 +566,7 @@ struct Static_Mesh_Descriptor
     glm::vec3 *normals;
     glm::vec2 *uvs;
     glm::vec4 *tangents;
+
     U16 *indices;
 
     Dynamic_Array< Sub_Mesh > sub_meshes;
@@ -542,19 +574,14 @@ struct Static_Mesh_Descriptor
     Allocation_Group *allocation_group;
 };
 
-// todo(amer): should material is be here or in a component
 struct Static_Mesh
 {
     String name;
-
-    // U64 base_offset;
 
     U32 vertex_count;
     U32 index_count;
 
     Dynamic_Array< Sub_Mesh > sub_meshes;
-    
-    Material_Handle material;
 };
 
 using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;
@@ -580,12 +607,20 @@ struct Scene_Node
     Scene_Node *last_child;
     Scene_Node *next_sibling;
 
-    S32 start_mesh_index = -1;
-    U32 static_mesh_count = 0;
-
     U64 static_mesh_uuid;
 
     Transform transform;
+    Transform global_transform;
+};
+
+struct Render_Packet
+{
+    U64 material_uuid;
+
+    U64 static_mesh_uuid;
+    U16 sub_mesh_index;
+
+    U32 transform_index;
 };
 
 //

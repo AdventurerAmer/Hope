@@ -14,6 +14,11 @@ struct Resource_Handle
     {
         return index == other.index && generation == other.generation;
     }
+
+    bool operator!=(const Resource_Handle< T > &other)
+    {
+        return index != other.index || generation != other.generation;
+    }
 };
 
 struct Resource_Pool_Node
@@ -92,7 +97,8 @@ template< typename T >
 HE_FORCE_INLINE bool is_valid_handle(Resource_Pool< T > *resource_pool, Resource_Handle< T > handle)
 {
     HE_ASSERT(resource_pool);
-    return handle.index >= 0 && handle.index < (S32)resource_pool->capacity && resource_pool->is_allocated[handle.index] && resource_pool->generations[handle.index] == handle.generation;
+    bool result = handle.index >= 0 && handle.index < (S32)resource_pool->capacity && resource_pool->is_allocated[handle.index] && resource_pool->generations[handle.index] == handle.generation;
+    return result;
 }
 
 template< typename T >

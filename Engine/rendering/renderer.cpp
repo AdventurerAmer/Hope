@@ -13,6 +13,8 @@
 
 #include "resources/resource_system.h"
 
+#include <algorithm> // todo(amer): to be removed
+
 #if HE_OS_WINDOWS
 #define HE_RHI_VULKAN
 #endif
@@ -20,6 +22,7 @@
 #ifdef HE_RHI_VULKAN
 #include "rendering/vulkan/vulkan_renderer.h"
 #endif
+
 
 #pragma warning(push, 0)
 
@@ -90,6 +93,7 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->set_index_buffer = &vulkan_renderer_set_index_buffer;
             renderer->set_pipeline_state = &vulkan_renderer_set_pipeline_state;
             renderer->draw_static_mesh = &vulkan_renderer_draw_static_mesh;
+            renderer->draw_sub_mesh = &vulkan_renderer_draw_sub_mesh;
             renderer->end_frame = &vulkan_renderer_end_frame;
             renderer->set_vsync = &vulkan_renderer_set_vsync;
             renderer->get_texture_memory_requirements = &vulkan_renderer_get_texture_memory_requirements;
@@ -139,19 +143,17 @@ bool init_renderer_state(Engine *engine)
     init(&renderer_state->semaphores, arena, HE_MAX_SEMAPHORE_COUNT);
 
     init(&renderer_state->nodes, &engine->memory.free_list_allocator);
+    platform_create_mutex(&renderer_state->nodes_mutex);
 
-    renderer_state->scene_nodes = HE_ALLOCATE_ARRAY(arena, Scene_Node, HE_MAX_SCENE_NODE_COUNT);
-    renderer_state->root_scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
-    
+    renderer_state->root_scene_node = &append(&renderer_state->nodes);
     Scene_Node *root_scene_node = renderer_state->root_scene_node;
     root_scene_node->name = HE_STRING_LITERAL("Root");
-    root_scene_node->transform = get_identity_transform();
+    root_scene_node->transform = root_scene_node->global_transform = get_identity_transform();
     root_scene_node->parent = nullptr;
     root_scene_node->last_child = nullptr;
     root_scene_node->first_child = nullptr;
     root_scene_node->next_sibling = nullptr;
-    root_scene_node->start_mesh_index = -1;
-    root_scene_node->static_mesh_count = 0;
+    root_scene_node->static_mesh_uuid = HE_MAX_U64;
 
     bool render_commands_mutex_created = platform_create_mutex(&renderer_state->render_commands_mutex);
     HE_ASSERT(render_commands_mutex_created);
@@ -232,11 +234,10 @@ bool init_renderer_state(Engine *engine)
         Allocation_Group allocation_group =
         {
             .resource_name = HE_STRING_LITERAL("white pixel"),
-            .type = Allocation_Group_Type::GENERAL,
             .semaphore = renderer_create_semaphore(semaphore_descriptor)
         };
         append(&allocation_group.allocations, (void*)white_pixel_data);
-        
+
         Texture_Descriptor white_pixel_descriptor =
         {
             .width = 1,
@@ -260,7 +261,6 @@ bool init_renderer_state(Engine *engine)
         Allocation_Group allocation_group =
         {
             .resource_name = HE_STRING_LITERAL("normal pixel"),
-            .type = Allocation_Group_Type::GENERAL,
             .semaphore = renderer_create_semaphore(semaphore_descriptor),
         };
         append(&allocation_group.allocations, (void*)normal_pixel_data);
@@ -278,7 +278,7 @@ bool init_renderer_state(Engine *engine)
         renderer_state->normal_pixel_texture = renderer_create_texture(normal_pixel_descriptor);
     }
 
-    Sampler_Descriptor default_sampler_descriptor =
+    Sampler_Descriptor default_texture_sampler_descriptor =
     {
         .address_mode_u = Address_Mode::REPEAT,
         .address_mode_v = Address_Mode::REPEAT,
@@ -288,7 +288,22 @@ bool init_renderer_state(Engine *engine)
         .mip_filter = Filter::LINEAR,
         .anisotropy = get_anisotropic_filtering_value(renderer_state->anisotropic_filtering_setting)
     };
-    renderer_state->default_sampler = renderer_create_sampler(default_sampler_descriptor);
+    renderer_state->default_texture_sampler = renderer_create_sampler(default_texture_sampler_descriptor);
+
+    Sampler_Descriptor default_cubemap_sampler_descriptor =
+    {
+        .address_mode_u = Address_Mode::CLAMP,
+        .address_mode_v = Address_Mode::CLAMP,
+        .address_mode_w = Address_Mode::CLAMP,
+
+        .min_filter = Filter::LINEAR,
+        .mag_filter = Filter::LINEAR,
+        .mip_filter = Filter::LINEAR,
+
+        .anisotropy = 1
+    };
+
+    renderer_state->default_cubemap_sampler = renderer_create_sampler(default_cubemap_sampler_descriptor);
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
@@ -357,50 +372,70 @@ bool init_renderer_state(Engine *engine)
     {
         auto render = [](Renderer *renderer, Renderer_State *renderer_state)
         {
-            Buffer_Handle vertex_buffers[] =
+            // draw skybox
+            // todo(amer): primitve static meshes
+            if (renderer_state->cube_static_mesh_uuid != HE_MAX_U64)
             {
-                renderer_state->position_buffer,
-            };
-
-            U64 offsets[] =
-            {
-                0,
-            };
-
-            renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
-            renderer->set_index_buffer(renderer_state->index_buffer, 0);
-
-            Update_Binding_Descriptor globals_uniform_buffer_bindings[] =
-            {
+                Resource_Ref ref = { renderer_state->cube_static_mesh_uuid };
+                Resource *cube_resource = get_resource(ref);
+                if (cube_resource->state == Resource_State::LOADED)
                 {
-                    .binding_number = 0,
-                    .element_index = 0,
-                    .count = 1,
-                    .buffers = &renderer_state->globals_uniform_buffers[renderer_state->current_frame_in_flight_index]
+                    renderer_use_material(renderer_state->skybox_material_handle);
+                    Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(ref);
+                    renderer->draw_sub_mesh(static_mesh_handle, 0, 0);
                 }
-            };
-            renderer->update_bind_group(renderer_state->skybox_bind_groups[0], to_array_view(globals_uniform_buffer_bindings));
-            
-            Bind_Group_Handle bind_groups[] =
-            {
-                renderer_state->skybox_bind_groups[0],
-                renderer_state->skybox_bind_groups[1]
-            };
-            renderer->set_pipeline_state(renderer_state->skybox_pipeline);
-            renderer->set_bind_groups(0, to_array_view(bind_groups));
-
-            U32 mesh_index = renderer_state->cube_mesh->first_child->start_mesh_index;
-            Static_Mesh_Handle static_mesh_handle = { (S32)mesh_index, renderer_state->static_meshes.generations[mesh_index] };
-            
-            Resource_Ref ref = { renderer_state->cube };
-            Resource *cube_resource = get_resource(ref);
-            if (cube_resource && cube_resource->state == Resource_State::LOADED)
-            {
-                // HE_LOG(Core, Trace, "using cube resource\n");
-                static_mesh_handle = get_resource_handle_as<Static_Mesh>(ref);
             }
-            
-            renderer->draw_static_mesh(static_mesh_handle, 0);
+
+            auto comp = [](const Render_Packet &a, const Render_Packet &b) -> bool
+            {
+                Material_Handle a_mat_hdl = get_resource_handle_as<Material>({ .uuid = a.material_uuid });
+                Material_Handle b_mat_hdl = get_resource_handle_as<Material>({ .uuid = b.material_uuid });
+                Material *a_mat = renderer_get_material(a_mat_hdl);
+                Material *b_mat = renderer_get_material(b_mat_hdl);
+
+                if (a.material_uuid != b.material_uuid)
+                {
+                    if (a_mat->pipeline_state_handle.index != b_mat->pipeline_state_handle.index)
+                    {
+                        return a_mat->pipeline_state_handle.index < b_mat->pipeline_state_handle.index;
+                    }
+
+                    return a.material_uuid < b.material_uuid;
+                }
+
+                if (a.static_mesh_uuid != b.static_mesh_uuid)
+                {
+                    return a.static_mesh_uuid < b.static_mesh_uuid;
+                }
+
+                return a.sub_mesh_index < b.sub_mesh_index;
+            };
+
+            // draw opaque objects
+            std::sort(renderer_state->opaque_packets, renderer_state->opaque_packets + renderer_state->opaque_packet_count, comp);
+
+            U64 current_material_uuid = HE_MAX_U64;
+
+            for (U32 packet_index = 0; packet_index < renderer_state->opaque_packet_count; packet_index++)
+            {
+                Render_Packet *packet = &renderer_state->opaque_packets[packet_index];
+
+                if (packet->material_uuid != current_material_uuid)
+                {
+                    Resource_Ref material_ref = { packet->material_uuid };
+                    Material_Handle material_handle = get_resource_handle_as<Material>(material_ref);
+                    renderer_use_material(material_handle);
+                    current_material_uuid = packet->material_uuid;
+                }
+
+                Resource_Ref static_mesh_ref = { packet->static_mesh_uuid };
+                Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(static_mesh_ref);
+
+                Resource_Ref material_ref = { packet->material_uuid };
+                Material_Handle material_handle = get_resource_handle_as<Material>(material_ref);
+                Material *material = renderer_get_material(material_handle);
+                renderer->draw_sub_mesh(static_mesh_handle, packet->transform_index, packet->sub_mesh_index);
+            }
         };
 
         Render_Target_Info render_targets[] =
@@ -416,81 +451,6 @@ bool init_renderer_state(Engine *engine)
                     .scale_x = 1.0f,
                     .scale_y = 1.0f,
                 }
-            }
-        };
-
-        Render_Graph_Node &node = add_node(&renderer_state->render_graph, "skybox", to_array_view(render_targets), render);
-        node.clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-    }
-
-    {
-        auto render = [](Renderer *renderer, Renderer_State *renderer_state)
-        {
-            Buffer_Handle vertex_buffers[] =
-            {
-                renderer_state->position_buffer,
-                renderer_state->normal_buffer,
-                renderer_state->uv_buffer,
-                renderer_state->tangent_buffer
-            };
-            
-            U64 offsets[] =
-            {
-                0,
-                0,
-                0,
-                0
-            };
-
-            renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
-            renderer->set_index_buffer(renderer_state->index_buffer, 0);
-
-            U32 texture_count = renderer_state->textures.capacity;
-            Texture_Handle *textures = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Texture_Handle, texture_count);
-            Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Sampler_Handle, texture_count);
-
-            for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
-            {
-                if (renderer_state->textures.data[it.index].is_attachment)
-                {
-                    textures[it.index] = renderer_state->white_pixel_texture;
-                }
-                else
-                {
-                    textures[it.index] = it;
-                }
-
-                samplers[it.index] = renderer_state->default_sampler;
-            }
-
-            Update_Binding_Descriptor update_textures_binding_descriptors[] =
-            {
-                {
-                    .binding_number = 0,
-                    .element_index = 0,
-                    .count = texture_count,
-                    .textures = textures,
-                    .samplers = samplers
-                }
-            };
-
-            renderer->update_bind_group(renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index], to_array_view(update_textures_binding_descriptors));
-
-            Bind_Group_Handle bind_groups[] =
-            {
-                renderer_state->per_frame_bind_groups[renderer_state->current_frame_in_flight_index],
-                renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index]
-            };
-
-            renderer->set_bind_groups(0, to_array_view(bind_groups));
-            render_scene_node(renderer_state->root_scene_node);
-        };
-
-        Render_Target_Info render_targets[] =
-        {
-            {
-                .name = "multisample_main",
-                .operation = Attachment_Operation::LOAD,
             },
             {
                 .name = "depth",
@@ -508,6 +468,7 @@ bool init_renderer_state(Engine *engine)
 
         Render_Graph_Node &node = add_node(&renderer_state->render_graph, "opaque", to_array_view(render_targets), render);
         add_resolve_color_attachment(&renderer_state->render_graph, &node, "multisample_main", "main");
+        node.clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
         node.clear_values[1].depth = 1.0f;
     }
 
@@ -583,6 +544,7 @@ bool init_renderer_state(Engine *engine)
         for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
         {
             renderer_state->per_frame_bind_groups[frame_index] = renderer_create_bind_group(per_frame_bind_group_descriptor);
+            renderer_state->per_render_pass_bind_groups[frame_index] = renderer_create_bind_group(per_render_pass_bind_group_descriptor);
 
             Update_Binding_Descriptor globals_uniform_buffer_binding =
             {
@@ -607,7 +569,6 @@ bool init_renderer_state(Engine *engine)
             };
 
             renderer->update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
-            renderer_state->per_render_pass_bind_groups[frame_index] = renderer_create_bind_group(per_render_pass_bind_group_descriptor);
         }
 
         Pipeline_State_Descriptor opaquePBR_pipeline_state_descriptor =
@@ -625,16 +586,16 @@ bool init_renderer_state(Engine *engine)
         renderer_state->opaquePBR_pipeline = renderer_create_pipeline_state(opaquePBR_pipeline_state_descriptor);
     }
 
+    // skybox
     {
         Allocation_Group allocation_group =
         {
             .resource_name = HE_STRING_LITERAL("skybox"),
-            .type = Allocation_Group_Type::GENERAL,
             .semaphore = renderer_create_semaphore(semaphore_descriptor),
         };
-        
+
         String paths[] =
-        { 
+        {
             HE_STRING_LITERAL("textures/skybox/right.jpg"),
             HE_STRING_LITERAL("textures/skybox/left.jpg"),
             HE_STRING_LITERAL("textures/skybox/top.jpg"),
@@ -642,7 +603,7 @@ bool init_renderer_state(Engine *engine)
             HE_STRING_LITERAL("textures/skybox/front.jpg"),
             HE_STRING_LITERAL("textures/skybox/back.jpg"),
         };
-        
+
         void* datas[6] = {};
 
         U32 width = 1;
@@ -666,7 +627,7 @@ bool init_renderer_state(Engine *engine)
             U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, data_size);
             memcpy(data, pixels, data_size);
             stbi_image_free(pixels);
-            
+
             append(&allocation_group.allocations, (void*)data);
             datas[i] = data;
         }
@@ -683,95 +644,7 @@ bool init_renderer_state(Engine *engine)
             .allocation_group = &append(&renderer_state->allocation_groups, allocation_group),
         };
         renderer_state->skybox = renderer_create_texture(cubmap_texture_descriptor);
-
-        Sampler_Descriptor skybox_sampler_descriptor =
-        {
-            .address_mode_u = Address_Mode::CLAMP,
-            .address_mode_v = Address_Mode::CLAMP,
-            .address_mode_w = Address_Mode::CLAMP,
-
-            .min_filter = Filter::LINEAR,
-            .mag_filter = Filter::LINEAR,
-            .mip_filter = Filter::LINEAR,
-
-            .anisotropy = 1
-        };
-        renderer_state->skybox_sampler = renderer_create_sampler(skybox_sampler_descriptor);
-
-        Read_Entire_File_Result result = read_entire_file("shaders/bin/skybox.vert.spv", &renderer_state->transfer_allocator);
-        Shader_Descriptor skybox_vertex_shader_descriptor =
-        {
-            .data = result.data,
-            .size = result.size
-            // .path = "shaders/bin/skybox.vert.spv"
-        };
-        renderer_state->skybox_vertex_shader = renderer_create_shader(skybox_vertex_shader_descriptor);
-
-        result = read_entire_file("shaders/bin/skybox.frag.spv", &renderer_state->transfer_allocator);
-        Shader_Descriptor skybox_fragment_shader_descriptor =
-        {
-            .data = result.data,
-            .size = result.size
-            // .path = "shaders/bin/skybox.frag.spv"
-        };
-        renderer_state->skybox_fragment_shader = renderer_create_shader(skybox_fragment_shader_descriptor);
-        
-        Shader_Group_Descriptor skybox_shader_descriptor = {};
-        skybox_shader_descriptor.shaders =
-        {
-            renderer_state->skybox_vertex_shader,
-            renderer_state->skybox_fragment_shader
-        };
-        renderer_state->skybox_shader_group = renderer_create_shader_group(skybox_shader_descriptor);
-        
-        Pipeline_State_Descriptor skybox_pipeline_state_descriptor =
-        {
-            .settings =
-            {
-                .cull_mode = Cull_Mode::NONE,
-                .front_face = Front_Face::COUNTER_CLOCKWISE,
-                .fill_mode = Fill_Mode::SOLID,
-                .sample_shading = true,
-            },
-            .shader_group = renderer_state->skybox_shader_group,
-            .render_pass = get_render_pass(&renderer_state->render_graph, "skybox"),
-        };
-        renderer_state->skybox_pipeline = renderer_create_pipeline_state(skybox_pipeline_state_descriptor);
-
-        Shader_Group *skybox_shader_group = get(&renderer_state->shader_groups, renderer_state->skybox_shader_group);
-
-        {
-            Bind_Group_Descriptor skybox_bind_group_descriptor =
-            {
-                .shader_group = renderer_state->skybox_shader_group,
-                .layout = skybox_shader_group->bind_group_layouts[0]
-            };
-            renderer_state->skybox_bind_groups[0] = renderer_create_bind_group(skybox_bind_group_descriptor);    
-        }
-
-        {
-            Bind_Group_Descriptor skybox_bind_group_descriptor =
-            {
-                .shader_group = renderer_state->skybox_shader_group,
-                .layout = skybox_shader_group->bind_group_layouts[1]
-            };
-            renderer_state->skybox_bind_groups[1] = renderer_create_bind_group(skybox_bind_group_descriptor);    
-        }
-
-        Update_Binding_Descriptor update_skybox_binding_descriptors[] =
-        {
-            {
-                .binding_number = 0,
-                .element_index = 0,
-                .count = 1,
-                .textures = &renderer_state->skybox,
-                .samplers = &renderer_state->skybox_sampler
-            }
-        };
-        renderer->update_bind_group(renderer_state->skybox_bind_groups[1], to_array_view(update_skybox_binding_descriptors));    
     }
-
-    renderer_state->cube_mesh = load_model_threaded(HE_STRING_LITERAL("models/Cube/Cube.gltf"), false);
 
     bool imgui_inited = init_imgui(engine);
     HE_ASSERT(imgui_inited);
@@ -890,642 +763,52 @@ void add_child(Scene_Node *parent, Scene_Node *node)
     }
 }
 
-Scene_Node* add_child_scene_node(Scene_Node *parent)
-{
-    HE_ASSERT(renderer_state->scene_node_count < HE_MAX_SCENE_NODE_COUNT);
-    HE_ASSERT(parent);
-
-    Scene_Node *node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
-    node->static_mesh_uuid = HE_MAX_U64;
-    node->parent = parent;
-
-    if (parent->last_child)
-    {
-        parent->last_child->next_sibling = node;
-        parent->last_child = node;
-    }
-    else
-    {
-        parent->first_child = parent->last_child = node;
-    }
-
-    return node;
-}
-
-Texture_Handle find_texture(const String &name)
-{
-    for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
-    {
-        Texture *texture = &renderer_state->textures.data[it.index];
-        if (texture->name == name)
-        {
-            return it;
-        }
-    }
-
-    return Resource_Pool< Texture >::invalid_handle;
-}
-
-Material_Handle find_material(U64 hash)
-{
-    for (auto it = iterator(&renderer_state->materials); next(&renderer_state->materials, it);)
-    {
-        Material *material = &renderer_state->materials.data[it.index];
-        if (material->hash == hash)
-        {
-            return it;
-        }
-    }
-
-    return Resource_Pool< Material >::invalid_handle;
-}
-
-static bool internal_create_texture(Texture_Handle texture_handle, void *pixels, U32 texture_width, U32 texture_height, Allocation_Group *allocation_group)
-{
-    U64 data_size = texture_width * texture_height * sizeof(U32);
-    U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, texture_width * texture_height);
-    memcpy(data, pixels, data_size);
-    
-    append(&allocation_group->allocations, (void*)data);
-    void* datas[] = { (void*)data };
-
-    Texture_Descriptor descriptor =
-    {
-        .width = texture_width,
-        .height = texture_height,
-        .format = Texture_Format::R8G8B8A8_SRGB,
-        .data = to_array_view(datas),
-        .mipmapping = true,
-        .sample_count = 1,
-        .allocation_group = allocation_group,
-    };
-
-    platform_lock_mutex(&renderer_state->render_commands_mutex);
-    bool texture_created = renderer->create_texture(texture_handle, descriptor);
-    HE_ASSERT(texture_created);
-    platform_unlock_mutex(&renderer_state->render_commands_mutex);
-    return true;
-}
-
-struct Load_Texture_Job_Data
-{
-    String path;
-    Texture_Handle texture_handle;
-    Allocation_Group allocation_group;
-};
-
-static Job_Result load_texture_job(const Job_Parameters &params)
-{
-    Load_Texture_Job_Data *job_data = (Load_Texture_Job_Data *)params.data;
-    const String &path = job_data->path;
-
-    // HE_LOG(Rendering, Trace, "loading texture: %.*s\n", HE_EXPAND_STRING(path));
-
-    S32 texture_width;
-    S32 texture_height;
-    S32 texture_channels;
-
-    stbi_uc *pixels = stbi_load(path.data, &texture_width, &texture_height, &texture_channels, STBI_rgb_alpha);
-    HE_ASSERT(pixels);
-    
-    bool texture_created = internal_create_texture(job_data->texture_handle, pixels, texture_width, texture_height, &job_data->allocation_group);
-    HE_ASSERT(texture_created);
-    stbi_image_free(pixels);
-
-    platform_lock_mutex(&renderer_state->allocation_groups_mutex);
-    append(&renderer_state->allocation_groups, job_data->allocation_group);
-    platform_unlock_mutex(&renderer_state->allocation_groups_mutex);
-
-    return Job_Result::SUCCEEDED;
-}
-
-static Texture_Handle cgltf_load_texture(cgltf_texture_view *texture_view, const String &model_path, Memory_Arena *arena, Allocation_Group *model_allocation_group)
-{
-    Temprary_Memory_Arena temprary_arena;
-    begin_temprary_memory_arena(&temprary_arena, arena);
-    HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
-
-    const cgltf_image *image = texture_view->texture->image;
-
-    String texture_path = {};
-    Texture_Handle texture_handle = {};
-
-    if (texture_view->texture->image->uri)
-    {
-        char *uri = texture_view->texture->image->uri;
-        texture_path = format_string(temprary_arena.arena, "%.*s/%s", HE_EXPAND_STRING(model_path), uri);
-    }
-    else
-    {
-        String texture_name = HE_STRING(texture_view->texture->image->name);
-        S64 dot_index = find_first_char_from_right(texture_name, ".");
-        HE_ASSERT(dot_index != -1);
-
-        String extension_to_append = HE_STRING_LITERAL("");
-        String extension = sub_string(texture_name, dot_index);
-
-        if (extension != ".png" && extension != ".jpg")
-        {
-            String mime_type = HE_STRING(image->mime_type);
-
-            if (mime_type == "image/png")
-            {
-                extension_to_append = HE_STRING_LITERAL(".png");
-            }
-            else if (mime_type == "image/jpg")
-            {
-                extension_to_append = HE_STRING_LITERAL(".jpg");
-            }
-        }
-
-        texture_path = format_string(temprary_arena.arena, "%.*s/%.*s%s", HE_EXPAND_STRING(model_path), HE_EXPAND_STRING(texture_name), HE_EXPAND_STRING(extension_to_append));
-    }
-
-    Texture_Handle found_texture_handle = find_texture(texture_path);
-    if (!is_valid_handle(&renderer_state->textures, found_texture_handle))
-    {
-        texture_handle = aquire_handle(&renderer_state->textures);
-        Texture *texture = get(&renderer_state->textures, texture_handle);
-        texture->name = copy_string(texture_path.data, texture_path.count, &renderer_state->engine->memory.free_list_allocator);
-
-        if (file_exists(texture_path))
-        {
-            Renderer_Semaphore_Descriptor semaphore_descriptor =
-            {
-                .initial_value = 0
-            };
-
-            Load_Texture_Job_Data load_texture_job_data =
-            {
-                .path = texture->name,
-                .texture_handle = texture_handle,
-                .allocation_group =
-                {
-                    .resource_name = texture->name,
-                    .type = Allocation_Group_Type::GENERAL,
-                    .semaphore = renderer_create_semaphore(semaphore_descriptor),
-                }
-            };
-
-            Job job = {};
-            job.parameters.data = &load_texture_job_data;
-            job.parameters.size = sizeof(load_texture_job_data);
-            job.proc = load_texture_job;
-            execute_job(job);
-        }
-        else
-        {
-            // todo(amer): untested code path...
-            const auto *view = image->buffer_view;
-            U8 *data_ptr = (U8*)view->buffer->data;
-            U8 *image_data = data_ptr + view->offset;
-
-            S32 texture_width;
-            S32 texture_height;
-            S32 texture_channels;
-
-            stbi_uc *pixels = nullptr;
-            pixels = stbi_load_from_memory(image_data, u64_to_u32(view->size), &texture_width, &texture_height, &texture_channels, STBI_rgb_alpha);
-            HE_ASSERT(pixels);
-
-            bool texture_created = internal_create_texture(texture_handle, pixels, texture_width, texture_height, model_allocation_group);
-            HE_ASSERT(texture_created);
-            stbi_image_free(pixels);
-        }
-    }
-    else
-    {
-        texture_handle = found_texture_handle;
-    }
-
-    return texture_handle;
-}
-
-static void* _cgltf_alloc(void* user, cgltf_size size)
-{
-    return allocate(_transfer_allocator, size, 8);
-}
-
-static void _cgltf_free(void* user, void *ptr)
-{
-    deallocate(_transfer_allocator, ptr);
-}
-
-struct Load_Model_Job_Data
-{
-    String path;
-    Scene_Node *scene_node;
-    Allocation_Group allocation_group;
-};
-
-Job_Result load_model_job(const Job_Parameters &params)
-{
-    Temprary_Memory_Arena *tempray_memory_arena = params.temprary_memory_arena;
-    Load_Model_Job_Data *data = (Load_Model_Job_Data *)params.data;
-    // HE_LOG(Rendering, Trace, "loading model: %.*s\n", HE_EXPAND_STRING(data->path));
-    bool model_loaded = load_model(data->scene_node, data->path, tempray_memory_arena->arena, &data->allocation_group);
-    if (!model_loaded)
-    {
-        return Job_Result::FAILED;
-    }
-    platform_lock_mutex(&renderer_state->allocation_groups_mutex);
-    append(&renderer_state->allocation_groups, data->allocation_group);
-    platform_unlock_mutex(&renderer_state->allocation_groups_mutex);
-    return Job_Result::SUCCEEDED;
-}
-
-Scene_Node* load_model_threaded(const String &path, bool add_to_scene)
-{
-    Scene_Node *scene_node = nullptr;
-
-    if (add_to_scene)
-    {
-        scene_node = add_child_scene_node(renderer_state->root_scene_node);
-    }
-    else
-    {
-        scene_node = &renderer_state->scene_nodes[renderer_state->scene_node_count++];
-        scene_node->parent = nullptr;
-    }
-
-    U32 index = 0;
-    U32 count = (U32)path.count;
-
-    S64 slash = find_first_char_from_right(path, "/\\");
-    if (slash != -1)
-    {
-        index = (U32)slash;
-    }
-
-    S64 dot = find_first_char_from_right(path, ".");
-    if (dot != -1)
-    {
-        count = (U32)(dot - index - 1);
-    }
-
-    scene_node->name = sub_string(path, index + 1, count);
-
-    Renderer_Semaphore_Descriptor semaphore_descriptor =
-    {
-        .initial_value = 0
-    };
-
-    Load_Model_Job_Data data =
-    {
-        .path = path,
-        .scene_node = scene_node,
-        .allocation_group =
-        {
-            .resource_name = path,
-            .type = Allocation_Group_Type::MODEL,
-            .semaphore = renderer_create_semaphore(semaphore_descriptor),
-        }
-    };
-
-    Job job = {};
-    job.proc = load_model_job;
-    job.parameters.data = &data;
-    job.parameters.size = sizeof(Load_Model_Job_Data);
-    execute_job(job);
-
-    return scene_node;
-}
-
-// note(amer): https://github.com/deccer/CMake-Glfw-OpenGL-Template/blob/main/src/Project/ProjectApplication.cpp
-// thanks to this giga chad for the example
-bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *arena, Allocation_Group *allocation_group)
-{
-    Read_Entire_File_Result result = read_entire_file(path.data, &renderer_state->transfer_allocator);
-
-    if (!result.success)
-    {
-        return false;
-    }
-
-    U8 *buffer = result.data;
-
-    S64 last_slash = find_first_char_from_right(path, "\\/");
-    HE_ASSERT(last_slash != -1);
-    String model_path = sub_string(path, 0, last_slash);
-
-    cgltf_options options = {};
-    options.memory.alloc_func = _cgltf_alloc;
-    options.memory.free_func = _cgltf_free;
-
-    cgltf_data *model_data = nullptr;
-
-    if (cgltf_parse(&options, buffer, result.size, &model_data) != cgltf_result_success)
-    {
-        return false;
-    }
-
-    if (cgltf_load_buffers(&options, model_data, path.data) != cgltf_result_success) // @Leak
-    {
-        return false;
-    }
-
-    for (U32 material_index = 0; material_index < model_data->materials_count; material_index++)
-    {
-        cgltf_material *material = &model_data->materials[material_index];
-        U64 material_hash = (U64)material;
-
-        HE_ASSERT(renderer_state->materials.count < HE_MAX_MATERIAL_COUNT);
-
-        Material_Descriptor material_descriptor = {};
-        material_descriptor.pipeline_state_handle = renderer_state->opaquePBR_pipeline;
-
-        platform_lock_mutex(&renderer_state->render_commands_mutex);
-        Material_Handle material_handle = renderer_create_material(material_descriptor);
-        platform_unlock_mutex(&renderer_state->render_commands_mutex);
-
-        Material *renderer_material = get(&renderer_state->materials, material_handle);
-
-        if (material->name)
-        {
-            renderer_material->name = copy_string(material->name, string_length(material->name), &renderer_state->engine->memory.free_list_allocator);
-        }
-        
-        renderer_material->hash = material_hash;
-
-        Texture_Handle albedo = { -1 };
-        Texture_Handle normal = { -1 };
-        Texture_Handle metallic_roughness = { -1 };
-
-        if (material->has_pbr_metallic_roughness)
-        {
-            if (material->pbr_metallic_roughness.base_color_texture.texture)
-            {
-                albedo = cgltf_load_texture(&material->pbr_metallic_roughness.base_color_texture, model_path, arena, allocation_group);
-            }
-            else
-            {
-                albedo = renderer_state->white_pixel_texture;
-            }
-
-            if (material->pbr_metallic_roughness.metallic_roughness_texture.texture)
-            {
-                metallic_roughness = cgltf_load_texture(&material->pbr_metallic_roughness.metallic_roughness_texture, model_path, arena, allocation_group);
-            }
-            else
-            {
-                metallic_roughness = renderer_state->white_pixel_texture;
-            }
-        }
-
-        if (material->normal_texture.texture)
-        {
-            normal = cgltf_load_texture(&material->normal_texture, model_path, arena, allocation_group);
-        }
-        else
-        {
-            normal = renderer_state->normal_pixel_texture;
-        }
-
-        U32 *albedo_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("albedo_texture_index"), Shader_Data_Type::U32);
-        U32 *normal_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("normal_texture_index"), Shader_Data_Type::U32);
-        U32 *orm_texture_index = (U32 *)get_property(renderer_material, HE_STRING_LITERAL("occlusion_roughness_metallic_texture_index"), Shader_Data_Type::U32);
-        glm::vec3 *albedo_color = (glm::vec3 *)get_property(renderer_material, HE_STRING_LITERAL("albedo_color"), Shader_Data_Type::VECTOR3F);
-        F32 *roughness_factor = (F32 *)get_property(renderer_material, HE_STRING_LITERAL("roughness_factor"), Shader_Data_Type::F32);
-        F32 *metallic_factor = (F32 *)get_property(renderer_material, HE_STRING_LITERAL("metallic_factor"), Shader_Data_Type::F32);
-        F32 *reflectance = (F32 *)get_property(renderer_material, HE_STRING_LITERAL("reflectance"), Shader_Data_Type::F32);
-        *albedo_color = *(glm::vec3 *)material->pbr_metallic_roughness.base_color_factor;
-        *roughness_factor = material->pbr_metallic_roughness.roughness_factor;
-        *metallic_factor = material->pbr_metallic_roughness.metallic_factor;
-        *reflectance = 0.04f;
-        *albedo_texture_index = albedo.index;
-        *normal_texture_index = normal.index;
-        *orm_texture_index = metallic_roughness.index;
-    }
-
-    root_scene_node->parent = nullptr;
-    root_scene_node->transform = get_identity_transform();
-    root_scene_node->start_mesh_index = -1;
-    root_scene_node->static_mesh_count = 0;
-
-    struct Scene_Node_Bundle
-    {
-        cgltf_node *cgltf_node;
-        Scene_Node *node;
-    };
-
-    Temprary_Memory_Arena temprary_arena = {};
-    begin_temprary_memory_arena(&temprary_arena, arena);
-
-    HE_DEFER
-    {
-        end_temprary_memory_arena(&temprary_arena);
-    };
-
-    Ring_Queue< Scene_Node_Bundle > nodes;
-    init(&nodes, 4096, &temprary_arena);
-
-    for (U32 node_index = 0; node_index < model_data->nodes_count; node_index++)
-    {
-        push(&nodes, { &model_data->nodes[node_index], add_child_scene_node(root_scene_node) });
-    }
-
-    while (true)
-    {
-        Scene_Node_Bundle node_bundle = {};
-        bool peeked = peek_front(&nodes, &node_bundle);
-        if (!peeked)
-        {
-            break;
-        }
-        pop_front(&nodes);
-
-        Scene_Node *scene_node = node_bundle.node;
-        scene_node->start_mesh_index = -1;
-        scene_node->static_mesh_count = 0;
-        scene_node->transform = get_identity_transform();
-
-        cgltf_node *node = node_bundle.cgltf_node;
-        scene_node->transform.position = *(glm::vec3*)&node->translation;
-        scene_node->transform.rotation = { node->rotation[3], node->rotation[0], node->rotation[1], node->rotation[2] };
-        scene_node->transform.euler_angles = glm::degrees(glm::eulerAngles(scene_node->transform.rotation));
-        scene_node->transform.scale = *(glm::vec3*)&node->scale;
-
-        scene_node->name = copy_string(HE_STRING(node->name), &renderer_state->engine->memory.free_list_allocator);
-
-        if (node->mesh)
-        {
-            scene_node->start_mesh_index = renderer_state->static_meshes.count;
-            scene_node->static_mesh_count += u64_to_u32(node->mesh->primitives_count);
-
-            for (U32 primitive_index = 0; primitive_index < node->mesh->primitives_count; primitive_index++)
-            {
-                cgltf_primitive *primitive = &node->mesh->primitives[primitive_index];
-                HE_ASSERT(primitive->type == cgltf_primitive_type_triangles);
-
-                HE_ASSERT(primitive->material);
-                cgltf_material *material = primitive->material;
-
-                U64 material_hash = (U64)material;
-                Material_Handle material_handle = find_material(material_hash);
-
-                Static_Mesh_Handle static_mesh_handle = aquire_handle(&renderer_state->static_meshes);
-                Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
-                static_mesh->material = material_handle;
-
-                U32 position_count = 0;
-                glm::vec3 *positions = nullptr;
-
-                U32 normal_count = 0;
-                glm::vec3 *normals = nullptr;
-
-                U32 uv_count = 0;
-                glm::vec2 *uvs = nullptr;
-
-                U32 tangent_count = 0;
-                glm::vec4 *tangents = nullptr;
-
-                for (U32 attribute_index = 0; attribute_index < primitive->attributes_count; attribute_index++)
-                {
-                    cgltf_attribute *attribute = &primitive->attributes[attribute_index];
-                    HE_ASSERT(attribute->type != cgltf_attribute_type_invalid);
-
-                    const auto *accessor = attribute->data;
-                    const auto *view = accessor->buffer_view;
-                    U8 *data_ptr = (U8 *)view->buffer->data;
-
-                    switch (attribute->type)
-                    {
-                        case cgltf_attribute_type_position:
-                        {
-                            HE_ASSERT(attribute->data->type == cgltf_type_vec3);
-                            HE_ASSERT(attribute->data->component_type == cgltf_component_type_r_32f);
-
-                            U64 stride = attribute->data->stride;
-                            HE_ASSERT(stride == sizeof(glm::vec3));
-
-                            position_count = u64_to_u32(attribute->data->count);
-                            positions = (glm::vec3 *)(data_ptr + view->offset + accessor->offset);
-                        } break;
-
-                        case cgltf_attribute_type_normal:
-                        {
-                            HE_ASSERT(attribute->data->type == cgltf_type_vec3);
-                            HE_ASSERT(attribute->data->component_type == cgltf_component_type_r_32f);
-
-                            U64 stride = attribute->data->stride;
-                            HE_ASSERT(stride == sizeof(glm::vec3));
-
-                            normal_count = u64_to_u32(attribute->data->count);
-                            normals = (glm::vec3 *)(data_ptr + view->offset + accessor->offset);
-                        } break;
-
-                        case cgltf_attribute_type_texcoord:
-                        {
-                            HE_ASSERT(attribute->data->type == cgltf_type_vec2);
-                            HE_ASSERT(attribute->data->component_type == cgltf_component_type_r_32f);
-
-                            U64 stride = attribute->data->stride;
-                            HE_ASSERT(stride == sizeof(glm::vec2));
-
-                            uv_count = u64_to_u32(attribute->data->count);
-                            uvs = (glm::vec2 *)(data_ptr + view->offset + accessor->offset);
-                        } break;
-
-                        case cgltf_attribute_type_tangent:
-                        {
-                            HE_ASSERT(attribute->data->type == cgltf_type_vec4);
-                            HE_ASSERT(attribute->data->component_type == cgltf_component_type_r_32f);
-
-                            U64 stride = attribute->data->stride;
-                            HE_ASSERT(stride == sizeof(glm::vec4));
-
-                            tangent_count = u64_to_u32(attribute->data->count);
-                            tangents = (glm::vec4 *)(data_ptr + view->offset + accessor->offset);
-                        } break;
-                    }
-                }
-
-                // note(amer): we only support u16 indices for now.
-                HE_ASSERT(primitive->indices->type == cgltf_type_scalar);
-                HE_ASSERT(primitive->indices->component_type == cgltf_component_type_r_16u);
-                HE_ASSERT(primitive->indices->stride == sizeof(U16));
-
-                U32 index_count = u64_to_u32(primitive->indices->count);
-
-                const auto *accessor = primitive->indices;
-                const auto *view = accessor->buffer_view;
-                U8 *data_ptr = (U8 *)view->buffer->data;
-                U16 *indices = (U16 *)(data_ptr + view->offset + accessor->offset);
-
-                HE_ASSERT(position_count == normal_count);
-                HE_ASSERT(position_count == uv_count);
-                // HE_ASSERT(position_count == tangent_count);
-
-                Static_Mesh_Descriptor static_mesh_descriptor =
-                {
-                    .vertex_count = (U16)position_count,
-                    .index_count = index_count,
-                    .positions = positions,
-                    .normals = normals,
-                    .uvs = uvs,
-                    .tangents = tangents,
-                    .indices = indices,
-                    .allocation_group = allocation_group
-                };
-
-                platform_lock_mutex(&renderer_state->render_commands_mutex);
-                bool created = renderer->create_static_mesh(static_mesh_handle, static_mesh_descriptor);
-                platform_unlock_mutex(&renderer_state->render_commands_mutex);
-                HE_ASSERT(created);
-            }
-        }
-
-        for (U32 child_node_index = 0; child_node_index < node->children_count; child_node_index++)
-        {
-            push(&nodes, { node->children[child_node_index], add_child_scene_node(scene_node) });
-        }
-    }
-
-    return true;
-}
-
-void unload_model(Allocation_Group *allocation_group)
-{
-    cgltf_free((cgltf_data *)allocation_group->allocations[0]);
-    deallocate(&renderer_state->transfer_allocator, allocation_group->allocations[1]);    
-}
-
-void render_scene_node(Scene_Node *scene_node, const Transform &parent_transform)
+void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform)
 {
     Transform transform = combine(parent_transform, scene_node->transform);
+    scene_node->global_transform = transform;
 
-    for (U32 static_mesh_index = 0; static_mesh_index < scene_node->static_mesh_count; static_mesh_index++)
+    Render_Pass_Handle opaque_pass = get_render_pass(&renderer_state->render_graph, "opaque");
+
+    if (scene_node->static_mesh_uuid != HE_MAX_U64)
     {
-        U32 mesh_index = scene_node->start_mesh_index + static_mesh_index;
-        Static_Mesh_Handle static_mesh_handle = { (S32)mesh_index, renderer_state->static_meshes.generations[mesh_index] };
-
-        HE_ASSERT(renderer_state->object_data_count < HE_MAX_OBJECT_DATA_COUNT);
-        U32 object_data_index = renderer_state->object_data_count++;
-        Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
-        object_data->model = get_world_matrix(transform);
-
-        Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
-        Material *material = get(&renderer_state->materials, static_mesh->material);
-
-        Buffer *material_buffer = get(&renderer_state->buffers, material->buffers[renderer_state->current_frame_in_flight_index]);
-        copy_memory(material_buffer->data, material->data, material->size);
-
-        Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle);
-
-        Bind_Group_Handle material_bind_groups[] =
+        Resource_Ref static_mesh_ref = { scene_node->static_mesh_uuid };
+        Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(static_mesh_ref);
+        if (is_valid_handle(&renderer_state->static_meshes, static_mesh_handle))
         {
-            material->bind_groups[renderer_state->current_frame_in_flight_index]
-        };
+            HE_ASSERT(renderer_state->object_data_count < HE_MAX_OBJECT_DATA_COUNT);
+            U32 object_data_index = renderer_state->object_data_count++;
+            Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
+            object_data->model = get_world_matrix(transform);
 
-        renderer->set_pipeline_state(material->pipeline_state_handle);
-        renderer->set_bind_groups(2, to_array_view(material_bind_groups));
+            Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
-        renderer->draw_static_mesh(static_mesh_handle, object_data_index);
+            Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
+            for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
+            {
+                Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
+                HE_ASSERT(sub_mesh->material_uuid != HE_MAX_U64);
+
+                Resource_Ref material_ref = { sub_mesh->material_uuid };
+                Material_Handle material_handle = get_resource_handle_as<Material>(material_ref);
+                Material *material = renderer_get_material(material_handle);
+                Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
+
+                if (pipeline_state->descriptor.render_pass == opaque_pass)
+                {
+                    Render_Packet *render_packet = &renderer_state->opaque_packets[renderer_state->opaque_packet_count++];
+                    render_packet->material_uuid = sub_mesh->material_uuid;
+                    render_packet->static_mesh_uuid = scene_node->static_mesh_uuid;
+                    render_packet->sub_mesh_index = sub_mesh_index;
+                    render_packet->transform_index = object_data_index;
+                }
+            }
+        }
     }
 
     for (Scene_Node *node = scene_node->first_child; node; node = node->next_sibling)
     {
-        render_scene_node(node, transform);
+        renderer_parse_scene_tree(node, transform);
     }
 }
 
@@ -1541,7 +824,7 @@ glm::vec4 linear_to_srgb(const glm::vec4 &color)
 
 void renderer_on_resize(U32 width, U32 height)
 {
-    if (renderer_state) 
+    if (renderer_state)
     {
         renderer_state->back_buffer_width = width;
         renderer_state->back_buffer_height = height;
@@ -1550,7 +833,7 @@ void renderer_on_resize(U32 width, U32 height)
         {
             renderer->on_resize(width, height);
         }
-        
+
         renderer->wait_for_gpu_to_finish_all_work();
         invalidate(&renderer_state->render_graph, renderer, renderer_state);
     }
@@ -1568,7 +851,9 @@ void renderer_wait_for_gpu_to_finish_all_work()
 Buffer_Handle renderer_create_buffer(const Buffer_Descriptor &descriptor)
 {
     Buffer_Handle buffer_handle = aquire_handle(&renderer_state->buffers);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_buffer(buffer_handle, descriptor);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
     Buffer *buffer = &renderer_state->buffers.data[buffer_handle.index];
     buffer->usage = descriptor.usage;
@@ -1622,7 +907,11 @@ void renderer_destroy_texture(Texture_Handle &texture_handle)
 Sampler_Handle renderer_create_sampler(const Sampler_Descriptor &descriptor)
 {
     Sampler_Handle sampler_handle = aquire_handle(&renderer_state->samplers);
+
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_sampler(sampler_handle, descriptor);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+
     Sampler *sampler = &renderer_state->samplers.data[sampler_handle.index];
     sampler->descriptor = descriptor;
     return sampler_handle;
@@ -1674,7 +963,11 @@ void renderer_destroy_shader(Shader_Handle &shader_handle)
 Shader_Group_Handle renderer_create_shader_group(const Shader_Group_Descriptor &descriptor)
 {
     Shader_Group_Handle shader_group_handle = aquire_handle(&renderer_state->shader_groups);
+
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_shader_group(shader_group_handle, descriptor);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+
     Shader_Group *shader_group = &renderer_state->shader_groups.data[shader_group_handle.index];
     copy(&shader_group->shaders, &descriptor.shaders);
     return shader_group_handle;
@@ -1699,8 +992,10 @@ void renderer_destroy_shader_group(Shader_Group_Handle &shader_group_handle)
 Bind_Group_Layout_Handle renderer_create_bind_group_layout(const Bind_Group_Layout_Descriptor &descriptor)
 {
     Bind_Group_Layout_Handle bind_group_layout_handle = aquire_handle(&renderer_state->bind_group_layouts);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_bind_group_layout(bind_group_layout_handle, descriptor);
-    Bind_Group_Layout *bind_group_layout = &renderer_state->bind_group_layouts.data[bind_group_layout_handle.index]; 
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+    Bind_Group_Layout *bind_group_layout = &renderer_state->bind_group_layouts.data[bind_group_layout_handle.index];
     bind_group_layout->descriptor = descriptor;
     return bind_group_layout_handle;
 }
@@ -1724,8 +1019,11 @@ void renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle &bind_group_lay
 Bind_Group_Handle renderer_create_bind_group(const Bind_Group_Descriptor &descriptor)
 {
     Bind_Group_Handle bind_group_handle = aquire_handle(&renderer_state->bind_groups);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_bind_group(bind_group_handle, descriptor);
-    Bind_Group *bind_group = &renderer_state->bind_groups.data[bind_group_handle.index]; 
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+
+    Bind_Group *bind_group = &renderer_state->bind_groups.data[bind_group_handle.index];
     bind_group->descriptor = descriptor;
     return bind_group_handle;
 }
@@ -1749,7 +1047,9 @@ void renderer_destroy_bind_group(Bind_Group_Handle &bind_group_handle)
 Pipeline_State_Handle renderer_create_pipeline_state(const Pipeline_State_Descriptor &descriptor)
 {
     Pipeline_State_Handle pipeline_state_handle = aquire_handle(&renderer_state->pipeline_states);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_pipeline_state(pipeline_state_handle, descriptor);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
     Pipeline_State *pipeline_state = &renderer_state->pipeline_states.data[pipeline_state_handle.index];
     pipeline_state->descriptor = descriptor;
@@ -1776,7 +1076,9 @@ void renderer_destroy_pipeline_state(Pipeline_State_Handle &pipeline_state_handl
 Render_Pass_Handle renderer_create_render_pass(const Render_Pass_Descriptor &descriptor)
 {
     Render_Pass_Handle render_pass_handle = aquire_handle(&renderer_state->render_passes);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_render_pass(render_pass_handle, descriptor);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
     return render_pass_handle;
 }
 
@@ -1789,7 +1091,7 @@ void renderer_destroy_render_pass(Render_Pass_Handle &render_pass_handle)
 {
     renderer->destroy_render_pass(render_pass_handle);
     release_handle(&renderer_state->render_passes, render_pass_handle);
-    render_pass_handle = Resource_Pool< Render_Pass >::invalid_handle; 
+    render_pass_handle = Resource_Pool< Render_Pass >::invalid_handle;
 }
 
 //
@@ -1799,7 +1101,9 @@ void renderer_destroy_render_pass(Render_Pass_Handle &render_pass_handle)
 Frame_Buffer_Handle renderer_create_frame_buffer(const Frame_Buffer_Descriptor &descriptor)
 {
     Frame_Buffer_Handle frame_buffer_handle = aquire_handle(&renderer_state->frame_buffers);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_frame_buffer(frame_buffer_handle, descriptor);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
     return frame_buffer_handle;
 }
 
@@ -1822,7 +1126,9 @@ void renderer_destroy_frame_buffer(Frame_Buffer_Handle &frame_buffer_handle)
 Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &descriptor)
 {
     Static_Mesh_Handle static_mesh_handle = aquire_handle(&renderer_state->static_meshes);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_static_mesh(static_mesh_handle, descriptor);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
     return static_mesh_handle;
 }
 
@@ -1877,7 +1183,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         material_buffer_descriptor.usage = Buffer_Usage::UNIFORM;
         material_buffer_descriptor.size = size;
         material_buffer_descriptor.is_device_local = false;
-        material->buffers[frame_index] = renderer_create_buffer(material_buffer_descriptor);
+        append(&material->buffers, renderer_create_buffer(material_buffer_descriptor));
     }
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -1885,7 +1191,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         Bind_Group_Descriptor bind_group_descriptor = {};
         bind_group_descriptor.shader_group = pipeline_state->descriptor.shader_group;
         bind_group_descriptor.layout = shader_group->bind_group_layouts[2]; // todo(amer): Hardcoding
-        material->bind_groups[frame_index] = renderer_create_bind_group(bind_group_descriptor);
+        append(&material->bind_groups, renderer_create_bind_group(bind_group_descriptor));
 
         Update_Binding_Descriptor update_binding_descriptors[1] = {};
         update_binding_descriptors[0].binding_number = 0;
@@ -1893,13 +1199,43 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         update_binding_descriptors[0].count = 1;
         update_binding_descriptors[0].buffers = &material->buffers[frame_index];
 
+        platform_lock_mutex(&renderer_state->render_commands_mutex);
         renderer->update_bind_group(material->bind_groups[frame_index], to_array_view(update_binding_descriptors));
+        platform_unlock_mutex(&renderer_state->render_commands_mutex);
+    }
+
+    init(&material->properties, &renderer_state->engine->memory.free_list_allocator, properties->member_count);
+
+    for (U32 property_index = 0; property_index < properties->member_count; property_index++)
+    {
+        Shader_Struct_Member *member = &properties->members[property_index];
+
+        Material_Property *property = &material->properties[property_index];
+        property->name = member->name;
+        property->data_type = member->data_type;
+        property->offset_in_buffer = member->offset;
+
+        property->default_data = {};
+        property->is_texture_resource = false;
+        property->is_color = false;
     }
 
     material->pipeline_state_handle = descriptor.pipeline_state_handle;
     material->data = HE_ALLOCATE_ARRAY(&renderer_state->engine->memory.free_list_allocator, U8, size);
     material->size = size;
-    material->properties = properties;
+    material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
+
+    // todo(amer): inorder properties please
+    for (U32 property_index = 0; property_index < descriptor.property_info_count; property_index++)
+    {
+        Material_Property_Info *info = &descriptor.property_infos[property_index];
+        Material_Property *property = &material->properties[property_index];
+
+        property->default_data = info->default_data;
+        property->is_texture_resource = info->is_texture_resource;
+        property->is_color = info->is_color;
+        set_property(material_handle, property_index, info->data);
+    }
 
     return material_handle;
 }
@@ -1925,18 +1261,125 @@ void renderer_destroy_material(Material_Handle &material_handle)
     material_handle = Resource_Pool< Material >::invalid_handle;
 }
 
-U8 *get_property(Material *material, const String &name, Shader_Data_Type data_type)
+S32 find_property(Material_Handle material_handle, const char *name)
 {
-    Shader_Struct *properties = material->properties;
-    for (U32 member_index = 0; member_index < properties->member_count; member_index++)
+    String name_ = HE_STRING(name);
+
+    Material *material = get(&renderer_state->materials, material_handle);
+    for (U32 property_index = 0; property_index < material->properties.count; property_index++)
     {
-        Shader_Struct_Member *member = &properties->members[member_index];
-        if (name == member->name && member->data_type == data_type)
+        Material_Property *property = &material->properties[property_index];
+        if (property->name == name_)
         {
-            return material->data + member->offset;
+            return (S32)property_index;
         }
     }
-    return nullptr;
+
+    return -1;
+}
+
+bool set_property(Material_Handle material_handle, const char *name, Material_Property_Data data)
+{
+    S32 property_id = find_property(material_handle, name);
+    if (property_id == -1)
+    {
+        HE_LOG(Rendering, Trace, "can't find material property: %s\n", name);
+        return false;
+    }
+    return set_property(material_handle, property_id, data);
+}
+
+bool set_property(Material_Handle material_handle, S32 property_id, Material_Property_Data data)
+{
+    if (property_id == -1)
+    {
+        return false;
+    }
+
+    Material *material = get(&renderer_state->materials, material_handle);
+    Material_Property *property = &material->properties[property_id];
+    property->data = data;
+
+    if (property->is_texture_resource)
+    {
+        U32 *texture_index = (U32 *)&material->data[property->offset_in_buffer];
+
+        if (data.u64 != HE_MAX_U64)
+        {
+            Resource_Ref ref = { data.u64 };
+            Resource *resource = get_resource(ref);
+            if (resource->state == Resource_State::LOADED)
+            {
+                *texture_index = resource->index;
+            }
+            else if (resource->state == Resource_State::UNLOADED)
+            {
+                aquire_resource(ref);
+                *texture_index = (U32)renderer_state->white_pixel_texture.index;
+            }
+        }
+        else
+        {
+            Texture_Handle texture_handle = { (S32)property->default_data.u32, 0 };
+            HE_ASSERT(is_valid_handle(&renderer_state->textures, texture_handle));
+            *texture_index = property->default_data.u32;
+        }
+    }
+    else
+    {
+        memcpy(material->data + property->offset_in_buffer, &property->data, get_size_of_shader_data_type(property->data_type));
+    }
+
+    material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
+    return true;
+}
+
+void renderer_use_material(Material_Handle material_handle)
+{
+    Material *material = get(&renderer_state->materials, material_handle);
+
+    if (material->dirty_count)
+    {
+        material->dirty_count--;
+
+        for (U32 property_index = 0; property_index < material->properties.count; property_index++)
+        {
+            Material_Property *property = &material->properties[property_index];
+            if (property->is_texture_resource)
+            {
+                U32 *texture_index = (U32 *)&material->data[property->offset_in_buffer];
+                if (property->data.u64 != HE_MAX_U64)
+                {
+                    Resource_Ref ref = { property->data.u64 };
+                    Resource *resource = get_resource(ref);
+                    if (resource->state == Resource_State::PENDING)
+                    {
+                        material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
+                    }
+                    else if (resource->state == Resource_State::LOADED)
+                    {
+                        *texture_index = resource->index;
+                    }
+                }
+            }
+        }
+
+        Buffer *material_buffer = get(&renderer_state->buffers, material->buffers[renderer_state->current_frame_in_flight_index]);
+        copy_memory(material_buffer->data, material->data, material->size);
+    }
+
+    Bind_Group_Handle material_bind_groups[] =
+    {
+        material->bind_groups[renderer_state->current_frame_in_flight_index]
+    };
+
+    renderer->set_bind_groups(2, to_array_view(material_bind_groups));
+
+    if (renderer_state->current_pipeline_state_handle.index != material->pipeline_state_handle.index)
+    {
+        renderer->set_pipeline_state(material->pipeline_state_handle);
+        renderer_state->current_pipeline_state_handle = material->pipeline_state_handle;
+    }
 }
 
 //
@@ -2004,12 +1447,12 @@ void renderer_set_anisotropic_filtering(Anisotropic_Filtering_Setting anisotropi
     default_sampler_descriptor.address_mode_w = Address_Mode::REPEAT;
     default_sampler_descriptor.anisotropy = get_anisotropic_filtering_value(anisotropic_filtering_setting);
 
-    if (is_valid_handle(&renderer_state->samplers, renderer_state->default_sampler))
+    if (is_valid_handle(&renderer_state->samplers, renderer_state->default_texture_sampler))
     {
-        renderer->destroy_sampler(renderer_state->default_sampler);
+        renderer->destroy_sampler(renderer_state->default_texture_sampler);
     }
 
-    renderer->create_sampler(renderer_state->default_sampler, default_sampler_descriptor);
+    renderer->create_sampler(renderer_state->default_texture_sampler, default_sampler_descriptor);
     renderer_state->anisotropic_filtering_setting = anisotropic_filtering_setting;
 }
 

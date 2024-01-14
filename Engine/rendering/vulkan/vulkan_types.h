@@ -152,6 +152,9 @@ struct Vulkan_Context
     
     VkSemaphore image_available_semaphores[HE_MAX_FRAMES_IN_FLIGHT];
     VkSemaphore rendering_finished_semaphores[HE_MAX_FRAMES_IN_FLIGHT];
+
+    // todo(amer): temprary
+    VkFence fences[HE_MAX_FRAMES_IN_FLIGHT];
     
     VkSemaphore timeline_semaphore;
     U64 timeline_value;

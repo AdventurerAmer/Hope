@@ -26,11 +26,20 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageS
     (void)message_severity;
     (void)message_type;
     (void)user_data;
-    // todo(amer): validation layer bug...
-    if (strcmp(callback_data->pMessageIdName, "VUID-VkSwapchainCreateInfoKHR-imageFormat-01778") == 0 ||
-        strcmp(callback_data->pMessageIdName, "VUID-VkImageViewCreateInfo-usage-02275") == 0)
+
+    // todo(amer): validation layer bugs...
+    const char *black_list[] =
     {
-        return VK_FALSE;
+        "VUID-VkSwapchainCreateInfoKHR-imageFormat-01778",
+        "VUID-VkImageViewCreateInfo-usage-02275",
+    };
+
+    for (U32 i = 0; i < HE_ARRAYCOUNT(black_list); i++)
+    {
+        if (strcmp(callback_data->pMessageIdName, black_list[i]) == 0)
+        {
+            return VK_FALSE;
+        }
     }
     
     HE_LOG(Rendering, Trace, "%s\n", callback_data->pMessage);
@@ -547,6 +556,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
         HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &binary_semaphore_create_info, nullptr, &context->image_available_semaphores[frame_index]));
         HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &binary_semaphore_create_info, nullptr, &context->rendering_finished_semaphores[frame_index]));
     }
+
     context->vkQueueSubmit2KHR = (PFN_vkQueueSubmit2KHR)vkGetDeviceProcAddr(context->logical_device, "vkQueueSubmit2KHR");
     HE_ASSERT(context->vkQueueSubmit2KHR);
     
@@ -633,37 +643,16 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
     Renderer_State *renderer_state = context->renderer_state;
     U32 current_frame_in_flight_index = renderer_state->current_frame_in_flight_index;
 
-    // todo(amer): note that we wait here because we need a command buffer this frame
-    U64 wait_value = context->timeline_value - (HE_MAX_FRAMES_IN_FLIGHT - 1);
+    U64 wait_value = context->timeline_value - (renderer_state->frames_in_flight - 1);
     VkSemaphoreWaitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
     wait_info.semaphoreCount = 1;
     wait_info.pSemaphores = &context->timeline_semaphore;
     wait_info.pValues = &wait_value;
     vkWaitSemaphores(context->logical_device, &wait_info, UINT64_MAX);
-    
-    U32 width = renderer_state->back_buffer_width;
-    U32 height = renderer_state->back_buffer_height;
-
-    if ((width != context->swapchain.width || height != context->swapchain.height) && width != 0 && height != 0)
-    {
-        vkDeviceWaitIdle(context->logical_device);
-        recreate_swapchain(context, &context->swapchain, width, height, context->swapchain.present_mode);
-    }
 
     VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[current_frame_in_flight_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);
 
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
-    {
-        if (width != 0 && height != 0)
-        {
-            vkDeviceWaitIdle(context->logical_device);
-            recreate_swapchain(context, &context->swapchain, width, height, context->swapchain.present_mode);
-        }
-    }
-    else
-    {
-        HE_ASSERT(result == VK_SUCCESS);
-    }
+    // vkDeviceWaitIdle(context->logical_device);
 
     VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
     vkResetCommandBuffer(command_buffer, 0);
@@ -674,6 +663,7 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
 
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
 
+    // todo(amer): move this about side.
     Globals globals = {};
     globals.view = scene_data->view;
     globals.projection = scene_data->projection;
@@ -759,6 +749,21 @@ void vulkan_renderer_draw_static_mesh(Static_Mesh_Handle static_mesh_handle, U32
     vkCmdDrawIndexed(context->command_buffer, static_mesh->index_count, instance_count, first_index, first_vertex, first_instance);
 }
 
+void vulkan_renderer_draw_sub_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Renderer_State *renderer_state = context->renderer_state;
+    Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
+    Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
+
+    Sub_Mesh *sub_mesh = &static_mesh->sub_meshes[sub_mesh_index];
+
+    U32 instance_count = 1;
+    S32 first_vertex = vulkan_static_mesh->first_vertex + sub_mesh->vertex_offset;
+    U32 first_index = vulkan_static_mesh->first_index + sub_mesh->index_offset;
+    vkCmdDrawIndexed(context->command_buffer, sub_mesh->index_count, instance_count, first_index, first_vertex, first_instance);
+}
+
 void vulkan_renderer_end_frame()
 {
     Vulkan_Context *context = &vulkan_context;
@@ -804,7 +809,7 @@ void vulkan_renderer_end_frame()
         {
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
             .semaphore = context->timeline_semaphore,
-            .value = context->timeline_value - (HE_MAX_FRAMES_IN_FLIGHT - 1),
+            .value = context->timeline_value - (renderer_state->frames_in_flight - 1),
             .stageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR
         }
     };

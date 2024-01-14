@@ -27,7 +27,6 @@ enum RenderingAPI
 #define HE_MAX_PIPELINE_STATE_COUNT 4096
 #define HE_MAX_BIND_GROUP_LAYOUT_COUNT 4096
 #define HE_MAX_BIND_GROUP_COUNT 4096
-#define HE_MAX_SCENE_NODE_COUNT 4096
 #define HE_MAX_SEMAPHORE_COUNT 4096
 
 struct Directional_Light
@@ -59,6 +58,7 @@ struct Renderer
     void (*set_index_buffer)(Buffer_Handle index_buffer_handle, U64 offset);
     void (*set_pipeline_state)(Pipeline_State_Handle pipeline_state_handle);
     void (*draw_static_mesh)(Static_Mesh_Handle static_mesh_handle, U32 first_instance);
+    void (*draw_sub_mesh)(Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index);
     void (*end_frame)();
 
     bool (*create_buffer)(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor);
@@ -139,11 +139,13 @@ struct Renderer_State
     Resource_Pool< Static_Mesh > static_meshes;
     Resource_Pool< Renderer_Semaphore > semaphores;
 
+    Mutex nodes_mutex;
     Dynamic_Array< Scene_Node > nodes;
-
-    std::atomic< U32 > scene_node_count;
-    Scene_Node *scene_nodes;
     Scene_Node *root_scene_node;
+
+    U32 opaque_packet_count;
+    Render_Packet *opaque_packets;
+    Pipeline_State_Handle current_pipeline_state_handle;
 
     F32 gamma;
     bool triple_buffering;
@@ -151,6 +153,7 @@ struct Renderer_State
     MSAA_Setting msaa_setting;
     Anisotropic_Filtering_Setting anisotropic_filtering_setting;
 
+    // todo(amer): default_shaders
     Shader_Handle opaquePBR_vertex_shader;
     Shader_Handle opaquePBR_fragment_shader;
     Shader_Group_Handle opaquePBR_shader_group;
@@ -165,8 +168,7 @@ struct Renderer_State
     Object_Data *object_data_base;
     U32 object_data_count;
 
-    Buffer_Handle transfer_buffer;
-
+    // todo(amer): gpu memory allocator
     U64 max_vertex_count;
     U64 vertex_count;
     Buffer_Handle position_buffer;
@@ -177,16 +179,20 @@ struct Renderer_State
     Buffer_Handle index_buffer;
     U64 index_offset;
 
+    Buffer_Handle transfer_buffer;
     Free_List_Allocator transfer_allocator;
 
     U32 frames_in_flight;
     U32 current_frame_in_flight_index;
 
     Mutex render_commands_mutex;
-    
+
+    // todo(amer): move to resource system
     Texture_Handle white_pixel_texture;
     Texture_Handle normal_pixel_texture;
-    Sampler_Handle default_sampler;
+
+    Sampler_Handle default_texture_sampler;
+    Sampler_Handle default_cubemap_sampler;
     
     Scene_Data scene_data;
     Render_Graph render_graph;
@@ -195,17 +201,14 @@ struct Renderer_State
     Shader_Handle skybox_fragment_shader;
     Shader_Group_Handle skybox_shader_group;
     Pipeline_State_Handle skybox_pipeline;
-
-    Bind_Group_Handle skybox_bind_groups[2];
     
     Texture_Handle skybox;
-    Sampler_Handle skybox_sampler;
+    Material_Handle skybox_material_handle;
 
     Mutex allocation_groups_mutex;
     Array< Allocation_Group, HE_MAX_SEMAPHORE_COUNT > allocation_groups;
 
-    Scene_Node *cube_mesh;
-    U64 cube;
+    U64 cube_static_mesh_uuid;
 };
 
 struct Render_Context
@@ -224,13 +227,7 @@ glm::mat4 get_world_matrix(const Transform &transform);
 
 void add_child(Scene_Node *parent, Scene_Node *node);
 
-Scene_Node *add_child_scene_node(Scene_Node *parent);
-
-bool load_model(Scene_Node *root_scene_node, const String &path, Memory_Arena *arena, Allocation_Group *allocation_group);
-Scene_Node* load_model_threaded(const String &path, bool add_to_scene = true);
-void unload_model(Allocation_Group *allocation_group);
-
-void render_scene_node(Scene_Node *scene_node, const Transform &parent_transform = get_identity_transform());
+void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform = get_identity_transform());
 
 glm::vec4 srgb_to_linear(const glm::vec4 &color);
 glm::vec4 linear_to_srgb(const glm::vec4 &color);
@@ -329,10 +326,17 @@ void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle);
 //
 // Materials
 //
+
+Shader_Struct *find_material_properties(Array_View<Shader_Handle> shaders);
+
 Material_Handle renderer_create_material(const Material_Descriptor &descriptor);
+void renderer_use_material(Material_Handle material_handle);
 Material* renderer_get_material(Material_Handle material_handle);
-U8 *get_property(Material *material, const String &name, Shader_Data_Type data_type);
 void renderer_destroy_material(Material_Handle &material_handle);
+
+S32 find_property(Material_Handle material_handle, const char *name);
+bool set_property(Material_Handle material_handle, const char *name, Material_Property_Data data);
+bool set_property(Material_Handle material_handle, S32 property_id, Material_Property_Data data);
 
 //
 // Semaphores
@@ -345,7 +349,6 @@ void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle);
 //
 // Render Context
 //
-
 Render_Context get_render_context();
 
 //

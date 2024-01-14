@@ -2,6 +2,7 @@
 
 #include "core/defines.h"
 #include "core/memory.h"
+#include "containers/array.h"
 
 #define HE_DEFAULT_DYNAMIC_ARRAY_INITIAL_CAPACITY 16
 
@@ -238,4 +239,10 @@ HE_FORCE_INLINE Size capacity_in_bytes(const Dynamic_Array< T > *dynamic_array)
 {
     HE_ASSERT(dynamic_array);
     return sizeof(T) * dynamic_array->capacity;
+}
+
+template< typename T >
+HE_FORCE_INLINE Array_View< T > to_array_view(const Dynamic_Array< T > &array)
+{
+    return { array.count, array.data };
 }

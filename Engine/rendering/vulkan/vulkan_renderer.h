@@ -62,6 +62,7 @@ void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 off
 void vulkan_renderer_set_pipeline_state(Pipeline_State_Handle pipeline_state_handle);
 
 void vulkan_renderer_draw_static_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance);
+void vulkan_renderer_draw_sub_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index);
 
 void vulkan_renderer_end_frame();
 

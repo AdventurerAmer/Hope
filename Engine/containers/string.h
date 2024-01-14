@@ -58,6 +58,9 @@ HE_FORCE_INLINE bool operator!=(const char *lhs, const String &rhs)
 S64 find_first_char_from_left(const String &str, const char *chars);
 S64 find_first_char_from_right(const String &str, const char *chars);
 
+bool starts_with(const String &str, const char *start);
+bool ends_with(const String &str, const char *end);
+
 String sub_string(const String &str, U64 index);
 String sub_string(const String &str, U64 index, U64 count);
 

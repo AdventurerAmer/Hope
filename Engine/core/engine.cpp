@@ -22,7 +22,6 @@ void hock_engine_api(Engine_API *api)
     api->init_fps_camera_controller = &init_fps_camera_controller;
     api->control_camera = &control_camera;
     api->update_camera = &update_camera;
-    api->load_model_threaded = &load_model_threaded;
     api->get_render_context = &get_render_context;
 }
 
@@ -33,39 +32,29 @@ void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state)
     for (U32 allocation_group_index = 0; allocation_group_index < renderer_state->allocation_groups.count; allocation_group_index++)
     {
         Allocation_Group &allocation_group = renderer_state->allocation_groups[allocation_group_index];
-
-        if (allocation_group.target_value == renderer->get_semaphore_value(allocation_group.semaphore))
+        U64 semaphore_value = renderer->get_semaphore_value(allocation_group.semaphore);
+        if (allocation_group.target_value == semaphore_value)
         {
             if (allocation_group.resource_index != -1)
             {
-                Resource *resource = get_resource((U32)allocation_group.resource_index);
+                Resource* resource = get_resource((U32)allocation_group.resource_index);
                 platform_lock_mutex(&resource->mutex);
-                HE_ASSERT(resource->state != Resource_State::LOADED);
+                HE_ASSERT(resource->state == Resource_State::PENDING);
                 resource->ref_count++;
                 resource->state = Resource_State::LOADED;
                 platform_unlock_mutex(&resource->mutex);
-                HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
             }
 
             renderer_destroy_semaphore(allocation_group.semaphore);
 
-            switch (allocation_group.type)
+            for (void *memory : allocation_group.allocations)
             {
-                case Allocation_Group_Type::GENERAL:
-                {
-                    for (void *memory : allocation_group.allocations)
-                    {
-                        deallocate(&renderer_state->transfer_allocator, memory);
-                    }
-                } break;
-
-                case Allocation_Group_Type::MODEL:
-                {
-                    unload_model(&allocation_group);
-                } break;
-            };
+                deallocate(&renderer_state->transfer_allocator, memory);
+            }
 
             remove_and_swap_back(&renderer_state->allocation_groups, allocation_group_index);
+
+            HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
         }
     }
 
@@ -194,7 +183,9 @@ bool startup(Engine *engine, void *platform_state)
     }
     
     Render_Context render_context = get_render_context();
-    Scene_Data *scene_data = &render_context.renderer_state->scene_data;
+    Renderer_State *renderer_state = render_context.renderer_state;
+    Renderer *renderer = render_context.renderer;
+    Scene_Data *scene_data = &renderer_state->scene_data;
 
     scene_data->directional_light.direction = { 0.0f, -1.0f, 0.0f };
     scene_data->directional_light.color = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -205,21 +196,68 @@ bool startup(Engine *engine, void *platform_state)
 
     wait_for_all_jobs_to_finish();
     renderer_wait_for_gpu_to_finish_all_work();
-    finalize_asset_loads(render_context.renderer, render_context.renderer_state);
+    while (renderer_state->allocation_groups.count)
+    {
+        finalize_asset_loads(renderer, renderer_state);
+    }
 
-    render_context.renderer_state->cube = aquire_resource(HE_STRING_LITERAL("Cube/static_mesh_Cube.hres")).uuid;
+    Read_Entire_File_Result result = read_entire_file("shaders/bin/skybox.vert.spv", &renderer_state->transfer_allocator);
+    Shader_Descriptor skybox_vertex_shader_descriptor =
+    {
+        .data = result.data,
+        .size = result.size
+        // .path = "shaders/bin/skybox.vert.spv"
+    };
+    renderer_state->skybox_vertex_shader = renderer_create_shader(skybox_vertex_shader_descriptor);
 
-    U64 uuid = aquire_resource(HE_STRING_LITERAL("Cube/Cube.hres")).uuid;
-    aquire_resource(HE_STRING_LITERAL("Cube/material_Cube.hres"));
+    result = read_entire_file("shaders/bin/skybox.frag.spv", &renderer_state->transfer_allocator);
+    Shader_Descriptor skybox_fragment_shader_descriptor =
+    {
+        .data = result.data,
+        .size = result.size
+        // .path = "shaders/bin/skybox.frag.spv"
+    };
+    renderer_state->skybox_fragment_shader = renderer_create_shader(skybox_fragment_shader_descriptor);
 
-    Resource_Ref ref = { uuid };
-    Resource *cube_resource = get_resource(ref);
-    Scene_Node *scene_node = &render_context.renderer_state->nodes[cube_resource->index];
-    add_child(render_context.renderer_state->root_scene_node, scene_node);
+    Shader_Group_Descriptor skybox_shader_descriptor = {};
+    skybox_shader_descriptor.shaders =
+    {
+        renderer_state->skybox_vertex_shader,
+        renderer_state->skybox_fragment_shader
+    };
+    renderer_state->skybox_shader_group = renderer_create_shader_group(skybox_shader_descriptor);
+
+    Pipeline_State_Descriptor skybox_pipeline_state_descriptor =
+    {
+        .settings =
+        {
+            .cull_mode = Cull_Mode::NONE,
+            .front_face = Front_Face::COUNTER_CLOCKWISE,
+            .fill_mode = Fill_Mode::SOLID,
+            .sample_shading = true,
+        },
+        .shader_group = renderer_state->skybox_shader_group,
+        .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"),
+    };
+    renderer_state->skybox_pipeline = renderer_create_pipeline_state(skybox_pipeline_state_descriptor);
+
+    Material_Descriptor skybox_material_descriptor =
+    {
+        .pipeline_state_handle = renderer_state->skybox_pipeline
+    };
+    renderer_state->skybox_material_handle = renderer_create_material(skybox_material_descriptor);
+    set_property(renderer_state->skybox_material_handle, "skybox", { .u32 = (U32)renderer_state->skybox.index });
+
+    U64 cube_uuid = aquire_resource("Cube/Cube.hres").uuid;
+    render_context.renderer_state->cube_static_mesh_uuid = find_resource("Cube/static_mesh_Cube.hres").uuid;
+    aquire_resource("Corset/Corset.hres");
 
     wait_for_all_jobs_to_finish();
     renderer_wait_for_gpu_to_finish_all_work();
-    finalize_asset_loads(render_context.renderer, render_context.renderer_state);
+    while (render_context.renderer_state->allocation_groups.count)
+    {
+        finalize_asset_loads(render_context.renderer, render_context.renderer_state);
+    }
 
     auto end = std::chrono::steady_clock::now();
     const std::chrono::duration< F64 > elapsed_seconds = end - start;
@@ -278,18 +316,15 @@ static void draw_node(Scene_Node *node)
 
     if (node->static_mesh_uuid != HE_MAX_U64)
     {
-        ImGui::Text("");
-        ImGui::Text("Static Mesh");
-        ImGui::Separator();
-
         Resource_Ref ref = { node->static_mesh_uuid };
         Resource *static_mesh_resource = get_resource(ref);
 
         Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(ref);
         Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
-        ImGui::Text("path: %.*s", HE_EXPAND_STRING(static_mesh_resource->relative_path));
-        ImGui::Text("uuid: %#x", node->static_mesh_uuid);
+        ImGui::Text("");
+        ImGui::Text("Static Mesh: %.*s (%#x)", HE_EXPAND_STRING(get_name(static_mesh_resource->relative_path)), node->static_mesh_uuid);
+        ImGui::Separator();
 
         ImGui::Text("vertex count: %llu", static_mesh->vertex_count);
         ImGui::Text("index count: %llu", static_mesh->index_count);
@@ -301,7 +336,162 @@ static void draw_node(Scene_Node *node)
             ImGui::Text("Sub Mesh: %d", sub_mesh_index++);
             ImGui::Text("vertex count: %llu", sub_mesh.vertex_count);
             ImGui::Text("index count: %llu", sub_mesh.index_count);
-            ImGui::Text("material: %#x", sub_mesh.material_uuid);
+
+            Resource_Ref material_ref = { sub_mesh.material_uuid };
+            Resource *material_resource = get_resource(material_ref);
+            Material_Handle material_handle = get_resource_handle_as<Material>(material_ref);
+            Material *material = renderer_get_material(material_handle);
+
+            ImGui::Text("");
+            ImGui::Text("Material: %.*s (%#x)", HE_EXPAND_STRING(get_name(material_resource->relative_path)), sub_mesh.material_uuid);
+
+            for (U32 property_index = 0; property_index < material->properties.count; property_index++)
+            {
+                ImGui::PushID(property_index);
+
+                Material_Property *property = &material->properties[property_index];
+                ImGui::Text("%.*s", HE_EXPAND_STRING(property->name));
+                ImGui::SameLine();
+
+                bool changed = true;
+
+                switch (property->data_type)
+                {
+                    case Shader_Data_Type::U32:
+                    {
+                        if (property->is_texture_resource)
+                        {
+                            if (property->data.u64 != HE_MAX_U64)
+                            {
+                                Resource_Ref texture_ref = { property->data.u64 };
+                                Resource *texture_resource = get_resource(texture_ref);
+                                ImGui::Text("%.*s (%#x)", HE_EXPAND_STRING(get_name(texture_resource->relative_path)), texture_ref.uuid);
+                            }
+                            else
+                            {
+                                ImGui::Text("None");
+                            }
+
+                            ImGui::SameLine();
+                            if (ImGui::Button("Edit"))
+                            {
+                                ImGui::OpenPopup("Select Texture");
+                            }
+
+                            if (ImGui::BeginPopupModal("Select Texture", NULL, ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoCollapse))
+                            {
+                                static S32 selected_index = -1;
+                                const Dynamic_Array< Resource > &resources = get_resources();
+
+                                if (property->data.u64 != HE_MAX_U64)
+                                {
+                                    Resource_Ref texture_ref = { property->data.u64 };
+                                    Resource *texture_resource = get_resource(texture_ref);
+                                    selected_index = (S32)(texture_resource - resources.data);
+                                }
+                                else
+                                {
+                                    selected_index = -1;
+                                }
+
+                                if (ImGui::BeginListBox("Texture"))
+                                {
+                                    const bool is_selected = selected_index == -1;
+                                    if (ImGui::Selectable("None", is_selected))
+                                    {
+                                        selected_index = -1;
+                                        set_property(material_handle, property_index, { .u64 = HE_MAX_U64 });
+                                    }
+
+                                    if (is_selected)
+                                    {
+                                        ImGui::SetItemDefaultFocus();
+                                    }
+
+                                    for (U32 resource_index = 0; resource_index < resources.count; resource_index++)
+                                    {
+                                        const Resource &resource = resources[resource_index];
+                                        if (resource.type != (U32)Resource_Type::TEXTURE)
+                                        {
+                                            continue;
+                                        }
+
+                                        const bool is_selected = selected_index == (S32)resource_index;
+                                        ImGui::PushID(resource_index);
+
+                                        if (ImGui::Selectable(resource.relative_path.data, is_selected))
+                                        {
+                                            selected_index = (S32)resource_index;
+                                            set_property(material_handle, property_index, { .u64 = resource.uuid });
+                                        }
+
+                                        if (is_selected)
+                                        {
+                                            ImGui::SetItemDefaultFocus();
+                                        }
+
+                                        ImGui::PopID();
+                                    }
+
+                                    ImGui::EndListBox();
+                                }
+
+                                if (ImGui::Button("OK"))
+                                {
+                                    ImGui::CloseCurrentPopup();
+                                }
+
+                                ImGui::EndPopup();
+                            }
+                        }
+                        else
+                        {
+                            ImGui::DragInt("##Property", &property->data.s32);
+                        }
+                    } break;
+
+                    case Shader_Data_Type::F32:
+                    {
+                        changed &= ImGui::DragFloat("##Property", &property->data.f32);
+                    } break;
+
+                    case Shader_Data_Type::VECTOR2F:
+                    {
+                        changed &= ImGui::DragFloat2("##Property", (F32 *)&property->data.v2);
+                    } break;
+
+                    case Shader_Data_Type::VECTOR3F:
+                    {
+                        if (property->is_color)
+                        {
+                            changed &= ImGui::ColorEdit3("##Property", (F32*)&property->data.v3);
+                        }
+                        else
+                        {
+                            changed &= ImGui::DragFloat3("##Property", (F32 *)&property->data.v3);
+                        }
+                    } break;
+
+                    case Shader_Data_Type::VECTOR4F:
+                    {
+                        if (property->is_color)
+                        {
+                            changed &= ImGui::ColorEdit4("##Property", (F32*)&property->data.v4);
+                        }
+                        else
+                        {
+                            changed &= ImGui::DragFloat4("##Property", (F32 *)&property->data.v4);
+                        }
+                    } break;
+                };
+
+                if (changed)
+                {
+                    set_property(material_handle, property_index, property->data);
+                }
+
+                ImGui::PopID();
+            }
         }
     }
 }
@@ -354,8 +544,6 @@ void game_loop(Engine *engine, F32 delta_time)
 
     Renderer *renderer = render_context.renderer;
     Renderer_State *renderer_state = render_context.renderer_state;
-
-    finalize_asset_loads(renderer, renderer_state);
 
     // ImGui Graphics Settings
     {
@@ -558,13 +746,79 @@ void game_loop(Engine *engine, F32 delta_time)
     begin_temprary_memory_arena(&renderer_state->frame_arena, &renderer_state->arena);
 
     U32 frame_index = renderer_state->current_frame_in_flight_index;
-
     Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[frame_index]);
     renderer_state->object_data_base = (Object_Data *)object_data_storage_buffer->data;
     renderer_state->object_data_count = 0;
     
+    renderer_state->opaque_packet_count = 0;
+    renderer_state->opaque_packets = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Render_Packet, 4069); // todo(amer): @Hardcoding
+    renderer_state->current_pipeline_state_handle = Resource_Pool<Pipeline_State>::invalid_handle;
+
+    renderer_parse_scene_tree(renderer_state->root_scene_node);
+
     renderer->begin_frame(scene_data);
+
+    Buffer_Handle vertex_buffers[] =
+    {
+        renderer_state->position_buffer,
+        renderer_state->normal_buffer,
+        renderer_state->uv_buffer,
+        renderer_state->tangent_buffer
+    };
+
+    U64 offsets[] =
+    {
+        0,
+        0,
+        0,
+        0
+    };
+
+    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
+    renderer->set_index_buffer(renderer_state->index_buffer, 0);
+
+    U32 texture_count = renderer_state->textures.capacity;
+    Texture_Handle *textures = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Texture_Handle, texture_count);
+    Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Sampler_Handle, texture_count);
+
+    for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
+    {
+        Texture *texture = get(&renderer_state->textures, it);
+
+        if (texture->is_attachment)
+        {
+            textures[it.index] = renderer_state->white_pixel_texture;
+        }
+        else
+        {
+            textures[it.index] = it;
+        }
+
+        samplers[it.index] = texture->is_cubemap ? renderer_state->default_cubemap_sampler : renderer_state->default_texture_sampler;
+    }
+
+    Update_Binding_Descriptor update_textures_binding_descriptors[] =
+    {
+        {
+            .binding_number = 0,
+            .element_index = 0,
+            .count = texture_count,
+            .textures = textures,
+            .samplers = samplers
+        },
+    };
+
+    renderer->update_bind_group(renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index], to_array_view(update_textures_binding_descriptors));
+
+    Bind_Group_Handle bind_groups[] =
+    {
+        renderer_state->per_frame_bind_groups[renderer_state->current_frame_in_flight_index],
+        renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index]
+    };
+    renderer->set_bind_groups(0, to_array_view(bind_groups));
+
     render(&renderer_state->render_graph, renderer, renderer_state);
+
     renderer->end_frame();
 
     renderer_state->current_frame_in_flight_index++;
@@ -574,6 +828,8 @@ void game_loop(Engine *engine, F32 delta_time)
     }
 
     end_temprary_memory_arena(&renderer_state->frame_arena);
+
+    finalize_asset_loads(renderer, renderer_state);
 }
 
 void shutdown(Engine *engine)

@@ -1,3 +1,0 @@
-[Rendering-Trace]: Layer VK_LAYER_RTSS uses API version 1.1 which is older than the application specified API version of 1.2. May cause issues.
-[Rendering-Trace]: Validation Error: [ UNASSIGNED-Threading-MultipleThreads ] Object 0: handle = 0xec4bec000000000b, type = VK_OBJECT_TYPE_COMMAND_POOL; | MessageID = 0x141cb623 | THREADING ERROR : vkAllocateCommandBuffers(): object of type VkCommandPool is simultaneously used in thread 13824 and thread 7972
-kImageCreateInfo-extent-00944)
