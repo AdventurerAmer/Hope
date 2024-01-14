@@ -29,7 +29,7 @@ bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 chan
     // note(amer): should logging files be in the bin folder or a separate folder for logs ?
     String main_channel_path = format_string(temprary_arena.arena, "logging/%s.log", name);
 
-    main_channel->log_file_result = platform_open_file(main_channel_path.data, OpenFileFlag_Write);
+    main_channel->log_file_result = platform_open_file(main_channel_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
     if (!main_channel->log_file_result.success)
     {
         result = false;
@@ -44,7 +44,7 @@ bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 chan
 
         String channel_path = format_string(temprary_arena.arena, "logging/%s.log", channel->name);
 
-        channel->log_file_result = platform_open_file(channel_path.data, OpenFileFlag_Write);
+        channel->log_file_result = platform_open_file(channel_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
         if (!channel->log_file_result.success)
         {
             result = false;
