@@ -161,28 +161,10 @@ String format_string(Memory_Arena *arena, const char *format, ...)
     return result;
 }
 
-String format_string(Temprary_Memory_Arena *temprary_memory_arena, const char *format, ...)
-{
-    va_list args;
-    va_start(args, format);
-    String result = format_string(temprary_memory_arena->arena, format, args);
-    va_end(args);
-    return result;
-}
-
-String format_string(Temprary_Memory_Arena *temprary_memory_arena, const char *format, va_list args)
-{
-    return format_string(temprary_memory_arena->arena, format, args);
-}
-
 void begin_string_builder(String_Builder *string_builder, Memory_Arena *arena)
 {
     HE_ASSERT(string_builder);
     HE_ASSERT(arena);
-
-#ifndef HE_SHIPPING
-    arena->parent = (Temprary_Memory_Arena *)string_builder;
-#endif
 
     string_builder->arena = arena;
     string_builder->max_count = arena->size - arena->offset;
@@ -205,7 +187,6 @@ void append(String_Builder *string_builder, const char *format, ...)
 String end_string_builder(String_Builder *string_builder)
 {
     Memory_Arena *arena = string_builder->arena;
-    arena->parent = nullptr;
     arena->offset += string_builder->count + 1;
     string_builder->data[string_builder->count] = 0;
     return { string_builder->data, string_builder->count };

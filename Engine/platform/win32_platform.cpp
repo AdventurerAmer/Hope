@@ -19,7 +19,7 @@
 #include "core/engine.h"
 #include "core/cvars.h"
 
-#include "core/debugging.h"
+#include "core/logging.h"
 
 #include "ImGui/backends/imgui_impl_win32.cpp"
 
@@ -413,10 +413,31 @@ INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command
 // memory
 //
 
+U64 platform_get_total_memory_size()
+{
+    U64 size = 0;
+    GetPhysicallyInstalledSystemMemory(&size);
+    return size * 1024;
+}
+
 void* platform_allocate_memory(U64 size)
 {
     HE_ASSERT(size);
     return VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+}
+
+void* platform_reserve_memory(U64 size)
+{
+    HE_ASSERT(size);
+    return VirtualAlloc(0, size, MEM_RESERVE, PAGE_NOACCESS);
+}
+
+bool platform_commit_memory(void *memory, U64 size)
+{
+    HE_ASSERT(memory);
+    HE_ASSERT(size);
+    void *result = VirtualAlloc(memory, size, MEM_COMMIT, PAGE_READWRITE);
+    return result != nullptr;
 }
 
 void platform_deallocate_memory(void *memory)
@@ -500,9 +521,7 @@ void platform_set_window_mode(Window *window, Window_Mode window_mode)
     {
         SetWindowLong(window_handle, GWL_STYLE, style|WS_OVERLAPPEDWINDOW);
         SetWindowPlacement(window_handle, window_placement_before_fullscreen);
-        SetWindowPos(window_handle,
-                     NULL, 0, 0, 0, 0,
-                     SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
+        SetWindowPos(window_handle, NULL, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
     }
 }
 

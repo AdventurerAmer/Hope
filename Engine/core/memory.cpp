@@ -1,14 +1,15 @@
 #include "memory.h"
+#include "platform.h"
 
 #include <string.h>
 
-void zero_memory(void *memory, Size size)
+void zero_memory(void *memory, U64 size)
 {
     HE_ASSERT(memory);
     memset(memory, 0, size);
 }
 
-void copy_memory(void *dst, const void *src, Size size)
+void copy_memory(void *dst, const void *src, U64 size)
 {
     HE_ASSERT(dst);
     HE_ASSERT(src);
@@ -16,32 +17,101 @@ void copy_memory(void *dst, const void *src, Size size)
     memcpy(dst, src, size);
 }
 
+struct Memory_System
+{
+    Memory_Arena permenent_arena;
+    Memory_Arena transient_arena;
+    Memory_Arena debug_arena;
+    Free_List_Allocator general_purpose_allocator;
+};
+
+static Memory_System memory_system_state;
+
+bool init_memory_system()
+{
+    U64 size = platform_get_total_memory_size();
+
+    if (!init_memory_arena(&memory_system_state.permenent_arena, size, HE_MEGA_BYTES(1)))
+    {
+        return false;
+    }
+
+    if (!init_memory_arena(&memory_system_state.transient_arena, size, HE_MEGA_BYTES(1)))
+    {
+        return false;
+    }
+
+    if (!init_memory_arena(&memory_system_state.debug_arena, size, HE_MEGA_BYTES(1)))
+    {
+        return false;
+    }
+
+    // todo(amer): make the free list allocator growable.
+    {
+        U64 size = HE_MEGA_BYTES(512);
+        void *memory = platform_allocate_memory(size);
+        HE_ASSERT(memory);
+        init_free_list_allocator(&memory_system_state.general_purpose_allocator, memory, size);
+    }
+    return true;
+}
+
+void deinit_memory_system()
+{
+}
+
+Memory_Arena *get_permenent_arena()
+{
+    return &memory_system_state.permenent_arena;
+}
+
+Memory_Arena *get_transient_arena()
+{
+    return &memory_system_state.transient_arena;
+}
+
+Memory_Arena *get_debug_arena()
+{
+    return &memory_system_state.debug_arena;
+}
+
+Free_List_Allocator *get_general_purpose_allocator()
+{
+    return &memory_system_state.general_purpose_allocator;
+}
+
+Temprary_Memory_Arena get_scratch_arena()
+{
+    return begin_temprary_memory(&memory_system_state.transient_arena);
+}
+
 //
 // Memory Arena
 //
 
-Memory_Arena create_memory_arena(void *memory, Size size)
+bool init_memory_arena(Memory_Arena *arena, U64 capacity, U64 min_allocation_size)
 {
-    HE_ASSERT(memory);
-    HE_ASSERT(size);
+    HE_ASSERT(capacity >= min_allocation_size);
 
-    Memory_Arena result = {};
-    result.base = (U8 *)memory;
-    result.size = size;
+    void *memory = platform_reserve_memory(capacity);
+    if (!memory)
+    {
+        return false;
+    }
 
-    return result;
-}
+    if (!platform_commit_memory(memory, min_allocation_size))
+    {
+        return false;
+    }
 
-Memory_Arena create_sub_arena(Memory_Arena *arena, Size size)
-{
-    HE_ASSERT(arena);
-    HE_ASSERT(size);
+    arena->base = (U8 *)memory;
+    arena->capacity = capacity;
+    arena->min_allocation_size = min_allocation_size;
+    arena->size = min_allocation_size;
+    arena->offset = 0;
+    arena->temp_count = 0;
 
-    Memory_Arena result = {};
-    result.base = HE_ALLOCATE_ARRAY(arena, U8, size);
-    result.size = size;
-
-    return result;
+    return true;
 }
 
 HE_FORCE_INLINE static bool is_power_of_2(U16 value)
@@ -49,15 +119,15 @@ HE_FORCE_INLINE static bool is_power_of_2(U16 value)
     return (value & (value - 1)) == 0;
 }
 
-Size get_number_of_bytes_to_align_address(Size address, U16 alignment)
+U64 get_number_of_bytes_to_align_address(uintptr_t address, U16 alignment)
 {
     // todo(amer): branchless version daddy
-    Size result = 0;
+    U64 result = 0;
 
     if (alignment)
     {
         HE_ASSERT(is_power_of_2(alignment));
-        Size modulo = address & (alignment - 1);
+        U64 modulo = address & (alignment - 1);
 
         if (modulo != 0)
         {
@@ -68,38 +138,34 @@ Size get_number_of_bytes_to_align_address(Size address, U16 alignment)
     return result;
 }
 
-void* allocate(Memory_Arena *arena, Size size, U16 alignment, Temprary_Memory_Arena *parent)
+void* allocate(Memory_Arena *arena, U64 size, U16 alignment)
 {
     HE_ASSERT(arena);
     HE_ASSERT(size);
-    HE_ASSERT(arena->parent == parent);
-
     void *result = 0;
     U8 *cursor = arena->base + arena->offset;
-    Size padding = get_number_of_bytes_to_align_address((Size)cursor, alignment);
-    HE_ASSERT(arena->offset + size + padding <= arena->size);
+    U64 padding = get_number_of_bytes_to_align_address((uintptr_t)cursor, alignment);
+    U64 allocation_size = size + padding;
+
+    if (arena->offset + allocation_size > arena->size)
+    {
+        U64 commit_size = HE_MAX(allocation_size, arena->min_allocation_size);
+        HE_ASSERT(arena->size + commit_size <= arena->capacity);
+        bool commited = platform_commit_memory(arena->base + arena->size, commit_size);
+        HE_ASSERT(commited);
+        arena->size += commit_size;
+    }
+
     result = cursor + padding;
-    arena->last_padding = padding;
-    arena->last_offset = arena->offset;
-    arena->offset += padding + size;
+    arena->offset += allocation_size;
     zero_memory(result, size);
     return result;
 }
 
-void* reallocate(Memory_Arena *arena, void *memory, Size new_size, U16 alignment, Temprary_Memory_Arena *parent)
+void* reallocate(Memory_Arena *arena, void *memory, U64 new_size, U16 alignment)
 {
-    HE_ASSERT(arena);
-    HE_ASSERT(memory);
-    HE_ASSERT(new_size);
-    HE_ASSERT(arena->parent == parent);
-
-    if (!memory)
-    {
-        HE_ASSERT(arena->base + arena->last_offset + arena->last_padding == memory);
-        arena->offset = arena->last_offset;
-    }
-
-    return allocate(arena, new_size, alignment, parent);
+    HE_ASSERT(false);
+    return nullptr;
 }
 
 void deallocate(Memory_Arena *arena, void *memory)
@@ -111,32 +177,21 @@ void deallocate(Memory_Arena *arena, void *memory)
 // Temprary Memory Arena
 //
 
-void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena, Memory_Arena *arena)
+Temprary_Memory_Arena begin_temprary_memory(Memory_Arena *arena)
 {
-    HE_ASSERT(temprary_memory_arena);
     HE_ASSERT(arena);
-
-    temprary_memory_arena->arena = arena;
-    temprary_memory_arena->offset = arena->offset;
-
-#ifndef HE_SHIPPING
-    temprary_memory_arena->parent = arena->parent;
-    arena->parent = temprary_memory_arena;
-#endif
+    arena->temp_count++;
+    return { .arena = arena, .offset = arena->offset };
 }
 
-void end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena)
+void end_temprary_memory(Temprary_Memory_Arena *temprary_arena)
 {
     Memory_Arena *arena = temprary_arena->arena;
     HE_ASSERT(arena);
+    HE_ASSERT(arena->temp_count);
+    arena->temp_count--;
 
     arena->offset = temprary_arena->offset;
-    arena->parent = temprary_arena->parent;
-
-#ifndef HE_SHIPPING
-    temprary_arena->arena = nullptr;
-    temprary_arena->offset = 0;
-#endif
 }
 
 //
@@ -173,7 +228,7 @@ static bool merge(Free_List_Node *left, Free_List_Node *right)
     return false;
 }
 
-void init_free_list_allocator(Free_List_Allocator *allocator, void *memory, Size size)
+void init_free_list_allocator(Free_List_Allocator *allocator, void *memory, U64 size)
 {
     HE_ASSERT(allocator);
     HE_ASSERT(size >= sizeof(Free_List_Node));
@@ -195,7 +250,7 @@ void init_free_list_allocator(Free_List_Allocator *allocator, void *memory, Size
     insert_after(first_free_node, &allocator->sentinal);
 }
 
-void init_free_list_allocator(Free_List_Allocator *allocator, Memory_Arena *arena, Size size)
+void init_free_list_allocator(Free_List_Allocator *allocator, Memory_Arena *arena, U64 size)
 {
     HE_ASSERT(arena);
     U8 *base = HE_ALLOCATE_ARRAY(arena, U8, size);
@@ -204,14 +259,14 @@ void init_free_list_allocator(Free_List_Allocator *allocator, Memory_Arena *aren
 
 struct Free_List_Allocation_Header
 {
-    Size size;
-    Size offset;
-    Size reserved;
+    U64 size;
+    U64 offset;
+    U64 reserved;
 };
 
 static_assert(sizeof(Free_List_Allocation_Header) == sizeof(Free_List_Node));
 
-void* allocate(Free_List_Allocator *allocator, Size size, U16 alignment)
+void* allocate(Free_List_Allocator *allocator, U64 size, U16 alignment)
 {
     HE_ASSERT(allocator);
     HE_ASSERT(size);
@@ -224,18 +279,18 @@ void* allocate(Free_List_Allocator *allocator, Size size, U16 alignment)
          node != &allocator->sentinal;
          node = node->next)
     {
-        Size node_address = (Size)node;
-        Size offset = get_number_of_bytes_to_align_address(node_address, alignment);
+        U64 node_address = (U64)node;
+        U64 offset = get_number_of_bytes_to_align_address(node_address, alignment);
         if (offset < sizeof(Free_List_Allocation_Header))
         {
             node_address += sizeof(Free_List_Allocation_Header);
             offset = sizeof(Free_List_Allocation_Header) + get_number_of_bytes_to_align_address(node_address, alignment);
         }
 
-        Size allocation_size = offset + size;
+        U64 allocation_size = offset + size;
         if (node->size >= allocation_size)
         {
-            Size remaining_size = node->size - allocation_size;
+            U64 remaining_size = node->size - allocation_size;
 
             Free_List_Allocation_Header allocation_header = {};
             allocation_header.offset = offset;

@@ -117,9 +117,6 @@ struct Renderer_State
     
     bool imgui_docking;
     
-    Memory_Arena arena;
-    Temprary_Memory_Arena frame_arena;
-
     Renderer renderer;
 
     U32 back_buffer_width;

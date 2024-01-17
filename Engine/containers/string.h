@@ -67,9 +67,6 @@ String sub_string(const String &str, U64 index, U64 count);
 String format_string(struct Memory_Arena *arena, const char *format, ...);
 String format_string(struct Memory_Arena *arena, const char *format, va_list args);
 
-String format_string(struct Temprary_Memory_Arena *temprary_memory_arena, const char *format, ...);
-String format_string(struct Temprary_Memory_Arena *temprary_memory_arena, const char *format, va_list args);
-
 template< U64 Count >
 constexpr U64 comptime_string_length(const char(&)[Count])
 {

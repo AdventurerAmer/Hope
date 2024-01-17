@@ -153,14 +153,14 @@ S32 find(const Array< T, N > *array, const T &target)
 }
 
 template< typename T, const U32 N >
-HE_FORCE_INLINE Size size_in_bytes(const Array< T, N > *array)
+HE_FORCE_INLINE U64 size_in_bytes(const Array< T, N > *array)
 {
     HE_ASSERT(array);
     return sizeof(T) * array->count;
 }
 
 template< typename T, const U32 N >
-HE_FORCE_INLINE Size capacity_in_bytes(Array< T, N > *array)
+HE_FORCE_INLINE U64 capacity_in_bytes(Array< T, N > *array)
 {
     HE_ASSERT(array);
     return sizeof(T) * N;

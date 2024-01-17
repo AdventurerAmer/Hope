@@ -7,19 +7,6 @@
 
 #include "rendering/renderer.h"
 
-struct Game_Memory
-{
-    Size permanent_memory_size;
-    void *permenent_memory;
-
-    Size transient_memory_size;
-    void *transient_memory;
-
-    Memory_Arena permanent_arena;
-    Memory_Arena transient_arena;
-    Free_List_Allocator free_list_allocator;
-};
-
 struct Engine;
 
 typedef bool(*Init_Game_Proc)(Engine *engine);
@@ -38,9 +25,7 @@ struct Engine_API
     void (*init_camera)(Camera *camera, glm::vec3 position, glm::quat rotation, F32 aspect_ratio, F32 field_of_view, F32 near_clip, F32 far_clip);
 
     void (*init_fps_camera_controller)(FPS_Camera_Controller *camera_controller, F32 pitch, F32 yaw, F32 rotation_speed, F32 base_movement_speed, F32 max_movement_speed, F32 sensitivity_x, F32 sensitivity_y);
-
     void (*control_camera)(FPS_Camera_Controller *camera_controller, Camera *camera, const FPS_Camera_Controller_Input input, F32 delta_time);
-
     void (*update_camera)(Camera *camera);
 
     void* (*allocate_memory)(U64 size);
@@ -53,7 +38,6 @@ struct Engine_API
 
 struct Engine
 {
-    Game_Memory memory;
     Game_Code game_code;
 
     String name;

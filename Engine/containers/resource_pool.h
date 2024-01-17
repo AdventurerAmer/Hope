@@ -56,7 +56,7 @@ void init(Resource_Pool< T > *resource_pool, Allocator *allocator, U32 capacity)
     HE_ASSERT(allocator);
     HE_ASSERT(capacity);
 
-    Size size = (sizeof(T) + sizeof(U32) + sizeof(bool)) * capacity;
+    U64 size = (sizeof(T) + sizeof(U32) + sizeof(bool)) * capacity;
     U8 *memory = HE_ALLOCATE_ARRAY(allocator, U8, size);
     resource_pool->memory = memory;
     resource_pool->data = (T *)memory;

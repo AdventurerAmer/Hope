@@ -1,7 +1,7 @@
 #include "engine.h"
 #include "platform.h"
 #include "rendering/renderer.h"
-#include "debugging.h"
+#include "logging.h"
 #include "cvars.h"
 #include "job_system.h"
 #include "file_system.h"
@@ -9,8 +9,6 @@
 
 #include <chrono>
 #include <imgui.h>
-
-extern Debug_State global_debug_state;
 
 void hock_engine_api(Engine_API *api)
 {
@@ -65,48 +63,15 @@ bool startup(Engine *engine, void *platform_state)
 {
     hock_engine_api(&engine->api);
 
-#ifndef HE_SHIPPING
-
-    U64 debug_memory_size = HE_MEGA(64);
-    void *debug_memory = platform_allocate_memory(debug_memory_size);
-    if (!debug_memory)
+    bool inited = init_memory_system();
+    if (!inited)
     {
         return false;
     }
 
-    global_debug_state.arena = create_memory_arena(debug_memory, debug_memory_size);
-    Logger* logger = &global_debug_state.main_logger;
-    U64 channel_mask = 0xFFFFFFFFFFFFFFFF;
-    bool logger_initied = init_logger(logger, "all", Verbosity_Trace, channel_mask, &global_debug_state.arena);
-    if (!logger_initied)
-    {
-        return false;
-    }
+    init_logging_system();
 
-#endif
-
-    U64 permenent_memory_size = HE_GIGA(2);
-    U64 transient_memory_size = HE_GIGA(2);
-    Size required_memory_size = permenent_memory_size + transient_memory_size;
-
-    void *memory = platform_allocate_memory(required_memory_size);
-    if (!memory)
-    {
-        HE_LOG(Core, Fetal, "failed to initialize memory system\n");
-        return false;
-    }
-
-    U8 *permanent_memory = (U8 *)memory;
-    engine->memory.permanent_memory_size = permenent_memory_size;
-    engine->memory.permanent_arena = create_memory_arena(permanent_memory, permenent_memory_size);
-
-    U8 *transient_memory = (U8 *)memory + permenent_memory_size;
-    engine->memory.transient_memory_size = transient_memory_size;
-    engine->memory.transient_arena = create_memory_arena(transient_memory, transient_memory_size);
-
-    init_free_list_allocator(&engine->memory.free_list_allocator, &engine->memory.transient_arena, HE_MEGA(512));
-
-    init_cvars("config.cvars", engine);
+    init_cvars("config.cvars");
 
     engine->show_cursor = false;
     engine->lock_cursor = false;
@@ -740,10 +705,10 @@ void game_loop(Engine *engine, F32 delta_time)
         imgui_draw_resource_system();
     }
 
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+
     Game_Code *game_code = &engine->game_code;
     game_code->on_update(engine, delta_time);
-
-    begin_temprary_memory_arena(&renderer_state->frame_arena, &renderer_state->arena);
 
     U32 frame_index = renderer_state->current_frame_in_flight_index;
     Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[frame_index]);
@@ -751,7 +716,7 @@ void game_loop(Engine *engine, F32 delta_time)
     renderer_state->object_data_count = 0;
     
     renderer_state->opaque_packet_count = 0;
-    renderer_state->opaque_packets = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Render_Packet, 4069); // todo(amer): @Hardcoding
+    renderer_state->opaque_packets = HE_ALLOCATE_ARRAY(temprary_memory.arena, Render_Packet, 4069); // todo(amer): @Hardcoding
     renderer_state->current_pipeline_state_handle = Resource_Pool<Pipeline_State>::invalid_handle;
 
     renderer_parse_scene_tree(renderer_state->root_scene_node);
@@ -778,8 +743,8 @@ void game_loop(Engine *engine, F32 delta_time)
     renderer->set_index_buffer(renderer_state->index_buffer, 0);
 
     U32 texture_count = renderer_state->textures.capacity;
-    Texture_Handle *textures = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Texture_Handle, texture_count);
-    Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, Sampler_Handle, texture_count);
+    Texture_Handle *textures = HE_ALLOCATE_ARRAY(temprary_memory.arena, Texture_Handle, texture_count);
+    Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(temprary_memory.arena, Sampler_Handle, texture_count);
 
     for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
     {
@@ -827,7 +792,7 @@ void game_loop(Engine *engine, F32 delta_time)
         renderer_state->current_frame_in_flight_index = 0;
     }
 
-    end_temprary_memory_arena(&renderer_state->frame_arena);
+    end_temprary_memory(&temprary_memory);
 
     finalize_asset_loads(renderer, renderer_state);
 }
@@ -840,10 +805,9 @@ void shutdown(Engine *engine)
 
     deinit_job_system();
 
-#ifndef HE_SHIPPING
-    Logger *logger = &global_debug_state.main_logger;
-    deinit_logger(logger);
-#endif
+    deinit_cvars();
 
-    deinit_cvars(engine);
+    deinit_logging_system();
+
+    deinit_memory_system();
 }

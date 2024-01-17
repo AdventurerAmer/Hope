@@ -45,7 +45,10 @@ struct Event
 // memory
 //
 
-void* platform_allocate_memory(Size size);
+U64 platform_get_total_memory_size();
+void* platform_allocate_memory(U64 size);
+void* platform_reserve_memory(U64 size);
+bool platform_commit_memory(void *memory, U64 size);
 void platform_deallocate_memory(void *memory);
 
 //
@@ -91,15 +94,15 @@ enum Open_File_Flags : U8
 struct Open_File_Result
 {
     void *handle;
-    Size size;
+    U64 size;
     bool success;
 };
 
 Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_file_flags);
 
-bool platform_read_data_from_file(const Open_File_Result *open_file_result, Size offset, void *data, Size size);
+bool platform_read_data_from_file(const Open_File_Result *open_file_result, U64 offset, void *data, U64 size);
 
-bool platform_write_data_to_file(const Open_File_Result *open_file_result, Size offset, void *data, Size size);
+bool platform_write_data_to_file(const Open_File_Result *open_file_result, U64 offset, void *data, U64 size);
 
 bool platform_close_file(Open_File_Result *open_file_result);
 

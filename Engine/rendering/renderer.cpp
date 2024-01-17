@@ -7,7 +7,7 @@
 #include "core/engine.h"
 #include "core/file_system.h"
 #include "core/job_system.h"
-#include "core/debugging.h"
+#include "core/logging.h"
 
 #include "containers/queue.h"
 
@@ -31,11 +31,10 @@
 
 #include <imgui.h>
 
-static Free_List_Allocator *_transfer_allocator;
-static Free_List_Allocator *_stbi_allocator;
-#define STBI_MALLOC(sz) allocate(_stbi_allocator, sz, 0);
-#define STBI_REALLOC(p, newsz) reallocate(_stbi_allocator, p, newsz, 0)
-#define STBI_FREE(p) deallocate(_stbi_allocator, p)
+static Free_List_Allocator *internal_stbi_allocator;
+#define STBI_MALLOC(sz) allocate(internal_stbi_allocator, sz, 0);
+#define STBI_REALLOC(p, newsz) reallocate(internal_stbi_allocator, p, newsz, 0)
+#define STBI_FREE(p) deallocate(internal_stbi_allocator, p)
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
@@ -114,10 +113,12 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
 
 bool init_renderer_state(Engine *engine)
 {
-    Memory_Arena *arena = &engine->memory.permanent_arena;
+    Memory_Arena *arena = get_permenent_arena();
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
+    internal_stbi_allocator = allocator;
+
     renderer_state = HE_ALLOCATE(arena, Renderer_State);
     renderer_state->engine = engine;
-    renderer_state->arena = create_sub_arena(arena, HE_MEGA(32));
 
     bool renderer_requested = request_renderer(RenderingAPI_Vulkan, &renderer_state->renderer);
     if (!renderer_requested)
@@ -142,7 +143,7 @@ bool init_renderer_state(Engine *engine)
     init(&renderer_state->static_meshes, arena, HE_MAX_STATIC_MESH_COUNT);
     init(&renderer_state->semaphores, arena, HE_MAX_SEMAPHORE_COUNT);
 
-    init(&renderer_state->nodes, &engine->memory.free_list_allocator);
+    init(&renderer_state->nodes, allocator);
     platform_create_mutex(&renderer_state->nodes_mutex);
 
     renderer_state->root_scene_node = &append(&renderer_state->nodes);
@@ -209,7 +210,7 @@ bool init_renderer_state(Engine *engine)
 
     Buffer_Descriptor transfer_buffer_descriptor =
     {
-        .size = HE_GIGA(2),
+        .size = HE_GIGA_BYTES(2),
         .usage = Buffer_Usage::TRANSFER,
         .is_device_local = false
     };
@@ -217,9 +218,6 @@ bool init_renderer_state(Engine *engine)
 
     Buffer *transfer_buffer = get(&renderer_state->buffers, renderer_state->transfer_buffer);
     init_free_list_allocator(&renderer_state->transfer_allocator, transfer_buffer->data, transfer_buffer->size);
-
-    _transfer_allocator = &renderer_state->transfer_allocator;
-    _stbi_allocator = &engine->memory.free_list_allocator;
 
     Renderer_Semaphore_Descriptor semaphore_descriptor =
     {
@@ -361,13 +359,13 @@ bool init_renderer_state(Engine *engine)
 
     Buffer_Descriptor index_buffer_descriptor =
     {
-        .size = HE_MEGA(128),
+        .size = HE_MEGA_BYTES(128),
         .usage = Buffer_Usage::INDEX,
         .is_device_local = true
     };
     renderer_state->index_buffer = renderer_create_buffer(index_buffer_descriptor);
 
-    init(&renderer_state->render_graph, &engine->memory.free_list_allocator);
+    init(&renderer_state->render_graph, allocator);
 
     {
         auto render = [](Renderer *renderer, Renderer_State *renderer_state)
@@ -1204,7 +1202,9 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         platform_unlock_mutex(&renderer_state->render_commands_mutex);
     }
 
-    init(&material->properties, &renderer_state->engine->memory.free_list_allocator, properties->member_count);
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
+
+    init(&material->properties, allocator, properties->member_count);
 
     for (U32 property_index = 0; property_index < properties->member_count; property_index++)
     {
@@ -1221,7 +1221,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
     }
 
     material->pipeline_state_handle = descriptor.pipeline_state_handle;
-    material->data = HE_ALLOCATE_ARRAY(&renderer_state->engine->memory.free_list_allocator, U8, size);
+    material->data = HE_ALLOCATE_ARRAY(allocator, U8, size);
     material->size = size;
     material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
 
@@ -1255,7 +1255,7 @@ void renderer_destroy_material(Material_Handle &material_handle)
         renderer_destroy_bind_group(material->bind_groups[frame_index]);
     }
 
-    deallocate(&renderer_state->engine->memory.free_list_allocator, material->data);
+    deallocate(get_general_purpose_allocator(), material->data);
     release_handle(&renderer_state->materials, material_handle);
 
     material_handle = Resource_Pool< Material >::invalid_handle;

@@ -1,8 +1,10 @@
 #include "vulkan_swapchain.h"
 #include "vulkan_utils.h"
 
-bool init_swapchain_support(Vulkan_Context *context, VkFormat *image_formats, U32 image_format_count, VkColorSpaceKHR color_space, Memory_Arena *arena, Vulkan_Swapchain_Support *swapchain_support)
+bool init_swapchain_support(Vulkan_Context *context, VkFormat *image_formats, U32 image_format_count, VkColorSpaceKHR color_space, Vulkan_Swapchain_Support *swapchain_support)
 {
+    Memory_Arena *arena = get_permenent_arena();
+
     swapchain_support->surface_format_count = 0;
     vkGetPhysicalDeviceSurfaceFormatsKHR(context->physical_device, context->surface, &swapchain_support->surface_format_count, nullptr);
 
@@ -140,8 +142,9 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
 
     HE_CHECK_VKRESULT(vkGetSwapchainImagesKHR(context->logical_device, swapchain->handle, &swapchain->image_count, nullptr));
 
-    swapchain->images = HE_ALLOCATE_ARRAY(context->allocator, VkImage, swapchain->image_count);
-    swapchain->image_views = HE_ALLOCATE_ARRAY(context->allocator, VkImageView, swapchain->image_count);
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
+    swapchain->images = HE_ALLOCATE_ARRAY(allocator, VkImage, swapchain->image_count);
+    swapchain->image_views = HE_ALLOCATE_ARRAY(allocator, VkImageView, swapchain->image_count);
 
     HE_CHECK_VKRESULT(vkGetSwapchainImagesKHR(context->logical_device, swapchain->handle, &swapchain->image_count, swapchain->images));
 
@@ -174,8 +177,9 @@ void destroy_swapchain(Vulkan_Context *context, Vulkan_Swapchain *swapchain)
         swapchain->image_views[image_index] = VK_NULL_HANDLE;
     }
 
-    deallocate(context->allocator, swapchain->images);
-    deallocate(context->allocator, swapchain->image_views);
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
+    deallocate(allocator, swapchain->images);
+    deallocate(allocator, swapchain->image_views);
 
     vkDestroySwapchainKHR(context->logical_device, swapchain->handle, nullptr);
     swapchain->handle = VK_NULL_HANDLE;

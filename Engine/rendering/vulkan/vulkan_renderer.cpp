@@ -10,7 +10,7 @@
 #include "rendering/renderer_utils.h"
 
 #include "core/platform.h"
-#include "core/debugging.h"
+#include "core/logging.h"
 #include "core/memory.h"
 #include "core/file_system.h"
 #include "core/engine.h"
@@ -81,15 +81,10 @@ static bool is_physical_device_supports_all_features(VkPhysicalDevice physical_d
     return true;
 }
 
-static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR surface, Memory_Arena *arena)
+static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR surface)
 {
-    Temprary_Memory_Arena temprary_arena = {};
-    begin_temprary_memory_arena(&temprary_arena, arena);
-
-    HE_DEFER
-    {
-        end_temprary_memory_arena(&temprary_arena);
-    };
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     U32 physical_device_count = 0;
     HE_CHECK_VKRESULT(vkEnumeratePhysicalDevices(instance, &physical_device_count, nullptr));
@@ -99,7 +94,7 @@ static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR s
         return VK_NULL_HANDLE;
     }
 
-    VkPhysicalDevice *physical_devices = HE_ALLOCATE_ARRAY(&temprary_arena, VkPhysicalDevice, physical_device_count);
+    VkPhysicalDevice *physical_devices = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkPhysicalDevice, physical_device_count);
 
     HE_CHECK_VKRESULT(vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices));
 
@@ -124,7 +119,7 @@ static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR s
         bool can_physical_device_do_graphics = false;
         bool can_physical_device_present = false;
 
-        VkQueueFamilyProperties *queue_families = HE_ALLOCATE_ARRAY(&temprary_arena, VkQueueFamilyProperties, queue_family_count);
+        VkQueueFamilyProperties *queue_families = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkQueueFamilyProperties, queue_family_count);
 
         vkGetPhysicalDeviceQueueFamilyProperties(*current_physical_device, &queue_family_count, queue_families);
 
@@ -168,24 +163,26 @@ static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR s
 
 static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State *renderer_state)
 {
-    context->allocator = &engine->memory.free_list_allocator;
     context->renderer_state = renderer_state;
     
-    Memory_Arena *arena = &engine->memory.permanent_arena;
-    context->arena = create_sub_arena(arena, HE_MEGA(32));
+    {
+        Memory_Arena* arena = get_permenent_arena();
+        context->buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Buffer, HE_MAX_BUFFER_COUNT);
+        context->textures = HE_ALLOCATE_ARRAY(arena, Vulkan_Image, HE_MAX_TEXTURE_COUNT);
+        context->samplers = HE_ALLOCATE_ARRAY(arena, Vulkan_Sampler, HE_MAX_SAMPLER_COUNT);
+        context->shaders = HE_ALLOCATE_ARRAY(arena, Vulkan_Shader, HE_MAX_SHADER_COUNT);
+        context->shader_groups = HE_ALLOCATE_ARRAY(arena, Vulkan_Shader_Group, HE_MAX_SHADER_GROUP_COUNT);
+        context->pipeline_states = HE_ALLOCATE_ARRAY(arena, Vulkan_Pipeline_State, HE_MAX_PIPELINE_STATE_COUNT);
+        context->bind_group_layouts = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group_Layout, HE_MAX_BIND_GROUP_LAYOUT_COUNT);
+        context->bind_groups = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group, HE_MAX_BIND_GROUP_COUNT);
+        context->render_passes = HE_ALLOCATE_ARRAY(arena, Vulkan_Render_Pass, HE_MAX_RENDER_PASS_COUNT);
+        context->frame_buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Frame_Buffer, HE_MAX_FRAME_BUFFER_COUNT);
+        context->static_meshes = HE_ALLOCATE_ARRAY(arena, Vulkan_Static_Mesh, HE_MAX_STATIC_MESH_COUNT);
+        context->semaphores = HE_ALLOCATE_ARRAY(arena, Vulkan_Semaphore, HE_MAX_SEMAPHORE_COUNT);
+    }
 
-    context->buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Buffer, HE_MAX_BUFFER_COUNT);
-    context->textures = HE_ALLOCATE_ARRAY(arena, Vulkan_Image, HE_MAX_TEXTURE_COUNT);
-    context->samplers = HE_ALLOCATE_ARRAY(arena, Vulkan_Sampler, HE_MAX_SAMPLER_COUNT);
-    context->shaders = HE_ALLOCATE_ARRAY(arena, Vulkan_Shader, HE_MAX_SHADER_COUNT);
-    context->shader_groups = HE_ALLOCATE_ARRAY(arena, Vulkan_Shader_Group, HE_MAX_SHADER_GROUP_COUNT);
-    context->pipeline_states = HE_ALLOCATE_ARRAY(arena, Vulkan_Pipeline_State, HE_MAX_PIPELINE_STATE_COUNT);
-    context->bind_group_layouts = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group_Layout, HE_MAX_BIND_GROUP_LAYOUT_COUNT);
-    context->bind_groups = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group, HE_MAX_BIND_GROUP_COUNT);
-    context->render_passes = HE_ALLOCATE_ARRAY(arena, Vulkan_Render_Pass, HE_MAX_RENDER_PASS_COUNT);
-    context->frame_buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Frame_Buffer, HE_MAX_FRAME_BUFFER_COUNT);
-    context->static_meshes = HE_ALLOCATE_ARRAY(arena, Vulkan_Static_Mesh, HE_MAX_STATIC_MESH_COUNT);
-    context->semaphores = HE_ALLOCATE_ARRAY(arena, Vulkan_Semaphore, HE_MAX_SEMAPHORE_COUNT);
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     const char *required_instance_extensions[] =
     {
@@ -285,7 +282,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     physical_device_features2.features.sampleRateShading = VK_TRUE;
     physical_device_features2.pNext = &physical_device_sync2_features;
 
-    context->physical_device = pick_physical_device(context->instance, context->surface, arena);
+    context->physical_device = pick_physical_device(context->instance, context->surface);
     HE_ASSERT(context->physical_device != VK_NULL_HANDLE);
 
     vkGetPhysicalDeviceMemoryProperties(context->physical_device, &context->physical_device_memory_properties);
@@ -294,166 +291,156 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     VkSampleCountFlags counts = context->physical_device_properties.limits.framebufferColorSampleCounts&
                                 context->physical_device_properties.limits.framebufferDepthSampleCounts;
 
+    context->graphics_queue_family_index = 0;
+    context->present_queue_family_index = 0;
+
+    U32 queue_family_count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device, &queue_family_count, nullptr);
+
+    VkQueueFamilyProperties *queue_families = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkQueueFamilyProperties, queue_family_count);
+
+    vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device, &queue_family_count, queue_families);
+
+    bool found_a_queue_family_that_can_do_graphics_and_present = false;
+
+    for (U32 queue_family_index = 0; queue_family_index < queue_family_count; queue_family_index++)
     {
-        Temprary_Memory_Arena temprary_arena = {};
-        begin_temprary_memory_arena(&temprary_arena, arena);
+        VkQueueFamilyProperties *queue_family = &queue_families[queue_family_index];
 
-        HE_DEFER
+        bool can_queue_family_do_graphics = (queue_family->queueFlags & VK_QUEUE_GRAPHICS_BIT);
+
+        VkBool32 present_support = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(context->physical_device, queue_family_index, context->surface, &present_support);
+
+        bool can_queue_family_present = present_support == VK_TRUE;
+
+        if (can_queue_family_do_graphics && can_queue_family_present)
         {
-            end_temprary_memory_arena(&temprary_arena);
-        };
+            context->graphics_queue_family_index = queue_family_index;
+            context->present_queue_family_index = queue_family_index;
+            found_a_queue_family_that_can_do_graphics_and_present = true;
+            break;
+        }
+    }
 
-        context->graphics_queue_family_index = 0;
-        context->present_queue_family_index = 0;
-
-        U32 queue_family_count = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device, &queue_family_count, nullptr);
-
-        VkQueueFamilyProperties *queue_families = HE_ALLOCATE_ARRAY(&temprary_arena, VkQueueFamilyProperties, queue_family_count);
-
-        vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device, &queue_family_count, queue_families);
-
-        bool found_a_queue_family_that_can_do_graphics_and_present = false;
-
+    if (!found_a_queue_family_that_can_do_graphics_and_present)
+    {
         for (U32 queue_family_index = 0; queue_family_index < queue_family_count; queue_family_index++)
         {
             VkQueueFamilyProperties *queue_family = &queue_families[queue_family_index];
 
-            bool can_queue_family_do_graphics = (queue_family->queueFlags & VK_QUEUE_GRAPHICS_BIT);
+            if (queue_family->queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            {
+                context->graphics_queue_family_index = queue_family_index;
+            }
 
             VkBool32 present_support = VK_FALSE;
             vkGetPhysicalDeviceSurfaceSupportKHR(context->physical_device, queue_family_index, context->surface, &present_support);
 
-            bool can_queue_family_present = present_support == VK_TRUE;
-
-            if (can_queue_family_do_graphics && can_queue_family_present)
+            if (present_support == VK_TRUE)
             {
-                context->graphics_queue_family_index = queue_family_index;
                 context->present_queue_family_index = queue_family_index;
-                found_a_queue_family_that_can_do_graphics_and_present = true;
-                break;
             }
         }
-
-        if (!found_a_queue_family_that_can_do_graphics_and_present)
-        {
-            for (U32 queue_family_index = 0; queue_family_index < queue_family_count; queue_family_index++)
-            {
-                VkQueueFamilyProperties *queue_family = &queue_families[queue_family_index];
-
-                if (queue_family->queueFlags & VK_QUEUE_GRAPHICS_BIT)
-                {
-                    context->graphics_queue_family_index = queue_family_index;
-                }
-
-                VkBool32 present_support = VK_FALSE;
-                vkGetPhysicalDeviceSurfaceSupportKHR(context->physical_device, queue_family_index, context->surface, &present_support);
-
-                if (present_support == VK_TRUE)
-                {
-                    context->present_queue_family_index = queue_family_index;
-                }
-            }
-        }
-
-        context->transfer_queue_family_index = context->graphics_queue_family_index;
-
-        for (U32 queue_family_index = 0; queue_family_index < queue_family_count; queue_family_index++)
-        {
-            VkQueueFamilyProperties *queue_family = &queue_families[queue_family_index];
-            if ((queue_family->queueFlags & VK_QUEUE_TRANSFER_BIT) && !(queue_family->queueFlags & VK_QUEUE_GRAPHICS_BIT))
-            {
-                context->transfer_queue_family_index = queue_family_index;
-                break;
-            }
-        }
-
-        F32 queue_priority = 1.0f;
-        VkDeviceQueueCreateInfo *queue_create_infos = HE_ALLOCATE_ARRAY(&temprary_arena, VkDeviceQueueCreateInfo, 3);
-
-        queue_create_infos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queue_create_infos[0].queueFamilyIndex = context->graphics_queue_family_index;
-        queue_create_infos[0].queueCount = 1;
-        queue_create_infos[0].pQueuePriorities = &queue_priority;
-
-        U32 queue_create_info_count = 1;
-
-        if (!found_a_queue_family_that_can_do_graphics_and_present)
-        {
-            U32 queue_create_info_index = queue_create_info_count++;
-            queue_create_infos[queue_create_info_index].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queue_create_infos[queue_create_info_index].queueFamilyIndex = context->present_queue_family_index;
-            queue_create_infos[queue_create_info_index].queueCount = 1;
-            queue_create_infos[queue_create_info_index].pQueuePriorities = &queue_priority;
-        }
-
-        if ((context->transfer_queue_family_index != context->graphics_queue_family_index)
-            && (context->transfer_queue_family_index != context->present_queue_family_index))
-        {
-            U32 queue_create_info_index = queue_create_info_count++;
-            queue_create_infos[queue_create_info_index].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queue_create_infos[queue_create_info_index].queueFamilyIndex = context->transfer_queue_family_index;
-            queue_create_infos[queue_create_info_index].queueCount = 1;
-            queue_create_infos[queue_create_info_index].pQueuePriorities = &queue_priority;
-        }
-
-        const char *required_device_extensions[] =
-        {
-            "VK_KHR_swapchain",
-            "VK_KHR_push_descriptor",
-            "VK_EXT_descriptor_indexing",
-            "VK_KHR_timeline_semaphore",
-            "VK_KHR_synchronization2"
-        };
-
-        U32 extension_property_count = 0;
-        vkEnumerateDeviceExtensionProperties(context->physical_device, nullptr, &extension_property_count, nullptr);
-
-        VkExtensionProperties *extension_properties = HE_ALLOCATE_ARRAY(&temprary_arena, VkExtensionProperties, extension_property_count);
-
-        vkEnumerateDeviceExtensionProperties(context->physical_device, nullptr, &extension_property_count, extension_properties);
-
-        bool not_all_required_device_extensions_are_supported = false;
-
-        for (U32 extension_index = 0; extension_index < HE_ARRAYCOUNT(required_device_extensions); extension_index++)
-        {
-            String device_extension = HE_STRING(required_device_extensions[extension_index]);
-            bool is_extension_supported = false;
-
-            for (U32 extension_property_index = 0; extension_property_index < extension_property_count; extension_property_index++)
-            {
-                VkExtensionProperties *extension_property = &extension_properties[extension_property_index];
-                if (device_extension == extension_property->extensionName)
-                {
-                    is_extension_supported = true;
-                    break;
-                }
-            }
-
-            if (!is_extension_supported)
-            {
-                not_all_required_device_extensions_are_supported = true;
-            }
-        }
-
-        if (not_all_required_device_extensions_are_supported)
-        {
-            return false;
-        }
-
-        VkDeviceCreateInfo device_create_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-        device_create_info.pQueueCreateInfos = queue_create_infos;
-        device_create_info.queueCreateInfoCount = queue_create_info_count;
-        device_create_info.pNext = &physical_device_features2;
-        device_create_info.ppEnabledExtensionNames = required_device_extensions;
-        device_create_info.enabledExtensionCount = HE_ARRAYCOUNT(required_device_extensions);
-
-        HE_CHECK_VKRESULT(vkCreateDevice(context->physical_device, &device_create_info, nullptr, &context->logical_device));
-
-        vkGetDeviceQueue(context->logical_device, context->graphics_queue_family_index, 0, &context->graphics_queue);
-        vkGetDeviceQueue(context->logical_device, context->present_queue_family_index, 0, &context->present_queue);
-        vkGetDeviceQueue(context->logical_device, context->transfer_queue_family_index, 0, &context->transfer_queue);
     }
+
+    context->transfer_queue_family_index = context->graphics_queue_family_index;
+
+    for (U32 queue_family_index = 0; queue_family_index < queue_family_count; queue_family_index++)
+    {
+        VkQueueFamilyProperties *queue_family = &queue_families[queue_family_index];
+        if ((queue_family->queueFlags & VK_QUEUE_TRANSFER_BIT) && !(queue_family->queueFlags & VK_QUEUE_GRAPHICS_BIT))
+        {
+            context->transfer_queue_family_index = queue_family_index;
+            break;
+        }
+    }
+
+    F32 queue_priority = 1.0f;
+    VkDeviceQueueCreateInfo *queue_create_infos = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDeviceQueueCreateInfo, 3);
+
+    queue_create_infos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queue_create_infos[0].queueFamilyIndex = context->graphics_queue_family_index;
+    queue_create_infos[0].queueCount = 1;
+    queue_create_infos[0].pQueuePriorities = &queue_priority;
+
+    U32 queue_create_info_count = 1;
+
+    if (!found_a_queue_family_that_can_do_graphics_and_present)
+    {
+        U32 queue_create_info_index = queue_create_info_count++;
+        queue_create_infos[queue_create_info_index].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_create_infos[queue_create_info_index].queueFamilyIndex = context->present_queue_family_index;
+        queue_create_infos[queue_create_info_index].queueCount = 1;
+        queue_create_infos[queue_create_info_index].pQueuePriorities = &queue_priority;
+    }
+
+    if ((context->transfer_queue_family_index != context->graphics_queue_family_index)
+        && (context->transfer_queue_family_index != context->present_queue_family_index))
+    {
+        U32 queue_create_info_index = queue_create_info_count++;
+        queue_create_infos[queue_create_info_index].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_create_infos[queue_create_info_index].queueFamilyIndex = context->transfer_queue_family_index;
+        queue_create_infos[queue_create_info_index].queueCount = 1;
+        queue_create_infos[queue_create_info_index].pQueuePriorities = &queue_priority;
+    }
+
+    const char *required_device_extensions[] =
+    {
+        "VK_KHR_swapchain",
+        "VK_KHR_push_descriptor",
+        "VK_EXT_descriptor_indexing",
+        "VK_KHR_timeline_semaphore",
+        "VK_KHR_synchronization2"
+    };
+
+    U32 extension_property_count = 0;
+    vkEnumerateDeviceExtensionProperties(context->physical_device, nullptr, &extension_property_count, nullptr);
+
+    VkExtensionProperties *extension_properties = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkExtensionProperties, extension_property_count);
+
+    vkEnumerateDeviceExtensionProperties(context->physical_device, nullptr, &extension_property_count, extension_properties);
+
+    bool not_all_required_device_extensions_are_supported = false;
+
+    for (U32 extension_index = 0; extension_index < HE_ARRAYCOUNT(required_device_extensions); extension_index++)
+    {
+        String device_extension = HE_STRING(required_device_extensions[extension_index]);
+        bool is_extension_supported = false;
+
+        for (U32 extension_property_index = 0; extension_property_index < extension_property_count; extension_property_index++)
+        {
+            VkExtensionProperties *extension_property = &extension_properties[extension_property_index];
+            if (device_extension == extension_property->extensionName)
+            {
+                is_extension_supported = true;
+                break;
+            }
+        }
+
+        if (!is_extension_supported)
+        {
+            not_all_required_device_extensions_are_supported = true;
+        }
+    }
+
+    if (not_all_required_device_extensions_are_supported)
+    {
+        return false;
+    }
+
+    VkDeviceCreateInfo device_create_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
+    device_create_info.pQueueCreateInfos = queue_create_infos;
+    device_create_info.queueCreateInfoCount = queue_create_info_count;
+    device_create_info.pNext = &physical_device_features2;
+    device_create_info.ppEnabledExtensionNames = required_device_extensions;
+    device_create_info.enabledExtensionCount = HE_ARRAYCOUNT(required_device_extensions);
+
+    HE_CHECK_VKRESULT(vkCreateDevice(context->physical_device, &device_create_info, nullptr, &context->logical_device));
+
+    vkGetDeviceQueue(context->logical_device, context->graphics_queue_family_index, 0, &context->graphics_queue);
+    vkGetDeviceQueue(context->logical_device, context->present_queue_family_index, 0, &context->present_queue);
+    vkGetDeviceQueue(context->logical_device, context->transfer_queue_family_index, 0, &context->transfer_queue);
 
     VkFormat image_formats[] =
     {
@@ -462,7 +449,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     };
 
     VkColorSpaceKHR color_space = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-    init_swapchain_support(context, image_formats, HE_ARRAYCOUNT(image_formats), color_space, arena, &context->swapchain_support);
+    init_swapchain_support(context, image_formats, HE_ARRAYCOUNT(image_formats), color_space, &context->swapchain_support);
 
     VkPresentModeKHR present_mode = pick_present_mode(renderer_state->vsync, &context->swapchain_support);
     U32 min_image_count = HE_MAX_FRAMES_IN_FLIGHT;
@@ -472,34 +459,24 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     bool swapchain_created = create_swapchain(context, width, height, min_image_count, present_mode, &context->swapchain);
     HE_ASSERT(swapchain_created);
 
+    U64 pipeline_cache_size = 0;
+    U8 *pipeline_cache_data = nullptr;
+
+    Read_Entire_File_Result result = read_entire_file(HE_PIPELINE_CACHE_FILENAME, temprary_memory.arena);
+    if (result.success)
     {
-        Temprary_Memory_Arena temprary_arena = {};
-        begin_temprary_memory_arena(&temprary_arena, arena);
-
-        HE_DEFER
+        VkPipelineCacheHeaderVersionOne *pipeline_cache_header = (VkPipelineCacheHeaderVersionOne *)result.data;
+        if (pipeline_cache_header->deviceID == context->physical_device_properties.deviceID && pipeline_cache_header->vendorID == context->physical_device_properties.vendorID)
         {
-            end_temprary_memory_arena(&temprary_arena);
-        };
-
-        U64 pipeline_cache_size = 0;
-        U8 *pipeline_cache_data = nullptr;
-
-        Read_Entire_File_Result result = read_entire_file(HE_PIPELINE_CACHE_FILENAME, &temprary_arena);
-        if (result.success)
-        {
-            VkPipelineCacheHeaderVersionOne *pipeline_cache_header = (VkPipelineCacheHeaderVersionOne *)result.data;
-            if (pipeline_cache_header->deviceID == context->physical_device_properties.deviceID && pipeline_cache_header->vendorID == context->physical_device_properties.vendorID)
-            {
-                pipeline_cache_data = result.data;
-                pipeline_cache_size = result.size;
-            }
+            pipeline_cache_data = result.data;
+            pipeline_cache_size = result.size;
         }
-
-        VkPipelineCacheCreateInfo pipeline_cache_create_info = { VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
-        pipeline_cache_create_info.initialDataSize = pipeline_cache_size;
-        pipeline_cache_create_info.pInitialData = pipeline_cache_data;
-        HE_CHECK_VKRESULT(vkCreatePipelineCache(context->logical_device, &pipeline_cache_create_info, nullptr, &context->pipeline_cache));
     }
+
+    VkPipelineCacheCreateInfo pipeline_cache_create_info = { VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
+    pipeline_cache_create_info.initialDataSize = pipeline_cache_size;
+    pipeline_cache_create_info.pInitialData = pipeline_cache_data;
+    HE_CHECK_VKRESULT(vkCreatePipelineCache(context->logical_device, &pipeline_cache_create_info, nullptr, &context->pipeline_cache));
 
     VkCommandPoolCreateInfo graphics_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
 
@@ -593,9 +570,11 @@ void deinit_vulkan(Vulkan_Context *context)
 
     if (pipeline_cache_size)
     {
-        U8 *pipeline_cache_data = HE_ALLOCATE_ARRAY(&context->arena, U8, pipeline_cache_size);
+        Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+        U8 *pipeline_cache_data = HE_ALLOCATE_ARRAY(temprary_memory.arena, U8, pipeline_cache_size);
         vkGetPipelineCacheData(context->logical_device, context->pipeline_cache, &pipeline_cache_size, pipeline_cache_data);
         write_entire_file(HE_PIPELINE_CACHE_FILENAME, pipeline_cache_data, pipeline_cache_size);
+        end_temprary_memory(&temprary_memory);
     }
 
     vkDestroyPipelineCache(context->logical_device, context->pipeline_cache, nullptr);
@@ -705,10 +684,13 @@ void vulkan_renderer_set_vertex_buffers(const Array_View< Buffer_Handle > &verte
     
     Vulkan_Context *context = &vulkan_context;
 
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER { end_temprary_memory(&temprary_memory); };
+
     U32 current_frame_in_flight_index = context->renderer_state->current_frame_in_flight_index;
     VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
 
-    VkBuffer *vulkan_vertex_buffers = HE_ALLOCATE_ARRAY(&context->renderer_state->frame_arena, VkBuffer, offsets.count);
+    VkBuffer* vulkan_vertex_buffers = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkBuffer, offsets.count);
     for (U32 vertex_buffer_index = 0; vertex_buffer_index < offsets.count; vertex_buffer_index++)
     {
         Buffer_Handle vertex_buffer_handle = vertex_buffer_handles[vertex_buffer_index];
@@ -1123,9 +1105,8 @@ bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
 
-    Temprary_Memory_Arena temprary_arena = {};
-    begin_temprary_memory_arena(&temprary_arena, &context->arena);
-    HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     Shader_Group *shader_group = get(&renderer_state->shader_groups, shader_group_handle);
     Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[shader_group_handle.index];
@@ -1135,7 +1116,7 @@ bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle
     for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
     {
         auto &set = sets[set_index];
-        init(&set, context->allocator);
+        init(&set, get_general_purpose_allocator());
     }
 
     for (const Shader_Handle &shader_handle : descriptor.shaders)
@@ -1177,7 +1158,7 @@ bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle
         vulkan_renderer_create_bind_group_layout(shader_group->bind_group_layouts[set_index], bind_group_layout_descriptor);
     }
 
-    VkDescriptorSetLayout *descriptor_set_layouts = HE_ALLOCATE_ARRAY(&temprary_arena, VkDescriptorSetLayout, set_count);
+    VkDescriptorSetLayout *descriptor_set_layouts = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorSetLayout, set_count);
     for (U32 set_index = 0; set_index < set_count; set_index++)
     {
         Vulkan_Bind_Group_Layout *bind_group_layout = &context->bind_group_layouts[ shader_group->bind_group_layouts[set_index].index ];
@@ -1256,12 +1237,11 @@ bool vulkan_renderer_create_bind_group_layout(Bind_Group_Layout_Handle bind_grou
     Bind_Group_Layout *bind_group_layout = get(&context->renderer_state->bind_group_layouts, bind_group_layout_handle);
     Vulkan_Bind_Group_Layout *vulkan_bind_group_layout = &context->bind_group_layouts[bind_group_layout_handle.index];
 
-    Temprary_Memory_Arena temprary_arena = {};
-    begin_temprary_memory_arena(&temprary_arena, &context->arena);
-    HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER { end_temprary_memory(&temprary_memory); };
 
-    VkDescriptorBindingFlags *layout_bindings_flags = HE_ALLOCATE_ARRAY(&temprary_arena, VkDescriptorBindingFlags, descriptor.binding_count);
-    VkDescriptorSetLayoutBinding *bindings = HE_ALLOCATE_ARRAY(&temprary_arena, VkDescriptorSetLayoutBinding, descriptor.binding_count);
+    VkDescriptorBindingFlags *layout_bindings_flags = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorBindingFlags, descriptor.binding_count);
+    VkDescriptorSetLayoutBinding *bindings = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorSetLayoutBinding, descriptor.binding_count);
 
     for (U32 binding_index = 0; binding_index < descriptor.binding_count; binding_index++)
     {
@@ -1318,13 +1298,12 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
 {
     Vulkan_Context *context = &vulkan_context;
 
-    Temprary_Memory_Arena temprary_arena = {};
-    begin_temprary_memory_arena(&temprary_arena, &context->arena);
-    HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     Vulkan_Bind_Group *bind_group = &context->bind_groups[bind_group_handle.index];
 
-    VkWriteDescriptorSet *write_descriptor_sets = HE_ALLOCATE_ARRAY(&temprary_arena, VkWriteDescriptorSet, update_binding_descriptors.count);
+    VkWriteDescriptorSet *write_descriptor_sets = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkWriteDescriptorSet, update_binding_descriptors.count);
 
     for (U32 binding_index = 0; binding_index < update_binding_descriptors.count; binding_index++)
     {
@@ -1345,7 +1324,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
                 write_descriptor_set->descriptorType = get_descriptor_type(buffer->usage);
             }
 
-            VkDescriptorBufferInfo *buffer_infos = HE_ALLOCATE_ARRAY(&temprary_arena, VkDescriptorBufferInfo, binding->count);
+            VkDescriptorBufferInfo *buffer_infos = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorBufferInfo, binding->count);
 
             for (U32 buffer_index = 0; buffer_index < binding->count; buffer_index++)
             {
@@ -1364,7 +1343,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
         if (binding->textures && binding->samplers)
         {
             write_descriptor_set->descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            VkDescriptorImageInfo *image_infos = HE_ALLOCATE_ARRAY(&temprary_arena, VkDescriptorImageInfo, binding->count);
+            VkDescriptorImageInfo *image_infos = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorImageInfo, binding->count);
 
             for (U32 image_index = 0; image_index < binding->count; image_index++)
             {
@@ -1388,10 +1367,12 @@ void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bin
     Vulkan_Context *context = &vulkan_context;
 
     Bind_Group *bind_group = get(&context->renderer_state->bind_groups, bind_group_handles[0]);
-
     Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[ bind_group->descriptor.shader_group.index ];
 
-    VkDescriptorSet *descriptor_sets = HE_ALLOCATE_ARRAY(&context->renderer_state->frame_arena, VkDescriptorSet, bind_group_handles.count);
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER{ end_temprary_memory(&temprary_memory); };
+
+    VkDescriptorSet *descriptor_sets = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorSet, bind_group_handles.count);
     for (U32 bind_group_index = 0; bind_group_index < bind_group_handles.count; bind_group_index++)
     {
         Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[ bind_group_handles[ bind_group_index ].index ];
@@ -1412,9 +1393,8 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
 {
     Vulkan_Context *context = &vulkan_context;
 
-    Temprary_Memory_Arena temprary_arena = {};
-    begin_temprary_memory_arena(&temprary_arena, &context->arena);
-    HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER{ end_temprary_memory(&temprary_memory); };
 
     Render_Pass *render_pass = get(&context->renderer_state->render_passes, render_pass_handle);
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
@@ -1447,8 +1427,8 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     }
 
     U32 attachment_count = descriptor.color_attachments.count + descriptor.resolve_attachments.count + descriptor.depth_stencil_attachments.count;
-    VkAttachmentDescription *attachments = HE_ALLOCATE_ARRAY(&temprary_arena, VkAttachmentDescription, attachment_count);
-    VkAttachmentReference *attachment_refs = HE_ALLOCATE_ARRAY(&temprary_arena, VkAttachmentReference, attachment_count);
+    VkAttachmentDescription *attachments = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkAttachmentDescription, attachment_count);
+    VkAttachmentReference *attachment_refs = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkAttachmentReference, attachment_count);
     U32 attachment_index = 0;
 
     for (const Attachment_Info &attachment_info : descriptor.color_attachments)
@@ -1630,7 +1610,10 @@ void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Fr
 
     Texture *attachment = get(&renderer_state->textures, frame_buffer->attachments[0]);
     
-    VkClearValue *vulkan_clear_values = HE_ALLOCATE_ARRAY(&renderer_state->frame_arena, VkClearValue, clear_values.count);
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER { end_temprary_memory(&temprary_memory);  };
+
+    VkClearValue *vulkan_clear_values = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkClearValue, clear_values.count);
 
     for (U32 clear_value_index = 0; clear_value_index < clear_values.count; clear_value_index++)
     {
@@ -1693,12 +1676,11 @@ bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle
 
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
 
-    Temprary_Memory_Arena temprary_arena = {};
-    begin_temprary_memory_arena(&temprary_arena, &context->arena);
-    HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[ descriptor.render_pass.index ];
-    VkImageView *vulkan_attachments = HE_ALLOCATE_ARRAY(&temprary_arena, VkImageView, descriptor.attachments.count);
+    VkImageView *vulkan_attachments = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkImageView, descriptor.attachments.count);
 
     U32 attachment_index = 0;
     for (Texture_Handle texture_handle : descriptor.attachments)

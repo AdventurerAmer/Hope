@@ -2,7 +2,7 @@
 #include "rendering/renderer.h"
 #include "rendering/renderer_utils.h"
 
-#include "core/debugging.h"
+#include "core/logging.h"
 
 void init(Render_Graph *render_graph, Allocator allocator)
 {

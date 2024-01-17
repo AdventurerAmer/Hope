@@ -18,7 +18,7 @@ struct Read_Entire_File_Result
 {
     bool success;
     U8 *data;
-    Size size;
+    U64 size;
 };
 
 Read_Entire_File_Result read_entire_file(const char *filepath, Allocator allocator);

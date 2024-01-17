@@ -117,7 +117,7 @@ Read_Entire_File_Result read_entire_file(const char *filepath, Allocator allocat
 }
 
 
-bool write_entire_file(const char *filepath, void *data, Size size)
+bool write_entire_file(const char *filepath, void *data, U64 size)
 {
     Open_File_Result open_file_result = platform_open_file(filepath, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
     if (!open_file_result.success)

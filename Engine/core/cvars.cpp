@@ -1,7 +1,6 @@
 #include "cvars.h"
 #include "platform.h"
 #include "memory.h"
-#include "engine.h"
 #include "file_system.h"
 #include "containers/string.h"
 #include "containers/dynamic_array.h"
@@ -27,10 +26,6 @@ struct CVar_Category
 struct CVars_State
 {
     const char *filepath;
-
-    Memory_Arena *arena;
-    Free_List_Allocator *allocator;
-
     Dynamic_Array< CVar_Category > categories;
 };
 
@@ -51,8 +46,8 @@ static CVar_Category* find_or_append_category(const String &name, bool should_ap
     if (should_append)
     {
         CVar_Category category = {};
-        category.name = copy_string(name, cvars_state.arena);
-        init(&category.vars, cvars_state.allocator);
+        category.name = copy_string(name, get_permenent_arena());
+        init(&category.vars, get_general_purpose_allocator());
 
         append(&categories, category);
         return &back(&categories);
@@ -76,7 +71,7 @@ static CVar* find_or_append_cvar(CVar_Category *category, const String &name, bo
     if (should_append)
     {
         CVar var = {};
-        var.name = copy_string(name, cvars_state.arena);
+        var.name = copy_string(name, get_permenent_arena());
         append(&vars, var);
         return &back(&vars);
     }
@@ -84,23 +79,17 @@ static CVar* find_or_append_cvar(CVar_Category *category, const String &name, bo
     return nullptr;
 }
 
-bool init_cvars(const char *filepath, Engine *engine)
+bool init_cvars(const char *filepath)
 {
-    Memory_Arena *arena = &engine->memory.permanent_arena;
-    Free_List_Allocator *allocator = &engine->memory.free_list_allocator;
-
     cvars_state.filepath = filepath;
-    cvars_state.arena = arena;
-    cvars_state.allocator = allocator;
 
     auto &categories = cvars_state.categories;
-    init(&categories, allocator);
+    init(&categories, get_general_purpose_allocator());
 
-    Temprary_Memory_Arena temprary_arena = {};
-    begin_temprary_memory_arena(&temprary_arena, &engine->memory.transient_arena);
-    HE_DEFER { end_temprary_memory_arena(&temprary_arena); };
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER { end_temprary_memory(&temprary_memory); };
 
-    Read_Entire_File_Result result = read_entire_file(filepath, &temprary_arena);
+    Read_Entire_File_Result result = read_entire_file(filepath, temprary_memory.arena);
     CVar_Category *category = nullptr;
 
     if (result.success)
@@ -132,7 +121,7 @@ bool init_cvars(const char *filepath, Engine *engine)
                 String value = sub_string(cvar_name_value_pair, space + 1);
 
                 CVar *var = find_or_append_cvar(category, name);
-                var->value = copy_string(value, allocator);
+                var->value = copy_string(value, get_permenent_arena());
             }
 
             str.data += new_line_index + 1;
@@ -145,15 +134,15 @@ bool init_cvars(const char *filepath, Engine *engine)
     return false;
 }
 
-void deinit_cvars(Engine *engine)
+void deinit_cvars()
 {
     auto &categories = cvars_state.categories;
 
-    Temprary_Memory_Arena temprary_arena = {};
-    begin_temprary_memory_arena(&temprary_arena, &engine->memory.transient_arena);
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     String_Builder string_builder = {};
-    begin_string_builder(&string_builder, temprary_arena.arena);
+    begin_string_builder(&string_builder, temprary_memory.arena);
 
     for (U32 category_index = 0; category_index < categories.count; category_index++)
     {
@@ -228,7 +217,6 @@ void deinit_cvars(Engine *engine)
     String str = end_string_builder(&string_builder);
     bool success = write_entire_file(cvars_state.filepath, (void *)str.data, str.count);
     HE_ASSERT(success);
-    end_temprary_memory_arena(&temprary_arena);
 }
 
 static void declare_cvar(const String &category_name, const String &cvar_name, void *memory, CVar_Type type, CVar_Flags flags)

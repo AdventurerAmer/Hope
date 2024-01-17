@@ -43,7 +43,7 @@ void init(Hash_Map< Key_Type, Value_Type > *hash_map, Allocator allocator, U32 c
         capacity = new_capacity;
     }
 
-    Size total_size = (sizeof(Slot_State) + sizeof(Key_Type) + sizeof(Value_Type)) * capacity;
+    U64 total_size = (sizeof(Slot_State) + sizeof(Key_Type) + sizeof(Value_Type)) * capacity;
     U8 *memory = nullptr; 
     
     std::visit([&](auto &&allocator)

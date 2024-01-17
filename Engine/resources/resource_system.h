@@ -64,7 +64,7 @@ struct Resource_Ref
     }
 };
 
-typedef bool(*condition_resource_proc)(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Temprary_Memory_Arena *temp_arena);
+typedef bool(*condition_resource_proc)(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena);
 
 struct Resource_Conditioner
 { 
@@ -74,7 +74,7 @@ struct Resource_Conditioner
     condition_resource_proc condition;
 };
 
-typedef bool(*load_resource_proc)(Open_File_Result *open_file_result, Resource *resource, Temprary_Memory_Arena *temp_arena);
+typedef bool(*load_resource_proc)(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena);
 typedef void(*unload_resource_proc)(Resource *resource);
 
 struct Resource_Loader

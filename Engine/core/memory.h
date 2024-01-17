@@ -5,10 +5,10 @@
 
 #include <variant>
 
-#define HE_KILO(x) (1024llu * (x))
-#define HE_MEGA(x) (1024llu * 1024llu * (x))
-#define HE_GIGA(x) (1024llu * 1024llu * 1024llu * (x))
-#define HE_TERA(x) (1024llu * 1024llu * 1024llu * 1024llu * (x))
+#define HE_KILO_BYTES(x) (1024llu * (x))
+#define HE_MEGA_BYTES(x) (1024llu * 1024llu * (x))
+#define HE_GIGA_BYTES(x) (1024llu * 1024llu * 1024llu * (x))
+#define HE_TERA_BYTES(x) (1024llu * 1024llu * 1024llu * 1024llu * (x))
 
 #define HE_ALLOCATE(allocator_pointer, type)\
 (type *)allocate((allocator_pointer), sizeof(type), 1)
@@ -28,36 +28,29 @@
 #define HE_REALLOCATE_ARRAY(allocator_pointer, memory, type, count)\
 (type *)reallocate((allocator_pointer), memory, sizeof(type) * (count), alignof(type))
 
-void zero_memory(void *memory, Size size);
-void copy_memory(void *dst, const void *src, Size size);
+void zero_memory(void *memory, U64 size);
+void copy_memory(void *dst, const void *src, U64 size);
 
-Size get_number_of_bytes_to_align_address(Size address, U16 alignment);
+U64 get_number_of_bytes_to_align_address(U64 address, U16 alignment);
 
 //
 // Memory Arena
 //
 
-struct Temprary_Memory_Arena;
-
 struct Memory_Arena
 {
     U8 *base;
-    Size size;
-    Size offset;
-
-    Size last_padding;
-    Size last_offset;
-
-#ifndef HE_SHIPPING
-    Temprary_Memory_Arena *parent;
-#endif
+    U64 capacity;
+    U64 min_allocation_size;
+    U64 size;
+    U64 offset;
+    U32 temp_count;
 };
 
-Memory_Arena create_memory_arena(void *memory, Size size);
-Memory_Arena create_sub_arena(Memory_Arena *arena, Size size);
+bool init_memory_arena(Memory_Arena *arena, U64 capacity, U64 min_allocation_size = HE_MEGA_BYTES(1));
 
-void* allocate(Memory_Arena *arena, Size size, U16 alignment, Temprary_Memory_Arena *parent = nullptr);
-void* reallocate(Memory_Arena *arena, void *memory, Size new_size, U16 alignment, Temprary_Memory_Arena *parent = nullptr);
+void* allocate(Memory_Arena *arena, U64 size, U16 alignment);
+void* reallocate(Memory_Arena *arena, void *memory, U64 new_size, U16 alignment);
 void deallocate(Memory_Arena *arena, void *memory);
 
 //
@@ -67,31 +60,11 @@ void deallocate(Memory_Arena *arena, void *memory);
 struct Temprary_Memory_Arena
 {
     Memory_Arena *arena;
-    Size offset;
-
-#ifndef HE_SHIPPING
-    Temprary_Memory_Arena *parent;
-#endif
+    U64 offset;
 };
 
-void begin_temprary_memory_arena(Temprary_Memory_Arena *temprary_memory_arena, Memory_Arena *arena);
-
-HE_FORCE_INLINE static void* allocate(Temprary_Memory_Arena *temprary_arena, Size size, U16 alignment)
-{
-    return allocate(temprary_arena->arena, size, alignment, temprary_arena);
-}
-
-HE_FORCE_INLINE static void* reallocate(Temprary_Memory_Arena *temprary_arena, void *memory, Size new_size, U16 alignment)
-{
-    return reallocate(temprary_arena->arena, memory, new_size, alignment, temprary_arena);
-}
-
-HE_FORCE_INLINE static void deallocate(Temprary_Memory_Arena *temprary_arena, void *memory)
-{
-    deallocate(temprary_arena->arena, memory);
-}
-
-void end_temprary_memory_arena(Temprary_Memory_Arena *temprary_arena);
+Temprary_Memory_Arena begin_temprary_memory(Memory_Arena *arena);
+void end_temprary_memory(Temprary_Memory_Arena *temprary_arena);
 
 //
 // Free List Allocator
@@ -103,23 +76,33 @@ struct Free_List_Node
     // could we use relative pointers or u32 offsets to reduce the node size...
     Free_List_Node *next;
     Free_List_Node *prev;
-    Size size;
+    U64 size;
 };
 
 struct Free_List_Allocator
 {
     U8 *base;
-    Size size;
-    Size used;
+    U64 size;
+    U64 used;
     Free_List_Node sentinal;
     Mutex mutex;
 };
 
-void init_free_list_allocator(Free_List_Allocator *allocator, Memory_Arena *arena, Size size);
-void init_free_list_allocator(Free_List_Allocator *allocator, void *memory, Size size);
+void init_free_list_allocator(Free_List_Allocator *allocator, Memory_Arena *arena, U64 size);
+void init_free_list_allocator(Free_List_Allocator *allocator, void *memory, U64 size);
 
-void* allocate(Free_List_Allocator *allocator, Size size, U16 alignment);
+void* allocate(Free_List_Allocator *allocator, U64 size, U16 alignment);
 void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16 alignment);
 void deallocate(Free_List_Allocator *allocator, void *memory);
 
-typedef std::variant< Memory_Arena *, Temprary_Memory_Arena *, Free_List_Allocator * > Allocator;
+typedef std::variant< Memory_Arena *, Free_List_Allocator * > Allocator;
+
+bool init_memory_system();
+void deinit_memory_system();
+
+Memory_Arena *get_permenent_arena();
+Memory_Arena *get_transient_arena();
+Memory_Arena *get_debug_arena();
+Free_List_Allocator *get_general_purpose_allocator();
+
+Temprary_Memory_Arena get_scratch_arena();

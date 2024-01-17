@@ -2,7 +2,20 @@
 
 #include "defines.h"
 #include "platform.h"
-#include "memory.h"
+
+#define HE_LOGGING 1
+#if HE_LOGGING
+
+#define HE_LOG(channel, verbosity, format, ...)\
+    log(HE_GLUE(Channel_, channel),\
+        HE_GLUE(Verbosity_, verbosity),\
+        "[" HE_STRINGIFY(channel) "-" HE_STRINGIFY(verbosity) "]: " format,\
+        __VA_ARGS__)
+#else
+
+#define HE_LOG(channel, verbosity, format, ...)
+
+#endif
 
 #define Verbosity_Table\
     X(Fetal, "fetal")\
@@ -56,8 +69,10 @@ struct Logger
     Logging_Channel channels[Channel_Count];
 };
 
-bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 channel_mask, struct Memory_Arena *arena);
+bool init_logging_system();
+void deinit_logging_system();
 
+bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 channel_mask);
 void deinit_logger(Logger *logger);
 
 void set_verbosity(Logger *logger, Verbosity verbosity);
@@ -70,4 +85,4 @@ void disable_channel(Logger *logger, Channel channel);
 
 void disable_all_channels(Logger *logger);
 
-void log(Logger *logger, Channel channel, Verbosity verobisty, struct Memory_Arena *arena, const char *format, ...);
+void log(Channel channel, Verbosity verobisty, const char *format, ...);

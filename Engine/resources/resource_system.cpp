@@ -2,7 +2,7 @@
 
 #include "core/engine.h"
 #include "core/file_system.h"
-#include "core/debugging.h"
+#include "core/logging.h"
 #include "core/job_system.h"
 #include "core/platform.h"
 
@@ -28,8 +28,6 @@ struct Resource_Type_Info
 
 struct Resource_System_State
 {
-    Memory_Arena *arena;
-    Free_List_Allocator *free_list_allocator;
     Free_List_Allocator *resource_allocator;
 
     String resource_path;
@@ -88,10 +86,10 @@ static U64 generate_uuid()
 
 // ========================== Resources ====================================
 
-static bool condition_texture_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Temprary_Memory_Arena *temp_arena)
+static bool condition_texture_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
 {
     bool success = true;
-    U8 *data = HE_ALLOCATE_ARRAY(temp_arena, U8, asset_file->size);
+    U8 *data = HE_ALLOCATE_ARRAY(arena, U8, asset_file->size);
     success &= platform_read_data_from_file(asset_file, 0, data, asset_file->size);
 
     S32 width;
@@ -131,7 +129,7 @@ static bool condition_texture_to_resource(Resource *resource, Open_File_Result *
     return success;
 }
 
-static bool load_texture_resource(Open_File_Result *open_file_result, Resource *resource, Temprary_Memory_Arena *temp_arena)
+static bool load_texture_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
 {
     Texture_Resource_Info info;
     platform_read_data_from_file(open_file_result, sizeof(Resource_Header), &info, sizeof(Texture_Resource_Info));
@@ -178,7 +176,7 @@ static void unload_texture_resource(Resource *resource)
     renderer_destroy_texture(texture_handle);
 }
 
-static bool condition_shader_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Temprary_Memory_Arena *temp_arena)
+static bool condition_shader_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
 {
     // todo(amer): @Hack until we have a compiler instead of using cmd with glslangValidator
     platform_close_file(asset_file);
@@ -187,11 +185,11 @@ static bool condition_shader_to_resource(Resource *resource, Open_File_Result *a
     String asset_path = resource->asset_absolute_path;
     String resource_path = resource->absolute_path;
 
-    String command = format_string(temp_arena->arena, "glslangValidator.exe -V --auto-map-locations %.*s -o %.*s", HE_EXPAND_STRING(asset_path), HE_EXPAND_STRING(resource_path));
+    String command = format_string(arena, "glslangValidator.exe -V --auto-map-locations %.*s -o %.*s", HE_EXPAND_STRING(asset_path), HE_EXPAND_STRING(resource_path));
     bool executed = platform_execute_command(command.data);
     HE_ASSERT(executed);
 
-    Read_Entire_File_Result spirv_binary_read_result = read_entire_file(resource_path.data, temp_arena);
+    Read_Entire_File_Result spirv_binary_read_result = read_entire_file(resource_path.data, arena);
     if (!spirv_binary_read_result.success)
     {
         return false;
@@ -227,14 +225,14 @@ static bool condition_shader_to_resource(Resource *resource, Open_File_Result *a
     return success;
 }
 
-static bool load_shader_resource(Open_File_Result *open_file_result, Resource *resource, Temprary_Memory_Arena *temp_arena)
+static bool load_shader_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
 {
     bool success = true;
 
     Shader_Resource_Info info;
     success &= platform_read_data_from_file(open_file_result, sizeof(Resource_Header), &info, sizeof(info));
 
-    U8 *data = HE_ALLOCATE_ARRAY(temp_arena, U8, info.data_size);
+    U8 *data = HE_ALLOCATE_ARRAY(arena, U8, info.data_size);
     success &= platform_read_data_from_file(open_file_result, info.data_offset, data, info.data_size);
 
     if (!success)
@@ -264,12 +262,12 @@ static void unload_shader_resource(Resource *resource)
     renderer_destroy_shader(shader_handle);
 }
 
-static bool condition_material_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Temprary_Memory_Arena* arena)
+static bool condition_material_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
 {
     return true;
 }
 
-static bool load_material_resource(Open_File_Result *open_file_result, Resource *resource, Temprary_Memory_Arena *temp_arena)
+static bool load_material_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
 {
     bool success = true;
 
@@ -279,9 +277,10 @@ static bool load_material_resource(Open_File_Result *open_file_result, Resource 
     success &= platform_read_data_from_file(open_file_result, file_offset, &info, sizeof(info));
     file_offset += sizeof(info);
 
-    char string_buffer[1024];
+    char *string_buffer = HE_ALLOCATE_ARRAY(arena, char, 1024);
     HE_ASSERT(info.render_pass_name_count <= 1024);
     string_buffer[info.render_pass_name_count] = '\0';
+
     String render_pass_name = { string_buffer, info.render_pass_name_count };
     success &= platform_read_data_from_file(open_file_result, info.render_pass_name_offset, string_buffer, info.render_pass_name_count);
 
@@ -317,7 +316,7 @@ static bool load_material_resource(Open_File_Result *open_file_result, Resource 
 
     if (info.property_count)
     {
-        infos = HE_ALLOCATE_ARRAY(temp_arena, Material_Property_Info, info.property_count);
+        infos = HE_ALLOCATE_ARRAY(arena, Material_Property_Info, info.property_count);
         success &= platform_read_data_from_file(open_file_result, info.property_data_offset, (void *)infos, sizeof(Material_Property_Info) * info.property_count);
     }
 
@@ -350,12 +349,12 @@ static void unload_material_resource(Resource *resource)
 
 static void* _cgltf_alloc(void* user, cgltf_size size)
 {
-    return allocate(resource_system_state->free_list_allocator, size, 8);
+    return allocate(get_general_purpose_allocator(), size, 8);
 }
 
 static void _cgltf_free(void* user, void *ptr)
 {
-    deallocate(resource_system_state->free_list_allocator, ptr);
+    deallocate(get_general_purpose_allocator(), ptr);
 }
 
 static bool write_attribute_for_all_sub_meshes(Open_File_Result *resource_file, U64 *file_offset, cgltf_mesh *mesh, cgltf_attribute_type attribute_type)
@@ -535,13 +534,13 @@ static bool create_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cg
     return success;
 }
 
-static bool condition_static_mesh_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Temprary_Memory_Arena *temp_arena)
+static bool condition_static_mesh_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
 {
     return true;
 }
 
 
-static bool condition_scene_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Temprary_Memory_Arena *temp_arena)
+static bool condition_scene_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
 {
     String asset_path = resource->asset_absolute_path;
     String asset_name = get_name(asset_path);
@@ -549,7 +548,7 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
 
     bool success = true;
 
-    U8 *asset_file_data = HE_ALLOCATE_ARRAY(temp_arena, U8, asset_file->size);
+    U8 *asset_file_data = HE_ALLOCATE_ARRAY(arena, U8, asset_file->size);
     success &= platform_read_data_from_file(asset_file, 0, asset_file_data, asset_file->size);
 
     cgltf_options options = {};
@@ -572,7 +571,7 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
 
     HE_DEFER { cgltf_free(data); };
 
-    U64 *material_uuids = HE_ALLOCATE_ARRAY(temp_arena, U64, data->materials_count);
+    U64 *material_uuids = HE_ALLOCATE_ARRAY(arena, U64, data->materials_count);
 
     auto get_texture_uuid = [&](const cgltf_image *image) -> U64
     {
@@ -584,7 +583,7 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
         String uri = HE_STRING(image->uri);
         String name = get_name(uri);
         String parent_path = get_parent_path(asset_path);
-        String resource_path = format_string(temp_arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(parent_path), HE_EXPAND_STRING(name));
+        String resource_path = format_string(arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(parent_path), HE_EXPAND_STRING(name));
         String relative_resource_path = sub_string(resource_path, resource_system_state->resource_path.count + 1);;
 
         auto it = path_to_resource_index.find(relative_resource_path);
@@ -605,11 +604,11 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
         if (material->name)
         {
             String name = HE_STRING(material->name);
-            material_resource_name = format_string(temp_arena, "material_%.*s", HE_EXPAND_STRING(name));
+            material_resource_name = format_string(arena, "material_%.*s", HE_EXPAND_STRING(name));
         }
         else
         {
-            material_resource_name = format_string(temp_arena, "material_%.*s_%d", HE_EXPAND_STRING(asset_name), material_index);
+            material_resource_name = format_string(arena, "material_%.*s_%d", HE_EXPAND_STRING(asset_name), material_index);
         }
 
         U64 albedo_texture_uuid = HE_MAX_U64;
@@ -637,7 +636,7 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
             normal_texture_uuid = get_texture_uuid(image);
         }
 
-        String material_resource_absloute_path = format_string(temp_arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(asset_parent_path), HE_EXPAND_STRING(material_resource_name));
+        String material_resource_absloute_path = format_string(arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(asset_parent_path), HE_EXPAND_STRING(material_resource_name));
         String material_resource_relative_path = sub_string(material_resource_absloute_path, resource_system_state->resource_path.count + 1);
 
         resource_mutex.lock();
@@ -661,7 +660,7 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
             find_resource(HE_STRING_LITERAL("opaque_pbr_frag.hres"))
         };
 
-        init(&material_resource.resource_refs, resource_system_state->free_list_allocator);
+        init(&material_resource.resource_refs, get_general_purpose_allocator());
 
         for (Resource_Ref ref : shaders)
         {
@@ -693,7 +692,7 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
 
         Shader_Struct *properties_struct = find_material_properties(to_array_view(shaders));
 
-        Material_Property_Info *properties = HE_ALLOCATE_ARRAY(temp_arena, Material_Property_Info, properties_struct->member_count);
+        Material_Property_Info *properties = HE_ALLOCATE_ARRAY(arena, Material_Property_Info, properties_struct->member_count);
 
         for (U32 member_index = 0; member_index < properties_struct->member_count; member_index++)
         {
@@ -736,7 +735,7 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
         material_uuids[material_index] = material_uuid;
     }
 
-    U64 *static_mesh_uuids = HE_ALLOCATE_ARRAY(temp_arena, U64, data->meshes_count);
+    U64 *static_mesh_uuids = HE_ALLOCATE_ARRAY(arena, U64, data->meshes_count);
 
     for (U32 static_mesh_index = 0; static_mesh_index < data->meshes_count; static_mesh_index++)
     {
@@ -747,14 +746,14 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
         if (static_mesh->name)
         {
             String name = HE_STRING(static_mesh->name);
-            static_mesh_resource_name = format_string(temp_arena, "static_mesh_%.*s", HE_EXPAND_STRING(name));
+            static_mesh_resource_name = format_string(arena, "static_mesh_%.*s", HE_EXPAND_STRING(name));
         }
         else
         {
-            static_mesh_resource_name = format_string(temp_arena, "static_mesh_%.*s_%d", HE_EXPAND_STRING(asset_name), static_mesh_index);
+            static_mesh_resource_name = format_string(arena, "static_mesh_%.*s_%d", HE_EXPAND_STRING(asset_name), static_mesh_index);
         }
 
-        String static_mesh_resource_absloute_path = format_string(temp_arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(asset_parent_path), HE_EXPAND_STRING(static_mesh_resource_name));
+        String static_mesh_resource_absloute_path = format_string(arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(asset_parent_path), HE_EXPAND_STRING(static_mesh_resource_name));
         String static_mesh_resource_relative_path = sub_string(static_mesh_resource_absloute_path, resource_system_state->resource_path.count + 1);
 
         resource_mutex.lock();
@@ -871,7 +870,7 @@ static Resource_Type_Info* find_resource_type_from_extension(const String &exten
     return nullptr;
 }
 
-static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resource *resource, Temprary_Memory_Arena *temp_arena)
+static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
 {
     U64 file_offset = sizeof(Resource_Header) + sizeof(U64) * resource->resource_refs.count;
 
@@ -881,7 +880,9 @@ static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resour
     success &= platform_read_data_from_file(open_file_result, file_offset, &info, sizeof(info));
     file_offset += sizeof(info);
 
-    Sub_Mesh_Info *sub_mesh_infos = (Sub_Mesh_Info *)HE_ALLOCATE_ARRAY(resource_system_state->free_list_allocator, U8, sizeof(Sub_Mesh_Info) * info.sub_mesh_count);
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
+
+    Sub_Mesh_Info *sub_mesh_infos = (Sub_Mesh_Info *)HE_ALLOCATE_ARRAY(allocator, U8, sizeof(Sub_Mesh_Info) * info.sub_mesh_count);
     success &= platform_read_data_from_file(open_file_result, info.sub_mesh_data_offset, sub_mesh_infos, sizeof(Sub_Mesh_Info) * info.sub_mesh_count);
 
     U64 data_size = open_file_result->size - info.data_offset;
@@ -892,7 +893,7 @@ static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resour
     U64 vertex_count = 0;
 
     Dynamic_Array< Sub_Mesh > sub_meshes;
-    init(&sub_meshes, resource_system_state->free_list_allocator, info.sub_mesh_count);
+    init(&sub_meshes, allocator, info.sub_mesh_count);
 
     for (U32 sub_mesh_index = 0; sub_mesh_index < info.sub_mesh_count; sub_mesh_index++)
     {
@@ -944,7 +945,7 @@ static void unload_static_mesh_resource(Resource *resource)
     // todo(amer): unloade scene resource
 }
 
-static bool load_scene_resource(Open_File_Result *open_file_result, Resource *resource, Temprary_Memory_Arena *temp_arena)
+static bool load_scene_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
 {
     U64 file_offset = sizeof(Resource_Header) + sizeof(U64) * resource->resource_refs.count;
 
@@ -995,7 +996,7 @@ static bool load_scene_resource(Open_File_Result *open_file_result, Resource *re
         success &= platform_read_data_from_file(open_file_result, info.node_data_offset + sizeof(Scene_Node_Info) * node_index, &node_info, sizeof(node_info));
 
         U64 node_name_data_size = sizeof(char) * node_info.name_count;
-        char *node_name_data = HE_ALLOCATE_ARRAY(resource_system_state->free_list_allocator, char, node_info.name_count + 1);
+        char *node_name_data = HE_ALLOCATE_ARRAY(get_general_purpose_allocator(), char, node_info.name_count + 1);
         node_name_data[node_info.name_count] = '\0';
 
         success &= platform_read_data_from_file(open_file_result, node_info.name_offset, node_name_data, node_name_data_size);
@@ -1076,7 +1077,7 @@ static Job_Result condition_resource_job(const Job_Parameters &params)
 
     HE_DEFER { platform_close_file(&resource_file_result); };
 
-    if (!conditioner.condition(resource, &asset_file_result, &resource_file_result, params.temprary_memory_arena))
+    if (!conditioner.condition(resource, &asset_file_result, &resource_file_result, params.arena))
     {
         HE_LOG(Resource, Trace, "failed to condition asset: %.*s\n", HE_EXPAND_STRING(asset_path));
         return Job_Result::FAILED;
@@ -1154,7 +1155,7 @@ static Job_Result load_resource_job(const Job_Parameters &params)
 
     HE_DEFER { platform_close_file(&open_file_result); };
 
-    bool success = info.loader.load(&open_file_result, resource, params.temprary_memory_arena);
+    bool success = info.loader.load(&open_file_result, resource, params.arena);
 
     if (!success)
     {
@@ -1185,6 +1186,9 @@ static void on_path(String *path, bool is_directory)
     {
         return;
     }
+
+    Memory_Arena *arena = get_permenent_arena();
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
 
     String extension = get_extension(*path);
     if (extension == "hres")
@@ -1230,7 +1234,7 @@ static void on_path(String *path, bool is_directory)
         Resource &resource = append(&resource_system_state->resources);
         U32 resource_index = index_of(&resource_system_state->resources, resource);
 
-        String resource_absolute_path = copy_string(*path, resource_system_state->arena);
+        String resource_absolute_path = copy_string(*path, arena);
         String resource_relative_path = sub_string(resource_absolute_path, resource_system_state->resource_path.count + 1);
 
         resource.absolute_path = resource_absolute_path;
@@ -1247,7 +1251,7 @@ static void on_path(String *path, bool is_directory)
         // todo(amer): validate resource refs
         if (header.resource_ref_count)
         {
-            init(&resource.resource_refs, resource_system_state->free_list_allocator, header.resource_ref_count);
+            init(&resource.resource_refs, allocator, header.resource_ref_count);
             bool read = platform_read_data_from_file(&result, sizeof(Resource_Header), resource.resource_refs.data, sizeof(U64) * header.resource_ref_count);
             if (!read)
             {
@@ -1257,7 +1261,7 @@ static void on_path(String *path, bool is_directory)
         }
         else
         {
-            init(&resource.resource_refs, resource_system_state->free_list_allocator);
+            init(&resource.resource_refs, allocator);
         }
 
         uuid_to_resource_index.emplace(resource.uuid, resource_index);
@@ -1289,8 +1293,8 @@ static void on_path(String *path, bool is_directory)
 
         append(&resource_system_state->assets_to_condition, resource_index);
 
-        resource.asset_absolute_path = copy_string(*path, resource_system_state->arena);
-        resource.absolute_path = copy_string(resource_absolute_path, resource_system_state->arena);
+        resource.asset_absolute_path = copy_string(*path, arena);
+        resource.absolute_path = copy_string(resource_absolute_path, arena);
         resource.relative_path = sub_string(resource.absolute_path, resource_system_state->resource_path.count + 1);
         resource.uuid = HE_MAX_U64;
         resource.conditioned = false;
@@ -1315,14 +1319,14 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
 
     uuid_to_resource_index[HE_MAX_U64] = -1;
 
-    Memory_Arena *arena = &engine->memory.permanent_arena;
+    Memory_Arena *arena = get_permenent_arena();
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
     resource_system_state = HE_ALLOCATE(arena, Resource_System_State);
-    resource_system_state->arena = &engine->memory.transient_arena;
-    resource_system_state->free_list_allocator = &engine->memory.free_list_allocator;
+
     // todo(amer): @Hack using HE_MAX_U16 at initial capacity so we can append without copying
     // because we need to hold pointers to resources.
-    init(&resource_system_state->resources, &engine->memory.free_list_allocator, 0, HE_MAX_U16);
-    init(&resource_system_state->assets_to_condition, &engine->memory.free_list_allocator);
+    init(&resource_system_state->resources, allocator, 0, HE_MAX_U16);
+    init(&resource_system_state->assets_to_condition, allocator);
 
     String working_directory = get_current_working_directory(arena);
     sanitize_path(working_directory);

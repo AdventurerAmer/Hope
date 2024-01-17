@@ -13,10 +13,44 @@ static const char *channel_to_ansi_string[] =
 #undef X
 };
 
-bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 channel_mask, Memory_Arena *arena)
+struct Logging_System_State
 {
-    Temprary_Memory_Arena temprary_arena;
-    begin_temprary_memory_arena(&temprary_arena, arena);
+    Logger main_logger;
+};
+
+static Logging_System_State *logging_system_state;
+
+bool init_logging_system()
+{
+    if (logging_system_state)
+    {
+        return false;
+    }
+
+    Memory_Arena *arena = get_debug_arena();
+    logging_system_state = HE_ALLOCATE(arena, Logging_System_State);
+
+    Logger *logger = &logging_system_state->main_logger;
+    U64 channel_mask = 0xFFFFFFFFFFFFFFFF;
+    bool logger_initied = init_logger(logger, "all", Verbosity_Trace, channel_mask);
+    if (!logger_initied)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+void deinit_logging_system()
+{
+    Logger *logger = &logging_system_state->main_logger;
+    deinit_logger(logger);
+}
+
+bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 channel_mask)
+{
+    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     bool result = true;
 
@@ -27,7 +61,7 @@ bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 chan
     main_channel->name = name;
 
     // note(amer): should logging files be in the bin folder or a separate folder for logs ?
-    String main_channel_path = format_string(temprary_arena.arena, "logging/%s.log", name);
+    String main_channel_path = format_string(temprary_memory.arena, "logging/%s.log", name);
 
     main_channel->log_file_result = platform_open_file(main_channel_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
     if (!main_channel->log_file_result.success)
@@ -42,7 +76,7 @@ bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 chan
         Logging_Channel *channel = &logger->channels[channel_index];
         channel->name = channel_to_ansi_string[channel_index];
 
-        String channel_path = format_string(temprary_arena.arena, "logging/%s.log", channel->name);
+        String channel_path = format_string(temprary_memory.arena, "logging/%s.log", channel->name);
 
         channel->log_file_result = platform_open_file(channel_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
         if (!channel->log_file_result.success)
@@ -52,7 +86,6 @@ bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 chan
         }
     }
 
-    end_temprary_memory_arena(&temprary_arena);
     return result;
 }
 
@@ -96,15 +129,17 @@ void disable_all_channels(Logger *logger)
     logger->channel_mask = 0;
 }
 
-void log(Logger *logger, Channel channel, Verbosity verbosity, Memory_Arena *arena, const char *format, ...)
+void log(Channel channel, Verbosity verbosity, const char *format, ...)
 {
-    Temprary_Memory_Arena temprary_arena;
-    begin_temprary_memory_arena(&temprary_arena, arena);
+    Logger *logger = &logging_system_state->main_logger;
+
+    Temprary_Memory_Arena temprary_memory = begin_temprary_memory(get_debug_arena());
+    HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     va_list args;
     va_start(args, format);
 
-    String message = format_string(arena, format, args);
+    String message = format_string(temprary_memory.arena, format, args);
 
     Logging_Channel *main_channel = &logger->main_channel;
 
@@ -124,6 +159,5 @@ void log(Logger *logger, Channel channel, Verbosity verbosity, Memory_Arena *are
         platform_debug_printf(message.data);
     }
 
-    end_temprary_memory_arena(&temprary_arena);
     va_end(args);
 }

@@ -15,7 +15,6 @@ typedef int64_t S64;
 
 typedef float F32;
 typedef double F64;
-typedef size_t Size;
 
 #define HE_MIN_U8 0
 #define HE_MIN_U16 0

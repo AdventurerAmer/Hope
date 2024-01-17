@@ -101,6 +101,7 @@ void set_capacity(Dynamic_Array< T > *dynamic_array, U32 new_capacity)
     {
        dynamic_array->data = HE_REALLOCATE_ARRAY(allocator, dynamic_array->data, T, new_capacity);
     }, dynamic_array->allocator);
+
     dynamic_array->capacity = new_capacity;
 }
 
@@ -228,14 +229,14 @@ S32 find(const Dynamic_Array< T > *dynamic_array, const T &target)
 }
 
 template< typename T >
-HE_FORCE_INLINE Size size_in_bytes(const Dynamic_Array< T > *dynamic_array)
+HE_FORCE_INLINE U64 size_in_bytes(const Dynamic_Array< T > *dynamic_array)
 {
     HE_ASSERT(dynamic_array);
     return sizeof(T) * dynamic_array->count;
 }
 
 template< typename T >
-HE_FORCE_INLINE Size capacity_in_bytes(const Dynamic_Array< T > *dynamic_array)
+HE_FORCE_INLINE U64 capacity_in_bytes(const Dynamic_Array< T > *dynamic_array)
 {
     HE_ASSERT(dynamic_array);
     return sizeof(T) * dynamic_array->capacity;

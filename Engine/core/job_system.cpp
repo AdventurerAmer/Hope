@@ -3,7 +3,7 @@
 #include "engine.h"
 #include "platform.h"
 #include "memory.h"
-#include "debugging.h"
+#include "logging.h"
 #include "containers/queue.h"
 
 #include <atomic>
@@ -62,9 +62,8 @@ unsigned long execute_thread_work(void *params)
         HE_ASSERT(peeked);
         HE_ASSERT(job.proc);
 
-        Temprary_Memory_Arena temprary_memory_arena = {};
-        begin_temprary_memory_arena(&temprary_memory_arena, &thread_state->arena);
-        job.parameters.temprary_memory_arena = &temprary_memory_arena;
+        Temprary_Memory_Arena temprary_memory_arena = begin_temprary_memory(&thread_state->arena);
+        job.parameters.arena = &thread_state->arena;
 
         Job_Result result = job.proc(job.parameters);
         if (job.completed_proc)
@@ -72,7 +71,7 @@ unsigned long execute_thread_work(void *params)
             job.completed_proc(result);
         }
 
-        end_temprary_memory_arena(&temprary_memory_arena);
+        end_temprary_memory(&temprary_memory_arena);
         pop_front(job_queue);
         job_system_state.in_progress_job_count.fetch_sub(1);
 
@@ -84,10 +83,10 @@ unsigned long execute_thread_work(void *params)
 
 bool init_job_system(Engine *engine)
 {
-    Memory_Arena *arena = &engine->memory.permanent_arena;
-
-    init_free_list_allocator(&job_system_state.job_data_allocator, arena, HE_MEGA(32));
-    job_system_state.arena = create_sub_arena(arena, HE_MEGA(32));
+    Memory_Arena *arena = get_permenent_arena();
+    init_free_list_allocator(&job_system_state.job_data_allocator, arena, HE_MEGA_BYTES(32));
+    bool inited = init_memory_arena(&job_system_state.arena, HE_MEGA_BYTES(32), HE_MEGA_BYTES(1));
+    HE_ASSERT(inited);
 
     U32 thread_count = platform_get_thread_count();
     HE_ASSERT(thread_count);
@@ -102,7 +101,8 @@ bool init_job_system(Engine *engine)
         Thread_State *thread_state = &job_system_state.thread_states[thread_index];
         thread_state->thread_index = thread_index;
 
-        thread_state->arena = create_sub_arena(arena, HE_MEGA(32));
+        bool inited = init_memory_arena(&thread_state->arena, HE_MEGA_BYTES(32), HE_MEGA_BYTES(1));
+        HE_ASSERT(inited);
 
         init(&thread_state->job_queue, JOB_COUNT_PER_THREAD, arena);
 
@@ -210,16 +210,15 @@ void wait_for_all_jobs_to_finish()
         platform_unlock_mutex(&most_worked_thread_state->job_queue_mutex);
         HE_ASSERT(job.proc);
 
-        Temprary_Memory_Arena temprary_memory_arena = {};
-        begin_temprary_memory_arena(&temprary_memory_arena, &job_system_state.arena);
-        job.parameters.temprary_memory_arena = &temprary_memory_arena;
+        Temprary_Memory_Arena temprary_memory_arena = begin_temprary_memory(&job_system_state.arena);
+        job.parameters.arena = &job_system_state.arena;
 
         Job_Result result = job.proc(job.parameters);
         if (job.completed_proc)
         {
             job.completed_proc(result);
         }
-        end_temprary_memory_arena(&temprary_memory_arena);
+        end_temprary_memory(&temprary_memory_arena);
 
         deallocate(&job_system_state.job_data_allocator, job.parameters.data);
         job_system_state.in_progress_job_count.fetch_sub(1);
