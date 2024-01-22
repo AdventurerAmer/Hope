@@ -49,7 +49,7 @@ void deinit_logging_system()
 
 bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 channel_mask)
 {
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     bool result = true;
@@ -133,7 +133,7 @@ void log(Channel channel, Verbosity verbosity, const char *format, ...)
 {
     Logger *logger = &logging_system_state->main_logger;
 
-    Temprary_Memory_Arena temprary_memory = begin_temprary_memory(get_debug_arena());
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     va_list args;

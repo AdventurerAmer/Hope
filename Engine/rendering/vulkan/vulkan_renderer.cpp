@@ -83,7 +83,7 @@ static bool is_physical_device_supports_all_features(VkPhysicalDevice physical_d
 
 static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR surface)
 {
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     U32 physical_device_count = 0;
@@ -181,7 +181,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
         context->semaphores = HE_ALLOCATE_ARRAY(arena, Vulkan_Semaphore, HE_MAX_SEMAPHORE_COUNT);
     }
 
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     const char *required_instance_extensions[] =
@@ -570,7 +570,7 @@ void deinit_vulkan(Vulkan_Context *context)
 
     if (pipeline_cache_size)
     {
-        Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+        Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
         U8 *pipeline_cache_data = HE_ALLOCATE_ARRAY(temprary_memory.arena, U8, pipeline_cache_size);
         vkGetPipelineCacheData(context->logical_device, context->pipeline_cache, &pipeline_cache_size, pipeline_cache_data);
         write_entire_file(HE_PIPELINE_CACHE_FILENAME, pipeline_cache_data, pipeline_cache_size);
@@ -684,7 +684,7 @@ void vulkan_renderer_set_vertex_buffers(const Array_View< Buffer_Handle > &verte
     
     Vulkan_Context *context = &vulkan_context;
 
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     U32 current_frame_in_flight_index = context->renderer_state->current_frame_in_flight_index;
@@ -1105,7 +1105,7 @@ bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
 
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     Shader_Group *shader_group = get(&renderer_state->shader_groups, shader_group_handle);
@@ -1237,7 +1237,7 @@ bool vulkan_renderer_create_bind_group_layout(Bind_Group_Layout_Handle bind_grou
     Bind_Group_Layout *bind_group_layout = get(&context->renderer_state->bind_group_layouts, bind_group_layout_handle);
     Vulkan_Bind_Group_Layout *vulkan_bind_group_layout = &context->bind_group_layouts[bind_group_layout_handle.index];
 
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     VkDescriptorBindingFlags *layout_bindings_flags = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorBindingFlags, descriptor.binding_count);
@@ -1298,7 +1298,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
 {
     Vulkan_Context *context = &vulkan_context;
 
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     Vulkan_Bind_Group *bind_group = &context->bind_groups[bind_group_handle.index];
@@ -1369,7 +1369,7 @@ void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bin
     Bind_Group *bind_group = get(&context->renderer_state->bind_groups, bind_group_handles[0]);
     Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[ bind_group->descriptor.shader_group.index ];
 
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER{ end_temprary_memory(&temprary_memory); };
 
     VkDescriptorSet *descriptor_sets = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorSet, bind_group_handles.count);
@@ -1393,7 +1393,7 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
 {
     Vulkan_Context *context = &vulkan_context;
 
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER{ end_temprary_memory(&temprary_memory); };
 
     Render_Pass *render_pass = get(&context->renderer_state->render_passes, render_pass_handle);
@@ -1610,7 +1610,7 @@ void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Fr
 
     Texture *attachment = get(&renderer_state->textures, frame_buffer->attachments[0]);
     
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory);  };
 
     VkClearValue *vulkan_clear_values = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkClearValue, clear_values.count);
@@ -1676,7 +1676,7 @@ bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle
 
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
 
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[ descriptor.render_pass.index ];

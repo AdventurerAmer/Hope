@@ -67,6 +67,20 @@ Temprary_Memory_Arena begin_temprary_memory(Memory_Arena *arena);
 void end_temprary_memory(Temprary_Memory_Arena *temprary_arena);
 
 //
+// Temprary Memory Arena Janitor
+//
+
+struct Temprary_Memory_Arena_Janitor
+{
+    Memory_Arena *arena;
+    U64 offset;
+
+    ~Temprary_Memory_Arena_Janitor();
+};
+
+Temprary_Memory_Arena_Janitor make_temprary_memory_arena_janitor(Memory_Arena *arena);
+
+//
 // Free List Allocator
 //
 
@@ -82,14 +96,15 @@ struct Free_List_Node
 struct Free_List_Allocator
 {
     U8 *base;
+    U64 capacity;
+    U64 min_allocation_size;
     U64 size;
     U64 used;
     Free_List_Node sentinal;
     Mutex mutex;
 };
 
-void init_free_list_allocator(Free_List_Allocator *allocator, Memory_Arena *arena, U64 size);
-void init_free_list_allocator(Free_List_Allocator *allocator, void *memory, U64 size);
+bool init_free_list_allocator(Free_List_Allocator *allocator, void *memory, U64 capacity, U64 size);
 
 void* allocate(Free_List_Allocator *allocator, U64 size, U16 alignment);
 void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16 alignment);
@@ -100,9 +115,27 @@ typedef std::variant< Memory_Arena *, Free_List_Allocator * > Allocator;
 bool init_memory_system();
 void deinit_memory_system();
 
+void imgui_draw_memory_system();
+
 Memory_Arena *get_permenent_arena();
 Memory_Arena *get_transient_arena();
 Memory_Arena *get_debug_arena();
 Free_List_Allocator *get_general_purpose_allocator();
 
-Temprary_Memory_Arena get_scratch_arena();
+Temprary_Memory_Arena begin_scratch_memory();
+Temprary_Memory_Arena_Janitor make_scratch_memory_janitor();
+
+// todo(amer): right now Memory_Context is going to be used in the main thread
+// should we use thread local storage to make a Memory_Context a per thread concept
+
+struct Memory_Context
+{
+    Memory_Arena *permenent;
+    U64 temp_offset;
+    Memory_Arena *temp;
+    Memory_Arena *debug;
+    Free_List_Allocator *general;
+    ~Memory_Context();
+};
+
+Memory_Context use_memory_context();

@@ -277,7 +277,7 @@ bool load_shader(Shader_Handle shader_handle, void *data, U64 size, Vulkan_Conte
     Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
     Free_List_Allocator *allocator = get_general_purpose_allocator();
 
-    Temprary_Memory_Arena temp_memory = get_scratch_arena();
+    Temprary_Memory_Arena temp_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temp_memory); };
     
     HE_ASSERT(size % 4 == 0);
@@ -862,7 +862,7 @@ static VkFrontFace get_front_face(Front_Face front_face)
 
 bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  const Pipeline_State_Descriptor &descriptor, Vulkan_Context *context)
 {
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     Renderer_State *renderer_state = context->renderer_state;

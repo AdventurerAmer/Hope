@@ -70,7 +70,6 @@ bool startup(Engine *engine, void *platform_state)
     }
 
     init_logging_system();
-
     init_cvars("config.cvars");
 
     engine->show_cursor = false;
@@ -705,7 +704,12 @@ void game_loop(Engine *engine, F32 delta_time)
         imgui_draw_resource_system();
     }
 
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    // Memory System
+    {
+        imgui_draw_memory_system();
+    }
+
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
 
     Game_Code *game_code = &engine->game_code;
     game_code->on_update(engine, delta_time);

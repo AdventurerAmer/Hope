@@ -86,7 +86,7 @@ bool init_cvars(const char *filepath)
     auto &categories = cvars_state.categories;
     init(&categories, get_general_purpose_allocator());
 
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     Read_Entire_File_Result result = read_entire_file(filepath, temprary_memory.arena);
@@ -138,7 +138,7 @@ void deinit_cvars()
 {
     auto &categories = cvars_state.categories;
 
-    Temprary_Memory_Arena temprary_memory = get_scratch_arena();
+    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     String_Builder string_builder = {};

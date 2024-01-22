@@ -210,14 +210,14 @@ bool init_renderer_state(Engine *engine)
 
     Buffer_Descriptor transfer_buffer_descriptor =
     {
-        .size = HE_GIGA_BYTES(2),
+        .size = HE_MEGA_BYTES(512),
         .usage = Buffer_Usage::TRANSFER,
         .is_device_local = false
     };
     renderer_state->transfer_buffer = renderer_create_buffer(transfer_buffer_descriptor);
 
     Buffer *transfer_buffer = get(&renderer_state->buffers, renderer_state->transfer_buffer);
-    init_free_list_allocator(&renderer_state->transfer_allocator, transfer_buffer->data, transfer_buffer->size);
+    init_free_list_allocator(&renderer_state->transfer_allocator, transfer_buffer->data, transfer_buffer->size, transfer_buffer->size);
 
     Renderer_Semaphore_Descriptor semaphore_descriptor =
     {
@@ -250,7 +250,7 @@ bool init_renderer_state(Engine *engine)
     }
 
     {
-        U32* normal_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
+        U32 *normal_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
         *normal_pixel_data = 0xFFFF8080; // todo(amer): endianness
         HE_ASSERT(HE_ARCH_X64);
 
