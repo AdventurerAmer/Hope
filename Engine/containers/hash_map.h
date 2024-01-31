@@ -22,14 +22,19 @@ struct Hash_Map
     U32 capacity;
     U32 count;
 
-    Allocator allocator;
+    Free_List_Allocator *allocator;
 };
 
 template< typename Key_Type, typename Value_Type >
-void init(Hash_Map< Key_Type, Value_Type > *hash_map, Allocator allocator, U32 capacity)
+void init(Hash_Map< Key_Type, Value_Type > *hash_map, U32 capacity, Free_List_Allocator *allocator = nullptr)
 {
     HE_ASSERT(hash_map);
     HE_ASSERT(capacity);
+
+    if (!allocator)
+    {
+        allocator = get_general_purpose_allocator();
+    }
 
     if ((capacity & (capacity - 1)) != 0)
     {
@@ -44,13 +49,8 @@ void init(Hash_Map< Key_Type, Value_Type > *hash_map, Allocator allocator, U32 c
     }
 
     U64 total_size = (sizeof(Slot_State) + sizeof(Key_Type) + sizeof(Value_Type)) * capacity;
-    U8 *memory = nullptr; 
+    U8 *memory = HE_ALLOCATE_ARRAY(allocator, U8, total_size);
     
-    std::visit([&](auto &&allocator)
-    {
-        memory = HE_ALLOCATE_ARRAY(allocator, U8, total_size);
-    }, allocator);
-
     hash_map->memory = memory;
     hash_map->states = (Slot_State*)memory;
     hash_map->keys = (Key_Type*)(memory + sizeof(Slot_State) * capacity);
@@ -63,10 +63,7 @@ void init(Hash_Map< Key_Type, Value_Type > *hash_map, Allocator allocator, U32 c
 template< typename Key_Type, typename Value_Type >
 void deinit(Hash_Map< Key_Type, Value_Type > *hash_map)
 {
-    std::visit([&](auto &&allocator)
-    {
-        deallocate(allocator, hash_map->memory);
-    }, hash_map->allocator);
+    deallocate(hash_map->allocator, hash_map->memory);
 }
 
 template< typename Value_Type >
@@ -86,7 +83,7 @@ Hash_Map_Iterator< Value_Type > find(Hash_Map< Key_Type, Value_Type > *hash_map,
 {
     HE_ASSERT(hash_map);
 
-    U32 slot_index = he_hash(key) & (hash_map->capacity - 1);
+    U32 slot_index = hash_string(key) & (hash_map->capacity - 1);
     U32 start_slot = slot_index;
     S32 insert_index = -1;
 

@@ -79,6 +79,7 @@ void platform_set_window_mode(Window *window, Window_Mode window_mode);
 //
 
 bool platform_path_exists(const char *path, bool *is_file = nullptr);
+U64 platform_get_file_last_write_time(const char *path);
 bool platform_get_current_working_directory(char *buffer, U64 *count);
 
 typedef void(*on_walk_directory_proc)(struct String *path, bool is_directory);

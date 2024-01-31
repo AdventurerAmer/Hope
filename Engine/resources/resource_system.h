@@ -9,7 +9,7 @@
 
 #include "rendering/renderer_types.h"
 
-enum class Resource_Type : U32
+enum class Asset_Type : U32
 {
     TEXTURE,
     SHADER,
@@ -26,21 +26,39 @@ enum class Resource_State
     LOADED
 };
 
+struct Asset
+{
+    Asset_Type type;
+
+    String absolute_path;
+    String relative_path;
+
+    String resource_absolute_path;
+    String resource_relative_path;
+
+    U64 uuid;
+    U64 last_write_time;
+
+    Dynamic_Array< U64 > resource_refs;
+};
+
 struct Resource
 {
-    U32 type;
+    Asset_Type type;
 
-    String asset_absolute_path;
     String absolute_path;
     String relative_path;
 
     U64 uuid;
     Dynamic_Array< U64 > resource_refs;
+    Dynamic_Array< U64 > children;
+
+    U64 asset_uuid;
+
+    bool conditioned;
 
     Mutex mutex;
     Allocation_Group allocation_group;
-
-    bool conditioned;
 
     Resource_State state;
     U32 ref_count;
@@ -64,14 +82,14 @@ struct Resource_Ref
     }
 };
 
-typedef bool(*condition_resource_proc)(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena);
+typedef bool(*condition_asset_proc)(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena);
 
-struct Resource_Conditioner
+struct Asset_Conditioner
 { 
     U32 extension_count;
     String *extensions;
-    
-    condition_resource_proc condition;
+
+    condition_asset_proc condition_asset;
 };
 
 typedef bool(*load_resource_proc)(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena);
@@ -86,12 +104,26 @@ struct Resource_Loader
 
 #pragma pack(push, 1)
 
+struct Asset_Database_Header
+{
+    U32 asset_count;
+};
+
+struct Asset_Info
+{
+    U64 uuid;
+    U64 last_write_time;
+    U64 relative_path_count;
+    U32 resource_refs_count;
+};
+
 struct Resource_Header
 {
     char magic_value[4];
     U32 type;
     U32 version;
     U64 uuid;
+    U64 asset_uuid;
     U16 resource_ref_count;
 };
 
@@ -165,7 +197,7 @@ struct Scene_Resource_Info
 bool init_resource_system(const String &resource_directory_name, struct Engine *engine);
 void deinit_resource_system();
 
-bool register_resource(Resource_Type type, const char *name, U32 version, Resource_Conditioner conditioner, Resource_Loader loader);
+bool register_asset(Asset_Type type, const char *name, U32 version, Asset_Conditioner conditioner, Resource_Loader loader);
 
 bool is_valid(Resource_Ref ref);
 
@@ -199,4 +231,5 @@ void wait_for_resource_refs_to_load(Array_View< Resource_Ref > resource_refs);
 
 const Dynamic_Array< Resource >& get_resources();
 
+void reload_resources();
 void imgui_draw_resource_system();

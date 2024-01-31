@@ -4,17 +4,16 @@
 
 #include "core/logging.h"
 
-void init(Render_Graph *render_graph, Allocator allocator)
+void init(Render_Graph *render_graph)
 {
     reset(&render_graph->nodes);
-    init(&render_graph->node_cache, allocator, HE_MAX_RENDER_GRAPH_NODE_COUNT);
+    init(&render_graph->node_cache, HE_MAX_RENDER_GRAPH_NODE_COUNT);
 
     reset(&render_graph->resources);
-    init(&render_graph->resource_cache, allocator, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT);
+    init(&render_graph->resource_cache, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT);
 
     reset(&render_graph->texture_free_list);
     
-    render_graph->allocator = allocator;
     render_graph->presentable_resource = nullptr; 
 }
 
@@ -37,7 +36,7 @@ Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const 
 
     if (!node.edges.data)
     {
-        init(&node.edges, render_graph->allocator);
+        init(&node.edges);
     }
 
     reset(&node.original_render_targets);

@@ -45,12 +45,26 @@ project "Engine"
     cppdialect "C++20"
     staticruntime "on"
 
-    files { "Engine/**.h", "Engine/**.hpp", "Engine/**.cpp", "Data/**.vert", "Data/**.frag", "Data/**.glsl" }
+    files { "Engine/**.h", "Engine/**.hpp", "Engine/**.cpp" }
 
     includedirs { "Engine", "ThirdParty", "ThirdParty/ImGui", "ThirdParty/include" }
     libdirs { "ThirdParty/lib" }
 
-    links { "vulkan-1", "ImGui" }
+    links
+    {
+        "vulkan-1",
+
+        --"spirv-cross-core",
+        --"spirv-cross-c",
+        --"spirv-cross-cpp",
+        --"spirv-cross-glsl",
+        --"spirv-cross-hlsl",
+        --"spirv-cross-msl",
+        --"spirv-cross-reflect",
+        --"spirv-cross-util",
+
+        "ImGui"
+    }
 
     debugdir "data"
     targetdir "bin/%{prj.name}"

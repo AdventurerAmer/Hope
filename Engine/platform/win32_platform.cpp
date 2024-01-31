@@ -529,7 +529,6 @@ void platform_set_window_mode(Window *window, Window_Mode window_mode)
 // files
 //
 
-
 bool platform_path_exists(const char *path, bool *is_file)
 {
     DWORD attributes = GetFileAttributesA(path);
@@ -544,6 +543,17 @@ bool platform_path_exists(const char *path, bool *is_file)
     }
     
     return true;
+}
+
+U64 platform_get_file_last_write_time(const char *path)
+{
+    WIN32_FILE_ATTRIBUTE_DATA data = {};
+    BOOL result = GetFileAttributesExA(path, GetFileExInfoStandard, &data);
+    HE_ASSERT(result != 0);
+    ULARGE_INTEGER last_write_time = {};
+    last_write_time.LowPart = data.ftLastWriteTime.dwLowDateTime;
+    last_write_time.HighPart = data.ftLastWriteTime.dwHighDateTime;
+    return last_write_time.QuadPart;
 }
 
 bool platform_get_current_working_directory(char *buffer, U64 *size)

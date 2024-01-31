@@ -85,8 +85,6 @@ struct Render_Graph_Node
 
 struct Render_Graph
 {
-    Allocator allocator;
-
     Hash_Map< String, Render_Graph_Node_Handle > node_cache;
     Array< Render_Graph_Node, HE_MAX_RENDER_GRAPH_NODE_COUNT > nodes;
 
@@ -102,7 +100,7 @@ struct Render_Graph
     Render_Graph_Resource *presentable_resource;
 };
 
-void init(Render_Graph *render_graph, Allocator allocator);
+void init(Render_Graph *render_graph);
 void reset(Render_Graph *render_graph);
 
 Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const Array_View< Render_Target_Info > &render_targets, render_proc render);

@@ -14,7 +14,7 @@ struct Thread_State
 {
     Semaphore job_queue_semaphore;
     Mutex job_queue_mutex;
-    Ring_Queue< Job > job_queue;
+    Ring_Queue< Job, Memory_Arena > job_queue;
     Memory_Arena arena;
     Job_Flag job_flags;
     U32 thread_index;
@@ -41,7 +41,7 @@ unsigned long execute_thread_work(void *params)
     Thread_State *thread_state = (Thread_State *)params;
     Semaphore *job_queue_semaphore = &thread_state->job_queue_semaphore;
     Mutex *job_queue_mutex = &thread_state->job_queue_mutex;
-    Ring_Queue< Job > *job_queue = &thread_state->job_queue;
+    Ring_Queue< Job, Memory_Arena > *job_queue = &thread_state->job_queue;
 
     while (true)
     {
@@ -104,7 +104,7 @@ bool init_job_system(Engine *engine)
         bool inited = init_memory_arena(&thread_state->arena, HE_MEGA_BYTES(32), HE_MEGA_BYTES(1));
         HE_ASSERT(inited);
 
-        init(&thread_state->job_queue, JOB_COUNT_PER_THREAD, arena);
+        init(&thread_state->job_queue, JOB_COUNT_PER_THREAD, &thread_state->arena);
 
         bool job_queue_semaphore_created = platform_create_semaphore(&thread_state->job_queue_semaphore);
         HE_ASSERT(job_queue_semaphore_created);
@@ -203,7 +203,7 @@ void wait_for_all_jobs_to_finish()
         // effectivly 
         wait_for_semaphore(&most_worked_thread_state->job_queue_semaphore);
 
-        Ring_Queue< Job > *job_queue = &most_worked_thread_state->job_queue;
+        Ring_Queue< Job, Memory_Arena > *job_queue = &most_worked_thread_state->job_queue;
         Job job = {};
         bool peeked = peek_back(job_queue, &job);
         pop_back(job_queue);

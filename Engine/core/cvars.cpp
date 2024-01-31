@@ -5,6 +5,8 @@
 #include "containers/string.h"
 #include "containers/dynamic_array.h"
 
+#include <stdlib.h>
+
 struct CVar
 {
     String name;
@@ -47,7 +49,7 @@ static CVar_Category* find_or_append_category(const String &name, bool should_ap
     {
         CVar_Category category = {};
         category.name = copy_string(name, get_permenent_arena());
-        init(&category.vars, get_general_purpose_allocator());
+        init(&category.vars);
 
         append(&categories, category);
         return &back(&categories);
@@ -84,7 +86,7 @@ bool init_cvars(const char *filepath)
     cvars_state.filepath = filepath;
 
     auto &categories = cvars_state.categories;
-    init(&categories, get_general_purpose_allocator());
+    init(&categories);
 
     Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };

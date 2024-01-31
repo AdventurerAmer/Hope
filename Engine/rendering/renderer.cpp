@@ -15,6 +15,8 @@
 
 #include <algorithm> // todo(amer): to be removed
 
+#include <spirv_cross/spirv_cross_c.h>
+
 #if HE_OS_WINDOWS
 #define HE_RHI_VULKAN
 #endif
@@ -127,23 +129,27 @@ bool init_renderer_state(Engine *engine)
         return false;
     }
 
+    // spvc_context context;
+    // spvc_context_create(&context);
+    // spvc_context_destroy(context);
+
     renderer = &renderer_state->renderer;
 
-    init(&renderer_state->buffers, arena, HE_MAX_BUFFER_COUNT);
-    init(&renderer_state->textures, arena, HE_MAX_TEXTURE_COUNT);
-    init(&renderer_state->samplers, arena, HE_MAX_SAMPLER_COUNT);
-    init(&renderer_state->shaders, arena, HE_MAX_SHADER_COUNT);
-    init(&renderer_state->shader_groups, arena, HE_MAX_SHADER_GROUP_COUNT);
-    init(&renderer_state->pipeline_states, arena, HE_MAX_PIPELINE_STATE_COUNT);
-    init(&renderer_state->bind_group_layouts, arena, HE_MAX_BIND_GROUP_LAYOUT_COUNT);
-    init(&renderer_state->bind_groups, arena, HE_MAX_BIND_GROUP_COUNT);
-    init(&renderer_state->render_passes, arena, HE_MAX_RENDER_PASS_COUNT);
-    init(&renderer_state->frame_buffers, arena, HE_MAX_FRAME_BUFFER_COUNT);
-    init(&renderer_state->materials,  arena, HE_MAX_MATERIAL_COUNT);
-    init(&renderer_state->static_meshes, arena, HE_MAX_STATIC_MESH_COUNT);
-    init(&renderer_state->semaphores, arena, HE_MAX_SEMAPHORE_COUNT);
+    init(&renderer_state->buffers, HE_MAX_BUFFER_COUNT);
+    init(&renderer_state->textures, HE_MAX_TEXTURE_COUNT);
+    init(&renderer_state->samplers, HE_MAX_SAMPLER_COUNT);
+    init(&renderer_state->shaders, HE_MAX_SHADER_COUNT);
+    init(&renderer_state->shader_groups, HE_MAX_SHADER_GROUP_COUNT);
+    init(&renderer_state->pipeline_states, HE_MAX_PIPELINE_STATE_COUNT);
+    init(&renderer_state->bind_group_layouts, HE_MAX_BIND_GROUP_LAYOUT_COUNT);
+    init(&renderer_state->bind_groups, HE_MAX_BIND_GROUP_COUNT);
+    init(&renderer_state->render_passes, HE_MAX_RENDER_PASS_COUNT);
+    init(&renderer_state->frame_buffers, HE_MAX_FRAME_BUFFER_COUNT);
+    init(&renderer_state->materials,  HE_MAX_MATERIAL_COUNT);
+    init(&renderer_state->static_meshes, HE_MAX_STATIC_MESH_COUNT);
+    init(&renderer_state->semaphores, HE_MAX_SEMAPHORE_COUNT);
 
-    init(&renderer_state->nodes, allocator);
+    init(&renderer_state->nodes);
     platform_create_mutex(&renderer_state->nodes_mutex);
 
     renderer_state->root_scene_node = &append(&renderer_state->nodes);
@@ -365,7 +371,7 @@ bool init_renderer_state(Engine *engine)
     };
     renderer_state->index_buffer = renderer_create_buffer(index_buffer_descriptor);
 
-    init(&renderer_state->render_graph, allocator);
+    init(&renderer_state->render_graph);
 
     {
         auto render = [](Renderer *renderer, Renderer_State *renderer_state)
@@ -822,6 +828,11 @@ glm::vec4 linear_to_srgb(const glm::vec4 &color)
 
 void renderer_on_resize(U32 width, U32 height)
 {
+    if (width == 0 || height == 0)
+    {
+        return;
+    }
+
     if (renderer_state)
     {
         renderer_state->back_buffer_width = width;
@@ -1204,7 +1215,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 
     Free_List_Allocator *allocator = get_general_purpose_allocator();
 
-    init(&material->properties, allocator, properties->member_count);
+    init(&material->properties, properties->member_count);
 
     for (U32 property_index = 0; property_index < properties->member_count; property_index++)
     {

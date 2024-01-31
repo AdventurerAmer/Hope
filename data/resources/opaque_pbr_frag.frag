@@ -114,4 +114,5 @@ void main()
     color = color / (color + vec3(1.0));
     color = linear_to_srgb(color, globals.gamma);
     out_color = vec4(color, 1.0);
+    // out_color = vec4(1.0f, 0.0f, 0.0f, 1.0f);
 }

@@ -375,7 +375,7 @@ static void draw_node(Scene_Node *node)
                                     for (U32 resource_index = 0; resource_index < resources.count; resource_index++)
                                     {
                                         const Resource &resource = resources[resource_index];
-                                        if (resource.type != (U32)Resource_Type::TEXTURE)
+                                        if (resource.type != Asset_Type::TEXTURE)
                                         {
                                             continue;
                                         }
@@ -708,6 +708,8 @@ void game_loop(Engine *engine, F32 delta_time)
     {
         imgui_draw_memory_system();
     }
+
+    reload_resources();
 
     Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
 

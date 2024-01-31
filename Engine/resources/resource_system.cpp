@@ -22,7 +22,7 @@ struct Resource_Type_Info
 {
     String name;
     U32 version;
-    Resource_Conditioner conditioner;
+    Asset_Conditioner conditioner;
     Resource_Loader loader;
 };
 
@@ -30,15 +30,19 @@ struct Resource_System_State
 {
     Free_List_Allocator *resource_allocator;
 
+    String asset_database_path;
     String resource_path;
-    Resource_Type_Info resource_type_infos[(U32)Resource_Type::COUNT];
+    Resource_Type_Info resource_type_infos[(U32)Asset_Type::COUNT]; // todo(amer): make this a dynamic array...
 
+    Dynamic_Array< Asset > assets;
     Dynamic_Array< Resource > resources;
 
     Dynamic_Array< U32 > assets_to_condition;
 };
 
 static std::mutex resource_mutex;
+static std::mutex asset_mutex;
+static std::unordered_map< U64, U32 > uuid_to_asset_index;
 static std::unordered_map< U64, U32 > uuid_to_resource_index;
 static constexpr const char *resource_extension = "hres";
 
@@ -47,23 +51,26 @@ struct std::hash<String>
 {
     std::size_t operator()(const String &str) const
     {
-        return he_hash(str);
+        return hash_string(str);
     }
 };
 
 static std::unordered_map< String, U32 > path_to_resource_index;
+static std::unordered_map< String, U32 > path_to_asset_index;
+
 static Resource_System_State *resource_system_state;
 
-Resource_Header make_resource_header(U32 type, U64 uuid)
+Resource_Header make_resource_header(Asset_Type type, U64 asset_uuid, U64 uuid)
 {
     Resource_Header result;
     result.magic_value[0] = 'H';
     result.magic_value[1] = 'O';
     result.magic_value[2] = 'P';
     result.magic_value[3] = 'E';
-    result.type = type;
-    result.version = resource_system_state->resource_type_infos[type].version;
+    result.type = (U32)type;
+    result.version = resource_system_state->resource_type_infos[(U32)type].version;
     result.uuid = uuid;
+    result.asset_uuid = asset_uuid;
     result.resource_ref_count = 0;
     return result;
 }
@@ -75,18 +82,14 @@ static U64 generate_uuid()
     static std::random_device device;
     static std::mt19937 engine(device());
     static std::uniform_int_distribution<U64> dist(0, HE_MAX_U64);
-    U64 uuid = HE_MAX_U64;
-    do
-    {
-        uuid = dist(engine);
-    }
-    while (uuid_to_resource_index.find(uuid) != uuid_to_resource_index.end());
+    U64 uuid = dist(engine);
+    HE_ASSERT(uuid_to_resource_index.find(uuid) == uuid_to_resource_index.end());
+    HE_ASSERT(uuid_to_asset_index.find(uuid) == uuid_to_asset_index.end());
     return uuid;
 }
 
 // ========================== Resources ====================================
-
-static bool condition_texture_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
+static bool condition_texture_to_resource(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
 {
     bool success = true;
     U8 *data = HE_ALLOCATE_ARRAY(arena, U8, asset_file->size);
@@ -96,7 +99,7 @@ static bool condition_texture_to_resource(Resource *resource, Open_File_Result *
     S32 height;
     S32 channels;
 
-    stbi_uc *pixels = stbi_load_from_memory(data, asset_file->size, &width, &height, &channels, STBI_rgb_alpha);
+    stbi_uc *pixels = stbi_load_from_memory(data, u64_to_u32(asset_file->size), &width, &height, &channels, STBI_rgb_alpha);
 
     if (!pixels)
     {
@@ -107,7 +110,7 @@ static bool condition_texture_to_resource(Resource *resource, Open_File_Result *
 
     U64 offset = 0;
 
-    Resource_Header header = make_resource_header((U32)Resource_Type::TEXTURE, resource->uuid);
+    Resource_Header header = make_resource_header(Asset_Type::TEXTURE, resource->asset_uuid, resource->uuid);
 
     success &= platform_write_data_to_file(resource_file, offset, &header, sizeof(Resource_Header));
     offset += sizeof(Resource_Header);
@@ -176,13 +179,13 @@ static void unload_texture_resource(Resource *resource)
     renderer_destroy_texture(texture_handle);
 }
 
-static bool condition_shader_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
+static bool condition_shader_to_resource(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
 {
     // todo(amer): @Hack until we have a compiler instead of using cmd with glslangValidator
     platform_close_file(asset_file);
     platform_close_file(resource_file);
 
-    String asset_path = resource->asset_absolute_path;
+    String asset_path = asset->absolute_path;
     String resource_path = resource->absolute_path;
 
     String command = format_string(arena, "glslangValidator.exe -V --auto-map-locations %.*s -o %.*s", HE_EXPAND_STRING(asset_path), HE_EXPAND_STRING(resource_path));
@@ -204,7 +207,7 @@ static bool condition_shader_to_resource(Resource *resource, Open_File_Result *a
     bool success = true;
     U64 offset = 0;
 
-    Resource_Header header = make_resource_header((U32)Resource_Type::SHADER, resource->uuid);
+    Resource_Header header = make_resource_header(Asset_Type::SHADER, resource->asset_uuid, resource->uuid);
 
     success &= platform_write_data_to_file(&open_file_result, offset, &header, sizeof(header));
     offset += sizeof(header);
@@ -262,7 +265,7 @@ static void unload_shader_resource(Resource *resource)
     renderer_destroy_shader(shader_handle);
 }
 
-static bool condition_material_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
+static bool condition_material_to_resource(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
 {
     return true;
 }
@@ -389,7 +392,7 @@ static bool write_attribute_for_all_sub_meshes(Open_File_Result *resource_file, 
 
 static bool create_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cgltf_data *data, U64 *material_uuids)
 {
-    resource->type = (U32)Resource_Type::STATIC_MESH;
+    resource->type = Asset_Type::STATIC_MESH;
     resource->state = Resource_State::UNLOADED;
     resource->ref_count = 0;
     resource->index = -1;
@@ -397,11 +400,19 @@ static bool create_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cg
 
     platform_create_mutex(&resource->mutex);
 
+    auto it = uuid_to_asset_index.find(resource->asset_uuid);
+    HE_ASSERT(it != uuid_to_asset_index.end());
+
+    asset_mutex.lock();
+    Asset &asset = resource_system_state->assets[it->second];
+    append(&asset.resource_refs, resource->uuid);
+    asset_mutex.unlock();
+
     Open_File_Result open_file_result = platform_open_file(resource->absolute_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
 
     if (!open_file_result.success)
     {
-        HE_LOG(Resource, Fetal, "failed to open file: %.*s\n", HE_EXPAND_STRING(resource->absolute_path));
+        HE_LOG(Resource, Fetal, "failed to open file: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
         return false;
     }
 
@@ -411,7 +422,7 @@ static bool create_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cg
     bool success = true;
 
     U64 file_offset = 0;
-    Resource_Header header = make_resource_header((U32)Resource_Type::STATIC_MESH, resource->uuid);
+    Resource_Header header = make_resource_header(Asset_Type::STATIC_MESH, resource->asset_uuid, resource->uuid);
     success &= platform_write_data_to_file(resource_file, file_offset, &header, sizeof(header));
     file_offset += sizeof(header);
 
@@ -534,15 +545,15 @@ static bool create_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cg
     return success;
 }
 
-static bool condition_static_mesh_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
+static bool condition_static_mesh_to_resource(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
 {
     return true;
 }
 
 
-static bool condition_scene_to_resource(Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
+static bool condition_scene_to_resource(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
 {
-    String asset_path = resource->asset_absolute_path;
+    String asset_path = asset->absolute_path;
     String asset_name = get_name(asset_path);
     String asset_parent_path = get_parent_path(asset_path);
 
@@ -651,6 +662,7 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
         material_resource.absolute_path = material_resource_absloute_path;
         material_resource.relative_path = material_resource_relative_path;
         material_resource.uuid = material_uuid;
+        material_resource.asset_uuid = asset->uuid;
 
         String render_pass = HE_STRING_LITERAL("opaque");
 
@@ -660,12 +672,20 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
             find_resource(HE_STRING_LITERAL("opaque_pbr_frag.hres"))
         };
 
-        init(&material_resource.resource_refs, get_general_purpose_allocator());
+        init(&material_resource.resource_refs);
+        init(&material_resource.children);
 
         for (Resource_Ref ref : shaders)
         {
             HE_ASSERT(ref.uuid != HE_MAX_U64);
             append(&material_resource.resource_refs, ref.uuid);
+
+            auto it = uuid_to_resource_index.find(ref.uuid);
+            Resource &shader_resource = resource_system_state->resources[it->second];
+
+            platform_lock_mutex(&shader_resource.mutex);
+            append(&shader_resource.children, material_resource.uuid);
+            platform_unlock_mutex(&shader_resource.mutex);
         }
 
         Pipeline_State_Settings pipeline_state_settings =
@@ -682,7 +702,7 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
         {
             Resource *resource = get_resource(ref);
             HE_ASSERT(resource->conditioned);
-            HE_ASSERT(resource->type == (U32)Resource_Type::SHADER);
+            HE_ASSERT(resource->type == Asset_Type::SHADER);
 
             bool aquired = aquire_resource(ref);
             HE_ASSERT(aquired);
@@ -767,13 +787,17 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
         static_mesh_resource.absolute_path = static_mesh_resource_absloute_path;
         static_mesh_resource.relative_path = static_mesh_resource_relative_path;
         static_mesh_resource.uuid = static_mesh_uuid;
+        static_mesh_resource.asset_uuid = asset->uuid;
+
+        init(&static_mesh_resource.resource_refs);
+        init(&static_mesh_resource.children);
 
         create_static_mesh_resource(&static_mesh_resource, static_mesh, data, material_uuids);
         static_mesh_uuids[static_mesh_index] = static_mesh_uuid;
     }
 
     U64 file_offset = 0;
-    Resource_Header header = make_resource_header((U32)Resource_Type::SCENE, resource->uuid);
+    Resource_Header header = make_resource_header(Asset_Type::SCENE, resource->asset_uuid, resource->uuid);
     success &= platform_write_data_to_file(resource_file, 0, &header, sizeof(header));
     file_offset += sizeof(header);
 
@@ -853,21 +877,24 @@ static bool condition_scene_to_resource(Resource *resource, Open_File_Result *as
     return success;
 }
 
-static Resource_Type_Info* find_resource_type_from_extension(const String &extension)
+static Asset_Type find_asset_type_from_extension(const String &extension, Resource_Type_Info *info = nullptr)
 {
-    for (U32 i = 0; i < (U32)Resource_Type::COUNT; i++)
+    for (U32 i = 0; i < (U32)Asset_Type::COUNT; i++)
     {
-        Resource_Conditioner &conditioner = resource_system_state->resource_type_infos[i].conditioner;
+        Asset_Conditioner &conditioner = resource_system_state->resource_type_infos[i].conditioner;
         for (U32 j = 0; j < conditioner.extension_count; j++)
         {
             if (conditioner.extensions[j] == extension)
             {
-                return &resource_system_state->resource_type_infos[i];
+                if (info)
+                {
+                    info = &resource_system_state->resource_type_infos[i];
+                }
+                return (Asset_Type)i;
             }
         }
     }
-
-    return nullptr;
+    return Asset_Type::COUNT;
 }
 
 static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
@@ -893,7 +920,7 @@ static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resour
     U64 vertex_count = 0;
 
     Dynamic_Array< Sub_Mesh > sub_meshes;
-    init(&sub_meshes, allocator, info.sub_mesh_count);
+    init(&sub_meshes, info.sub_mesh_count);
 
     for (U32 sub_mesh_index = 0; sub_mesh_index < info.sub_mesh_count; sub_mesh_index++)
     {
@@ -1043,20 +1070,23 @@ static void unload_scene_resource(Resource *resource)
 
 //==================================== Jobs ==================================================
 
-struct Condition_Resource_Job_Data
+struct Condition_Asset_Job_Data
 {
+    U32 asset_index;
     U32 resource_index;
 };
 
-static Job_Result condition_resource_job(const Job_Parameters &params)
+static Job_Result condition_asset_job(const Job_Parameters &params)
 {
-    Condition_Resource_Job_Data *job_data = (Condition_Resource_Job_Data *)params.data;
+    Condition_Asset_Job_Data *job_data = (Condition_Asset_Job_Data *)params.data;
 
+    Asset *asset = &resource_system_state->assets[job_data->asset_index];
     Resource *resource = &resource_system_state->resources[job_data->resource_index];
-    String asset_path = resource->asset_absolute_path;
+
+    String asset_path = asset->absolute_path;
     String resource_path = resource->absolute_path;
 
-    Resource_Conditioner &conditioner = resource_system_state->resource_type_infos[resource->type].conditioner;
+    Asset_Conditioner &conditioner = resource_system_state->resource_type_infos[(U32)resource->type].conditioner;
 
     Open_File_Result asset_file_result = platform_open_file(asset_path.data, OpenFileFlag_Read);
     if (!asset_file_result.success)
@@ -1077,7 +1107,7 @@ static Job_Result condition_resource_job(const Job_Parameters &params)
 
     HE_DEFER { platform_close_file(&resource_file_result); };
 
-    if (!conditioner.condition(resource, &asset_file_result, &resource_file_result, params.arena))
+    if (!conditioner.condition_asset(asset, resource, &asset_file_result, &resource_file_result, params.arena))
     {
         HE_LOG(Resource, Trace, "failed to condition asset: %.*s\n", HE_EXPAND_STRING(asset_path));
         return Job_Result::FAILED;
@@ -1130,7 +1160,7 @@ static Job_Result load_resource_job(const Job_Parameters &params)
     platform_lock_mutex(&resource->mutex);
     HE_DEFER {  platform_unlock_mutex(&resource->mutex); };
 
-    Resource_Type_Info &info = resource_system_state->resource_type_infos[resource->type];
+    Resource_Type_Info &info = resource_system_state->resource_type_infos[(U32)resource->type];
     bool use_allocation_group = info.loader.use_allocation_group;
 
     if (use_allocation_group)
@@ -1180,6 +1210,35 @@ static Job_Result load_resource_job(const Job_Parameters &params)
     return Job_Result::SUCCEEDED;
 }
 
+U32 create_resource(String absolute_path, Asset_Type type, U64 asset_uuid, U64 uuid = HE_MAX_U64)
+{
+    Resource &resource = append(&resource_system_state->resources);
+    U32 resource_index = index_of(&resource_system_state->resources, resource);
+    if (uuid == HE_MAX_U64)
+    {
+        uuid = generate_uuid();
+    }
+    resource.absolute_path = absolute_path;
+    resource.relative_path = sub_string(absolute_path, resource_system_state->resource_path.count + 1);
+    resource.uuid = uuid;
+    resource.asset_uuid = asset_uuid;
+    resource.state = Resource_State::UNLOADED;
+    resource.type = type;
+    resource.index = -1;
+    resource.conditioned = false;
+    resource.generation = 0;
+    resource.ref_count = 0;
+
+    platform_create_mutex(&resource.mutex);
+    init(&resource.resource_refs);
+    init(&resource.children);
+
+    HE_ASSERT(uuid_to_resource_index.find(resource.uuid) == uuid_to_resource_index.end());
+    uuid_to_resource_index.emplace(resource.uuid, resource_index);
+    path_to_resource_index.emplace(resource.relative_path, resource_index);
+    return resource_index;
+}
+
 static void on_path(String *path, bool is_directory)
 {
     if (is_directory)
@@ -1188,16 +1247,19 @@ static void on_path(String *path, bool is_directory)
     }
 
     Memory_Arena *arena = get_permenent_arena();
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
-    String extension = get_extension(*path);
+    String absolute_path = copy_string(*path, arena);
+    String relative_path = sub_string(absolute_path, resource_system_state->resource_path.count + 1);
+    String extension = get_extension(relative_path);
+
     if (extension == "hres")
     {
-        Open_File_Result result = platform_open_file(path->data, OpenFileFlag_Read);
+        Open_File_Result result = platform_open_file(absolute_path.data, OpenFileFlag_Read);
 
         if (!result.success)
         {
-            HE_LOG(Resource, Fetal, "failed to open resource file: %.*s\n", HE_EXPAND_STRING(*path));
+            HE_LOG(Resource, Fetal, "failed to open resource file: %.*s\n", HE_EXPAND_STRING(relative_path));
             return;
         }
 
@@ -1207,19 +1269,19 @@ static void on_path(String *path, bool is_directory)
         bool success = platform_read_data_from_file(&result, 0, &header, sizeof(header));
         if (!success)
         {
-            HE_LOG(Resource, Fetal, "failed to read header of resource file: %.*s\n", HE_EXPAND_STRING(*path));
+            HE_LOG(Resource, Fetal, "failed to read header of resource file: %.*s\n", HE_EXPAND_STRING(relative_path));
             return;
         }
 
         if (strncmp(header.magic_value, "HOPE", 4) != 0)
         {
-            HE_LOG(Resource, Fetal, "invalid header magic value of resource file: %.*s, expected 'HOPE' found: %.*s\n", HE_EXPAND_STRING(*path), header.magic_value);
+            HE_LOG(Resource, Fetal, "invalid header magic value of resource file: %.*s, expected 'HOPE' found: %.*s\n", HE_EXPAND_STRING(relative_path), header.magic_value);
             return;
         }
 
-        if (header.type > (U32)Resource_Type::COUNT)
+        if (header.type > (U32)Asset_Type::COUNT)
         {
-            HE_LOG(Resource, Fetal, "unregistered type of resource file: %.*s, max type value is '%d' found: '%d'\n", HE_EXPAND_STRING(*path), (U32)Resource_Type::COUNT - 1, header.type);
+            HE_LOG(Resource, Fetal, "unregistered type of resource file: %.*s, max type value is '%d' found: '%d'\n", HE_EXPAND_STRING(relative_path), (U32)Asset_Type::COUNT - 1, header.type);
             return;
         }
 
@@ -1227,86 +1289,168 @@ static void on_path(String *path, bool is_directory)
         if (header.version != info.version)
         {
             // todo(amer): condition assets that's doesn't have the last version.
-            HE_LOG(Resource, Fetal, "invalid version of resource file: %.*s, expected version '%d' found: '%d'\n", HE_EXPAND_STRING(*path), info.version, header.version);
+            HE_LOG(Resource, Fetal, "invalid version of resource file: %.*s, expected version '%d' found: '%d'\n", HE_EXPAND_STRING(relative_path), info.version, header.version);
             return;
         }
 
-        Resource &resource = append(&resource_system_state->resources);
-        U32 resource_index = index_of(&resource_system_state->resources, resource);
-
-        String resource_absolute_path = copy_string(*path, arena);
-        String resource_relative_path = sub_string(resource_absolute_path, resource_system_state->resource_path.count + 1);
-
-        resource.absolute_path = resource_absolute_path;
-        resource.relative_path = resource_relative_path;
-        resource.uuid = header.uuid;
-        resource.conditioned = true;
-        resource.state = Resource_State::UNLOADED;
-        resource.type = header.type;
-        resource.index = -1;
-        resource.generation = 0;
-
-        platform_create_mutex(&resource.mutex);
-
-        // todo(amer): validate resource refs
-        if (header.resource_ref_count)
-        {
-            init(&resource.resource_refs, allocator, header.resource_ref_count);
-            bool read = platform_read_data_from_file(&result, sizeof(Resource_Header), resource.resource_refs.data, sizeof(U64) * header.resource_ref_count);
-            if (!read)
-            {
-                HE_LOG(Resource, Fetal, "failed to read refs of resource file: %.*s\n", HE_EXPAND_STRING(resource_relative_path));
-                return;
-            }
-        }
-        else
-        {
-            init(&resource.resource_refs, allocator);
-        }
-
-        uuid_to_resource_index.emplace(resource.uuid, resource_index);
-        path_to_resource_index.emplace(resource_relative_path, resource_index);
+        U32 resource_index = create_resource(absolute_path, (Asset_Type)header.type, header.asset_uuid, header.uuid);
+        Resource &resource = resource_system_state->resources[resource_index];
+        set_count(&resource.resource_refs, header.resource_ref_count);
+        platform_read_data_from_file(&result, sizeof(Resource_Header), resource.resource_refs.data, sizeof(U64) * header.resource_ref_count);
         return;
     }
 
-    Resource_Type_Info *resource_type_info = find_resource_type_from_extension(extension);
-    if (!resource_type_info)
+    Asset_Type asset_type = find_asset_type_from_extension(extension);
+    if (asset_type == Asset_Type::COUNT)
     {
         return;
     }
 
-    String asset_absolute_path = *path;
+    S32 asset_index = -1;
+    auto it = path_to_asset_index.find(relative_path);
+    if (it == path_to_asset_index.end())
+    {
+        Asset &asset = append(&resource_system_state->assets);
+        asset_index = index_of(&resource_system_state->assets, asset);
 
-    String parent_path = get_parent_path(asset_absolute_path);
-    String name = get_name(asset_absolute_path);
+        asset.type = asset_type;
 
-    char string_buffer[1024];
-    S32 count = sprintf(string_buffer, "%.*s/%.*s.hres", HE_EXPAND_STRING(parent_path), HE_EXPAND_STRING(name));
-    HE_ASSERT(count < 1024);
+        asset.absolute_path = absolute_path;
+        asset.relative_path = sub_string(absolute_path, resource_system_state->resource_path.count + 1);
 
-    String resource_absolute_path = { string_buffer, (U64)count };
+        asset.uuid = generate_uuid();
+        asset.last_write_time = platform_get_file_last_write_time(absolute_path.data);
+
+        init(&asset.resource_refs);
+
+        path_to_asset_index.emplace(relative_path, asset_index);
+        uuid_to_asset_index.emplace(asset.uuid, asset_index);
+    }
+    else
+    {
+        asset_index = it->second;
+    }
+
+    Asset &asset = resource_system_state->assets[asset_index];
+    String parent = get_parent_path(asset.absolute_path);
+    String name = get_name(asset.absolute_path);
+    String resource_absolute_path = format_string(arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(parent), HE_EXPAND_STRING(name));
+
+    asset.resource_absolute_path = resource_absolute_path;
+    asset.resource_relative_path = sub_string(resource_absolute_path, resource_system_state->resource_path.count + 1);
+
+    U64 last_write_time = platform_get_file_last_write_time(asset.absolute_path.data);
 
     if (!file_exists(resource_absolute_path))
     {
-        Resource &resource = append(&resource_system_state->resources);
-        U32 resource_index = index_of(&resource_system_state->resources, resource);
+        U32 resource_index = create_resource(resource_absolute_path, asset.type, asset.uuid);
+        Resource &resource = resource_system_state->resources[resource_index];
+        append(&asset.resource_refs, resource.uuid);
 
-        append(&resource_system_state->assets_to_condition, resource_index);
-
-        resource.asset_absolute_path = copy_string(*path, arena);
-        resource.absolute_path = copy_string(resource_absolute_path, arena);
-        resource.relative_path = sub_string(resource.absolute_path, resource_system_state->resource_path.count + 1);
-        resource.uuid = HE_MAX_U64;
-        resource.conditioned = false;
-        resource.state = Resource_State::UNLOADED;
-        resource.type = (U32)(resource_type_info - resource_system_state->resource_type_infos);
-        resource.index = -1;
-        resource.generation = 0;
-
-        platform_create_mutex(&resource.mutex);
-
-        path_to_resource_index.emplace(resource.relative_path, resource_index);
+        append(&resource_system_state->assets_to_condition, (U32)asset_index);
     }
+    else if (last_write_time != asset.last_write_time)
+    {
+        append(&resource_system_state->assets_to_condition, (U32)asset_index);
+        asset.last_write_time = last_write_time;
+    }
+}
+
+static bool serialize_asset_database(const String &path)
+{
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+
+    U8 *buffer = &scratch_memory.arena->base[scratch_memory.arena->offset];
+    U64 offset = scratch_memory.arena->offset;
+
+    Asset_Database_Header *header = HE_ALLOCATE(scratch_memory.arena, Asset_Database_Header);
+    header->asset_count = resource_system_state->assets.count;
+
+    for (Asset &asset : resource_system_state->assets)
+    {
+        Asset_Info *info = HE_ALLOCATE(scratch_memory.arena, Asset_Info);
+        info->relative_path_count = asset.relative_path.count;
+        info->uuid = asset.uuid;
+        info->last_write_time = asset.last_write_time;
+        info->resource_refs_count = asset.resource_refs.count;
+
+        char *relative_path = HE_ALLOCATE_ARRAY_UNALIGNED(scratch_memory.arena, char, asset.relative_path.count);
+        copy_memory(relative_path, asset.relative_path.data, sizeof(char) * asset.relative_path.count);
+
+        if (asset.resource_refs.count)
+        {
+            U64 *uuids = HE_ALLOCATE_ARRAY_UNALIGNED(scratch_memory.arena, U64, asset.resource_refs.count);
+            copy_memory(uuids, asset.resource_refs.data, sizeof(U64) * asset.resource_refs.count);
+        }
+    }
+
+    bool success = write_entire_file(path.data, buffer, scratch_memory.arena->offset - offset);
+    if (!success)
+    {
+        HE_LOG(Resource, Fetal, "failed to serialize asset database\n");
+    }
+    return success;
+}
+
+static bool deserialize_asset_database(const String &path)
+{
+    Memory_Arena *arena = get_permenent_arena();
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+
+    Read_Entire_File_Result result = read_entire_file(path.data, scratch_memory.arena);
+    if (!result.success)
+    {
+        HE_LOG(Resource, Fetal, "failed to deserialize asset database\n");
+        return false;
+    }
+
+    U8 *data = result.data;
+    U64 offset = 0;
+
+    Asset_Database_Header *header = (Asset_Database_Header *)(&data[offset]);
+    offset += sizeof(Asset_Database_Header);
+
+    for (U32 i = 0; i < header->asset_count; i++)
+    {
+        Asset_Info *info = (Asset_Info *)(&data[offset]);
+        offset += sizeof(Asset_Info);
+
+        char *relative_path_data = (char *)(&data[offset]);
+        offset += sizeof(char) * info->relative_path_count;
+
+        String relative_path = { relative_path_data, info->relative_path_count };
+        String absolute_path = format_string(arena, "%.*s/%.*s", HE_EXPAND_STRING(resource_system_state->resource_path), HE_EXPAND_STRING(relative_path));
+
+        U64 *resource_refs = (U64 *)(&data[offset]);
+        offset += sizeof(U64) * info->resource_refs_count;
+
+        // todo(amer): asset validation here...
+        Asset &asset = append(&resource_system_state->assets);
+        U32 asset_index = index_of(&resource_system_state->assets, asset);
+
+        asset.uuid = info->uuid;
+        asset.last_write_time = info->last_write_time;
+        asset.absolute_path = absolute_path;
+        asset.relative_path = copy_string(relative_path, arena);
+
+        String extension = get_extension(asset.relative_path);
+        asset.type = find_asset_type_from_extension(extension);
+
+        if (info->resource_refs_count)
+        {
+            init(&asset.resource_refs, info->resource_refs_count);
+            copy_memory(asset.resource_refs.data, resource_refs, sizeof(U64) * info->resource_refs_count);
+        }
+        else
+        {
+            init(&asset.resource_refs);
+        }
+
+        path_to_asset_index.emplace(asset.relative_path, asset_index);
+        uuid_to_asset_index.emplace(asset.uuid, asset_index);
+    }
+
+    return true;
 }
 
 bool init_resource_system(const String &resource_directory_name, Engine *engine)
@@ -1318,6 +1462,7 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
     }
 
     uuid_to_resource_index[HE_MAX_U64] = -1;
+    uuid_to_asset_index[HE_MAX_U64] = -1;
 
     Memory_Arena *arena = get_permenent_arena();
     Free_List_Allocator *allocator = get_general_purpose_allocator();
@@ -1325,8 +1470,8 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
 
     // todo(amer): @Hack using HE_MAX_U16 at initial capacity so we can append without copying
     // because we need to hold pointers to resources.
-    init(&resource_system_state->resources, allocator, 0, HE_MAX_U16);
-    init(&resource_system_state->assets_to_condition, allocator);
+    init(&resource_system_state->assets, 0, HE_MAX_U16);
+    init(&resource_system_state->resources, 0, HE_MAX_U16);
 
     String working_directory = get_current_working_directory(arena);
     sanitize_path(working_directory);
@@ -1337,6 +1482,8 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
         HE_LOG(Resource, Fetal, "invalid resource path: %.*s\n", HE_EXPAND_STRING(resource_path));
         return false;
     }
+
+    resource_system_state->asset_database_path = format_string(arena, "%.*s/assets.hdb", HE_EXPAND_STRING(resource_path));
 
     Render_Context render_context = get_render_context();
     resource_system_state->resource_path = resource_path;
@@ -1351,11 +1498,11 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             HE_STRING_LITERAL("psd")
         };
 
-        Resource_Conditioner conditioner =
+        Asset_Conditioner conditioner =
         {
             .extension_count = HE_ARRAYCOUNT(extensions),
             .extensions = extensions,
-            .condition = &condition_texture_to_resource
+            .condition_asset = &condition_texture_to_resource
         };
 
         Resource_Loader loader =
@@ -1365,7 +1512,7 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             .unload = &unload_texture_resource
         };
 
-        register_resource(Resource_Type::TEXTURE, "texture", 1, conditioner, loader);
+        register_asset(Asset_Type::TEXTURE, "texture", 1, conditioner, loader);
     }
 
     {
@@ -1375,11 +1522,11 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             HE_STRING_LITERAL("frag"),
         };
 
-        Resource_Conditioner conditioner =
+        Asset_Conditioner conditioner =
         {
             .extension_count = HE_ARRAYCOUNT(extensions),
             .extensions = extensions,
-            .condition = &condition_shader_to_resource,
+            .condition_asset = &condition_shader_to_resource,
         };
 
         Resource_Loader loader =
@@ -1389,7 +1536,7 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             .unload = &unload_shader_resource,
         };
 
-        register_resource(Resource_Type::SHADER, "shader", 1, conditioner, loader);
+        register_asset(Asset_Type::SHADER, "shader", 1, conditioner, loader);
     }
 
     {
@@ -1398,11 +1545,11 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             HE_STRING_LITERAL("matxxx"),  // todo(amer): are we going to support material assets
         };
 
-        Resource_Conditioner conditioner =
+        Asset_Conditioner conditioner =
         {
             .extension_count = HE_ARRAYCOUNT(extensions),
             .extensions = extensions,
-            .condition = &condition_material_to_resource,
+            .condition_asset = &condition_material_to_resource,
         };
 
         Resource_Loader loader =
@@ -1412,7 +1559,7 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             .unload = &unload_material_resource,
         };
 
-        register_resource(Resource_Type::MATERIAL, "material", 1, conditioner, loader);
+        register_asset(Asset_Type::MATERIAL, "material", 1, conditioner, loader);
     }
 
     {
@@ -1421,11 +1568,11 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             HE_STRING_LITERAL("static_meshxxx") // todo(amer): are we going to support static mesh assets
         };
 
-        Resource_Conditioner conditioner =
+        Asset_Conditioner conditioner =
         {
             .extension_count = HE_ARRAYCOUNT(extensions),
             .extensions = extensions,
-            .condition = &condition_static_mesh_to_resource
+            .condition_asset = &condition_static_mesh_to_resource
         };
 
         Resource_Loader loader =
@@ -1435,7 +1582,7 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             .unload = &unload_static_mesh_resource
         };
 
-        register_resource(Resource_Type::STATIC_MESH, "static mesh", 1, conditioner, loader);
+        register_asset(Asset_Type::STATIC_MESH, "static mesh", 1, conditioner, loader);
     }
 
     {
@@ -1444,11 +1591,11 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             HE_STRING_LITERAL("gltf")
         };
 
-        Resource_Conditioner conditioner =
+        Asset_Conditioner conditioner =
         {
             .extension_count = HE_ARRAYCOUNT(extensions),
             .extensions = extensions,
-            .condition = &condition_scene_to_resource
+            .condition_asset = &condition_scene_to_resource
         };
 
         Resource_Loader loader =
@@ -1458,44 +1605,49 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             .unload = &unload_scene_resource
         };
 
-        register_resource(Resource_Type::SCENE, "scene", 1, conditioner, loader);
+        register_asset(Asset_Type::SCENE, "scene", 1, conditioner, loader);
     }
+
+    if (file_exists(resource_system_state->asset_database_path))
+    {
+        deserialize_asset_database(resource_system_state->asset_database_path);
+    }
+
+    init(&resource_system_state->assets_to_condition);
 
     bool recursive = true;
     platform_walk_directory(resource_path.data, recursive, &on_path);
 
-    for (U32 resource_index : resource_system_state->assets_to_condition)
+    for (U32 asset_index : resource_system_state->assets_to_condition)
     {
-        Resource &resource = resource_system_state->resources[resource_index];
-        U64 uuid = generate_uuid();
-        resource.uuid = uuid;
-        uuid_to_resource_index.emplace(uuid, resource_index);
-    }
+        Asset &asset = resource_system_state->assets[asset_index];
+        auto it = path_to_resource_index.find(asset.resource_relative_path);
+        HE_ASSERT(it != path_to_resource_index.end());
+        Condition_Asset_Job_Data data;
+        data.asset_index = asset_index;
+        data.resource_index = it->second;
 
-    for (U32 resource_index : resource_system_state->assets_to_condition)
-    {
-        Condition_Resource_Job_Data condition_resource_job_data
+        Job job =
         {
-            .resource_index = resource_index
+            .parameters =
+            {
+                .data = &data,
+                .size = sizeof(Condition_Asset_Job_Data)
+            },
+            .proc = &condition_asset_job
         };
-
-        Job job = {};
-        job.parameters.data = &condition_resource_job_data;
-        job.parameters.size = sizeof(condition_resource_job_data);
-        job.proc = condition_resource_job;
         execute_job(job);
     }
-
-    deinit(&resource_system_state->assets_to_condition);
 
     return true;
 }
 
 void deinit_resource_system()
 {
+    serialize_asset_database(resource_system_state->asset_database_path);
 }
 
-bool register_resource(Resource_Type type, const char *name, U32 version, Resource_Conditioner conditioner, Resource_Loader loader)
+bool register_asset(Asset_Type type, const char *name, U32 version, Asset_Conditioner conditioner, Resource_Loader loader)
 {
     HE_ASSERT(name);
     HE_ASSERT(version);
@@ -1638,7 +1790,7 @@ void release_resource(Resource_Ref ref)
     resource->ref_count--;
     if (resource->ref_count == 0)
     {
-        Resource_Type_Info &info = resource_system_state->resource_type_infos[resource->type];
+        Resource_Type_Info &info = resource_system_state->resource_type_infos[(U32)resource->type];
         info.loader.unload(resource);
         resource->index = -1;
         resource->generation = 0;
@@ -1755,7 +1907,7 @@ Shader_Struct *find_material_properties(Array_View<Resource_Ref> shaders)
 
 bool create_material_resource(Resource *resource, const String &render_pass_name, const Pipeline_State_Settings &settings, Material_Property_Info *properties, U16 property_count)
 {
-    resource->type = (U32)Resource_Type::MATERIAL;
+    resource->type = Asset_Type::MATERIAL;
     resource->state = Resource_State::UNLOADED;
     resource->ref_count = 0;
     resource->index = -1;
@@ -1763,15 +1915,23 @@ bool create_material_resource(Resource *resource, const String &render_pass_name
 
     platform_create_mutex(&resource->mutex);
 
+    auto it = uuid_to_asset_index.find(resource->asset_uuid);
+    HE_ASSERT(it != uuid_to_asset_index.end());
+
+    asset_mutex.lock();
+    Asset &asset = resource_system_state->assets[it->second];
+    append(&asset.resource_refs, resource->uuid);
+    asset_mutex.unlock();
+
     bool success = true;
 
-    Resource_Header header = make_resource_header((U32)Resource_Type::MATERIAL, resource->uuid);
+    Resource_Header header = make_resource_header(Asset_Type::MATERIAL, resource->asset_uuid, resource->uuid);
     header.resource_ref_count = resource->resource_refs.count;
 
     Open_File_Result open_file_result = platform_open_file(resource->absolute_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
     if (!open_file_result.success)
     {
-        HE_LOG(Resource, Fetal, "failed to open resource file: %.*s\n", HE_EXPAND_STRING(resource->absolute_path));
+        HE_LOG(Resource, Fetal, "failed to open resource file: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
         return false;
     }
 
@@ -1811,6 +1971,39 @@ const Dynamic_Array< Resource >& get_resources()
     return resource_system_state->resources;
 }
 
+void reload_resources()
+{
+    for (U32 asset_index = 0; asset_index < resource_system_state->assets.count; asset_index++)
+    {
+        Asset &asset = resource_system_state->assets[asset_index];
+        U64 last_write_time = platform_get_file_last_write_time(asset.absolute_path.data);
+        if (last_write_time != asset.last_write_time)
+        {
+            asset.last_write_time = last_write_time;
+
+            U64 resource_uuid = asset.resource_refs[0];
+            auto it = uuid_to_resource_index.find(resource_uuid);
+            HE_ASSERT(it != uuid_to_resource_index.end());
+            U32 resource_index = it->second;
+
+            Condition_Asset_Job_Data data;
+            data.asset_index = asset_index;
+            data.resource_index = resource_index;
+
+            Job job =
+            {
+                .parameters =
+                {
+                    .data = &data,
+                    .size = sizeof(data)
+                },
+                .proc = &condition_asset_job
+            };
+            execute_job(job);
+        }
+    }
+}
+
 // =============================== Editor ==========================================
 
 static String get_resource_state_string(Resource_State resource_state)
@@ -1836,71 +2029,153 @@ static String get_resource_state_string(Resource_State resource_state)
 
 void imgui_draw_resource_system()
 {
-    ImGui::Begin("Resources");
-
-    const char* coloum_names[] =
     {
-        "No.",
-        "UUID",
-        "Type",
-        "Resource",
-        "State",
-        "Ref Count",
-        "Refs"
-    };
+        ImGui::Begin("Assets");
 
-    ImGuiTableFlags flags = ImGuiTableFlags_Borders|ImGuiTableFlags_Resizable;
-
-    if (ImGui::BeginTable("Table", HE_ARRAYCOUNT(coloum_names), flags))
-    {
-        for (U32 col = 0; col < HE_ARRAYCOUNT(coloum_names); col++)
+        const char* coloum_names[] =
         {
-            ImGui::TableSetupColumn(coloum_names[col], ImGuiTableColumnFlags_WidthStretch);
-        }
+            "No.",
+            "UUID",
+            "Type",
+            "Asset",
+            "Resource Refs"
+        };
 
-        ImGui::TableHeadersRow();
+        ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable;
 
-        for (U32 row = 0; row < resource_system_state->resources.count; row++)
+        if (ImGui::BeginTable("Table", HE_ARRAYCOUNT(coloum_names), flags))
         {
-            Resource &resource = resource_system_state->resources[row];
-            Resource_Type_Info &info = resource_system_state->resource_type_infos[resource.type];
-
-            ImGui::TableNextRow();
-
-            ImGui::TableNextColumn();
-            ImGui::Text("%d", row + 1);
-
-            ImGui::TableNextColumn();
-            ImGui::Text("%#x", resource.uuid);
-
-            ImGui::TableNextColumn();
-            ImGui::Text("%.*s", HE_EXPAND_STRING(info.name));
-
-            ImGui::TableNextColumn();
-            ImGui::Text("%.*s", HE_EXPAND_STRING(resource.relative_path));
-
-            ImGui::TableNextColumn();
-            ImGui::Text("%.*s", HE_EXPAND_STRING(get_resource_state_string(resource.state)));
-
-            ImGui::TableNextColumn();
-            ImGui::Text("%u", resource.ref_count);
-
-            ImGui::TableNextColumn();
-            if (resource.resource_refs.count)
+            for (U32 col = 0; col < HE_ARRAYCOUNT(coloum_names); col++)
             {
-                for (U64 uuid : resource.resource_refs)
+                ImGui::TableSetupColumn(coloum_names[col], ImGuiTableColumnFlags_WidthStretch);
+            }
+
+            ImGui::TableHeadersRow();
+
+            for (U32 row = 0; row < resource_system_state->assets.count; row++)
+            {
+                Asset& asset = resource_system_state->assets[row];
+                Resource_Type_Info& info = resource_system_state->resource_type_infos[(U32)asset.type];
+
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", row + 1);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%#x", asset.uuid);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.*s", HE_EXPAND_STRING(info.name));
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.*s", HE_EXPAND_STRING(asset.relative_path));
+
+                ImGui::TableNextColumn();
+                if (asset.resource_refs.count)
                 {
-                    ImGui::Text("%#x", uuid);
+                    for (U64 uuid : asset.resource_refs)
+                    {
+                        ImGui::Text("%#x", uuid);
+                    }
+                }
+                else
+                {
+                    ImGui::Text("None");
                 }
             }
-            else
-            {
-                ImGui::Text("None");
-            }
+
+            ImGui::EndTable();
         }
 
-        ImGui::EndTable();
+        ImGui::End();
     }
 
-    ImGui::End();
+    {
+        ImGui::Begin("Resources");
+
+        const char* coloum_names[] =
+        {
+            "No.",
+            "UUID",
+            "Asset UUID",
+            "Type",
+            "Resource",
+            "State",
+            "Ref Count",
+            "Refs",
+            "Children"
+        };
+
+        ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable;
+
+        if (ImGui::BeginTable("Table", HE_ARRAYCOUNT(coloum_names), flags))
+        {
+            for (U32 col = 0; col < HE_ARRAYCOUNT(coloum_names); col++)
+            {
+                ImGui::TableSetupColumn(coloum_names[col], ImGuiTableColumnFlags_WidthStretch);
+            }
+
+            ImGui::TableHeadersRow();
+
+            for (U32 row = 0; row < resource_system_state->resources.count; row++)
+            {
+                Resource& resource = resource_system_state->resources[row];
+                Resource_Type_Info& info = resource_system_state->resource_type_infos[(U32)resource.type];
+
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", row + 1);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%#x", resource.uuid);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%#x", resource.asset_uuid);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.*s", HE_EXPAND_STRING(info.name));
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.*s", HE_EXPAND_STRING(resource.relative_path));
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.*s", HE_EXPAND_STRING(get_resource_state_string(resource.state)));
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", resource.ref_count);
+
+                ImGui::TableNextColumn();
+                if (resource.resource_refs.count)
+                {
+                    for (U64 uuid : resource.resource_refs)
+                    {
+                        ImGui::Text("%#x", uuid);
+                    }
+                }
+                else
+                {
+                    ImGui::Text("None");
+                }
+
+                ImGui::TableNextColumn();
+                if (resource.children.count)
+                {
+                    for (U64 uuid : resource.children)
+                    {
+                        ImGui::Text("%#x", uuid);
+                    }
+                }
+                else
+                {
+                    ImGui::Text("None");
+                }
+            }
+
+            ImGui::EndTable();
+        }
+
+        ImGui::End();
+    }
 }

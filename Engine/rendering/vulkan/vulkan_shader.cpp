@@ -218,7 +218,7 @@ U32 parse_struct(const SPIRV_Entity &entity, Dynamic_Array< SPIRV_Shader_Struct 
     struct_.name = entity.name;
     
     U32 member_count = entity.members.count;
-    init(&struct_.members, allocator, member_count);
+    init(&struct_.members, member_count);
 
     for (U32 member_index = 0; member_index < member_count; member_index++)
     {
@@ -326,7 +326,7 @@ bool load_shader(Shader_Handle shader_handle, void *data, U64 size, Vulkan_Conte
 
                 if (!entity.members.data)
                 {
-                    init(&entity.members, allocator);
+                    init(&entity.members);
                 }
 
                 if (member_index >= entity.members.count)
@@ -590,17 +590,17 @@ bool load_shader(Shader_Handle shader_handle, void *data, U64 size, Vulkan_Conte
 
     for (U32 set_layout_binding_index = 0; set_layout_binding_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_layout_binding_index++)
     {
-        init(&sets[set_layout_binding_index], allocator);
+        init(&sets[set_layout_binding_index]);
     }
 
     Dynamic_Array< Shader_Input_Variable > inputs;
-    init(&inputs, allocator);
+    init(&inputs);
 
     Dynamic_Array< Shader_Output_Variable > outputs;
-    init(&outputs, allocator);
+    init(&outputs);
 
     Dynamic_Array< SPIRV_Shader_Struct > structs;
-    init(&structs, allocator);
+    init(&structs);
 
     HE_DEFER
     {

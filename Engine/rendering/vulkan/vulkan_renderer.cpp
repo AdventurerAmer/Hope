@@ -1116,7 +1116,7 @@ bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle
     for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
     {
         auto &set = sets[set_index];
-        init(&set, get_general_purpose_allocator());
+        init(&set);
     }
 
     for (const Shader_Handle &shader_handle : descriptor.shaders)

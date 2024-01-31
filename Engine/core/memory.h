@@ -3,8 +3,6 @@
 #include "defines.h"
 #include "platform.h"
 
-#include <variant>
-
 #define HE_KILO_BYTES(x) (1024llu * (x))
 #define HE_MEGA_BYTES(x) (1024llu * 1024llu * (x))
 #define HE_GIGA_BYTES(x) (1024llu * 1024llu * 1024llu * (x))
@@ -18,6 +16,9 @@
 
 #define HE_ALLOCATE_ARRAY(allocator_pointer, type, count)\
 (type *)allocate((allocator_pointer), sizeof(type) * (count), alignof(type))
+
+#define HE_ALLOCATE_ARRAY_UNALIGNED(allocator_pointer, type, count)\
+(type *)allocate((allocator_pointer), sizeof(type) * (count), 1)
 
 #define HE_REALLOCATE(allocator_pointer, memory, type)\
 (type *)reallocate((allocator_pointer), (memory), sizeof(type), 1)
@@ -110,8 +111,6 @@ void* allocate(Free_List_Allocator *allocator, U64 size, U16 alignment);
 void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16 alignment);
 void deallocate(Free_List_Allocator *allocator, void *memory);
 
-typedef std::variant< Memory_Arena *, Free_List_Allocator * > Allocator;
-
 bool init_memory_system();
 void deinit_memory_system();
 
@@ -135,6 +134,7 @@ struct Memory_Context
     Memory_Arena *temp;
     Memory_Arena *debug;
     Free_List_Allocator *general;
+
     ~Memory_Context();
 };
 
