@@ -125,7 +125,7 @@ bool startup(Engine *engine, void *platform_state)
         return false;
     }
 
-    bool job_system_inited = init_job_system(engine);
+    bool job_system_inited = init_job_system();
     if (!job_system_inited)
     {
         HE_LOG(Core, Fetal, "failed to initialize job system\n");

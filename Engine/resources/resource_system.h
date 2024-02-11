@@ -6,7 +6,7 @@
 #include "containers/array.h"
 #include "containers/dynamic_array.h"
 #include "containers/resource_pool.h"
-
+#include "core/job_system.h"
 #include "rendering/renderer_types.h"
 
 enum class Asset_Type : U32
@@ -65,6 +65,8 @@ struct Resource
     
     S32 index;
     U32 generation;
+
+    Job_Handle job_handle;
 };
 
 struct Resource_Ref
@@ -226,8 +228,9 @@ Shader_Struct *find_material_properties(Array_View<Resource_Ref> shaders);
 
 bool create_material_resource(Resource *resource, const String &render_pass_name, const Pipeline_State_Settings &settings, struct Material_Property_Info *properties, U16 property_count);
 
-void wait_for_resource_refs_to_condition(Array_View< Resource_Ref > resource_refs);
-void wait_for_resource_refs_to_load(Array_View< Resource_Ref > resource_refs);
+bool wait_for_resource_refs_to_condition(Array_View< Resource_Ref > resource_refs);
+bool wait_for_resource_refs_to_load(Array_View< Resource_Ref > resource_refs);
+bool wait_for_resource_refs_to_load(Resource *resource);
 
 const Dynamic_Array< Resource >& get_resources();
 

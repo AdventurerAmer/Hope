@@ -287,6 +287,8 @@ static bool load_material_resource(Open_File_Result *open_file_result, Resource 
     String render_pass_name = { string_buffer, info.render_pass_name_count };
     success &= platform_read_data_from_file(open_file_result, info.render_pass_name_offset, string_buffer, info.render_pass_name_count);
 
+    // wait_for_resource_refs_to_load(resource);
+
     Array< Shader_Handle, HE_MAX_SHADER_COUNT_PER_PIPELINE > shaders;
 
     for (U64 uuid : resource->resource_refs)
@@ -338,6 +340,10 @@ static bool load_material_resource(Open_File_Result *open_file_result, Resource 
         resource->generation = material_handle.generation;
         resource->ref_count++;
         resource->state = Resource_State::LOADED;
+    }
+    else
+    {
+        resource->state = Resource_State::UNLOADED;
     }
 
     return success;
@@ -1627,7 +1633,7 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
         data.asset_index = asset_index;
         data.resource_index = it->second;
 
-        Job job =
+        Job_Data job_data =
         {
             .parameters =
             {
@@ -1636,7 +1642,7 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             },
             .proc = &condition_asset_job
         };
-        execute_job(job);
+        execute_job(job_data);
     }
 
     return true;
@@ -1685,38 +1691,46 @@ Resource_Ref find_resource(const char *relative_path)
 
 static void aquire_resource(Resource *resource)
 {
-    if (resource->resource_refs.count)
+    Dynamic_Array< Job_Handle > jobs;
+    init(&jobs);
+
+    for (U64 uuid : resource->resource_refs)
     {
-        for (U64 uuid : resource->resource_refs)
+        auto it = uuid_to_resource_index.find(uuid);
+        HE_ASSERT(it != uuid_to_resource_index.end());
+        Resource *r = &resource_system_state->resources[it->second];
+
+        platform_lock_mutex(&r->mutex);
+
+        if (r->state == Resource_State::UNLOADED)
         {
-            Resource_Ref ref = { uuid };
-            aquire_resource(ref);
+            r->state = Resource_State::PENDING;
+
+            Load_Resource_Job_Data data =
+            {
+                .resource = r
+            };
+
+            Job_Data job_data = {};
+            job_data.parameters.data = &data;
+            job_data.parameters.size = sizeof(data);
+            job_data.proc = load_resource_job;
+            Job_Handle job_handle = execute_job(job_data);
+            r->job_handle = job_handle;
+
+            append(&jobs, job_handle);
+        }
+        else if (r->state == Resource_State::PENDING)
+        {
+            append(&jobs, r->job_handle);
+            r->ref_count++;
+        }
+        else
+        {
+            r->ref_count++;
         }
 
-        // todo(amer): make this efficient with semaphores
-        while (true)
-        {
-            bool all_loaded = true;
-
-            for (U64 uuid : resource->resource_refs)
-            {
-                Resource_Ref ref = { uuid };
-                Resource *ref_resource = get_resource(ref);
-                if (ref_resource->state != Resource_State::LOADED)
-                {
-                    all_loaded = false;
-                    break;
-                }
-            }
-
-            if (all_loaded)
-            {
-                break;
-            }
-
-            Render_Context render_context = get_render_context();
-            finalize_asset_loads(render_context.renderer, render_context.renderer_state);
-        }
+        platform_unlock_mutex(&r->mutex);
     }
 
     platform_lock_mutex(&resource->mutex);
@@ -1726,22 +1740,24 @@ static void aquire_resource(Resource *resource)
         resource->state = Resource_State::PENDING;
         platform_unlock_mutex(&resource->mutex);
 
-        Load_Resource_Job_Data job_data
+        Load_Resource_Job_Data data
         {
             .resource = resource
         };
 
-        Job job = {};
-        job.parameters.data = &job_data;
-        job.parameters.size = sizeof(job_data);
-        job.proc = load_resource_job;
-        execute_job(job);
+        Job_Data job_data = {};
+        job_data.parameters.data = &data;
+        job_data.parameters.size = sizeof(data);
+        job_data.proc = load_resource_job;
+        resource->job_handle = execute_job(job_data, to_array_view(jobs));
     }
     else
     {
         resource->ref_count++;
         platform_unlock_mutex(&resource->mutex);
     }
+
+    deinit(&jobs);
 }
 
 Resource_Ref aquire_resource(const String &relative_path)
@@ -1816,7 +1832,7 @@ Resource *get_resource(U32 index)
 }
 
 // @Hack: we should rely on the job system
-void wait_for_resource_refs_to_condition(Array_View< Resource_Ref > resource_refs)
+bool wait_for_resource_refs_to_condition(Array_View< Resource_Ref > resource_refs)
 {
     while (true)
     {
@@ -1835,13 +1851,15 @@ void wait_for_resource_refs_to_condition(Array_View< Resource_Ref > resource_ref
 
         if (all_conditioned)
         {
-            return;
+            return true;
         }
     }
+
+    return false;
 }
 
 // @Hack: we should rely on the job system
-void wait_for_resource_refs_to_load(Array_View< Resource_Ref > resource_refs)
+bool wait_for_resource_refs_to_load(Array_View< Resource_Ref > resource_refs)
 {
     while (true)
     {
@@ -1849,8 +1867,12 @@ void wait_for_resource_refs_to_load(Array_View< Resource_Ref > resource_refs)
 
         for (Resource_Ref ref : resource_refs)
         {
-            Resource *resource = get_resource(ref);
-            if (resource->state != Resource_State::LOADED)
+            Resource *r = get_resource(ref);
+            if (r->state == Resource_State::UNLOADED)
+            {
+                return false;
+            }
+            else if (r->state == Resource_State::PENDING)
             {
                 all_loaded = false;
                 break;
@@ -1859,9 +1881,41 @@ void wait_for_resource_refs_to_load(Array_View< Resource_Ref > resource_refs)
 
         if (all_loaded)
         {
-            break;
+            return true;
         }
     }
+
+    return false;
+}
+
+bool wait_for_resource_refs_to_load(Resource *resource)
+{
+    while (true)
+    {
+        bool all_loaded = true;
+
+        for (U64 uuid : resource->resource_refs)
+        {
+            Resource_Ref ref = { uuid };
+            Resource *r = get_resource(ref);
+            if (r->state == Resource_State::UNLOADED)
+            {
+                return false;
+            }
+            else if (r->state == Resource_State::PENDING)
+            {
+                all_loaded = false;
+                break;
+            }
+        }
+
+        if (all_loaded)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 Shader_Struct *find_material_properties(Array_View<U64> shaders)
@@ -1990,7 +2044,7 @@ void reload_resources()
             data.asset_index = asset_index;
             data.resource_index = resource_index;
 
-            Job job =
+            Job_Data job =
             {
                 .parameters =
                 {

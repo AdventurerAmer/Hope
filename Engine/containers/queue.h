@@ -51,20 +51,21 @@ bool full(Ring_Queue< T, Allocator > *queue)
 }
 
 template< typename T, typename Allocator >
-bool push(Ring_Queue< T, Allocator > *queue, const T &item)
+S32 push(Ring_Queue< T, Allocator > *queue, const T &item)
 {
     if (full(queue))
     {
-        return false;
+        return -1;
     }
 
-    queue->data[(queue->write & queue->mask)] = item;
+    U32 index = (queue->write & queue->mask);
+    queue->data[index] = item;
     queue->write++;
-    return true;
+    return (S32)index;
 }
 
 template< typename T, typename Allocator >
-bool peek_front(Ring_Queue< T, Allocator > *queue, T *out_datum)
+bool peek_front(Ring_Queue< T, Allocator > *queue, T *out_datum, U32 *index = nullptr)
 {
     HE_ASSERT(out_datum);
     if (empty(queue))
@@ -73,6 +74,10 @@ bool peek_front(Ring_Queue< T, Allocator > *queue, T *out_datum)
     }
     U32 read = (queue->read & queue->mask);
     *out_datum = queue->data[read];
+    if (index)
+    {
+        *index = read;
+    }
     return true;
 }
 

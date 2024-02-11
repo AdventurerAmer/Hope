@@ -150,7 +150,6 @@ void release_handle(Resource_Pool< T > *resource_pool, Resource_Handle< T > hand
     platform_unlock_mutex(&resource_pool->mutex);
 }
 
-
 template< typename T >
 Resource_Handle< T > iterator(Resource_Pool< T > *resource_pool)
 {

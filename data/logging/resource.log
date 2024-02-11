@@ -1,16 +1,15 @@
 [Resource-Trace]: resource loaded: skybox
 [Resource-Trace]: resource loaded: normal pixel
 [Resource-Trace]: resource loaded: skybox
-[Resource-Trace]: resource loaded: Cube/Cube.hres
-[Resource-Trace]: resource loaded: Corset/Corset.hres
-[Resource-Trace]: resource loaded: opaque_pbr_frag.hres
+[Resource-Trace]: resource loaded: Corset/Corset.h[Resource-Trace]: resource loaded: Corset/Corset.hres
 [Resource-Trace]: resource loaded: opaque_pbr_vert.hres
+[Resource-Trace]: resource loaded: opaque_pbr_frag.hres
 [Resource-Trace]: resource loaded: Cube/material_Cube.hres
 [Resource-Trace]: resource loaded: Corset/material_Corset_O.hres
+[Resource-Trace]: resource loaded: Corset/Corset_occlusionRoughnessMetallic.hres
+[Resource-Trace]: resource loaded: Corset/Corset_normal.hres
+[Resource-Trace]: resource loaded: Corset/Corset_baseColor.hres
+[Resource-Trace]: resource loaded: Cube/Cube_MetallicRoughness.hres
 [Resource-Trace]: resource loaded: Corset/Corset_baseColor.hres
 [Resource-Trace]: resource loaded: Corset/Corset_normal.hres
-[Resource-Trace]: resource loaded: Corset/Corset_occlusionRoughnessMetallic.hres
-[Resource-Trace]: resource loaded: Cube/Cube_BaseColor.hres
-[Resource-Trace]: resource loaded: Corset/Corset_occlusionRoughnessMetallic.hres
-[Resource-Trace]: resource loaded: Corset/Corset_normal.hres
-[Resource-Trace]: resource loaded: Corset/Corset_occlusionRoughnessMetallic.hres
+[Resource-Trace]: resource loaded: Corset/Corset_baseColor.hres

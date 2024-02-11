@@ -2,7 +2,8 @@
 
 #include "core/defines.h"
 #include "core/memory.h"
-#include "containers/array.h"
+
+#include "containers/array_view.h"
 
 #define HE_DEFAULT_DYNAMIC_ARRAY_INITIAL_CAPACITY 16
 
