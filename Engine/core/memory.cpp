@@ -1,6 +1,7 @@
 #include "memory.h"
 #include "platform.h"
 #include "rendering/renderer.h"
+#include "containers/hash_map.h"
 
 #include <string.h>
 
@@ -23,9 +24,10 @@ void copy_memory(void *dst, const void *src, U64 size)
 struct Memory_System
 {
     Memory_Arena permenent_arena;
-    Memory_Arena transient_arena;
     Memory_Arena debug_arena;
     Free_List_Allocator general_purpose_allocator;
+
+    Hash_Map< U32, Thread_Memory_State > thread_id_to_memory_state;
 };
 
 static Memory_System memory_system_state;
@@ -35,11 +37,6 @@ bool init_memory_system()
     U64 capacity = platform_get_total_memory_size();
 
     if (!init_memory_arena(&memory_system_state.permenent_arena, capacity, HE_MEGA_BYTES(1)))
-    {
-        return false;
-    }
-
-    if (!init_memory_arena(&memory_system_state.transient_arena, capacity, HE_MEGA_BYTES(1)))
     {
         return false;
     }
@@ -54,14 +51,37 @@ bool init_memory_system()
         return false;
     }
 
+    init(&memory_system_state.thread_id_to_memory_state, platform_get_thread_count() + 1); // +1 for the main thread
+
+    S32 slot_index = insert(&memory_system_state.thread_id_to_memory_state, platform_get_current_thread_id());
+    HE_ASSERT(slot_index != -1);
+
+    Thread_Memory_State *main_thread_memory_state = &memory_system_state.thread_id_to_memory_state.values[slot_index];
+    if (!init_memory_arena(&main_thread_memory_state->transient_arena, capacity, HE_MEGA_BYTES(1)))
+    {
+        return false;
+    }
+
     return true;
 }
 
 void deinit_memory_system()
 {
     HE_ASSERT(memory_system_state.permenent_arena.temp_count == 0);
-    HE_ASSERT(memory_system_state.transient_arena.temp_count == 0);
     HE_ASSERT(memory_system_state.debug_arena.temp_count == 0);
+}
+
+Thread_Memory_State *get_thread_memory_state(U32 thread_id)
+{
+    auto it = find(&memory_system_state.thread_id_to_memory_state, thread_id);
+
+    if (is_valid(it))
+    {
+        return it.value;
+    }
+
+    S32 slot_index = insert(&memory_system_state.thread_id_to_memory_state, thread_id);
+    return &memory_system_state.thread_id_to_memory_state.values[slot_index];
 }
 
 void imgui_draw_arena(Memory_Arena *arena, const char *name)
@@ -103,7 +123,6 @@ void imgui_draw_memory_system()
     ImGui::Begin("Memory");
 
     imgui_draw_arena(&memory_system_state.permenent_arena, "Permenent Arena");
-    imgui_draw_arena(&memory_system_state.transient_arena, "Transient Arena");
     imgui_draw_arena(&memory_system_state.debug_arena, "Debug Arena");
     imgui_draw_free_list_allocator(&memory_system_state.general_purpose_allocator, "General Purpose Allocator");
 
@@ -120,7 +139,9 @@ Memory_Arena *get_permenent_arena()
 
 Memory_Arena *get_transient_arena()
 {
-    return &memory_system_state.transient_arena;
+    auto it = find(&memory_system_state.thread_id_to_memory_state, platform_get_current_thread_id());
+    Thread_Memory_State *memory_state = it.value;
+    return &memory_state->transient_arena;
 }
 
 Memory_Arena *get_debug_arena()
@@ -135,28 +156,26 @@ Free_List_Allocator *get_general_purpose_allocator()
 
 Temprary_Memory_Arena begin_scratch_memory()
 {
-    return begin_temprary_memory(&memory_system_state.transient_arena);
+    return begin_temprary_memory(get_transient_arena());
 }
 
 Temprary_Memory_Arena_Janitor make_scratch_memory_janitor()
 {
-    Memory_Arena *transient_arena = &memory_system_state.transient_arena;
+    Memory_Arena *transient_arena = get_transient_arena();
     transient_arena->temp_count++;
     return { .arena = transient_arena, .offset = transient_arena->offset };
 }
 
 Memory_Context::~Memory_Context()
 {
-    Memory_Arena *transient_arena = &memory_system_state.transient_arena;
-
-    HE_ASSERT(transient_arena->temp_count);
-    transient_arena->temp_count--;
-    transient_arena->offset = temp_offset;
+    HE_ASSERT(temp->temp_count);
+    temp->temp_count--;
+    temp->offset = temp_offset;
 }
 
 Memory_Context use_memory_context()
 {
-    Memory_Arena *transient_arena = &memory_system_state.transient_arena;
+    Memory_Arena *transient_arena = get_transient_arena();
     transient_arena->temp_count++;
 
     return

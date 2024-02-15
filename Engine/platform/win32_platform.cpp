@@ -630,8 +630,7 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
         creation_disposition = CREATE_ALWAYS;
     }
 
-    HANDLE file_handle = CreateFileA(filepath, access_flags, FILE_SHARE_READ,
-                                     0, creation_disposition, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE file_handle = CreateFileA(filepath, access_flags, FILE_SHARE_READ|FILE_SHARE_WRITE, 0, creation_disposition, FILE_ATTRIBUTE_NORMAL, NULL);
 
     if (file_handle != INVALID_HANDLE_VALUE)
     {
@@ -747,6 +746,7 @@ bool platform_create_and_start_thread(Thread *thread, Thread_Proc thread_proc, v
     }
 
 #ifndef HE_SHIPPING
+
     if (name)
     {
         wchar_t wide_name[256];
@@ -759,6 +759,7 @@ bool platform_create_and_start_thread(Thread *thread, Thread_Proc thread_proc, v
         HRESULT hresult = SetThreadDescription(thread_handle, wide_name);
         HE_ASSERT(!FAILED(hresult));
     }
+
 #endif
 
     thread->platform_thread_state = thread_handle;
@@ -770,6 +771,16 @@ U32 platform_get_thread_count()
     SYSTEM_INFO system_info = {};
     GetSystemInfo(&system_info);
     return system_info.dwNumberOfProcessors;
+}
+
+U32 platform_get_current_thread_id()
+{
+    return *(U32 *)( (U8 *)__readgsqword(0x30) + 0x48 );
+}
+
+U32 platform_get_thread_id(Thread *thread)
+{
+    return GetThreadId((HANDLE)thread->platform_thread_state);
 }
 
 bool platform_create_mutex(Mutex *mutex)

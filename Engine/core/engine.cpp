@@ -35,12 +35,18 @@ void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state)
         {
             if (allocation_group.resource_index != -1)
             {
-                Resource* resource = get_resource((U32)allocation_group.resource_index);
+                Resource *resource = get_resource((U32)allocation_group.resource_index);
                 platform_lock_mutex(&resource->mutex);
                 HE_ASSERT(resource->state == Resource_State::PENDING);
                 resource->ref_count++;
                 resource->state = Resource_State::LOADED;
                 platform_unlock_mutex(&resource->mutex);
+
+                HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
+            }
+            else
+            {
+                HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
             }
 
             renderer_destroy_semaphore(allocation_group.semaphore);
@@ -51,8 +57,6 @@ void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state)
             }
 
             remove_and_swap_back(&renderer_state->allocation_groups, allocation_group_index);
-
-            HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
         }
     }
 
@@ -500,214 +504,12 @@ static void draw_tree(Scene_Node *node)
 
 void game_loop(Engine *engine, F32 delta_time)
 {
-    imgui_new_frame();
-
     Render_Context render_context = get_render_context();
     Scene_Data *scene_data = &render_context.renderer_state->scene_data;
     Directional_Light *directional_light = &scene_data->directional_light;
 
     Renderer *renderer = render_context.renderer;
     Renderer_State *renderer_state = render_context.renderer_state;
-
-    // ImGui Graphics Settings
-    {
-        ImGui::Begin("Graphics");
-
-        ImGui::Text("Directional Light");
-        ImGui::Separator();
-
-        ImGui::Text("Direction");
-        ImGui::SameLine();
-
-        ImGui::DragFloat3("##Direction", &directional_light->direction.x, 0.1f, -1.0f, 1.0f);
-
-        if (glm::length(directional_light->direction) > 0.0f)
-        {
-            directional_light->direction = glm::normalize(directional_light->direction);
-        }
-
-        ImGui::Text("Color");
-        ImGui::SameLine();
-
-        ImGui::ColorEdit4("##Color", &directional_light->color.r);
-
-        ImGui::Text("Intensity");
-        ImGui::SameLine();
-
-        ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, HE_MAX_F32);
-
-        ImGui::Text("");
-        ImGui::Text("Settings");
-        ImGui::Separator();
-
-        //
-        // VSync
-        //
-        {
-            ImGui::Text("VSync");
-            ImGui::SameLine();
-
-            static bool vsync = renderer_state->vsync;
-            if (ImGui::Checkbox("##VSync", &vsync))
-            {
-                renderer_set_vsync(vsync);
-            }
-        }
-
-        //
-        // Triple Buffering
-        //
-        {
-            ImGui::Text("Triple Buffering");
-            ImGui::SameLine();
-
-            if (ImGui::Checkbox("##Triple Buffering", &renderer_state->triple_buffering))
-            {
-                if (renderer_state->triple_buffering)
-                {
-                    renderer_state->frames_in_flight = 3;
-                }
-                else
-                {
-                    renderer_state->frames_in_flight = 2;
-                }
-            }
-        }
-
-        //
-        // Gamma
-        //
-        {
-            ImGui::Text("Gamma");
-            ImGui::SameLine();
-            ImGui::SliderFloat("##Gamma", &renderer_state->gamma, 2.0, 2.4, "%.4f", ImGuiSliderFlags_AlwaysClamp);
-        }
-
-        //
-        // Anisotropic Filtering
-        //
-        {
-            const char *anisotropic_filtering_text[] =
-            {
-                "NONE",
-                "X2  ",
-                "X4  ",
-                "X8  ",
-                "X16 "
-            };
-
-            ImGui::Text("Anisotropic Filtering");
-            ImGui::SameLine();
-
-            const char *selected_anisotropic_filtering = nullptr;
-            for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
-            {
-                if ((U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index)
-                {
-                    selected_anisotropic_filtering = anisotropic_filtering_text[anisotropic_filtering_index];
-                    break;
-                }
-            }
-
-            if (ImGui::BeginCombo("##Anistropic Filtering", selected_anisotropic_filtering))
-            {
-                for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
-                {
-                    bool is_selected = (U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index;
-                    if (ImGui::Selectable(anisotropic_filtering_text[anisotropic_filtering_index], is_selected))
-                    {
-                        renderer_set_anisotropic_filtering((Anisotropic_Filtering_Setting)anisotropic_filtering_index);
-                    }
-
-                    if (is_selected)
-                    {
-                        ImGui::SetItemDefaultFocus();
-                    }
-                }
-                ImGui::EndCombo();
-            }
-        }
-
-        //
-        // MSAA
-        //
-        {
-            const char* msaa_text[] =
-            {
-                "NONE",
-                "X2  ",
-                "X4  ",
-                "X8  "
-            };
-
-            ImGui::Text("MSAA");
-            ImGui::SameLine();
-
-            const char *selected_msaa = nullptr;
-            for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
-            {
-                if ((U32)renderer_state->msaa_setting == msaa_setting_index)
-                {
-                    selected_msaa = msaa_text[msaa_setting_index];
-                    break;
-                }
-            }
-
-            if (ImGui::BeginCombo("##MSAA", selected_msaa))
-            {
-                for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
-                {
-                    bool is_selected = (U32)renderer_state->msaa_setting == msaa_setting_index;
-                    if (ImGui::Selectable(msaa_text[msaa_setting_index], is_selected))
-                    {
-                        renderer_set_msaa((MSAA_Setting)msaa_setting_index);
-                    }
-
-                    if (is_selected)
-                    {
-                        ImGui::SetItemDefaultFocus();
-                    }
-                }
-                ImGui::EndCombo();
-            }
-        }
-
-        ImGui::End();
-    }
-
-    // Scene
-    {
-        ImGui::Begin("Scene");
-
-        for (Scene_Node *node = renderer_state->root_scene_node->first_child; node; node = node->next_sibling)
-        {
-            draw_tree(node);
-        }
-
-        ImGui::End();
-    }
-
-    // Inspector
-    {
-        ImGui::Begin("Inspector");
-        
-        if (selected_node)
-        {
-            draw_node(selected_node);
-        }
-
-        ImGui::End();
-    }
-
-    // Resource System
-    {
-        imgui_draw_resource_system();
-    }
-
-    // Memory System
-    {
-        imgui_draw_memory_system();
-    }
 
     reload_resources();
 
@@ -716,86 +518,294 @@ void game_loop(Engine *engine, F32 delta_time)
     Game_Code *game_code = &engine->game_code;
     game_code->on_update(engine, delta_time);
 
-    U32 frame_index = renderer_state->current_frame_in_flight_index;
-    Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[frame_index]);
-    renderer_state->object_data_base = (Object_Data *)object_data_storage_buffer->data;
-    renderer_state->object_data_count = 0;
-    
-    renderer_state->opaque_packet_count = 0;
-    renderer_state->opaque_packets = HE_ALLOCATE_ARRAY(temprary_memory.arena, Render_Packet, 4069); // todo(amer): @Hardcoding
-    renderer_state->current_pipeline_state_handle = Resource_Pool<Pipeline_State>::invalid_handle;
-
-    renderer_parse_scene_tree(renderer_state->root_scene_node);
-
-    renderer->begin_frame(scene_data);
-
-    Buffer_Handle vertex_buffers[] =
+    if (!engine->is_minimized)
     {
-        renderer_state->position_buffer,
-        renderer_state->normal_buffer,
-        renderer_state->uv_buffer,
-        renderer_state->tangent_buffer
-    };
+        imgui_new_frame();
 
-    U64 offsets[] =
-    {
-        0,
-        0,
-        0,
-        0
-    };
-
-    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
-    renderer->set_index_buffer(renderer_state->index_buffer, 0);
-
-    U32 texture_count = renderer_state->textures.capacity;
-    Texture_Handle *textures = HE_ALLOCATE_ARRAY(temprary_memory.arena, Texture_Handle, texture_count);
-    Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(temprary_memory.arena, Sampler_Handle, texture_count);
-
-    for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
-    {
-        Texture *texture = get(&renderer_state->textures, it);
-
-        if (texture->is_attachment)
+        // ImGui Graphics Settings
         {
-            textures[it.index] = renderer_state->white_pixel_texture;
+            ImGui::Begin("Graphics");
+
+            ImGui::Text("Directional Light");
+            ImGui::Separator();
+
+            ImGui::Text("Direction");
+            ImGui::SameLine();
+
+            ImGui::DragFloat3("##Direction", &directional_light->direction.x, 0.1f, -1.0f, 1.0f);
+
+            if (glm::length(directional_light->direction) > 0.0f)
+            {
+                directional_light->direction = glm::normalize(directional_light->direction);
+            }
+
+            ImGui::Text("Color");
+            ImGui::SameLine();
+
+            ImGui::ColorEdit4("##Color", &directional_light->color.r);
+
+            ImGui::Text("Intensity");
+            ImGui::SameLine();
+
+            ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, HE_MAX_F32);
+
+            ImGui::Text("");
+            ImGui::Text("Settings");
+            ImGui::Separator();
+
+            //
+            // VSync
+            //
+            {
+                ImGui::Text("VSync");
+                ImGui::SameLine();
+
+                static bool vsync = renderer_state->vsync;
+                if (ImGui::Checkbox("##VSync", &vsync))
+                {
+                    renderer_set_vsync(vsync);
+                }
+            }
+
+            //
+            // Triple Buffering
+            //
+            {
+                ImGui::Text("Triple Buffering");
+                ImGui::SameLine();
+
+                if (ImGui::Checkbox("##Triple Buffering", &renderer_state->triple_buffering))
+                {
+                    if (renderer_state->triple_buffering)
+                    {
+                        renderer_state->frames_in_flight = 3;
+                    }
+                    else
+                    {
+                        renderer_state->frames_in_flight = 2;
+                    }
+                }
+            }
+
+            //
+            // Gamma
+            //
+            {
+                ImGui::Text("Gamma");
+                ImGui::SameLine();
+                ImGui::SliderFloat("##Gamma", &renderer_state->gamma, 2.0, 2.4, "%.4f", ImGuiSliderFlags_AlwaysClamp);
+            }
+
+            //
+            // Anisotropic Filtering
+            //
+            {
+                const char *anisotropic_filtering_text[] =
+                {
+                    "NONE",
+                    "X2  ",
+                    "X4  ",
+                    "X8  ",
+                    "X16 "
+                };
+
+                ImGui::Text("Anisotropic Filtering");
+                ImGui::SameLine();
+
+                const char *selected_anisotropic_filtering = nullptr;
+                for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
+                {
+                    if ((U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index)
+                    {
+                        selected_anisotropic_filtering = anisotropic_filtering_text[anisotropic_filtering_index];
+                        break;
+                    }
+                }
+
+                if (ImGui::BeginCombo("##Anistropic Filtering", selected_anisotropic_filtering))
+                {
+                    for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
+                    {
+                        bool is_selected = (U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index;
+                        if (ImGui::Selectable(anisotropic_filtering_text[anisotropic_filtering_index], is_selected))
+                        {
+                            renderer_set_anisotropic_filtering((Anisotropic_Filtering_Setting)anisotropic_filtering_index);
+                        }
+
+                        if (is_selected)
+                        {
+                            ImGui::SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+
+            //
+            // MSAA
+            //
+            {
+                const char* msaa_text[] =
+                {
+                    "NONE",
+                    "X2  ",
+                    "X4  ",
+                    "X8  "
+                };
+
+                ImGui::Text("MSAA");
+                ImGui::SameLine();
+
+                const char *selected_msaa = nullptr;
+                for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
+                {
+                    if ((U32)renderer_state->msaa_setting == msaa_setting_index)
+                    {
+                        selected_msaa = msaa_text[msaa_setting_index];
+                        break;
+                    }
+                }
+
+                if (ImGui::BeginCombo("##MSAA", selected_msaa))
+                {
+                    for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
+                    {
+                        bool is_selected = (U32)renderer_state->msaa_setting == msaa_setting_index;
+                        if (ImGui::Selectable(msaa_text[msaa_setting_index], is_selected))
+                        {
+                            renderer_set_msaa((MSAA_Setting)msaa_setting_index);
+                        }
+
+                        if (is_selected)
+                        {
+                            ImGui::SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+
+            ImGui::End();
         }
-        else
+
+        // Scene
         {
-            textures[it.index] = it;
+            ImGui::Begin("Scene");
+
+            for (Scene_Node *node = renderer_state->root_scene_node->first_child; node; node = node->next_sibling)
+            {
+                draw_tree(node);
+            }
+
+            ImGui::End();
         }
 
-        samplers[it.index] = texture->is_cubemap ? renderer_state->default_cubemap_sampler : renderer_state->default_texture_sampler;
-    }
-
-    Update_Binding_Descriptor update_textures_binding_descriptors[] =
-    {
+        // Inspector
         {
-            .binding_number = 0,
-            .element_index = 0,
-            .count = texture_count,
-            .textures = textures,
-            .samplers = samplers
-        },
-    };
+            ImGui::Begin("Inspector");
 
-    renderer->update_bind_group(renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index], to_array_view(update_textures_binding_descriptors));
+            if (selected_node)
+            {
+                draw_node(selected_node);
+            }
 
-    Bind_Group_Handle bind_groups[] =
-    {
-        renderer_state->per_frame_bind_groups[renderer_state->current_frame_in_flight_index],
-        renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index]
-    };
-    renderer->set_bind_groups(0, to_array_view(bind_groups));
+            ImGui::End();
+        }
 
-    render(&renderer_state->render_graph, renderer, renderer_state);
+        // Resource System
+        {
+            imgui_draw_resource_system();
+        }
 
-    renderer->end_frame();
+        // Memory System
+        {
+            imgui_draw_memory_system();
+        }
 
-    renderer_state->current_frame_in_flight_index++;
-    if (renderer_state->current_frame_in_flight_index >= renderer_state->frames_in_flight)
-    {
-        renderer_state->current_frame_in_flight_index = 0;
+        U32 frame_index = renderer_state->current_frame_in_flight_index;
+        Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[frame_index]);
+        renderer_state->object_data_base = (Object_Data *)object_data_storage_buffer->data;
+        renderer_state->object_data_count = 0;
+
+        renderer_state->opaque_packet_count = 0;
+        renderer_state->opaque_packets = HE_ALLOCATE_ARRAY(temprary_memory.arena, Render_Packet, 4069); // todo(amer): @Hardcoding
+        renderer_state->current_pipeline_state_handle = Resource_Pool<Pipeline_State>::invalid_handle;
+
+        renderer_parse_scene_tree(renderer_state->root_scene_node);
+
+        renderer->begin_frame(scene_data);
+
+        Buffer_Handle vertex_buffers[] =
+        {
+            renderer_state->position_buffer,
+            renderer_state->normal_buffer,
+            renderer_state->uv_buffer,
+            renderer_state->tangent_buffer
+        };
+
+        U64 offsets[] =
+        {
+            0,
+            0,
+            0,
+            0
+        };
+
+        renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
+        renderer->set_index_buffer(renderer_state->index_buffer, 0);
+
+        U32 texture_count = renderer_state->textures.capacity;
+        Texture_Handle *textures = HE_ALLOCATE_ARRAY(temprary_memory.arena, Texture_Handle, texture_count);
+        Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(temprary_memory.arena, Sampler_Handle, texture_count);
+
+        for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
+        {
+            Texture *texture = get(&renderer_state->textures, it);
+
+            if (texture->is_attachment)
+            {
+                textures[it.index] = renderer_state->white_pixel_texture;
+            }
+            else
+            {
+                textures[it.index] = it;
+            }
+
+            samplers[it.index] = texture->is_cubemap ? renderer_state->default_cubemap_sampler : renderer_state->default_texture_sampler;
+        }
+
+        Update_Binding_Descriptor update_textures_binding_descriptors[] =
+        {
+            {
+                .binding_number = 0,
+                .element_index = 0,
+                .count = texture_count,
+                .textures = textures,
+                .samplers = samplers
+            },
+        };
+
+        // todo(amer): renderer_update_bind_group
+        platform_lock_mutex(&renderer_state->render_commands_mutex);
+        renderer->update_bind_group(renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index], to_array_view(update_textures_binding_descriptors));
+        platform_unlock_mutex(&renderer_state->render_commands_mutex);
+
+        Bind_Group_Handle bind_groups[] =
+        {
+            renderer_state->per_frame_bind_groups[renderer_state->current_frame_in_flight_index],
+            renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index]
+        };
+        renderer->set_bind_groups(0, to_array_view(bind_groups));
+
+        render(&renderer_state->render_graph, renderer, renderer_state);
+
+        renderer->end_frame();
+
+        renderer_state->current_frame_in_flight_index++;
+        if (renderer_state->current_frame_in_flight_index >= renderer_state->frames_in_flight)
+        {
+            renderer_state->current_frame_in_flight_index = 0;
+        }
     }
 
     end_temprary_memory(&temprary_memory);

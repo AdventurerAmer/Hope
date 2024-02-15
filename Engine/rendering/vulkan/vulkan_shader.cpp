@@ -12,6 +12,8 @@
 
 #include "rendering/renderer_utils.h"
 
+#include <spirv_cross/spirv_glsl.hpp>
+
 static Vulkan_Context *vulkan_context;
 
 enum class SPRIV_Shader_Entity_Kind
@@ -266,6 +268,8 @@ VkShaderStageFlagBits get_shader_stage(Shader_Stage shader_stage)
     return VK_SHADER_STAGE_ALL;
 }
 
+#include <span>
+
 bool load_shader(Shader_Handle shader_handle, void *data, U64 size, Vulkan_Context *context)
 {
     if (!vulkan_context)
@@ -276,12 +280,9 @@ bool load_shader(Shader_Handle shader_handle, void *data, U64 size, Vulkan_Conte
     Shader *shader = get(&context->renderer_state->shaders, shader_handle);
     Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
     Free_List_Allocator *allocator = get_general_purpose_allocator();
-
-    Temprary_Memory_Arena temp_memory = begin_scratch_memory();
-    HE_DEFER { end_temprary_memory(&temp_memory); };
-    
     HE_ASSERT(size % 4 == 0);
 
+#if 1
     U32 *words = (U32 *)data;
     U32 word_count = u64_to_u32(size / 4);
 
@@ -291,11 +292,25 @@ bool load_shader(Shader_Handle shader_handle, void *data, U64 size, Vulkan_Conte
 
     U32 id_count = words[3];
 
-    SPIRV_Entity *ids = HE_ALLOCATE_ARRAY(temp_memory.arena, SPIRV_Entity, id_count);
-    for (U32 id_index = 0; id_index < id_count; id_index++)
+    SPIRV_Entity *ids = HE_ALLOCATE_ARRAY(allocator, SPIRV_Entity, id_count);
+
+    for (U32 i = 0; i < id_count; i++)
     {
-        ids[id_index] = SPIRV_Entity {};
+        ids[i] = SPIRV_Entity {};
     }
+
+    HE_DEFER
+    {
+        for (U32 i = 0; i < id_count; i++)
+        {
+            if (ids[i].members.data)
+            {
+                deinit(&ids[i].members);
+            }
+        }
+
+        deallocate(allocator, ids);
+    };
 
     const U32 *instruction = &words[5];
 
@@ -397,6 +412,11 @@ bool load_shader(Shader_Handle shader_handle, void *data, U64 size, Vulkan_Conte
                 U32 id = instruction[1];
                 SPIRV_Entity &struct_entity = ids[id];
                 U32 member_index = instruction[2];
+
+                if (!struct_entity.members.data)
+                {
+                    init(&struct_entity.members);
+                }
 
                 if (member_index >= struct_entity.members.count)
                 {
@@ -737,6 +757,28 @@ bool load_shader(Shader_Handle shader_handle, void *data, U64 size, Vulkan_Conte
 
     shader->struct_count = struct_count;
     shader->structs = shader_structs;
+
+#endif
+
+	// spirv_cross::CompilerGLSL glsl((uint32_t *)data, size / 4);
+
+	// // The SPIR-V is now parsed, and we can perform reflection on it.
+	// spirv_cross::ShaderResources resources = glsl.get_shader_resources();
+
+	// // Get all sampled images in the shader.
+	// for (auto &resource : resources.sampled_images)
+	// {
+	// 	unsigned set = glsl.get_decoration(resource.id, spv::DecorationDescriptorSet);
+	// 	unsigned binding = glsl.get_decoration(resource.id, spv::DecorationBinding);
+	// 	printf("Image %s at set = %u, binding = %u\n", resource.name.c_str(), set, binding);
+
+	// 	// Modify the decoration to prepare it for GLSL.
+	// 	glsl.unset_decoration(resource.id, spv::DecorationDescriptorSet);
+
+	// 	// Some arbitrary remapping if we want.
+	// 	glsl.set_decoration(resource.id, spv::DecorationBinding, set * 16 + binding);
+	// }
+
     return true;
 }
 
@@ -862,8 +904,8 @@ static VkFrontFace get_front_face(Front_Face front_face)
 
 bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  const Pipeline_State_Descriptor &descriptor, Vulkan_Context *context)
 {
-    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
-    HE_DEFER { end_temprary_memory(&temprary_memory); };
+    // Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
+    // HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     Renderer_State *renderer_state = context->renderer_state;
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, pipeline_state_handle);
@@ -875,11 +917,11 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[descriptor.shader_group.index];
     Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[pipeline_state_handle.index];
 
-    VkPipelineShaderStageCreateInfo *shader_stage_create_infos = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkPipelineShaderStageCreateInfo, shader_group->shaders.count);
+    VkPipelineShaderStageCreateInfo shader_stage_create_infos[16];
 
     bool is_using_vertex_shader = false;
-    VkVertexInputBindingDescription *vertex_input_binding_descriptions = nullptr;
-    VkVertexInputAttributeDescription *vertex_input_attribute_descriptions = nullptr;
+    VkVertexInputBindingDescription vertex_input_binding_descriptions[128];
+    VkVertexInputAttributeDescription vertex_input_attribute_descriptions[128];
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 
@@ -899,8 +941,6 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
         if (shader->stage == Shader_Stage::VERTEX)
         {
             is_using_vertex_shader = true;
-            vertex_input_binding_descriptions = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkVertexInputBindingDescription, shader->input_count);
-            vertex_input_attribute_descriptions = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkVertexInputAttributeDescription, shader->input_count);
 
             for (U32 input_variable_index = 0; input_variable_index < shader->input_count; input_variable_index++)
             {
@@ -922,7 +962,6 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
             vertex_input_state_create_info.vertexAttributeDescriptionCount = shader->input_count;
             vertex_input_state_create_info.pVertexAttributeDescriptions = vertex_input_attribute_descriptions;
         }
-
     }
 
     VkDynamicState dynamic_states[] =

@@ -8,6 +8,7 @@
 #include "containers/resource_pool.h"
 #include "core/job_system.h"
 #include "rendering/renderer_types.h"
+#include <atomic>
 
 enum class Asset_Type : U32
 {
@@ -19,7 +20,7 @@ enum class Asset_Type : U32
     COUNT
 };
 
-enum class Resource_State
+enum class Resource_State : U8
 {
     UNLOADED,
     PENDING,
@@ -40,6 +41,8 @@ struct Asset
     U64 last_write_time;
 
     Dynamic_Array< U64 > resource_refs;
+
+    Job_Handle job_handle;
 };
 
 struct Resource
@@ -60,11 +63,11 @@ struct Resource
     Mutex mutex;
     Allocation_Group allocation_group;
 
-    Resource_State state;
-    U32 ref_count;
+    volatile Resource_State state;
+    volatile U32 ref_count;
     
-    S32 index;
-    U32 generation;
+    volatile S32 index;
+    volatile U32 generation;
 
     Job_Handle job_handle;
 };
@@ -127,6 +130,7 @@ struct Resource_Header
     U64 uuid;
     U64 asset_uuid;
     U16 resource_ref_count;
+    U16 child_count;
 };
 
 struct Texture_Resource_Info
@@ -220,7 +224,12 @@ Resource_Handle<T> get_resource_handle_as(Resource_Ref ref)
 {
     Resource *resource = get_resource(ref);
     HE_ASSERT(resource->state != Resource_State::UNLOADED);
-    return { resource->index, resource->generation };
+    
+    return
+    {
+        .index = std::atomic_load( (std::atomic<S32>*)&resource->index ),
+        .generation = std::atomic_load( (std::atomic<U32>*)&resource->generation )
+    };
 }
 
 Shader_Struct *find_material_properties(Array_View<U64> shaders);

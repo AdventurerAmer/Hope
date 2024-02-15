@@ -116,6 +116,13 @@ void deinit_memory_system();
 
 void imgui_draw_memory_system();
 
+struct Thread_Memory_State
+{
+    Memory_Arena transient_arena;
+};
+
+Thread_Memory_State *get_thread_memory_state(U32 thread_id);
+
 Memory_Arena *get_permenent_arena();
 Memory_Arena *get_transient_arena();
 Memory_Arena *get_debug_arena();
@@ -124,14 +131,13 @@ Free_List_Allocator *get_general_purpose_allocator();
 Temprary_Memory_Arena begin_scratch_memory();
 Temprary_Memory_Arena_Janitor make_scratch_memory_janitor();
 
-// todo(amer): right now Memory_Context is going to be used in the main thread
-// should we use thread local storage to make a Memory_Context a per thread concept
-
 struct Memory_Context
 {
     Memory_Arena *permenent;
+
     U64 temp_offset;
     Memory_Arena *temp;
+
     Memory_Arena *debug;
     Free_List_Allocator *general;
 

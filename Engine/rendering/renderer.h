@@ -150,12 +150,6 @@ struct Renderer_State
     MSAA_Setting msaa_setting;
     Anisotropic_Filtering_Setting anisotropic_filtering_setting;
 
-    // todo(amer): default_shaders
-    Shader_Handle opaquePBR_vertex_shader;
-    Shader_Handle opaquePBR_fragment_shader;
-    Shader_Group_Handle opaquePBR_shader_group;
-    Pipeline_State_Handle opaquePBR_pipeline;
-
     Bind_Group_Handle per_frame_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
     Bind_Group_Handle per_render_pass_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
 
@@ -184,28 +178,36 @@ struct Renderer_State
 
     Mutex render_commands_mutex;
 
-    // todo(amer): move to resource system
-    Texture_Handle white_pixel_texture;
-    Texture_Handle normal_pixel_texture;
-
-    Sampler_Handle default_texture_sampler;
-    Sampler_Handle default_cubemap_sampler;
-    
-    Scene_Data scene_data;
-    Render_Graph render_graph;
-
+    // todo(amer): temprary
     Shader_Handle skybox_vertex_shader;
     Shader_Handle skybox_fragment_shader;
     Shader_Group_Handle skybox_shader_group;
     Pipeline_State_Handle skybox_pipeline;
-    
+
     Texture_Handle skybox;
     Material_Handle skybox_material_handle;
 
     Mutex allocation_groups_mutex;
     Array< Allocation_Group, HE_MAX_SEMAPHORE_COUNT > allocation_groups;
 
-    U64 cube_static_mesh_uuid;
+    U64 cube_static_mesh_uuid; // todo(amer): temprary
+
+    Shader_Handle default_vertex_shader;
+    Shader_Handle default_fragment_shader;
+    Shader_Group_Handle default_shader_group;
+    Pipeline_State_Handle default_pipeline;
+    Material_Handle default_material;
+
+    Texture_Handle white_pixel_texture;
+    Texture_Handle normal_pixel_texture;
+
+    Sampler_Handle default_texture_sampler;
+    Sampler_Handle default_cubemap_sampler;
+
+    Static_Mesh_Handle default_static_mesh;
+
+    Scene_Data scene_data;
+    Render_Graph render_graph;
 };
 
 struct Render_Context

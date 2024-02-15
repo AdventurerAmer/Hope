@@ -141,6 +141,8 @@ struct Thread
 
 bool platform_create_and_start_thread(Thread *thread, Thread_Proc thread_proc, void *params, const char *name = nullptr);
 U32 platform_get_thread_count();
+U32 platform_get_current_thread_id();
+U32 platform_get_thread_id(Thread *thread);
 
 struct Mutex
 {

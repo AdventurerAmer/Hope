@@ -129,10 +129,6 @@ bool init_renderer_state(Engine *engine)
         return false;
     }
 
-    // spvc_context context;
-    // spvc_context_create(&context);
-    // spvc_context_destroy(context);
-
     renderer = &renderer_state->renderer;
 
     init(&renderer_state->buffers, HE_MAX_BUFFER_COUNT);
@@ -282,33 +278,6 @@ bool init_renderer_state(Engine *engine)
         renderer_state->normal_pixel_texture = renderer_create_texture(normal_pixel_descriptor);
     }
 
-    Sampler_Descriptor default_texture_sampler_descriptor =
-    {
-        .address_mode_u = Address_Mode::REPEAT,
-        .address_mode_v = Address_Mode::REPEAT,
-        .address_mode_w = Address_Mode::REPEAT,
-        .min_filter = Filter::LINEAR,
-        .mag_filter = Filter::NEAREST,
-        .mip_filter = Filter::LINEAR,
-        .anisotropy = get_anisotropic_filtering_value(renderer_state->anisotropic_filtering_setting)
-    };
-    renderer_state->default_texture_sampler = renderer_create_sampler(default_texture_sampler_descriptor);
-
-    Sampler_Descriptor default_cubemap_sampler_descriptor =
-    {
-        .address_mode_u = Address_Mode::CLAMP,
-        .address_mode_v = Address_Mode::CLAMP,
-        .address_mode_w = Address_Mode::CLAMP,
-
-        .min_filter = Filter::LINEAR,
-        .mag_filter = Filter::LINEAR,
-        .mip_filter = Filter::LINEAR,
-
-        .anisotropy = 1
-    };
-
-    renderer_state->default_cubemap_sampler = renderer_create_sampler(default_cubemap_sampler_descriptor);
-
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
         Buffer_Descriptor globals_uniform_buffer_descriptor =
@@ -392,24 +361,22 @@ bool init_renderer_state(Engine *engine)
 
             auto comp = [](const Render_Packet &a, const Render_Packet &b) -> bool
             {
-                Material_Handle a_mat_hdl = get_resource_handle_as<Material>({ .uuid = a.material_uuid });
-                Material_Handle b_mat_hdl = get_resource_handle_as<Material>({ .uuid = b.material_uuid });
-                Material *a_mat = renderer_get_material(a_mat_hdl);
-                Material *b_mat = renderer_get_material(b_mat_hdl);
+                Material *a_mat = renderer_get_material(a.material);
+                Material *b_mat = renderer_get_material(b.material);
 
-                if (a.material_uuid != b.material_uuid)
+                if (a.material.index != b.material.index)
                 {
                     if (a_mat->pipeline_state_handle.index != b_mat->pipeline_state_handle.index)
                     {
                         return a_mat->pipeline_state_handle.index < b_mat->pipeline_state_handle.index;
                     }
 
-                    return a.material_uuid < b.material_uuid;
+                    return a.material.index < b.material.index;
                 }
 
-                if (a.static_mesh_uuid != b.static_mesh_uuid)
+                if (a.static_mesh.index != b.static_mesh.index)
                 {
-                    return a.static_mesh_uuid < b.static_mesh_uuid;
+                    return a.static_mesh.index < b.static_mesh.index;
                 }
 
                 return a.sub_mesh_index < b.sub_mesh_index;
@@ -418,27 +385,19 @@ bool init_renderer_state(Engine *engine)
             // draw opaque objects
             std::sort(renderer_state->opaque_packets, renderer_state->opaque_packets + renderer_state->opaque_packet_count, comp);
 
-            U64 current_material_uuid = HE_MAX_U64;
+            Material_Handle current_material_handle = Resource_Pool<Material>::invalid_handle;
 
             for (U32 packet_index = 0; packet_index < renderer_state->opaque_packet_count; packet_index++)
             {
                 Render_Packet *packet = &renderer_state->opaque_packets[packet_index];
 
-                if (packet->material_uuid != current_material_uuid)
+                if (current_material_handle != packet->material)
                 {
-                    Resource_Ref material_ref = { packet->material_uuid };
-                    Material_Handle material_handle = get_resource_handle_as<Material>(material_ref);
-                    renderer_use_material(material_handle);
-                    current_material_uuid = packet->material_uuid;
+                    renderer_use_material(packet->material);
+                    current_material_handle = packet->material;
                 }
 
-                Resource_Ref static_mesh_ref = { packet->static_mesh_uuid };
-                Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(static_mesh_ref);
-
-                Resource_Ref material_ref = { packet->material_uuid };
-                Material_Handle material_handle = get_resource_handle_as<Material>(material_ref);
-                Material *material = renderer_get_material(material_handle);
-                renderer->draw_sub_mesh(static_mesh_handle, packet->transform_index, packet->sub_mesh_index);
+                renderer->draw_sub_mesh(packet->static_mesh, packet->transform_index, packet->sub_mesh_index);
             }
         };
 
@@ -504,45 +463,120 @@ bool init_renderer_state(Engine *engine)
 
     invalidate(&renderer_state->render_graph, renderer, renderer_state);
 
+    Sampler_Descriptor default_texture_sampler_descriptor =
     {
-        Read_Entire_File_Result result = read_entire_file("shaders/bin/opaquePBR.vert.spv", &renderer_state->transfer_allocator);
-        Shader_Descriptor opaquePBR_vertex_shader_descriptor =
+        .address_mode_u = Address_Mode::REPEAT,
+        .address_mode_v = Address_Mode::REPEAT,
+        .address_mode_w = Address_Mode::REPEAT,
+        .min_filter = Filter::LINEAR,
+        .mag_filter = Filter::NEAREST,
+        .mip_filter = Filter::LINEAR,
+        .anisotropy = get_anisotropic_filtering_value(renderer_state->anisotropic_filtering_setting)
+    };
+    renderer_state->default_texture_sampler = renderer_create_sampler(default_texture_sampler_descriptor);
+
+    Sampler_Descriptor default_cubemap_sampler_descriptor =
+    {
+        .address_mode_u = Address_Mode::CLAMP,
+        .address_mode_v = Address_Mode::CLAMP,
+        .address_mode_w = Address_Mode::CLAMP,
+
+        .min_filter = Filter::LINEAR,
+        .mag_filter = Filter::LINEAR,
+        .mip_filter = Filter::LINEAR,
+
+        .anisotropy = 1
+    };
+
+    renderer_state->default_cubemap_sampler = renderer_create_sampler(default_cubemap_sampler_descriptor);
+
+    {
+        Read_Entire_File_Result result = read_entire_file("shaders/bin/default_vert.spv", arena);
+
+        Shader_Descriptor default_vertex_shader_descriptor =
         {
             .data = result.data,
             .size = result.size
-            // .path = "shaders/bin/opaquePBR.vert.spv"
         };
-        renderer_state->opaquePBR_vertex_shader = renderer_create_shader(opaquePBR_vertex_shader_descriptor);
+        renderer_state->default_vertex_shader = renderer_create_shader(default_vertex_shader_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->default_vertex_shader));
 
-        result = read_entire_file("shaders/bin/opaquePBR.frag.spv", &renderer_state->transfer_allocator);
-        Shader_Descriptor opaquePBR_fragment_shader_descriptor =
+        result = read_entire_file("shaders/bin/default_frag.spv", arena);
+        Shader_Descriptor default_fragment_shader_descriptor =
         {
             .data = result.data,
             .size = result.size
-            // .path = "shaders/bin/opaquePBR.frag.spv"
         };
-        renderer_state->opaquePBR_fragment_shader = renderer_create_shader(opaquePBR_fragment_shader_descriptor);
+        renderer_state->default_fragment_shader = renderer_create_shader(default_fragment_shader_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->default_fragment_shader));
 
-        Shader_Group_Descriptor opaquePBR_shader_group_descriptor;
-        opaquePBR_shader_group_descriptor.shaders =
         {
-            renderer_state->opaquePBR_vertex_shader,
-            renderer_state->opaquePBR_fragment_shader
-        };
-        renderer_state->opaquePBR_shader_group = renderer_create_shader_group(opaquePBR_shader_group_descriptor);
+            Shader *shader = renderer_get_shader(renderer_state->default_fragment_shader);
+            int x = 0;
+        }
 
-        Shader_Group *opaquePBR_shader_group = get(&renderer_state->shader_groups, renderer_state->opaquePBR_shader_group);
+        Shader_Group_Descriptor default_shader_group_descriptor;
+        default_shader_group_descriptor.shaders =
+        {
+            renderer_state->default_vertex_shader,
+            renderer_state->default_fragment_shader
+        };
+        renderer_state->default_shader_group = renderer_create_shader_group(default_shader_group_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->shader_groups, renderer_state->default_shader_group));
+
+        Pipeline_State_Descriptor default_pipeline_state_descriptor =
+        {
+            .settings =
+            {
+                .cull_mode = Cull_Mode::BACK,
+                .front_face = Front_Face::COUNTER_CLOCKWISE,
+                .fill_mode = Fill_Mode::SOLID,
+                .sample_shading = true,
+            },
+            .shader_group = renderer_state->default_shader_group,
+            .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"),
+        };
+        renderer_state->default_pipeline = renderer_create_pipeline_state(default_pipeline_state_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, renderer_state->default_pipeline));
+
+        Material_Property_Info infos[] =
+        {
+            {
+                .is_texture_resource = true,
+                .is_color = false,
+                .default_data = { .u32 = (U32)renderer_state->white_pixel_texture.index },
+                .data = { .u64 = HE_MAX_U64 }
+            },
+            {
+                .is_texture_resource = false,
+                .is_color = true,
+                .default_data = { .v3 = { 1.0f, 0.0f, 1.0f } },
+                .data = { .v3 = { 1.0f, 0.0f, 1.0f } }
+            }
+        };
+
+        Material_Descriptor default_material_descriptor =
+        {
+            .pipeline_state_handle = renderer_state->default_pipeline,
+            .property_info_count = HE_ARRAYCOUNT(infos),
+            .property_infos = infos,
+        };
+
+        renderer_state->default_material = renderer_create_material(default_material_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->materials, renderer_state->default_material));
+
+        Shader_Group *default_shader_group = get(&renderer_state->shader_groups, renderer_state->default_shader_group);
 
         Bind_Group_Descriptor per_frame_bind_group_descriptor =
         {
-            .shader_group = renderer_state->opaquePBR_shader_group,
-            .layout = opaquePBR_shader_group->bind_group_layouts[0]
+            .shader_group = renderer_state->default_shader_group,
+            .layout = default_shader_group->bind_group_layouts[0] // todo(amer): @Hardcoding
         };
 
         Bind_Group_Descriptor per_render_pass_bind_group_descriptor =
         {
-            .shader_group = renderer_state->opaquePBR_shader_group,
-            .layout = opaquePBR_shader_group->bind_group_layouts[1]
+            .shader_group = renderer_state->default_shader_group,
+            .layout = default_shader_group->bind_group_layouts[1] // todo(amer): @Hardcoding
         };
 
         for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -572,23 +606,12 @@ bool init_renderer_state(Engine *engine)
                 object_data_storage_buffer_binding
             };
 
+            platform_lock_mutex(&renderer_state->render_commands_mutex);
             renderer->update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
+            platform_unlock_mutex(&renderer_state->render_commands_mutex);
         }
-
-        Pipeline_State_Descriptor opaquePBR_pipeline_state_descriptor =
-        {
-            .settings =
-            {
-                .cull_mode = Cull_Mode::BACK,
-                .front_face = Front_Face::COUNTER_CLOCKWISE,
-                .fill_mode = Fill_Mode::SOLID,
-                .sample_shading = true,
-            },
-            .shader_group = renderer_state->opaquePBR_shader_group,
-            .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"),
-        };
-        renderer_state->opaquePBR_pipeline = renderer_create_pipeline_state(opaquePBR_pipeline_state_descriptor);
     }
+
 
     // skybox
     {
@@ -778,6 +801,7 @@ void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_t
     {
         Resource_Ref static_mesh_ref = { scene_node->static_mesh_uuid };
         Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(static_mesh_ref);
+        // todo(amer): default static mesh...
         if (is_valid_handle(&renderer_state->static_meshes, static_mesh_handle))
         {
             HE_ASSERT(renderer_state->object_data_count < HE_MAX_OBJECT_DATA_COUNT);
@@ -801,8 +825,22 @@ void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_t
                 if (pipeline_state->descriptor.render_pass == opaque_pass)
                 {
                     Render_Packet *render_packet = &renderer_state->opaque_packets[renderer_state->opaque_packet_count++];
-                    render_packet->material_uuid = sub_mesh->material_uuid;
-                    render_packet->static_mesh_uuid = scene_node->static_mesh_uuid;
+
+                    Resource *material_resource = get_resource({ .uuid = sub_mesh->material_uuid });
+                    if ((Resource_State)std::atomic_load((std::atomic<U8>*)&material_resource->state) != Resource_State::LOADED)
+                    {
+                        render_packet->material = renderer_state->default_material;
+                    }
+                    else
+                    {
+                        render_packet->material =
+                        {
+                            .index = std::atomic_load((std::atomic<S32>*)&material_resource->index),
+                            .generation = atomic_load((std::atomic<U32>*)&material_resource->generation)
+                        };
+                    }
+
+                    render_packet->static_mesh = static_mesh_handle;
                     render_packet->sub_mesh_index = sub_mesh_index;
                     render_packet->transform_index = object_data_index;
                 }

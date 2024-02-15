@@ -13,7 +13,7 @@
 
 struct Thread_State
 {
-    Memory_Arena arena;
+    Memory_Arena *transient_arena;
     U32 thread_index;
     Thread thread;
 
@@ -159,8 +159,8 @@ unsigned long execute_thread_work(void *params)
         HE_ASSERT(peeked);
         HE_ASSERT(job->data.proc);
 
-        Temprary_Memory_Arena temprary_memory_arena = begin_temprary_memory(&thread_state->arena);
-        job->data.parameters.arena = &thread_state->arena;
+        Temprary_Memory_Arena temprary_memory_arena = begin_temprary_memory(thread_state->transient_arena);
+        job->data.parameters.arena = thread_state->transient_arena;
 
         Job_Result result = job->data.proc(job->data.parameters);
         if (job->data.completed_proc)
@@ -202,10 +202,7 @@ bool init_job_system()
         Thread_State *thread_state = &job_system_state.thread_states[thread_index];
         thread_state->thread_index = thread_index;
 
-        bool inited = init_memory_arena(&thread_state->arena, HE_MEGA_BYTES(32), HE_MEGA_BYTES(1));
-        HE_ASSERT(inited);
-
-        init(&thread_state->job_queue, JOB_COUNT_PER_THREAD, &thread_state->arena);
+        init(&thread_state->job_queue, JOB_COUNT_PER_THREAD, arena);
 
         bool job_queue_semaphore_created = platform_create_semaphore(&thread_state->job_queue_semaphore);
         HE_ASSERT(job_queue_semaphore_created);
@@ -218,6 +215,15 @@ bool init_job_system()
 
         bool thread_created_and_started = platform_create_and_start_thread(&thread_state->thread, execute_thread_work, thread_state, "HopeWorkerThread");
         HE_ASSERT(thread_created_and_started);
+
+        U32 thread_id = platform_get_thread_id(&thread_state->thread);
+        Thread_Memory_State *memory_state = get_thread_memory_state(thread_id);
+
+        U64 capacity = HE_MEGA_BYTES(32);
+        bool memory_arena_inited = init_memory_arena(&memory_state->transient_arena, capacity, HE_MEGA_BYTES(1));
+        HE_ASSERT(memory_arena_inited);
+
+        thread_state->transient_arena = &memory_state->transient_arena;
     }
 
     return true;

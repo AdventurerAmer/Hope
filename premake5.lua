@@ -7,6 +7,7 @@ workspace "Hope"
     configurations { "Debug", "Release", "Shipping" }
 
     flags { "MultiProcessorCompile" }
+
     intrinsics "On"
     floatingpoint "Fast"
     exceptionhandling "Off"
@@ -37,7 +38,7 @@ include "ThirdParty/ImGui"
 
 project "Engine"
 
-    dependson { "AssetProcessor", "ImGui" }
+    dependson { "ImGui" }
 
     kind "WindowedApp"
     location "Engine"
@@ -53,18 +54,37 @@ project "Engine"
     links
     {
         "vulkan-1",
-
-        --"spirv-cross-core",
-        --"spirv-cross-c",
-        --"spirv-cross-cpp",
-        --"spirv-cross-glsl",
-        --"spirv-cross-hlsl",
-        --"spirv-cross-msl",
-        --"spirv-cross-reflect",
-        --"spirv-cross-util",
-
         "ImGui"
     }
+
+    filter "configurations:Debug"
+        links
+        {
+            "SPIRV-Toolsd",
+            "shaderc_sharedd",
+            "spirv-cross-cored",
+            "spirv-cross-glsld",
+        }
+
+    filter "configurations:Release"
+        links
+        {
+            "SPIRV-Tools",
+            "shaderc_shared",
+            "spirv-cross-core",
+            "spirv-cross-glsl",
+        }
+
+    filter "configurations:Shipping"
+        links
+        {
+            "SPIRV-Tools",
+            "shaderc_shared",
+            "spirv-cross-core",
+            "spirv-cross-glsl"
+        }
+
+    filter {}
 
     debugdir "data"
     targetdir "bin/%{prj.name}"

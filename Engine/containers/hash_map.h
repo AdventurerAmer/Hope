@@ -78,12 +78,22 @@ HE_FORCE_INLINE bool is_valid(const Hash_Map_Iterator< Value_Type > &iterator)
     return iterator.value != nullptr;
 }
 
+inline U64 hash_key(U64 key)
+{
+    return key;
+}
+
+inline U64 hash_key(U32 key)
+{
+    return key;
+}
+
 template< typename Key_Type, typename Value_Type >
 Hash_Map_Iterator< Value_Type > find(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, S32 *out_insert_index = nullptr)
 {
     HE_ASSERT(hash_map);
 
-    U32 slot_index = hash_string(key) & (hash_map->capacity - 1);
+    U32 slot_index = hash_key(key) & (hash_map->capacity - 1);
     U32 start_slot = slot_index;
     S32 insert_index = -1;
 
@@ -132,7 +142,7 @@ Hash_Map_Iterator< Value_Type > find(Hash_Map< Key_Type, Value_Type > *hash_map,
 }
 
 template< typename Key_Type, typename Value_Type >
-void insert(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, const Value_Type &value)
+S32 insert(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, const Value_Type &value = {})
 {
     HE_ASSERT(hash_map);
     HE_ASSERT(hash_map->count < hash_map->capacity);
@@ -151,6 +161,7 @@ void insert(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, con
         hash_map->values[insert_index] = value;
         hash_map->count++;
     }
+    return insert_index;
 }
 
 template< typename Key_Type, typename Value_Type >

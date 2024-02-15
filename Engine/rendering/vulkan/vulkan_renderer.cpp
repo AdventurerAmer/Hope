@@ -1105,9 +1105,6 @@ bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
 
-    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
-    HE_DEFER { end_temprary_memory(&temprary_memory); };
-
     Shader_Group *shader_group = get(&renderer_state->shader_groups, shader_group_handle);
     Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[shader_group_handle.index];
 
@@ -1158,7 +1155,7 @@ bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle
         vulkan_renderer_create_bind_group_layout(shader_group->bind_group_layouts[set_index], bind_group_layout_descriptor);
     }
 
-    VkDescriptorSetLayout *descriptor_set_layouts = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorSetLayout, set_count);
+    VkDescriptorSetLayout descriptor_set_layouts[16];
     for (U32 set_index = 0; set_index < set_count; set_index++)
     {
         Vulkan_Bind_Group_Layout *bind_group_layout = &context->bind_group_layouts[ shader_group->bind_group_layouts[set_index].index ];
@@ -1237,17 +1234,15 @@ bool vulkan_renderer_create_bind_group_layout(Bind_Group_Layout_Handle bind_grou
     Bind_Group_Layout *bind_group_layout = get(&context->renderer_state->bind_group_layouts, bind_group_layout_handle);
     Vulkan_Bind_Group_Layout *vulkan_bind_group_layout = &context->bind_group_layouts[bind_group_layout_handle.index];
 
-    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
-    HE_DEFER { end_temprary_memory(&temprary_memory); };
-
-    VkDescriptorBindingFlags *layout_bindings_flags = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorBindingFlags, descriptor.binding_count);
-    VkDescriptorSetLayoutBinding *bindings = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorSetLayoutBinding, descriptor.binding_count);
+    VkDescriptorBindingFlags layout_bindings_flags[128];
+    VkDescriptorSetLayoutBinding bindings[128];
 
     for (U32 binding_index = 0; binding_index < descriptor.binding_count; binding_index++)
     {
         layout_bindings_flags[binding_index] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT|VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT;
 
         VkDescriptorSetLayoutBinding &binding = bindings[binding_index];
+        binding = {};
         binding.binding = descriptor.bindings[binding_index].number;
         binding.descriptorType = get_descriptor_type(descriptor.bindings[binding_index].type);
         binding.descriptorCount = descriptor.bindings[binding_index].count;
@@ -1298,12 +1293,15 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
 {
     Vulkan_Context *context = &vulkan_context;
 
-    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
-    HE_DEFER { end_temprary_memory(&temprary_memory); };
+    // Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
+    // HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     Vulkan_Bind_Group *bind_group = &context->bind_groups[bind_group_handle.index];
 
-    VkWriteDescriptorSet *write_descriptor_sets = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkWriteDescriptorSet, update_binding_descriptors.count);
+    // VkWriteDescriptorSet *write_descriptor_sets = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkWriteDescriptorSet, update_binding_descriptors.count);
+    VkWriteDescriptorSet write_descriptor_sets[128] = {};
+    VkDescriptorBufferInfo buffer_infos[8][128] = {};
+    VkDescriptorImageInfo image_infos[8][HE_MAX_TEXTURE_COUNT] = {};
 
     for (U32 binding_index = 0; binding_index < update_binding_descriptors.count; binding_index++)
     {
@@ -1324,38 +1322,38 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
                 write_descriptor_set->descriptorType = get_descriptor_type(buffer->usage);
             }
 
-            VkDescriptorBufferInfo *buffer_infos = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorBufferInfo, binding->count);
+            // VkDescriptorBufferInfo *buffer_infos = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorBufferInfo, binding->count);
 
             for (U32 buffer_index = 0; buffer_index < binding->count; buffer_index++)
             {
-                Buffer *buffer = get(&context->renderer_state->buffers, binding->buffers[0]);
+                Buffer *buffer = get(&context->renderer_state->buffers, binding->buffers[buffer_index]);
                 Vulkan_Buffer *vulkan_buffer = &context->buffers[ binding->buffers[buffer_index].index ];
 
-                VkDescriptorBufferInfo *buffer_info = &buffer_infos[buffer_index];
+                VkDescriptorBufferInfo *buffer_info = &buffer_infos[binding_index][buffer_index];
                 buffer_info->buffer = vulkan_buffer->handle;
                 buffer_info->offset = 0;
                 buffer_info->range = buffer->size;
             }
 
-            write_descriptor_set->pBufferInfo = buffer_infos;
+            write_descriptor_set->pBufferInfo = buffer_infos[binding_index];
         }
 
         if (binding->textures && binding->samplers)
         {
             write_descriptor_set->descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            VkDescriptorImageInfo *image_infos = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorImageInfo, binding->count);
+            // VkDescriptorImageInfo *image_infos = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorImageInfo, binding->count);
 
             for (U32 image_index = 0; image_index < binding->count; image_index++)
             {
                 Vulkan_Image *vulkan_image = &context->textures[ binding->textures[image_index].index ];
                 Vulkan_Sampler *vulkan_sampler = &context->samplers[ binding->samplers[image_index].index ];
-                VkDescriptorImageInfo *image_info = &image_infos[image_index];
+                VkDescriptorImageInfo *image_info = &image_infos[binding_index][image_index];
                 image_info->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 image_info->imageView = vulkan_image->view;
                 image_info->sampler = vulkan_sampler->handle;
             }
 
-            write_descriptor_set->pImageInfo = image_infos;
+            write_descriptor_set->pImageInfo = image_infos[binding_index];
         }
     }
 

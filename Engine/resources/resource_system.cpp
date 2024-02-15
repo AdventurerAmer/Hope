@@ -18,6 +18,8 @@
 #include <stb/stb_image.h>
 #include <imgui.h>
 
+#include <shaderc/shaderc.h>
+
 struct Resource_Type_Info
 {
     String name;
@@ -51,7 +53,7 @@ struct std::hash<String>
 {
     std::size_t operator()(const String &str) const
     {
-        return hash_string(str);
+        return hash_key(str);
     }
 };
 
@@ -72,6 +74,7 @@ Resource_Header make_resource_header(Asset_Type type, U64 asset_uuid, U64 uuid)
     result.uuid = uuid;
     result.asset_uuid = asset_uuid;
     result.resource_ref_count = 0;
+    result.child_count = 0;
     return result;
 }
 
@@ -181,6 +184,7 @@ static void unload_texture_resource(Resource *resource)
 
 static bool condition_shader_to_resource(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
 {
+#if 0
     // todo(amer): @Hack until we have a compiler instead of using cmd with glslangValidator
     platform_close_file(asset_file);
     platform_close_file(resource_file);
@@ -208,13 +212,27 @@ static bool condition_shader_to_resource(Asset *asset, Resource *resource, Open_
     U64 offset = 0;
 
     Resource_Header header = make_resource_header(Asset_Type::SHADER, resource->asset_uuid, resource->uuid);
+    header.resource_ref_count = resource->resource_refs.count;
+    header.child_count = resource->children.count;
 
     success &= platform_write_data_to_file(&open_file_result, offset, &header, sizeof(header));
     offset += sizeof(header);
 
+    if (resource->resource_refs.count)
+    {
+        platform_write_data_to_file(&open_file_result, offset, resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
+        offset += sizeof(U64) * resource->resource_refs.count;
+    }
+
+    if (resource->children.count)
+    {
+        platform_write_data_to_file(&open_file_result, offset, resource->children.data, sizeof(U64) * resource->children.count);
+        offset += sizeof(U64) * resource->children.count;
+    }
+
     Shader_Resource_Info info =
     {
-        .data_offset = sizeof(Resource_Header) + sizeof(Shader_Resource_Info),
+        .data_offset = sizeof(Resource_Header) + sizeof(Shader_Resource_Info) + sizeof(U64) * resource->resource_refs.count + sizeof(U64) * resource->children.count,
         .data_size = spirv_binary_read_result.size
     };
 
@@ -226,14 +244,125 @@ static bool condition_shader_to_resource(Asset *asset, Resource *resource, Open_
 
     success &= platform_close_file(&open_file_result);
     return success;
+
+#else
+    platform_close_file(asset_file);
+    platform_close_file(resource_file);
+
+    Read_Entire_File_Result shader_source = read_entire_file(asset->absolute_path.data, arena);
+    if (!shader_source.success)
+    {
+        return false;
+    }
+
+    String ext = get_extension(asset->relative_path);
+    shaderc_shader_kind shader_kind;
+
+    if (ext == "vert")
+    {
+        shader_kind = shaderc_vertex_shader;
+    }
+    else if (ext == "frag")
+    {
+        shader_kind = shaderc_fragment_shader;
+    }
+
+    shaderc_compiler_t compiler = shaderc_compiler_initialize();
+    shaderc_compile_options_t options = shaderc_compile_options_initialize();
+    shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
+    shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_zero);
+    shaderc_compile_options_set_auto_map_locations(options, true);
+    // shaderc_compile_options_set_target_spirv(options, shaderc_spirv_version_1_0);
+
+    HE_DEFER
+    {
+        shaderc_compiler_release(compiler);
+        shaderc_compile_options_release(options);
+    };
+
+    shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, (const char *)shader_source.data, shader_source.size, shader_kind, (const char *)asset->relative_path.data, "main", options);
+
+    HE_DEFER
+    {
+        shaderc_result_release(result);
+    };
+
+    shaderc_compilation_status status = shaderc_result_get_compilation_status(result);
+
+    if (status != shaderc_compilation_status_success)
+    {
+        HE_LOG(Resource, Fetal, "%s\n", shaderc_result_get_error_message(result));
+        return false;
+    }
+
+    U64 size = shaderc_result_get_length(result);
+    const char *data = shaderc_result_get_bytes(result);
+
+    bool success = true;
+    U64 offset = 0;
+
+    // todo(amer): buffer abstraction...
+    U8 *buffer = arena->base + arena->offset;
+
+    Resource_Header header = make_resource_header(Asset_Type::SHADER, resource->asset_uuid, resource->uuid);
+    header.resource_ref_count = resource->resource_refs.count;
+    header.child_count = resource->children.count;
+
+    copy_memory(&buffer[offset], &header, sizeof(header));
+    // success &= platform_write_data_to_file(resource_file, offset, &header, sizeof(header));
+    offset += sizeof(header);
+
+    if (resource->resource_refs.count)
+    {
+        // platform_write_data_to_file(resource_file, offset, resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
+        copy_memory(&buffer[offset], resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
+        offset += sizeof(U64) * resource->resource_refs.count;
+    }
+
+    if (resource->children.count)
+    {
+        // platform_write_data_to_file(resource_file, offset, resource->children.data, sizeof(U64) * resource->children.count);
+        copy_memory(&buffer[offset], resource->children.data, sizeof(U64) * resource->children.count);
+        offset += sizeof(U64) * resource->children.count;
+    }
+
+    Shader_Resource_Info info =
+    {
+        .data_offset = sizeof(Resource_Header) + sizeof(Shader_Resource_Info) + sizeof(U64) * resource->resource_refs.count + sizeof(U64) * resource->children.count,
+        .data_size = size
+    };
+
+    // success &= platform_write_data_to_file(resource_file, offset, &info, sizeof(info));
+    copy_memory(&buffer[offset], &info, sizeof(info));
+    offset += sizeof(info);
+
+    // success &= platform_write_data_to_file(resource_file, offset, (void *)data, size);
+    copy_memory(&buffer[offset], data, size);
+    offset += size;
+
+    success &= write_entire_file(resource->absolute_path.data, buffer, offset);
+    return success;
+#endif
 }
 
 static bool load_shader_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
 {
     bool success = true;
 
+    U64 offset = 0;
+
+    if (resource->resource_refs.count)
+    {
+        offset += sizeof(U64) * resource->resource_refs.count;
+    }
+
+    if (resource->children.count)
+    {
+        offset += sizeof(U64) * resource->children.count;
+    }
+
     Shader_Resource_Info info;
-    success &= platform_read_data_from_file(open_file_result, sizeof(Resource_Header), &info, sizeof(info));
+    success &= platform_read_data_from_file(open_file_result, sizeof(Resource_Header) + offset, &info, sizeof(info));
 
     U8 *data = HE_ALLOCATE_ARRAY(arena, U8, info.data_size);
     success &= platform_read_data_from_file(open_file_result, info.data_offset, data, info.data_size);
@@ -287,7 +416,7 @@ static bool load_material_resource(Open_File_Result *open_file_result, Resource 
     String render_pass_name = { string_buffer, info.render_pass_name_count };
     success &= platform_read_data_from_file(open_file_result, info.render_pass_name_offset, string_buffer, info.render_pass_name_count);
 
-    // wait_for_resource_refs_to_load(resource);
+    wait_for_resource_refs_to_load(resource);
 
     Array< Shader_Handle, HE_MAX_SHADER_COUNT_PER_PIPELINE > shaders;
 
@@ -403,6 +532,7 @@ static bool create_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cg
     resource->ref_count = 0;
     resource->index = -1;
     resource->generation = 0;
+    resource->job_handle = Resource_Pool<Job>::invalid_handle;
 
     platform_create_mutex(&resource->mutex);
 
@@ -669,6 +799,7 @@ static bool condition_scene_to_resource(Asset *asset, Resource *resource, Open_F
         material_resource.relative_path = material_resource_relative_path;
         material_resource.uuid = material_uuid;
         material_resource.asset_uuid = asset->uuid;
+        material_resource.job_handle = Resource_Pool<Job>::invalid_handle;
 
         String render_pass = HE_STRING_LITERAL("opaque");
 
@@ -717,6 +848,7 @@ static bool condition_scene_to_resource(Asset *asset, Resource *resource, Open_F
         wait_for_resource_refs_to_load(to_array_view(shaders));
 
         Shader_Struct *properties_struct = find_material_properties(to_array_view(shaders));
+        HE_ASSERT(properties_struct);
 
         Material_Property_Info *properties = HE_ALLOCATE_ARRAY(arena, Material_Property_Info, properties_struct->member_count);
 
@@ -1169,6 +1301,8 @@ static Job_Result load_resource_job(const Job_Parameters &params)
     Resource_Type_Info &info = resource_system_state->resource_type_infos[(U32)resource->type];
     bool use_allocation_group = info.loader.use_allocation_group;
 
+    resource->allocation_group.resource_name = resource->relative_path;
+
     if (use_allocation_group)
     {
         Renderer_Semaphore_Descriptor semaphore_descriptor =
@@ -1176,7 +1310,6 @@ static Job_Result load_resource_job(const Job_Parameters &params)
             .initial_value = 0
         };
 
-        resource->allocation_group.resource_name = resource->relative_path;
         resource->allocation_group.semaphore = renderer_create_semaphore(semaphore_descriptor);
         resource->allocation_group.resource_index = (S32)index_of(&resource_system_state->resources, resource);
     }
@@ -1195,7 +1328,9 @@ static Job_Result load_resource_job(const Job_Parameters &params)
 
     if (!success)
     {
+        // todo(amer): we should free or reset the semaphore here is we are using allocation groups
         resource->ref_count = 0;
+        resource->state = Resource_State::UNLOADED;
         return Job_Result::FAILED;
     }
 
@@ -1234,6 +1369,7 @@ U32 create_resource(String absolute_path, Asset_Type type, U64 asset_uuid, U64 u
     resource.conditioned = false;
     resource.generation = 0;
     resource.ref_count = 0;
+    resource.job_handle = Resource_Pool<Job>::invalid_handle;
 
     platform_create_mutex(&resource.mutex);
     init(&resource.resource_refs);
@@ -1302,7 +1438,21 @@ static void on_path(String *path, bool is_directory)
         U32 resource_index = create_resource(absolute_path, (Asset_Type)header.type, header.asset_uuid, header.uuid);
         Resource &resource = resource_system_state->resources[resource_index];
         set_count(&resource.resource_refs, header.resource_ref_count);
-        platform_read_data_from_file(&result, sizeof(Resource_Header), resource.resource_refs.data, sizeof(U64) * header.resource_ref_count);
+        set_count(&resource.children, header.child_count);
+
+        U64 offset = 0;
+
+        if (header.resource_ref_count)
+        {
+            platform_read_data_from_file(&result, sizeof(Resource_Header), resource.resource_refs.data, sizeof(U64) * header.resource_ref_count);
+            offset += sizeof(sizeof(U64) * header.resource_ref_count);
+        }
+
+        if (header.child_count)
+        {
+            platform_read_data_from_file(&result, sizeof(Resource_Header) + offset, resource.children.data, sizeof(U64) * header.child_count);
+        }
+
         return;
     }
 
@@ -1320,6 +1470,7 @@ static void on_path(String *path, bool is_directory)
         asset_index = index_of(&resource_system_state->assets, asset);
 
         asset.type = asset_type;
+        asset.job_handle = Resource_Pool<Job>::invalid_handle;
 
         asset.absolute_path = absolute_path;
         asset.relative_path = sub_string(absolute_path, resource_system_state->resource_path.count + 1);
@@ -1352,7 +1503,6 @@ static void on_path(String *path, bool is_directory)
         U32 resource_index = create_resource(resource_absolute_path, asset.type, asset.uuid);
         Resource &resource = resource_system_state->resources[resource_index];
         append(&asset.resource_refs, resource.uuid);
-
         append(&resource_system_state->assets_to_condition, (U32)asset_index);
     }
     else if (last_write_time != asset.last_write_time)
@@ -1438,6 +1588,7 @@ static bool deserialize_asset_database(const String &path)
         asset.last_write_time = info->last_write_time;
         asset.absolute_path = absolute_path;
         asset.relative_path = copy_string(relative_path, arena);
+        asset.job_handle = Resource_Pool<Job>::invalid_handle;
 
         String extension = get_extension(asset.relative_path);
         asset.type = find_asset_type_from_extension(extension);
@@ -1981,6 +2132,7 @@ bool create_material_resource(Resource *resource, const String &render_pass_name
 
     Resource_Header header = make_resource_header(Asset_Type::MATERIAL, resource->asset_uuid, resource->uuid);
     header.resource_ref_count = resource->resource_refs.count;
+    header.child_count = resource->children.count;
 
     Open_File_Result open_file_result = platform_open_file(resource->absolute_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
     if (!open_file_result.success)
@@ -1995,8 +2147,17 @@ bool create_material_resource(Resource *resource, const String &render_pass_name
     success &= platform_write_data_to_file(&open_file_result, file_offset, &header, sizeof(header));
     file_offset += sizeof(header);
 
-    success &= platform_write_data_to_file(&open_file_result, file_offset, resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
-    file_offset += sizeof(U64) * resource->resource_refs.count;
+    if (resource->resource_refs.count)
+    {
+        success &= platform_write_data_to_file(&open_file_result, file_offset, resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
+        file_offset += sizeof(U64) * resource->resource_refs.count;
+    }
+
+    if (resource->children.count)
+    {
+        success &= platform_write_data_to_file(&open_file_result, file_offset, resource->children.data, sizeof(U64) * resource->children.count);
+        file_offset += sizeof(U64) * resource->children.count;
+    }
 
     Material_Resource_Info info =
     {
@@ -2025,6 +2186,53 @@ const Dynamic_Array< Resource >& get_resources()
     return resource_system_state->resources;
 }
 
+void reload_resource(Resource *parent)
+{
+    for (U64 child_uuid : parent->children)
+    {
+        Dynamic_Array< Job_Handle > wait_for_jobs;
+        init(&wait_for_jobs);
+        HE_DEFER { deinit(&wait_for_jobs); };
+
+        Resource *child_resource = get_resource({ .uuid = child_uuid });
+        platform_lock_mutex(&child_resource->mutex);
+
+        if (child_resource->state == Resource_State::UNLOADED || child_resource->state == Resource_State::LOADED)
+        {
+            child_resource->state = Resource_State::PENDING;
+        }
+        else
+        {
+            append(&wait_for_jobs, child_resource->job_handle);
+        }
+
+        platform_unlock_mutex(&child_resource->mutex);
+
+        Load_Resource_Job_Data data
+        {
+            .resource = child_resource
+        };
+
+        Job_Data job_data =
+        {
+            .parameters =
+            {
+                .data = &data,
+                .size = sizeof(data)
+            },
+            .proc = &load_resource_job
+        };
+
+        for (U64 _uuid : child_resource->resource_refs)
+        {
+            Resource *r = get_resource({ .uuid = _uuid });
+            append(&wait_for_jobs, r->job_handle);
+        }
+
+        child_resource->job_handle = execute_job(job_data, to_array_view(wait_for_jobs));
+    }
+}
+
 void reload_resources()
 {
     for (U32 asset_index = 0; asset_index < resource_system_state->assets.count; asset_index++)
@@ -2035,25 +2243,75 @@ void reload_resources()
         {
             asset.last_write_time = last_write_time;
 
-            U64 resource_uuid = asset.resource_refs[0];
-            auto it = uuid_to_resource_index.find(resource_uuid);
-            HE_ASSERT(it != uuid_to_resource_index.end());
-            U32 resource_index = it->second;
+            Resource *resource = get_resource({ .uuid = asset.resource_refs[0] });
+            U32 resource_index = index_of(&resource_system_state->resources, resource);
 
-            Condition_Asset_Job_Data data;
-            data.asset_index = asset_index;
-            data.resource_index = resource_index;
-
-            Job_Data job =
             {
-                .parameters =
+                Condition_Asset_Job_Data data =
                 {
-                    .data = &data,
-                    .size = sizeof(data)
-                },
-                .proc = &condition_asset_job
-            };
-            execute_job(job);
+                    .asset_index = asset_index,
+                    .resource_index = resource_index
+                };
+
+                Job_Data job_data =
+                {
+                    .parameters =
+                    {
+                        .data = &data,
+                        .size = sizeof(data)
+                    },
+                    .proc = &condition_asset_job
+                };
+
+                Job_Handle wait_for_jobs[] = { asset.job_handle };
+                asset.job_handle = execute_job(job_data, to_array_view(wait_for_jobs));
+            }
+
+            {
+                Dynamic_Array<Job_Handle> wait_for_jobs;
+                init(&wait_for_jobs);
+                HE_DEFER { deinit(&wait_for_jobs); };
+
+                Resource *resource = &resource_system_state->resources[resource_index];
+                platform_lock_mutex(&resource->mutex);
+
+                if (resource->state == Resource_State::UNLOADED || resource->state == Resource_State::LOADED)
+                {
+                    resource->state = Resource_State::PENDING;
+                }
+                else
+                {
+                    append(&wait_for_jobs, resource->job_handle);
+                }
+
+                platform_unlock_mutex(&resource->mutex);
+
+                Load_Resource_Job_Data data =
+                {
+                    .resource = resource
+                };
+
+                Job_Data job_data =
+                {
+                    .parameters =
+                    {
+                        .data = &data,
+                        .size = sizeof(data)
+                    },
+                    .proc = &load_resource_job
+                };
+
+                append(&wait_for_jobs, asset.job_handle);
+
+                for (U64 uuid : resource->resource_refs)
+                {
+                    Resource *r = get_resource({ .uuid = uuid });
+                    append(&wait_for_jobs, r->job_handle);
+                }
+
+                resource->job_handle = execute_job(job_data, to_array_view(wait_for_jobs));
+                reload_resource(resource);
+            }
         }
     }
 }

@@ -14,7 +14,7 @@ struct String
 #define HE_EXPAND_STRING(string) (U32)((string).count), (string).data
 
 U64 string_length(const char *str);
-U64 hash_string(const String &str);
+U64 hash_key(const String &str);
 
 template< U64 Count >
 constexpr U64 comptime_string_length(const char(&)[Count])

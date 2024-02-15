@@ -14,7 +14,7 @@ U64 string_length(const char *str)
     return length;
 }
 
-U64 hash_string(const String &str)
+U64 hash_key(const String &str)
 {
     const U64 p = 31;
     const U64 m = U64(1e9) + 7;

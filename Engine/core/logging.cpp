@@ -131,6 +131,8 @@ void disable_all_channels(Logger *logger)
 
 void log(Channel channel, Verbosity verbosity, const char *format, ...)
 {
+    // todo(amer): thread local memory context so we can log from multiple threads please...
+#if 1
     Logger *logger = &logging_system_state->main_logger;
 
     Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
@@ -160,4 +162,5 @@ void log(Channel channel, Verbosity verbosity, const char *format, ...)
     }
 
     va_end(args);
+#endif
 }

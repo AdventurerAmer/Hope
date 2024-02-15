@@ -39,8 +39,8 @@ struct Job_Ref
 
 struct Job
 {
-    Job_Data      data;
-    volatile bool finished;
+    Job_Data            data;
+    volatile bool       finished;
 
     volatile U32             remaining_job_count;
     Mutex                    dependent_jobs_mutex;

@@ -613,11 +613,11 @@ struct Scene_Node
     Transform global_transform;
 };
 
+// todo(amer): use handles instead of uuid's
 struct Render_Packet
 {
-    U64 material_uuid;
-
-    U64 static_mesh_uuid;
+    Material_Handle material;
+    Static_Mesh_Handle static_mesh;
     U16 sub_mesh_index;
 
     U32 transform_index;
