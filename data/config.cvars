@@ -1,6 +1,4 @@
 @platform
-@renderer
-@platform
 :engine_name Hope
 :app_name Hope
 :window_width 1296

@@ -62,6 +62,8 @@ static std::unordered_map< String, U32 > path_to_asset_index;
 
 static Resource_System_State *resource_system_state;
 
+// helpers
+
 Resource_Header make_resource_header(Asset_Type type, U64 asset_uuid, U64 uuid)
 {
     Resource_Header result;
@@ -91,18 +93,93 @@ static U64 generate_uuid()
     return uuid;
 }
 
-// ========================== Resources ====================================
-static bool condition_texture_to_resource(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
+static String make_resource_absloute_path(String asset_absolute_path, Memory_Arena *arena)
 {
-    bool success = true;
-    U8 *data = HE_ALLOCATE_ARRAY(arena, U8, asset_file->size);
-    success &= platform_read_data_from_file(asset_file, 0, data, asset_file->size);
+    String parent = get_parent_path(asset_absolute_path);
+    String name = get_name(asset_absolute_path);
+    return format_string(arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(parent), HE_EXPAND_STRING(name));
+}
 
+static String absolute_path_to_relative(String absolute_path)
+{
+    return sub_string(absolute_path, resource_system_state->resource_path.count + 1);
+}
+
+static U32 create_asset(String absolute_path, U64 uuid, Asset_Type type)
+{
+    Asset &asset = append(&resource_system_state->assets);
+    U32 asset_index = index_of(&resource_system_state->assets, asset);
+    asset.type = type;
+    asset.job_handle = Resource_Pool<Job>::invalid_handle;
+
+    asset.uuid = uuid;
+    asset.last_write_time = platform_get_file_last_write_time(absolute_path.data);
+    asset.state = Asset_State::UNCONDITIONED;
+
+    init(&asset.resource_refs);
+
+    asset.absolute_path = absolute_path;
+    asset.relative_path = absolute_path_to_relative(absolute_path);
+
+    HE_ASSERT(path_to_asset_index.find(asset.relative_path) == path_to_asset_index.end());
+    HE_ASSERT(uuid_to_asset_index.find(uuid) == uuid_to_asset_index.end());
+
+    path_to_asset_index.emplace(asset.relative_path, asset_index);
+    uuid_to_asset_index.emplace(asset.uuid, asset_index);
+
+    platform_create_mutex(&asset.mutex);
+
+    return asset_index;
+}
+
+static U32 create_resource(String absolute_path, Asset_Type type, U64 asset_uuid, U64 uuid = HE_MAX_U64)
+{
+    if (uuid == HE_MAX_U64)
+    {
+        uuid = generate_uuid();
+    }
+
+    resource_mutex.lock();
+
+    Resource &resource = append(&resource_system_state->resources);
+    U32 resource_index = index_of(&resource_system_state->resources, resource);
+
+    resource.absolute_path = absolute_path;
+    resource.relative_path = absolute_path_to_relative(absolute_path);
+    resource.uuid = uuid;
+
+    HE_ASSERT(uuid_to_resource_index.find(resource.uuid) == uuid_to_resource_index.end());
+    HE_ASSERT(path_to_resource_index.find(resource.relative_path) == path_to_resource_index.end());
+    uuid_to_resource_index.emplace(resource.uuid, resource_index);
+    path_to_resource_index.emplace(resource.relative_path, resource_index);
+
+    resource_mutex.unlock();
+
+    resource.asset_uuid = asset_uuid;
+    resource.state = Resource_State::UNLOADED;
+    resource.type = type;
+    resource.index = -1;
+    resource.generation = 0;
+    resource.ref_count = 0;
+    resource.job_handle = Resource_Pool<Job>::invalid_handle;
+
+    platform_create_mutex(&resource.mutex);
+
+    init(&resource.resource_refs);
+    init(&resource.children);
+
+    return resource_index;
+}
+
+// ========================== Resources ====================================
+
+static bool condition_texture_to_resource(Read_Entire_File_Result *asset_file_result, Asset *asset, Resource *resource, Memory_Arena *arena)
+{
     S32 width;
     S32 height;
     S32 channels;
 
-    stbi_uc *pixels = stbi_load_from_memory(data, u64_to_u32(asset_file->size), &width, &height, &channels, STBI_rgb_alpha);
+    stbi_uc *pixels = stbi_load_from_memory(asset_file_result->data, u64_to_u32(asset_file_result->size), &width, &height, &channels, STBI_rgb_alpha);
 
     if (!pixels)
     {
@@ -112,11 +189,11 @@ static bool condition_texture_to_resource(Asset *asset, Resource *resource, Open
     HE_DEFER { stbi_image_free(pixels); };
 
     U64 offset = 0;
+    U8 *buffer = &arena->base[arena->offset];
 
     Resource_Header header = make_resource_header(Asset_Type::TEXTURE, resource->asset_uuid, resource->uuid);
-
-    success &= platform_write_data_to_file(resource_file, offset, &header, sizeof(Resource_Header));
-    offset += sizeof(Resource_Header);
+    copy_memory(&buffer[offset], &header, sizeof(header));
+    offset += sizeof(header);
 
     Texture_Resource_Info texture_resource_info =
     {
@@ -127,12 +204,14 @@ static bool condition_texture_to_resource(Asset *asset, Resource *resource, Open
         .data_offset = sizeof(Resource_Header) + sizeof(Texture_Resource_Info)
     };
 
-    success &= platform_write_data_to_file(resource_file, offset, &texture_resource_info, sizeof(Texture_Resource_Info));
+    copy_memory(&buffer[offset], &texture_resource_info, sizeof(Texture_Resource_Info));
     offset += sizeof(Texture_Resource_Info);
 
-    success &= platform_write_data_to_file(resource_file, offset, pixels, width * height * sizeof(U32));
+    copy_memory(&buffer[offset], pixels, width * height * sizeof(U32)); // todo(amer): @Hardcoding
+    offset += width * height * sizeof(U32);
 
-    return success;
+    bool result = write_entire_file(resource->absolute_path.data, buffer, offset);
+    return result;
 }
 
 static bool load_texture_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
@@ -182,79 +261,8 @@ static void unload_texture_resource(Resource *resource)
     renderer_destroy_texture(texture_handle);
 }
 
-static bool condition_shader_to_resource(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
+static bool condition_shader_to_resource(Read_Entire_File_Result *asset_file_result, Asset *asset, Resource *resource, Memory_Arena *arena)
 {
-#if 0
-    // todo(amer): @Hack until we have a compiler instead of using cmd with glslangValidator
-    platform_close_file(asset_file);
-    platform_close_file(resource_file);
-
-    String asset_path = asset->absolute_path;
-    String resource_path = resource->absolute_path;
-
-    String command = format_string(arena, "glslangValidator.exe -V --auto-map-locations %.*s -o %.*s", HE_EXPAND_STRING(asset_path), HE_EXPAND_STRING(resource_path));
-    bool executed = platform_execute_command(command.data);
-    HE_ASSERT(executed);
-
-    Read_Entire_File_Result spirv_binary_read_result = read_entire_file(resource_path.data, arena);
-    if (!spirv_binary_read_result.success)
-    {
-        return false;
-    }
-
-    Open_File_Result open_file_result = platform_open_file(resource_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
-    if (!open_file_result.success)
-    {
-        return false;
-    }
-
-    bool success = true;
-    U64 offset = 0;
-
-    Resource_Header header = make_resource_header(Asset_Type::SHADER, resource->asset_uuid, resource->uuid);
-    header.resource_ref_count = resource->resource_refs.count;
-    header.child_count = resource->children.count;
-
-    success &= platform_write_data_to_file(&open_file_result, offset, &header, sizeof(header));
-    offset += sizeof(header);
-
-    if (resource->resource_refs.count)
-    {
-        platform_write_data_to_file(&open_file_result, offset, resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
-        offset += sizeof(U64) * resource->resource_refs.count;
-    }
-
-    if (resource->children.count)
-    {
-        platform_write_data_to_file(&open_file_result, offset, resource->children.data, sizeof(U64) * resource->children.count);
-        offset += sizeof(U64) * resource->children.count;
-    }
-
-    Shader_Resource_Info info =
-    {
-        .data_offset = sizeof(Resource_Header) + sizeof(Shader_Resource_Info) + sizeof(U64) * resource->resource_refs.count + sizeof(U64) * resource->children.count,
-        .data_size = spirv_binary_read_result.size
-    };
-
-    success &= platform_write_data_to_file(&open_file_result, offset, &info, sizeof(info));
-    offset += sizeof(info);
-
-    success &= platform_write_data_to_file(&open_file_result, offset, spirv_binary_read_result.data, spirv_binary_read_result.size);
-    offset += spirv_binary_read_result.size;
-
-    success &= platform_close_file(&open_file_result);
-    return success;
-
-#else
-    platform_close_file(asset_file);
-    platform_close_file(resource_file);
-
-    Read_Entire_File_Result shader_source = read_entire_file(asset->absolute_path.data, arena);
-    if (!shader_source.success)
-    {
-        return false;
-    }
-
     String ext = get_extension(asset->relative_path);
     shaderc_shader_kind shader_kind;
 
@@ -265,6 +273,10 @@ static bool condition_shader_to_resource(Asset *asset, Resource *resource, Open_
     else if (ext == "frag")
     {
         shader_kind = shaderc_fragment_shader;
+    }
+    else
+    {
+        HE_ASSERT(!"we only support vert and frag shaders");
     }
 
     shaderc_compiler_t compiler = shaderc_compiler_initialize();
@@ -280,7 +292,7 @@ static bool condition_shader_to_resource(Asset *asset, Resource *resource, Open_
         shaderc_compile_options_release(options);
     };
 
-    shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, (const char *)shader_source.data, shader_source.size, shader_kind, (const char *)asset->relative_path.data, "main", options);
+    shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, (const char *)asset_file_result->data, asset_file_result->size, shader_kind, (const char *)asset->relative_path.data, "main", options);
 
     HE_DEFER
     {
@@ -309,19 +321,16 @@ static bool condition_shader_to_resource(Asset *asset, Resource *resource, Open_
     header.child_count = resource->children.count;
 
     copy_memory(&buffer[offset], &header, sizeof(header));
-    // success &= platform_write_data_to_file(resource_file, offset, &header, sizeof(header));
     offset += sizeof(header);
 
     if (resource->resource_refs.count)
     {
-        // platform_write_data_to_file(resource_file, offset, resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
         copy_memory(&buffer[offset], resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
         offset += sizeof(U64) * resource->resource_refs.count;
     }
 
     if (resource->children.count)
     {
-        // platform_write_data_to_file(resource_file, offset, resource->children.data, sizeof(U64) * resource->children.count);
         copy_memory(&buffer[offset], resource->children.data, sizeof(U64) * resource->children.count);
         offset += sizeof(U64) * resource->children.count;
     }
@@ -332,17 +341,15 @@ static bool condition_shader_to_resource(Asset *asset, Resource *resource, Open_
         .data_size = size
     };
 
-    // success &= platform_write_data_to_file(resource_file, offset, &info, sizeof(info));
     copy_memory(&buffer[offset], &info, sizeof(info));
     offset += sizeof(info);
 
-    // success &= platform_write_data_to_file(resource_file, offset, (void *)data, size);
+
     copy_memory(&buffer[offset], data, size);
     offset += size;
 
     success &= write_entire_file(resource->absolute_path.data, buffer, offset);
     return success;
-#endif
 }
 
 static bool load_shader_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
@@ -382,8 +389,6 @@ static bool load_shader_resource(Open_File_Result *open_file_result, Resource *r
     Shader_Handle shader_handle = renderer_create_shader(shader_descriptor);
     resource->index = shader_handle.index;
     resource->generation = shader_handle.generation;
-    resource->ref_count++;
-    resource->state = Resource_State::LOADED;
     return true;
 }
 
@@ -394,7 +399,7 @@ static void unload_shader_resource(Resource *resource)
     renderer_destroy_shader(shader_handle);
 }
 
-static bool condition_material_to_resource(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
+static bool condition_material_to_resource(Read_Entire_File_Result *asset_file_result, Asset *asset, Resource *resource, Memory_Arena *arena)
 {
     return true;
 }
@@ -415,8 +420,6 @@ static bool load_material_resource(Open_File_Result *open_file_result, Resource 
 
     String render_pass_name = { string_buffer, info.render_pass_name_count };
     success &= platform_read_data_from_file(open_file_result, info.render_pass_name_offset, string_buffer, info.render_pass_name_count);
-
-    wait_for_resource_refs_to_load(resource);
 
     Array< Shader_Handle, HE_MAX_SHADER_COUNT_PER_PIPELINE > shaders;
 
@@ -446,33 +449,39 @@ static bool load_material_resource(Open_File_Result *open_file_result, Resource 
 
     Pipeline_State_Handle pipeline_state_handle = renderer_create_pipeline_state(pipeline_state_descriptor);
 
-    Material_Property_Info *infos = nullptr;
-
-    if (info.property_count)
-    {
-        infos = HE_ALLOCATE_ARRAY(arena, Material_Property_Info, info.property_count);
-        success &= platform_read_data_from_file(open_file_result, info.property_data_offset, (void *)infos, sizeof(Material_Property_Info) * info.property_count);
-    }
-
     Material_Descriptor material_descriptor =
     {
         .pipeline_state_handle = pipeline_state_handle,
-        .property_info_count = info.property_count,
-        .property_infos = infos
     };
 
     Material_Handle material_handle = renderer_create_material(material_descriptor);
+    resource->index = material_handle.index;
+    resource->generation = material_handle.generation;
 
-    if (success)
+    if (info.property_count)
     {
-        resource->index = material_handle.index;
-        resource->generation = material_handle.generation;
-        resource->ref_count++;
-        resource->state = Resource_State::LOADED;
-    }
-    else
-    {
-        resource->state = Resource_State::UNLOADED;
+        Material_Property_Info *property_infos = HE_ALLOCATE_ARRAY(arena, Material_Property_Info, info.property_count);
+        success &= platform_read_data_from_file(open_file_result, info.property_data_offset, (void *)property_infos, sizeof(Material_Property_Info) * info.property_count);
+
+        U64 offset = info.property_data_offset + sizeof(Material_Property_Info) * info.property_count;
+
+        for (U32 property_index = 0; property_index < info.property_count; property_index++)
+        {
+            U64 property_name_count = 0;
+
+            success &= platform_read_data_from_file(open_file_result, offset, &property_name_count, sizeof(U64));
+            offset += sizeof(U64);
+
+            HE_ASSERT(property_name_count);
+
+            char *property_name = HE_ALLOCATE_ARRAY(arena, char, property_name_count + 1);
+            property_name[property_name_count] = '\0';
+
+            success &= platform_read_data_from_file(open_file_result, offset, property_name, sizeof(char) * property_name_count);
+            offset += sizeof(char) * property_name_count;
+
+            set_property(material_handle, property_name, property_infos[property_index].data);
+        }
     }
 
     return success;
@@ -495,10 +504,8 @@ static void _cgltf_free(void* user, void *ptr)
     deallocate(get_general_purpose_allocator(), ptr);
 }
 
-static bool write_attribute_for_all_sub_meshes(Open_File_Result *resource_file, U64 *file_offset, cgltf_mesh *mesh, cgltf_attribute_type attribute_type)
+static void write_attribute_for_all_sub_meshes(U8 *buffer, U64 *offset, cgltf_mesh *mesh, cgltf_attribute_type attribute_type)
 {
-    bool success = true;
-
     for (U32 sub_mesh_index = 0; sub_mesh_index < (U32)mesh->primitives_count; sub_mesh_index++)
     {
         cgltf_primitive *primitive = &mesh->primitives[sub_mesh_index];
@@ -516,61 +523,33 @@ static bool write_attribute_for_all_sub_meshes(Open_File_Result *resource_file, 
                 U64 element_count = attribute->data->count;
                 U8 *data = data_ptr + view->offset + accessor->offset;
 
-                success &= platform_write_data_to_file(resource_file, *file_offset, data, element_size * element_count);
-                *file_offset = *file_offset + element_size * element_count;
+                copy_memory(&buffer[*offset], data, element_size * element_count);
+                *offset = *offset + element_size * element_count;
             }
         }
     }
-
-    return success;
 }
 
-static bool create_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cgltf_data *data, U64 *material_uuids)
+static bool create_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cgltf_data *data, U64 *material_uuids, Memory_Arena *arena)
 {
-    resource->type = Asset_Type::STATIC_MESH;
-    resource->state = Resource_State::UNLOADED;
-    resource->ref_count = 0;
-    resource->index = -1;
-    resource->generation = 0;
-    resource->job_handle = Resource_Pool<Job>::invalid_handle;
-
-    platform_create_mutex(&resource->mutex);
-
-    auto it = uuid_to_asset_index.find(resource->asset_uuid);
-    HE_ASSERT(it != uuid_to_asset_index.end());
-
-    asset_mutex.lock();
-    Asset &asset = resource_system_state->assets[it->second];
-    append(&asset.resource_refs, resource->uuid);
-    asset_mutex.unlock();
-
-    Open_File_Result open_file_result = platform_open_file(resource->absolute_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
-
-    if (!open_file_result.success)
-    {
-        HE_LOG(Resource, Fetal, "failed to open file: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
-        return false;
-    }
-
-    HE_DEFER { platform_close_file(&open_file_result); };
-
-    Open_File_Result *resource_file = &open_file_result;
     bool success = true;
 
-    U64 file_offset = 0;
+    U64 offset = 0;
+    U8 *buffer = &arena->base[arena->offset];
+
     Resource_Header header = make_resource_header(Asset_Type::STATIC_MESH, resource->asset_uuid, resource->uuid);
-    success &= platform_write_data_to_file(resource_file, file_offset, &header, sizeof(header));
-    file_offset += sizeof(header);
+    copy_memory(&buffer[offset], &header, sizeof(header));
+    offset += sizeof(header);
 
     Static_Mesh_Resource_Info info =
     {
         .sub_mesh_count = (U16)mesh->primitives_count,
-        .sub_mesh_data_offset = file_offset + sizeof(Static_Mesh_Resource_Info),
-        .data_offset = file_offset + sizeof(Static_Mesh_Resource_Info) + sizeof(Sub_Mesh_Info) * mesh->primitives_count
+        .sub_mesh_data_offset = offset + sizeof(Static_Mesh_Resource_Info),
+        .data_offset = offset + sizeof(Static_Mesh_Resource_Info) + sizeof(Sub_Mesh_Info) * mesh->primitives_count
     };
 
-    success &= platform_write_data_to_file(resource_file, file_offset, &info, sizeof(info));
-    file_offset += sizeof(info);
+    copy_memory(&buffer[offset], &info, sizeof(info));
+    offset += sizeof(info);
 
     for (U32 sub_mesh_index = 0; sub_mesh_index < (U32)mesh->primitives_count; sub_mesh_index++)
     {
@@ -656,8 +635,8 @@ static bool create_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cg
             .material_uuid = material_uuids[material_index]
         };
 
-        success &= platform_write_data_to_file(resource_file, file_offset, &sub_mesh_info, sizeof(sub_mesh_info));
-        file_offset += sizeof(sub_mesh_info);
+        copy_memory(&buffer[offset], &sub_mesh_info, sizeof(sub_mesh_info));
+        offset += sizeof(sub_mesh_info);
     }
 
     for (U32 sub_mesh_index = 0; sub_mesh_index < (U32)mesh->primitives_count; sub_mesh_index++)
@@ -669,34 +648,108 @@ static bool create_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cg
         const auto *view = accessor->buffer_view;
         U8 *data = (U8 *)view->buffer->data + view->offset + accessor->offset;
 
-        success &= platform_write_data_to_file(resource_file, file_offset, data, sizeof(U16) * primitive->indices->count);
-        file_offset += sizeof(U16) * primitive->indices->count;
+        copy_memory(&buffer[offset], data, sizeof(U16) * primitive->indices->count);
+        offset += sizeof(U16) * primitive->indices->count;
     }
 
-    success &= write_attribute_for_all_sub_meshes(resource_file, &file_offset, mesh, cgltf_attribute_type_position);
-    success &= write_attribute_for_all_sub_meshes(resource_file, &file_offset, mesh, cgltf_attribute_type_texcoord);
-    success &= write_attribute_for_all_sub_meshes(resource_file, &file_offset, mesh, cgltf_attribute_type_normal);
-    success &= write_attribute_for_all_sub_meshes(resource_file, &file_offset, mesh, cgltf_attribute_type_tangent);
+    write_attribute_for_all_sub_meshes(buffer, &offset, mesh, cgltf_attribute_type_position);
+    write_attribute_for_all_sub_meshes(buffer, &offset, mesh, cgltf_attribute_type_texcoord);
+    write_attribute_for_all_sub_meshes(buffer, &offset, mesh, cgltf_attribute_type_normal);
+    write_attribute_for_all_sub_meshes(buffer, &offset, mesh, cgltf_attribute_type_tangent);
 
-    return success;
+    bool result = write_entire_file(resource->absolute_path.data, buffer, offset);
+    return result;
 }
 
-static bool condition_static_mesh_to_resource(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
+static bool condition_static_mesh_to_resource(Read_Entire_File_Result *asset_file_result, Asset *asset, Resource *resource, Memory_Arena *arena)
 {
     return true;
 }
 
-
-static bool condition_scene_to_resource(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena)
+struct Create_Material_Resource_Job_Data
 {
+    Resource *resource;
+    String render_pass_name;
+    Pipeline_State_Settings pipeline_state_settings;
+    String *property_names;
+    Material_Property_Info *property_infos;
+    U32 property_count;
+};
+
+static Job_Result create_material_resource_job(const Job_Parameters &params)
+{
+    Create_Material_Resource_Job_Data *data = (Create_Material_Resource_Job_Data *)params.data;
+
+    Resource *resource = data->resource;
+
+    Resource_Header header = make_resource_header(Asset_Type::MATERIAL, resource->asset_uuid, resource->uuid);
+    header.resource_ref_count = resource->resource_refs.count;
+    header.child_count = resource->children.count;
+
+    U64 offset = 0;
+    U8 *buffer = &params.arena->base[params.arena->offset];
+
+    copy_memory(&buffer[offset], &header, sizeof(header));
+    offset += sizeof(header);
+
+    if (resource->resource_refs.count)
+    {
+        copy_memory(&buffer[offset], resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
+        offset += sizeof(U64) * resource->resource_refs.count;
+    }
+
+    if (resource->children.count)
+    {
+        copy_memory(&buffer[offset], resource->children.data, sizeof(U64) * resource->children.count);
+        offset += sizeof(U64) * resource->children.count;
+    }
+
+    Material_Resource_Info info =
+    {
+        .settings = data->pipeline_state_settings,
+        .render_pass_name_count = data->render_pass_name.count,
+        .render_pass_name_offset = offset + sizeof(Material_Resource_Info),
+        .property_count = u32_to_u16(data->property_count),
+        .property_data_offset = (S64)(offset + sizeof(Material_Resource_Info) + data->render_pass_name.count)
+    };
+
+    copy_memory(&buffer[offset], &info, sizeof(info));
+    offset += sizeof(info);
+
+    copy_memory(&buffer[offset], (void *)data->render_pass_name.data, sizeof(char) * data->render_pass_name.count);
+    offset += sizeof(char) * data->render_pass_name.count;
+
+    U64 property_size = sizeof(Material_Property_Info) * data->property_count;
+    copy_memory(&buffer[offset], (void *)data->property_infos, property_size);
+    offset += property_size;
+
+    for (U32 property_index = 0; property_index < data->property_count; property_index++)
+    {
+        String property_name = data->property_names[property_index];
+
+        copy_memory(&buffer[offset], &property_name.count, sizeof(U64));
+        offset += sizeof(U64);
+
+        copy_memory(&buffer[offset], (void *)property_name.data, sizeof(char) * property_name.count);
+        offset += sizeof(char) * property_name.count;
+    }
+
+    bool result = write_entire_file(resource->absolute_path.data, buffer, offset);
+    if (!result)
+    {
+        return Job_Result::FAILED;
+    }
+
+    return Job_Result::SUCCEEDED;
+}
+
+static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_result, Asset *asset, Resource *resource, Memory_Arena *arena)
+{
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
+
     String asset_path = asset->absolute_path;
     String asset_name = get_name(asset_path);
     String asset_parent_path = get_parent_path(asset_path);
-
-    bool success = true;
-
-    U8 *asset_file_data = HE_ALLOCATE_ARRAY(arena, U8, asset_file->size);
-    success &= platform_read_data_from_file(asset_file, 0, asset_file_data, asset_file->size);
 
     cgltf_options options = {};
     options.memory.alloc_func = _cgltf_alloc;
@@ -704,7 +757,7 @@ static bool condition_scene_to_resource(Asset *asset, Resource *resource, Open_F
 
     cgltf_data *data = nullptr;
 
-    if (cgltf_parse(&options, asset_file_data, asset_file->size, &data) != cgltf_result_success)
+    if (cgltf_parse(&options, asset_file_result->data, asset_file_result->size, &data) != cgltf_result_success)
     {
         HE_LOG(Resource, Fetal, "unable to parse asset file: %.*s\n", HE_EXPAND_STRING(asset_path));
         return false;
@@ -784,24 +837,13 @@ static bool condition_scene_to_resource(Asset *asset, Resource *resource, Open_F
         }
 
         String material_resource_absloute_path = format_string(arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(asset_parent_path), HE_EXPAND_STRING(material_resource_name));
-        String material_resource_relative_path = sub_string(material_resource_absloute_path, resource_system_state->resource_path.count + 1);
 
-        resource_mutex.lock();
-        U64 material_uuid = generate_uuid();
-        HE_ASSERT(resource_system_state->resources.count < resource_system_state->resources.capacity);
-        Resource &material_resource = append(&resource_system_state->resources);
-        U32 resource_index = index_of(&resource_system_state->resources, material_resource);
-        uuid_to_resource_index.emplace(material_uuid, resource_index);
-        path_to_resource_index.emplace(material_resource_relative_path, resource_index);
-        resource_mutex.unlock();
+        U32 material_resource_index = create_resource(copy_string(material_resource_absloute_path, allocator), Asset_Type::MATERIAL, asset->uuid);
+        Resource *material_resource = &resource_system_state->resources[material_resource_index];
+        material_uuids[material_index] = material_resource->uuid;
 
-        material_resource.absolute_path = material_resource_absloute_path;
-        material_resource.relative_path = material_resource_relative_path;
-        material_resource.uuid = material_uuid;
-        material_resource.asset_uuid = asset->uuid;
-        material_resource.job_handle = Resource_Pool<Job>::invalid_handle;
-
-        String render_pass = HE_STRING_LITERAL("opaque");
+        // todo(amer): transparent materials...
+        String render_pass_name = HE_STRING_LITERAL("opaque");
 
         Resource_Ref shaders[] =
         {
@@ -809,20 +851,17 @@ static bool condition_scene_to_resource(Asset *asset, Resource *resource, Open_F
             find_resource(HE_STRING_LITERAL("opaque_pbr_frag.hres"))
         };
 
-        init(&material_resource.resource_refs);
-        init(&material_resource.children);
-
         for (Resource_Ref ref : shaders)
         {
             HE_ASSERT(ref.uuid != HE_MAX_U64);
-            append(&material_resource.resource_refs, ref.uuid);
+            append(&material_resource->resource_refs, ref.uuid);
 
             auto it = uuid_to_resource_index.find(ref.uuid);
-            Resource &shader_resource = resource_system_state->resources[it->second];
+            Resource *shader_resource = &resource_system_state->resources[it->second];
 
-            platform_lock_mutex(&shader_resource.mutex);
-            append(&shader_resource.children, material_resource.uuid);
-            platform_unlock_mutex(&shader_resource.mutex);
+            platform_lock_mutex(&shader_resource->mutex);
+            append(&shader_resource->children, material_resource->uuid);
+            platform_unlock_mutex(&shader_resource->mutex);
         }
 
         Pipeline_State_Settings pipeline_state_settings =
@@ -830,67 +869,67 @@ static bool condition_scene_to_resource(Asset *asset, Resource *resource, Open_F
             .cull_mode = Cull_Mode::BACK,
             .front_face = Front_Face::COUNTER_CLOCKWISE,
             .fill_mode = Fill_Mode::SOLID,
+            .depth_testing = true,
             .sample_shading = true,
         };
 
-        wait_for_resource_refs_to_condition(to_array_view(shaders));
-
-        for (Resource_Ref ref : shaders)
+        String property_names[] =
         {
-            Resource *resource = get_resource(ref);
-            HE_ASSERT(resource->conditioned);
-            HE_ASSERT(resource->type == Asset_Type::SHADER);
+            HE_STRING_LITERAL("albedo_texture_index"),
+            HE_STRING_LITERAL("albedo_color"),
+            HE_STRING_LITERAL("normal_texture_index"),
+            HE_STRING_LITERAL("occlusion_roughness_metallic_texture_index"),
+            HE_STRING_LITERAL("roughness_factor"),
+            HE_STRING_LITERAL("metallic_factor"),
+            HE_STRING_LITERAL("reflectance"),
+        };
 
-            bool aquired = aquire_resource(ref);
-            HE_ASSERT(aquired);
-        }
+        U32 property_count = HE_ARRAYCOUNT(property_names);
+        Material_Property_Info *properties = HE_ALLOCATE_ARRAY(arena, Material_Property_Info, property_count);
 
-        wait_for_resource_refs_to_load(to_array_view(shaders));
-
-        Shader_Struct *properties_struct = find_material_properties(to_array_view(shaders));
-        HE_ASSERT(properties_struct);
-
-        Material_Property_Info *properties = HE_ALLOCATE_ARRAY(arena, Material_Property_Info, properties_struct->member_count);
-
-        for (U32 member_index = 0; member_index < properties_struct->member_count; member_index++)
+        auto set_property = [&](const char *_property_name, Material_Property_Data data)
         {
-            Shader_Struct_Member *member = &properties_struct->members[member_index];
-
-            Material_Property_Info *property = &properties[member_index];
-            property->is_texture_resource = ends_with(member->name, "_texture_index") && member->data_type == Shader_Data_Type::U32;
-            property->is_color = ends_with(member->name, "_color") && (member->data_type == Shader_Data_Type::VECTOR3F || member->data_type == Shader_Data_Type::VECTOR4F);
-        }
-
-        auto set_property = [&](const char *property_name, Material_Property_Data data, Material_Property_Data default_data = {})
-        {
-            String name = HE_STRING(property_name);
-
-            for (U32 member_index = 0; member_index < properties_struct->member_count; member_index++)
+            String property_name = HE_STRING(_property_name);
+            for (U32 property_index = 0; property_index < property_count; property_index++)
             {
-                Shader_Struct_Member *member = &properties_struct->members[member_index];
-                if (member->name == name)
+                if (property_name == property_names[property_index])
                 {
-                    Material_Property_Info *property_info = &properties[member_index];
+                    Material_Property_Info *property_info = &properties[property_index];
                     property_info->data = data;
-                    property_info->default_data = default_data;
                     return;
                 }
             }
         };
 
-        Render_Context render_context = get_render_context();
-        Renderer_State *renderer_state = render_context.renderer_state;
+        set_property("albedo_texture_index", { .u64 = albedo_texture_uuid });
+        set_property("normal_texture_index", { .u64 = normal_texture_uuid });
+        set_property("occlusion_roughness_metallic_texture_index", { .u64 = occlusion_roughness_metallic_texture_uuid });
+        set_property("albedo_color", { .v3 = *(glm::vec3 *)material->pbr_metallic_roughness.base_color_factor });
+        set_property("roughness_factor", { .f32 = material->pbr_metallic_roughness.roughness_factor });
+        set_property("metallic_factor", { .f32 = material->pbr_metallic_roughness.metallic_factor });
+        set_property("reflectance", { .f32 = 0.04f });
 
-        set_property("albedo_texture_index",                       { .u64 = albedo_texture_uuid }, { .u32 = (U32)renderer_state->white_pixel_texture.index });
-        set_property("normal_texture_index",                       { .u64 = normal_texture_uuid }, { .u32 = (U32)renderer_state->normal_pixel_texture.index });
-        set_property("occlusion_roughness_metallic_texture_index", { .u64 = occlusion_roughness_metallic_texture_uuid }, { .u32 = (U32)renderer_state->white_pixel_texture.index });
-        set_property("albedo_color",                               { .v3 = *(glm::vec3 *)material->pbr_metallic_roughness.base_color_factor }, { .v3 = { 1.0f, 1.0f, 1.0f } });
-        set_property("roughness_factor",                           { .f32 = material->pbr_metallic_roughness.roughness_factor }, { .f32 = 1.0f });
-        set_property("metallic_factor",                            { .f32 = material->pbr_metallic_roughness.metallic_factor }, { .f32 = 1.0f });
-        set_property("reflectance",                                { .f32 = 0.04f }, { .f32 = 0.04f });
+        Create_Material_Resource_Job_Data data =
+        {
+            .resource = material_resource,
+            .render_pass_name = render_pass_name,
+            .pipeline_state_settings = pipeline_state_settings,
+            .property_names = property_names,
+            .property_infos = properties,
+            .property_count = property_count
+        };
 
-        create_material_resource(&material_resource, render_pass, pipeline_state_settings, properties, properties_struct->member_count);
-        material_uuids[material_index] = material_uuid;
+        Job_Data create_material_resource_data =
+        {
+            .parameters =
+            {
+                .data = &data,
+                .size = sizeof(data)
+            },
+            .proc = create_material_resource_job
+        };
+
+        execute_job(create_material_resource_data);
     }
 
     U64 *static_mesh_uuids = HE_ALLOCATE_ARRAY(arena, U64, data->meshes_count);
@@ -912,32 +951,19 @@ static bool condition_scene_to_resource(Asset *asset, Resource *resource, Open_F
         }
 
         String static_mesh_resource_absloute_path = format_string(arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(asset_parent_path), HE_EXPAND_STRING(static_mesh_resource_name));
-        String static_mesh_resource_relative_path = sub_string(static_mesh_resource_absloute_path, resource_system_state->resource_path.count + 1);
 
-        resource_mutex.lock();
-        U64 static_mesh_uuid = generate_uuid();
-        Resource &static_mesh_resource = append(&resource_system_state->resources);
-        U32 resource_index = index_of(&resource_system_state->resources, static_mesh_resource);
-        uuid_to_resource_index.emplace(static_mesh_uuid, resource_index);
-        path_to_resource_index.emplace(static_mesh_resource_relative_path, resource_index);
-        resource_mutex.unlock();
+        U32 static_mesh_resource_index = create_resource(copy_string(static_mesh_resource_absloute_path, allocator), Asset_Type::STATIC_MESH, asset->uuid);
+        Resource *static_mesh_resource = &resource_system_state->resources[static_mesh_resource_index];
+        static_mesh_uuids[static_mesh_index] = static_mesh_resource->uuid;
 
-        static_mesh_resource.absolute_path = static_mesh_resource_absloute_path;
-        static_mesh_resource.relative_path = static_mesh_resource_relative_path;
-        static_mesh_resource.uuid = static_mesh_uuid;
-        static_mesh_resource.asset_uuid = asset->uuid;
-
-        init(&static_mesh_resource.resource_refs);
-        init(&static_mesh_resource.children);
-
-        create_static_mesh_resource(&static_mesh_resource, static_mesh, data, material_uuids);
-        static_mesh_uuids[static_mesh_index] = static_mesh_uuid;
+        create_static_mesh_resource(static_mesh_resource, static_mesh, data, material_uuids, arena);
     }
 
-    U64 file_offset = 0;
+    U64 offset = 0;
+    U8 *buffer = &arena->base[arena->offset];
     Resource_Header header = make_resource_header(Asset_Type::SCENE, resource->asset_uuid, resource->uuid);
-    success &= platform_write_data_to_file(resource_file, 0, &header, sizeof(header));
-    file_offset += sizeof(header);
+    copy_memory(&buffer[offset], &header, sizeof(header));
+    offset += sizeof(header);
 
     U64 string_size = 0;
     cgltf_scene *scene = &data->scenes[0];
@@ -954,13 +980,13 @@ static bool condition_scene_to_resource(Asset *asset, Resource *resource, Open_F
     Scene_Resource_Info info =
     {
         .node_count = u64_to_u32(data->nodes_count),
-        .node_data_offset = file_offset + sizeof(Scene_Resource_Info) + string_size
+        .node_data_offset = offset + sizeof(Scene_Resource_Info) + string_size
     };
 
-    success &= platform_write_data_to_file(resource_file, file_offset, &info, sizeof(info));
-    file_offset += sizeof(info);
+    copy_memory(&buffer[offset], &info, sizeof(info));
+    offset += sizeof(info);
 
-    U64 node_name_data_file_offset = file_offset;
+    U64 node_name_data_file_offset = offset;
 
     for (U32 node_index = 0; node_index < data->nodes_count; node_index++)
     {
@@ -969,9 +995,8 @@ static bool condition_scene_to_resource(Asset *asset, Resource *resource, Open_F
         String node_name = HE_STRING(node->name);
         U64 node_name_size = sizeof(char) * node_name.count;
 
-        success &= platform_write_data_to_file(resource_file, file_offset, (void *)node_name.data, node_name_size);
-
-        file_offset += node_name_size;
+        copy_memory(&buffer[offset], (void *)node_name.data, node_name_size);
+        offset += node_name_size;
     }
 
     for (U32 node_index = 0; node_index < data->nodes_count; node_index++)
@@ -1006,13 +1031,14 @@ static bool condition_scene_to_resource(Asset *asset, Resource *resource, Open_F
             .static_mesh_uuid = static_mesh_uuid
         };
 
-        success &= platform_write_data_to_file(resource_file, file_offset, &scene_node_info, sizeof(scene_node_info));
-        file_offset += sizeof(scene_node_info);
+        copy_memory(&buffer[offset], &scene_node_info, sizeof(scene_node_info));
+        offset += sizeof(scene_node_info);
 
         node_name_data_file_offset += node_name.count;
     }
 
-    return success;
+    bool result = write_entire_file(resource->absolute_path.data, buffer, offset);
+    return result;
 }
 
 static Asset_Type find_asset_type_from_extension(const String &extension, Resource_Type_Info *info = nullptr)
@@ -1196,8 +1222,6 @@ static bool load_scene_resource(Open_File_Result *open_file_result, Resource *re
     platform_unlock_mutex(&render_context.renderer_state->nodes_mutex);
 
     resource->index = index_of(&render_context.renderer_state->nodes, scene);
-    resource->ref_count++;
-    resource->state = Resource_State::LOADED;
     return success;
 }
 
@@ -1207,7 +1231,6 @@ static void unload_scene_resource(Resource *resource)
 }
 
 //==================================== Jobs ==================================================
-
 struct Condition_Asset_Job_Data
 {
     U32 asset_index;
@@ -1219,6 +1242,10 @@ static Job_Result condition_asset_job(const Job_Parameters &params)
     Condition_Asset_Job_Data *job_data = (Condition_Asset_Job_Data *)params.data;
 
     Asset *asset = &resource_system_state->assets[job_data->asset_index];
+
+    platform_lock_mutex(&asset->mutex);
+    HE_DEFER { platform_unlock_mutex(&asset->mutex); };
+
     Resource *resource = &resource_system_state->resources[job_data->resource_index];
 
     String asset_path = asset->absolute_path;
@@ -1226,64 +1253,28 @@ static Job_Result condition_asset_job(const Job_Parameters &params)
 
     Asset_Conditioner &conditioner = resource_system_state->resource_type_infos[(U32)resource->type].conditioner;
 
-    Open_File_Result asset_file_result = platform_open_file(asset_path.data, OpenFileFlag_Read);
+    Read_Entire_File_Result asset_file_result = read_entire_file(asset_path.data, params.arena);
+
     if (!asset_file_result.success)
     {
         HE_LOG(Resource, Trace, "failed to open asset file: %.*s\n", HE_EXPAND_STRING(asset_path));
+        asset->state = Asset_State::UNCONDITIONED;
         return Job_Result::FAILED;
     }
 
-    HE_DEFER { platform_close_file(&asset_file_result); };
-
-    Open_File_Result resource_file_result = platform_open_file(resource_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
-
-    if (!resource_file_result.success)
-    {
-        HE_LOG(Resource, Trace, "failed to open resource file: %.*s\n", HE_EXPAND_STRING(resource_path));
-        return Job_Result::FAILED;
-    }
-
-    HE_DEFER { platform_close_file(&resource_file_result); };
-
-    if (!conditioner.condition_asset(asset, resource, &asset_file_result, &resource_file_result, params.arena))
+    if (!conditioner.condition_asset(&asset_file_result, asset, resource, params.arena))
     {
         HE_LOG(Resource, Trace, "failed to condition asset: %.*s\n", HE_EXPAND_STRING(asset_path));
+        asset->state = Asset_State::UNCONDITIONED;
         return Job_Result::FAILED;
     }
 
     HE_LOG(Resource, Trace, "successfully conditioned asset: %.*s\n", HE_EXPAND_STRING(asset_path));
-    resource->conditioned = true;
+
+    asset->state = Asset_State::CONDITIONED;
+    // resource->conditioned = true;
     return Job_Result::SUCCEEDED;
 }
-
-// struct Save_Resource_Job_Data
-// {
-//     Resource *resource;
-// };
-
-// static Job_Result save_resource_job(const Job_Parameters &params)
-// {
-//     Save_Resource_Job_Data *job_data = (Save_Resource_Job_Data *)params.data;
-//     Resource *resource = job_data->resource;
-//     Resource_Conditioner &conditioner = resource_system_state->resource_type_infos[resource->type].conditioner;
-
-//     Open_File_Result open_file_result = platform_open_file(resource->absolute_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
-//     if (!open_file_result.success)
-//     {
-//         HE_LOG(Resource, Trace, "failed to open file %.*s\n", HE_EXPAND_STRING(resource->absolute_path));
-//         return Job_Result::FAILED;
-//     }
-
-//     HE_DEFER { platform_close_file(&open_file_result); };
-//     if (conditioner.save(resource, &open_file_result, params.temprary_memory_arena))
-//     {
-//         HE_LOG(Resource, Trace, "failed to save resource: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
-//         return Job_Result::FAILED;
-//     }
-
-//     HE_LOG(Resource, Trace, "successfully saved resource: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
-//     return Job_Result::SUCCEEDED;
-// }
 
 struct Load_Resource_Job_Data
 {
@@ -1318,6 +1309,10 @@ static Job_Result load_resource_job(const Job_Parameters &params)
 
     if (!open_file_result.success)
     {
+        // todo(amer): we should free or reset the semaphore here is we are using allocation groups
+        resource->state = Resource_State::UNLOADED;
+        resource->ref_count = 0;
+
         HE_LOG(Resource, Fetal, "failed to open resource file: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
         return Job_Result::FAILED;
     }
@@ -1329,8 +1324,8 @@ static Job_Result load_resource_job(const Job_Parameters &params)
     if (!success)
     {
         // todo(amer): we should free or reset the semaphore here is we are using allocation groups
-        resource->ref_count = 0;
         resource->state = Resource_State::UNLOADED;
+        resource->ref_count = 0;
         return Job_Result::FAILED;
     }
 
@@ -1345,40 +1340,12 @@ static Job_Result load_resource_job(const Job_Parameters &params)
     }
     else
     {
+        resource->state = Resource_State::LOADED;
+        resource->ref_count++;
         HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
     }
 
     return Job_Result::SUCCEEDED;
-}
-
-U32 create_resource(String absolute_path, Asset_Type type, U64 asset_uuid, U64 uuid = HE_MAX_U64)
-{
-    Resource &resource = append(&resource_system_state->resources);
-    U32 resource_index = index_of(&resource_system_state->resources, resource);
-    if (uuid == HE_MAX_U64)
-    {
-        uuid = generate_uuid();
-    }
-    resource.absolute_path = absolute_path;
-    resource.relative_path = sub_string(absolute_path, resource_system_state->resource_path.count + 1);
-    resource.uuid = uuid;
-    resource.asset_uuid = asset_uuid;
-    resource.state = Resource_State::UNLOADED;
-    resource.type = type;
-    resource.index = -1;
-    resource.conditioned = false;
-    resource.generation = 0;
-    resource.ref_count = 0;
-    resource.job_handle = Resource_Pool<Job>::invalid_handle;
-
-    platform_create_mutex(&resource.mutex);
-    init(&resource.resource_refs);
-    init(&resource.children);
-
-    HE_ASSERT(uuid_to_resource_index.find(resource.uuid) == uuid_to_resource_index.end());
-    uuid_to_resource_index.emplace(resource.uuid, resource_index);
-    path_to_resource_index.emplace(resource.relative_path, resource_index);
-    return resource_index;
 }
 
 static void on_path(String *path, bool is_directory)
@@ -1392,10 +1359,10 @@ static void on_path(String *path, bool is_directory)
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
     String absolute_path = copy_string(*path, arena);
-    String relative_path = sub_string(absolute_path, resource_system_state->resource_path.count + 1);
+    String relative_path = absolute_path_to_relative(absolute_path);
     String extension = get_extension(relative_path);
 
-    if (extension == "hres")
+    if (extension == resource_extension)
     {
         Open_File_Result result = platform_open_file(absolute_path.data, OpenFileFlag_Read);
 
@@ -1466,49 +1433,32 @@ static void on_path(String *path, bool is_directory)
     auto it = path_to_asset_index.find(relative_path);
     if (it == path_to_asset_index.end())
     {
-        Asset &asset = append(&resource_system_state->assets);
-        asset_index = index_of(&resource_system_state->assets, asset);
-
-        asset.type = asset_type;
-        asset.job_handle = Resource_Pool<Job>::invalid_handle;
-
-        asset.absolute_path = absolute_path;
-        asset.relative_path = sub_string(absolute_path, resource_system_state->resource_path.count + 1);
-
-        asset.uuid = generate_uuid();
-        asset.last_write_time = platform_get_file_last_write_time(absolute_path.data);
-
-        init(&asset.resource_refs);
-
-        path_to_asset_index.emplace(relative_path, asset_index);
-        uuid_to_asset_index.emplace(asset.uuid, asset_index);
+        asset_index = create_asset(absolute_path, generate_uuid(), asset_type);
     }
     else
     {
         asset_index = it->second;
     }
 
-    Asset &asset = resource_system_state->assets[asset_index];
-    String parent = get_parent_path(asset.absolute_path);
-    String name = get_name(asset.absolute_path);
-    String resource_absolute_path = format_string(arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(parent), HE_EXPAND_STRING(name));
-
-    asset.resource_absolute_path = resource_absolute_path;
-    asset.resource_relative_path = sub_string(resource_absolute_path, resource_system_state->resource_path.count + 1);
-
-    U64 last_write_time = platform_get_file_last_write_time(asset.absolute_path.data);
+    Asset *asset = &resource_system_state->assets[asset_index];
+    String resource_absolute_path = make_resource_absloute_path(asset->absolute_path, scratch_memory.arena);
+    U64 last_write_time = platform_get_file_last_write_time(asset->absolute_path.data);
 
     if (!file_exists(resource_absolute_path))
     {
-        U32 resource_index = create_resource(resource_absolute_path, asset.type, asset.uuid);
-        Resource &resource = resource_system_state->resources[resource_index];
-        append(&asset.resource_refs, resource.uuid);
+        U32 resource_index = create_resource(copy_string(resource_absolute_path, arena), asset->type, asset->uuid);
+        Resource *resource = &resource_system_state->resources[resource_index];
+        append(&asset->resource_refs, resource->uuid);
         append(&resource_system_state->assets_to_condition, (U32)asset_index);
     }
-    else if (last_write_time != asset.last_write_time)
+    else if (last_write_time != asset->last_write_time)
     {
         append(&resource_system_state->assets_to_condition, (U32)asset_index);
-        asset.last_write_time = last_write_time;
+        asset->last_write_time = last_write_time;
+    }
+    else
+    {
+        asset->state = Asset_State::CONDITIONED;
     }
 }
 
@@ -1581,30 +1531,18 @@ static bool deserialize_asset_database(const String &path)
         offset += sizeof(U64) * info->resource_refs_count;
 
         // todo(amer): asset validation here...
-        Asset &asset = append(&resource_system_state->assets);
-        U32 asset_index = index_of(&resource_system_state->assets, asset);
+        String extension = get_extension(relative_path);
+        Asset_Type asset_type = find_asset_type_from_extension(extension);
 
-        asset.uuid = info->uuid;
-        asset.last_write_time = info->last_write_time;
-        asset.absolute_path = absolute_path;
-        asset.relative_path = copy_string(relative_path, arena);
-        asset.job_handle = Resource_Pool<Job>::invalid_handle;
-
-        String extension = get_extension(asset.relative_path);
-        asset.type = find_asset_type_from_extension(extension);
+        U32 asset_index = create_asset(absolute_path, info->uuid, asset_type);
+        Asset *asset = &resource_system_state->assets[asset_index];
+        asset->last_write_time = info->last_write_time;
 
         if (info->resource_refs_count)
         {
-            init(&asset.resource_refs, info->resource_refs_count);
-            copy_memory(asset.resource_refs.data, resource_refs, sizeof(U64) * info->resource_refs_count);
+            set_count(&asset->resource_refs, info->resource_refs_count);
+            copy_memory(asset->resource_refs.data, resource_refs, sizeof(U64) * info->resource_refs_count);
         }
-        else
-        {
-            init(&asset.resource_refs);
-        }
-
-        path_to_asset_index.emplace(asset.relative_path, asset_index);
-        uuid_to_asset_index.emplace(asset.uuid, asset_index);
     }
 
     return true;
@@ -1621,26 +1559,26 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
     uuid_to_resource_index[HE_MAX_U64] = -1;
     uuid_to_asset_index[HE_MAX_U64] = -1;
 
-    Memory_Arena *arena = get_permenent_arena();
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
-    resource_system_state = HE_ALLOCATE(arena, Resource_System_State);
+    Memory_Context memory_context = use_memory_context();
+
+    resource_system_state = HE_ALLOCATE(memory_context.permenent, Resource_System_State);
 
     // todo(amer): @Hack using HE_MAX_U16 at initial capacity so we can append without copying
     // because we need to hold pointers to resources.
     init(&resource_system_state->assets, 0, HE_MAX_U16);
     init(&resource_system_state->resources, 0, HE_MAX_U16);
 
-    String working_directory = get_current_working_directory(arena);
+    String working_directory = get_current_working_directory(memory_context.permenent);
     sanitize_path(working_directory);
 
-    String resource_path = format_string(arena, "%.*s/%.*s", HE_EXPAND_STRING(working_directory), HE_EXPAND_STRING(resource_directory_name));
+    String resource_path = format_string(memory_context.permenent, "%.*s/%.*s", HE_EXPAND_STRING(working_directory), HE_EXPAND_STRING(resource_directory_name));
     if (!directory_exists(resource_path))
     {
         HE_LOG(Resource, Fetal, "invalid resource path: %.*s\n", HE_EXPAND_STRING(resource_path));
         return false;
     }
 
-    resource_system_state->asset_database_path = format_string(arena, "%.*s/assets.hdb", HE_EXPAND_STRING(resource_path));
+    resource_system_state->asset_database_path = format_string(memory_context.permenent, "%.*s/assets.hdb", HE_EXPAND_STRING(resource_path));
 
     Render_Context render_context = get_render_context();
     resource_system_state->resource_path = resource_path;
@@ -1777,12 +1715,22 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
 
     for (U32 asset_index : resource_system_state->assets_to_condition)
     {
-        Asset &asset = resource_system_state->assets[asset_index];
-        auto it = path_to_resource_index.find(asset.resource_relative_path);
+        Asset *asset = &resource_system_state->assets[asset_index];
+
+        String resource_absloute_path = make_resource_absloute_path(asset->absolute_path, memory_context.temp);
+        String resource_relative_path = absolute_path_to_relative(resource_absloute_path);
+        auto it = path_to_resource_index.find(resource_relative_path);
         HE_ASSERT(it != path_to_resource_index.end());
-        Condition_Asset_Job_Data data;
-        data.asset_index = asset_index;
-        data.resource_index = it->second;
+
+        platform_lock_mutex(&asset->mutex);
+        asset->state = Asset_State::PENDING;
+        platform_unlock_mutex(&asset->mutex);
+
+        Condition_Asset_Job_Data data =
+        {
+            .asset_index = asset_index,
+            .resource_index = it->second
+        };
 
         Job_Data job_data =
         {
@@ -1793,6 +1741,7 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             },
             .proc = &condition_asset_job
         };
+
         execute_job(job_data);
     }
 
@@ -1980,205 +1929,6 @@ Resource *get_resource(U32 index)
 {
     HE_ASSERT(index >= 0 && index < resource_system_state->resources.count);
     return &resource_system_state->resources[index];
-}
-
-// @Hack: we should rely on the job system
-bool wait_for_resource_refs_to_condition(Array_View< Resource_Ref > resource_refs)
-{
-    while (true)
-    {
-        bool all_conditioned = true;
-
-        for (Resource_Ref ref : resource_refs)
-        {
-            Resource *resource = get_resource(ref);
-
-            if (!resource->conditioned)
-            {
-                all_conditioned = false;
-                break;
-            }
-        }
-
-        if (all_conditioned)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-// @Hack: we should rely on the job system
-bool wait_for_resource_refs_to_load(Array_View< Resource_Ref > resource_refs)
-{
-    while (true)
-    {
-        bool all_loaded = true;
-
-        for (Resource_Ref ref : resource_refs)
-        {
-            Resource *r = get_resource(ref);
-            if (r->state == Resource_State::UNLOADED)
-            {
-                return false;
-            }
-            else if (r->state == Resource_State::PENDING)
-            {
-                all_loaded = false;
-                break;
-            }
-        }
-
-        if (all_loaded)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool wait_for_resource_refs_to_load(Resource *resource)
-{
-    while (true)
-    {
-        bool all_loaded = true;
-
-        for (U64 uuid : resource->resource_refs)
-        {
-            Resource_Ref ref = { uuid };
-            Resource *r = get_resource(ref);
-            if (r->state == Resource_State::UNLOADED)
-            {
-                return false;
-            }
-            else if (r->state == Resource_State::PENDING)
-            {
-                all_loaded = false;
-                break;
-            }
-        }
-
-        if (all_loaded)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-Shader_Struct *find_material_properties(Array_View<U64> shaders)
-{
-    for (U64 uuid : shaders)
-    {
-        Resource_Ref ref = { uuid };
-        Shader_Handle shader_handle = get_resource_handle_as<Shader>(ref);
-        Shader *shader = renderer_get_shader(shader_handle);
-
-        for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
-        {
-            Shader_Struct *struct_ = &shader->structs[struct_index];
-            if (struct_->name == "Material_Properties")
-            {
-                return struct_;
-            }
-        }
-    }
-
-    return nullptr;
-}
-
-Shader_Struct *find_material_properties(Array_View<Resource_Ref> shaders)
-{
-    for (Resource_Ref ref : shaders)
-    {
-        Shader_Handle shader_handle = get_resource_handle_as<Shader>(ref);
-        Shader *shader = renderer_get_shader(shader_handle);
-
-        for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
-        {
-            Shader_Struct *struct_ = &shader->structs[struct_index];
-            if (struct_->name == "Material_Properties")
-            {
-                return struct_;
-            }
-        }
-    }
-
-    return nullptr;
-}
-
-bool create_material_resource(Resource *resource, const String &render_pass_name, const Pipeline_State_Settings &settings, Material_Property_Info *properties, U16 property_count)
-{
-    resource->type = Asset_Type::MATERIAL;
-    resource->state = Resource_State::UNLOADED;
-    resource->ref_count = 0;
-    resource->index = -1;
-    resource->generation = 0;
-
-    platform_create_mutex(&resource->mutex);
-
-    auto it = uuid_to_asset_index.find(resource->asset_uuid);
-    HE_ASSERT(it != uuid_to_asset_index.end());
-
-    asset_mutex.lock();
-    Asset &asset = resource_system_state->assets[it->second];
-    append(&asset.resource_refs, resource->uuid);
-    asset_mutex.unlock();
-
-    bool success = true;
-
-    Resource_Header header = make_resource_header(Asset_Type::MATERIAL, resource->asset_uuid, resource->uuid);
-    header.resource_ref_count = resource->resource_refs.count;
-    header.child_count = resource->children.count;
-
-    Open_File_Result open_file_result = platform_open_file(resource->absolute_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
-    if (!open_file_result.success)
-    {
-        HE_LOG(Resource, Fetal, "failed to open resource file: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
-        return false;
-    }
-
-    HE_DEFER { platform_close_file(&open_file_result); };
-
-    U64 file_offset = 0;
-    success &= platform_write_data_to_file(&open_file_result, file_offset, &header, sizeof(header));
-    file_offset += sizeof(header);
-
-    if (resource->resource_refs.count)
-    {
-        success &= platform_write_data_to_file(&open_file_result, file_offset, resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
-        file_offset += sizeof(U64) * resource->resource_refs.count;
-    }
-
-    if (resource->children.count)
-    {
-        success &= platform_write_data_to_file(&open_file_result, file_offset, resource->children.data, sizeof(U64) * resource->children.count);
-        file_offset += sizeof(U64) * resource->children.count;
-    }
-
-    Material_Resource_Info info =
-    {
-        .settings = settings,
-        .render_pass_name_count = render_pass_name.count,
-        .render_pass_name_offset = file_offset + sizeof(Material_Resource_Info),
-        .property_count = property_count,
-        .property_data_offset = (S64)(file_offset + sizeof(Material_Resource_Info) + render_pass_name.count)
-    };
-
-    success &= platform_write_data_to_file(&open_file_result, file_offset, &info, sizeof(info));
-    file_offset += sizeof(info);
-
-    success &= platform_write_data_to_file(&open_file_result, file_offset, (void *)render_pass_name.data, sizeof(char) * render_pass_name.count);
-    file_offset += sizeof(char) * render_pass_name.count;
-
-    U64 property_size = sizeof(Material_Property_Info) * property_count;
-    success &= platform_write_data_to_file(&open_file_result, file_offset, (void *)properties, property_size);
-    file_offset += property_size;
-
-    return success;
 }
 
 const Dynamic_Array< Resource >& get_resources()

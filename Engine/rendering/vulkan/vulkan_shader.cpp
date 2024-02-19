@@ -1049,7 +1049,7 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     color_blend_state_create_info.blendConstants[3] = 0.0f;
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
-    depth_stencil_state_create_info.depthTestEnable = VK_TRUE;
+    depth_stencil_state_create_info.depthTestEnable = descriptor.settings.depth_testing ? VK_TRUE : VK_FALSE;
     depth_stencil_state_create_info.depthWriteEnable = VK_TRUE;
     depth_stencil_state_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
     depth_stencil_state_create_info.depthBoundsTestEnable = VK_FALSE;

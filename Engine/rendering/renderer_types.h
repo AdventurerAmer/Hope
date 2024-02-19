@@ -427,12 +427,14 @@ struct Pipeline_State_Settings
     Cull_Mode cull_mode = Cull_Mode::BACK;
     Front_Face front_face = Front_Face::COUNTER_CLOCKWISE;
     Fill_Mode fill_mode = Fill_Mode::SOLID;
+    bool depth_testing = true;
     bool sample_shading = false;
 };
 
 struct Pipeline_State_Descriptor
 {
     Pipeline_State_Settings settings;
+
     Shader_Group_Handle shader_group;
     Render_Pass_Handle render_pass;
 };
@@ -453,8 +455,6 @@ using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
 struct Material_Descriptor
 {
     Pipeline_State_Handle pipeline_state_handle;
-    U32 property_info_count;
-    struct Material_Property_Info *property_infos;
 };
 
 union Material_Property_Data
@@ -482,7 +482,6 @@ struct Material_Property
     String name;
 
     Shader_Data_Type data_type;
-    Material_Property_Data default_data;
     Material_Property_Data data;
 
     U64 offset_in_buffer;

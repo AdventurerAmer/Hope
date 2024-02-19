@@ -139,7 +139,9 @@ Memory_Arena *get_permenent_arena()
 
 Memory_Arena *get_transient_arena()
 {
-    auto it = find(&memory_system_state.thread_id_to_memory_state, platform_get_current_thread_id());
+    U32 thread_id = platform_get_current_thread_id();
+    auto it = find(&memory_system_state.thread_id_to_memory_state, thread_id);
+    HE_ASSERT(is_valid(it));
     Thread_Memory_State *memory_state = it.value;
     return &memory_state->transient_arena;
 }

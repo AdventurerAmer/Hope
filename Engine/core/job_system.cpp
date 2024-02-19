@@ -4,6 +4,7 @@
 #include "platform.h"
 #include "memory.h"
 #include "logging.h"
+#include "file_system.h"
 
 #include "containers/queue.h"
 
@@ -62,7 +63,6 @@ static void schedule_job_to_least_worked_thread(Job_Handle job_handle)
     }
 
     HE_ASSERT(least_worked_thread_state);
-    job_system_state.in_progress_job_count.fetch_add(1);
 
     platform_lock_mutex(&least_worked_thread_state->job_queue_mutex);
     S32 index = push(&least_worked_thread_state->job_queue, job_handle);
@@ -75,6 +75,8 @@ static void schedule_job_to_least_worked_thread(Job_Handle job_handle)
 
 static void terminate_job(Job_Handle job_handle)
 {
+    job_system_state.in_progress_job_count.fetch_sub(1);
+
     Job *job = get(&job_system_state.job_pool, job_handle);
 
     for (Job_Ref dependent_job_ref : job->dependent_jobs)
@@ -219,8 +221,7 @@ bool init_job_system()
         U32 thread_id = platform_get_thread_id(&thread_state->thread);
         Thread_Memory_State *memory_state = get_thread_memory_state(thread_id);
 
-        U64 capacity = HE_MEGA_BYTES(32);
-        bool memory_arena_inited = init_memory_arena(&memory_state->transient_arena, capacity, HE_MEGA_BYTES(1));
+        bool memory_arena_inited = init_memory_arena(&memory_state->transient_arena, HE_MEGA_BYTES(32), HE_MEGA_BYTES(32));
         HE_ASSERT(memory_arena_inited);
 
         thread_state->transient_arena = &memory_state->transient_arena;
@@ -293,6 +294,8 @@ Job_Handle execute_job(Job_Data job_data, Array_View< Job_Handle > wait_for_jobs
     {
         schedule_job_to_least_worked_thread(job_handle);
     }
+
+    job_system_state.in_progress_job_count.fetch_add(1);
 
     return job_handle;
 }

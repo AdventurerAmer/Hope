@@ -1,13 +1,16 @@
 #pragma once
 
 #include "core/defines.h"
+#include "core/job_system.h"
+#include "core/file_system.h"
 
 #include "containers/string.h"
 #include "containers/array.h"
 #include "containers/dynamic_array.h"
 #include "containers/resource_pool.h"
-#include "core/job_system.h"
+
 #include "rendering/renderer_types.h"
+
 #include <atomic>
 
 enum class Asset_Type : U32
@@ -20,11 +23,11 @@ enum class Asset_Type : U32
     COUNT
 };
 
-enum class Resource_State : U8
+enum class Asset_State
 {
-    UNLOADED,
+    UNCONDITIONED,
     PENDING,
-    LOADED
+    CONDITIONED
 };
 
 struct Asset
@@ -34,15 +37,22 @@ struct Asset
     String absolute_path;
     String relative_path;
 
-    String resource_absolute_path;
-    String resource_relative_path;
-
     U64 uuid;
     U64 last_write_time;
 
+    Mutex mutex;
+
     Dynamic_Array< U64 > resource_refs;
 
+    Asset_State state;
     Job_Handle job_handle;
+};
+
+enum class Resource_State : U8
+{
+    UNLOADED,
+    PENDING,
+    LOADED
 };
 
 struct Resource
@@ -58,14 +68,13 @@ struct Resource
 
     U64 asset_uuid;
 
-    bool conditioned;
-
     Mutex mutex;
     Allocation_Group allocation_group;
 
+    // todo(amer): is volatile and atomics nessessary here.
     volatile Resource_State state;
     volatile U32 ref_count;
-    
+
     volatile S32 index;
     volatile U32 generation;
 
@@ -87,13 +96,12 @@ struct Resource_Ref
     }
 };
 
-typedef bool(*condition_asset_proc)(Asset *asset, Resource *resource, Open_File_Result *asset_file, Open_File_Result *resource_file, Memory_Arena *arena);
+typedef bool(*condition_asset_proc)(Read_Entire_File_Result *asset_file_result, Asset *asset, Resource *resource, Memory_Arena *arena);
 
 struct Asset_Conditioner
-{ 
+{
     U32 extension_count;
     String *extensions;
-
     condition_asset_proc condition_asset;
 };
 
@@ -150,9 +158,6 @@ struct Shader_Resource_Info
 
 struct Material_Property_Info
 {
-    bool is_texture_resource;
-    bool is_color;
-    Material_Property_Data default_data;
     Material_Property_Data data;
 };
 
@@ -224,22 +229,13 @@ Resource_Handle<T> get_resource_handle_as(Resource_Ref ref)
 {
     Resource *resource = get_resource(ref);
     HE_ASSERT(resource->state != Resource_State::UNLOADED);
-    
+
     return
     {
         .index = std::atomic_load( (std::atomic<S32>*)&resource->index ),
         .generation = std::atomic_load( (std::atomic<U32>*)&resource->generation )
     };
 }
-
-Shader_Struct *find_material_properties(Array_View<U64> shaders);
-Shader_Struct *find_material_properties(Array_View<Resource_Ref> shaders);
-
-bool create_material_resource(Resource *resource, const String &render_pass_name, const Pipeline_State_Settings &settings, struct Material_Property_Info *properties, U16 property_count);
-
-bool wait_for_resource_refs_to_condition(Array_View< Resource_Ref > resource_refs);
-bool wait_for_resource_refs_to_load(Array_View< Resource_Ref > resource_refs);
-bool wait_for_resource_refs_to_load(Resource *resource);
 
 const Dynamic_Array< Resource >& get_resources();
 

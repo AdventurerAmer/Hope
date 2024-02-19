@@ -33,11 +33,6 @@
 
 #include <imgui.h>
 
-static Free_List_Allocator *internal_stbi_allocator;
-#define STBI_MALLOC(sz) allocate(internal_stbi_allocator, sz, 0);
-#define STBI_REALLOC(p, newsz) reallocate(internal_stbi_allocator, p, newsz, 0)
-#define STBI_FREE(p) deallocate(internal_stbi_allocator, p)
-
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
@@ -117,7 +112,6 @@ bool init_renderer_state(Engine *engine)
 {
     Memory_Arena *arena = get_permenent_arena();
     Free_List_Allocator *allocator = get_general_purpose_allocator();
-    internal_stbi_allocator = allocator;
 
     renderer_state = HE_ALLOCATE(arena, Renderer_State);
     renderer_state->engine = engine;
@@ -510,11 +504,6 @@ bool init_renderer_state(Engine *engine)
         renderer_state->default_fragment_shader = renderer_create_shader(default_fragment_shader_descriptor);
         HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->default_fragment_shader));
 
-        {
-            Shader *shader = renderer_get_shader(renderer_state->default_fragment_shader);
-            int x = 0;
-        }
-
         Shader_Group_Descriptor default_shader_group_descriptor;
         default_shader_group_descriptor.shaders =
         {
@@ -539,27 +528,9 @@ bool init_renderer_state(Engine *engine)
         renderer_state->default_pipeline = renderer_create_pipeline_state(default_pipeline_state_descriptor);
         HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, renderer_state->default_pipeline));
 
-        Material_Property_Info infos[] =
-        {
-            {
-                .is_texture_resource = true,
-                .is_color = false,
-                .default_data = { .u32 = (U32)renderer_state->white_pixel_texture.index },
-                .data = { .u64 = HE_MAX_U64 }
-            },
-            {
-                .is_texture_resource = false,
-                .is_color = true,
-                .default_data = { .v3 = { 1.0f, 0.0f, 1.0f } },
-                .data = { .v3 = { 1.0f, 0.0f, 1.0f } }
-            }
-        };
-
         Material_Descriptor default_material_descriptor =
         {
             .pipeline_state_handle = renderer_state->default_pipeline,
-            .property_info_count = HE_ARRAYCOUNT(infos),
-            .property_infos = infos,
         };
 
         renderer_state->default_material = renderer_create_material(default_material_descriptor);
@@ -1240,18 +1211,18 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         bind_group_descriptor.layout = shader_group->bind_group_layouts[2]; // todo(amer): Hardcoding
         append(&material->bind_groups, renderer_create_bind_group(bind_group_descriptor));
 
-        Update_Binding_Descriptor update_binding_descriptors[1] = {};
-        update_binding_descriptors[0].binding_number = 0;
-        update_binding_descriptors[0].element_index = 0;
-        update_binding_descriptors[0].count = 1;
-        update_binding_descriptors[0].buffers = &material->buffers[frame_index];
+        Update_Binding_Descriptor update_binding_descriptor =
+        {
+            .binding_number = 0,
+            .element_index = 0,
+            .count = 1,
+            .buffers = &material->buffers[frame_index],
+        };
 
         platform_lock_mutex(&renderer_state->render_commands_mutex);
-        renderer->update_bind_group(material->bind_groups[frame_index], to_array_view(update_binding_descriptors));
+        renderer->update_bind_group(material->bind_groups[frame_index], { .count = 1, .data = &update_binding_descriptor });
         platform_unlock_mutex(&renderer_state->render_commands_mutex);
     }
-
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
 
     init(&material->properties, properties->member_count);
 
@@ -1264,27 +1235,14 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         property->data_type = member->data_type;
         property->offset_in_buffer = member->offset;
 
-        property->default_data = {};
-        property->is_texture_resource = false;
-        property->is_color = false;
+        property->is_texture_resource = ends_with(property->name, "_texture_index") && member->data_type == Shader_Data_Type::U32;
+        property->is_color = ends_with(property->name, "_color") && (member->data_type == Shader_Data_Type::VECTOR3F || member->data_type == Shader_Data_Type::VECTOR4F);
     }
 
     material->pipeline_state_handle = descriptor.pipeline_state_handle;
-    material->data = HE_ALLOCATE_ARRAY(allocator, U8, size);
+    material->data = HE_ALLOCATE_ARRAY( get_general_purpose_allocator(), U8, size );
     material->size = size;
     material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
-
-    // todo(amer): inorder properties please
-    for (U32 property_index = 0; property_index < descriptor.property_info_count; property_index++)
-    {
-        Material_Property_Info *info = &descriptor.property_infos[property_index];
-        Material_Property *property = &material->properties[property_index];
-
-        property->default_data = info->default_data;
-        property->is_texture_resource = info->is_texture_resource;
-        property->is_color = info->is_color;
-        set_property(material_handle, property_index, info->data);
-    }
 
     return material_handle;
 }
@@ -1342,6 +1300,7 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
 {
     if (property_id == -1)
     {
+        HE_LOG(Rendering, Trace, "invalid property id: %d\n", property_id);
         return false;
     }
 
@@ -1369,9 +1328,7 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
         }
         else
         {
-            Texture_Handle texture_handle = { (S32)property->default_data.u32, 0 };
-            HE_ASSERT(is_valid_handle(&renderer_state->textures, texture_handle));
-            *texture_index = property->default_data.u32;
+            *texture_index = (U32)renderer_state->white_pixel_texture.index;
         }
     }
     else

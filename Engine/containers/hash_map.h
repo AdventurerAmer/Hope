@@ -129,7 +129,7 @@ Hash_Map_Iterator< Value_Type > find(Hash_Map< Key_Type, Value_Type > *hash_map,
             }
         }
 
-        slot_index++;
+        slot_index = (slot_index + 1) & (hash_map->capacity - 1);
     }
     while (slot_index != start_slot);
 
@@ -161,6 +161,7 @@ S32 insert(Hash_Map< Key_Type, Value_Type > *hash_map, const Key_Type &key, cons
         hash_map->values[insert_index] = value;
         hash_map->count++;
     }
+
     return insert_index;
 }
 

@@ -174,7 +174,6 @@ bool startup(Engine *engine, void *platform_state)
     {
         .data = result.data,
         .size = result.size
-        // .path = "shaders/bin/skybox.vert.spv"
     };
     renderer_state->skybox_vertex_shader = renderer_create_shader(skybox_vertex_shader_descriptor);
 
@@ -183,7 +182,6 @@ bool startup(Engine *engine, void *platform_state)
     {
         .data = result.data,
         .size = result.size
-        // .path = "shaders/bin/skybox.frag.spv"
     };
     renderer_state->skybox_fragment_shader = renderer_create_shader(skybox_fragment_shader_descriptor);
 
@@ -202,6 +200,7 @@ bool startup(Engine *engine, void *platform_state)
             .cull_mode = Cull_Mode::NONE,
             .front_face = Front_Face::COUNTER_CLOCKWISE,
             .fill_mode = Fill_Mode::SOLID,
+            .depth_testing = false,
             .sample_shading = true,
         },
         .shader_group = renderer_state->skybox_shader_group,
