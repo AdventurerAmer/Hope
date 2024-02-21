@@ -534,6 +534,9 @@ bool init_renderer_state(Engine *engine)
         };
 
         renderer_state->default_material = renderer_create_material(default_material_descriptor);
+        set_property(renderer_state->default_material, "debug_texture_index", { .u32 = (U32)renderer_state->white_pixel_texture.index });
+        set_property(renderer_state->default_material, "debug_color", { .v3 = { 1.0f, 0.0f, 1.0f }});
+
         HE_ASSERT(is_valid_handle(&renderer_state->materials, renderer_state->default_material));
 
         Shader_Group *default_shader_group = get(&renderer_state->shader_groups, renderer_state->default_shader_group);
@@ -911,9 +914,27 @@ Texture* renderer_get_texture(Texture_Handle texture_handle)
 
 void renderer_destroy_texture(Texture_Handle &texture_handle)
 {
+    HE_ASSERT(texture_handle != renderer_state->white_pixel_texture);
+    HE_ASSERT(texture_handle != renderer_state->normal_pixel_texture);
+
+    Texture *texture = renderer_get_texture(texture_handle);
+
+    texture->name = HE_STRING_LITERAL("");
+    texture->width = 0;
+    texture->height = 0;
+    texture->format = Texture_Format::R8G8B8A8_SRGB;
+    texture->sample_count = 1;
+    texture->size = 0;
+    texture->alignment = 0;
+    texture->is_uploaded_to_gpu = false;
+    texture->is_attachment = false;
+    texture->is_cubemap = false;
+    texture->alias = Resource_Pool<Texture>::invalid_handle;
+
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->destroy_texture(texture_handle);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
+
     release_handle(&renderer_state->textures, texture_handle);
     texture_handle = Resource_Pool< Texture >::invalid_handle;
 }
@@ -967,9 +988,37 @@ Shader* renderer_get_shader(Shader_Handle shader_handle)
 
 void renderer_destroy_shader(Shader_Handle &shader_handle)
 {
+    HE_ASSERT(shader_handle != renderer_state->default_vertex_shader);
+    HE_ASSERT(shader_handle != renderer_state->default_fragment_shader);
+
+    // todo(amer): can we make the shader reflection data a one memory block to free it in one step...
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
+    Shader *shader = renderer_get_shader(shader_handle);
+
+    for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
+    {
+        Bind_Group_Layout_Descriptor *set = &shader->sets[set_index];
+        if (set->binding_count)
+        {
+            deallocate(allocator, set->bindings);
+        }
+    }
+
+    deallocate(allocator, shader->inputs);
+    deallocate(allocator, shader->outputs);
+
+    for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
+    {
+        Shader_Struct *shader_struct = &shader->structs[struct_index];
+        deallocate(allocator, shader_struct->members);
+    }
+
+    deallocate(allocator, shader->structs);
+
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->destroy_shader(shader_handle);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
+
     release_handle(&renderer_state->shaders, shader_handle);
     shader_handle = Resource_Pool< Shader >::invalid_handle;
 }
@@ -1054,7 +1103,9 @@ Bind_Group *renderer_get_bind_group(Bind_Group_Handle bind_group_handle)
 void renderer_destroy_bind_group(Bind_Group_Handle &bind_group_handle)
 {
     renderer->destroy_bind_group(bind_group_handle);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     release_handle(&renderer_state->bind_groups, bind_group_handle);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
     bind_group_handle = Resource_Pool< Bind_Group >::invalid_handle;
 }
 
@@ -1235,7 +1286,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         property->data_type = member->data_type;
         property->offset_in_buffer = member->offset;
 
-        property->is_texture_resource = ends_with(property->name, "_texture_index") && member->data_type == Shader_Data_Type::U32;
+        property->is_texture_resource = ends_with(property->name, "_texture") && member->data_type == Shader_Data_Type::U32;
         property->is_color = ends_with(property->name, "_color") && (member->data_type == Shader_Data_Type::VECTOR3F || member->data_type == Shader_Data_Type::VECTOR4F);
     }
 
@@ -1261,6 +1312,9 @@ void renderer_destroy_material(Material_Handle &material_handle)
         renderer_destroy_buffer(material->buffers[frame_index]);
         renderer_destroy_bind_group(material->bind_groups[frame_index]);
     }
+
+    reset(&material->buffers);
+    reset(&material->bind_groups);
 
     deallocate(get_general_purpose_allocator(), material->data);
     release_handle(&renderer_state->materials, material_handle);

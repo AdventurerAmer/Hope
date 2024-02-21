@@ -160,6 +160,9 @@ struct Vulkan_Context
     VkCommandBuffer graphics_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
     VkCommandBuffer command_buffer;
 
+    // todo(amer): this is temprary to test texture hot reloading in the future we are going to have to use a per thread command pool.
+    VkCommandPool upload_textures_command_pool;
+
     VkPipelineCache pipeline_cache;
 
     VkCommandPool transfer_command_pool;

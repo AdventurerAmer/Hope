@@ -140,9 +140,10 @@ struct Renderer_State
     Dynamic_Array< Scene_Node > nodes;
     Scene_Node *root_scene_node;
 
+    Pipeline_State_Handle current_pipeline_state_handle;
+
     U32 opaque_packet_count;
     Render_Packet *opaque_packets;
-    Pipeline_State_Handle current_pipeline_state_handle;
 
     F32 gamma;
     bool triple_buffering;

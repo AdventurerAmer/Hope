@@ -93,6 +93,7 @@ struct Texture
     U64 size;
     U64 alignment;
 
+    bool is_uploaded_to_gpu;
     bool is_attachment;
     bool is_cubemap;
     Resource_Handle< Texture > alias;
@@ -539,6 +540,8 @@ struct Allocation_Group
     Semaphore_Handle semaphore;
 
     Array< void*, HE_MAX_ALLOCATION_COUNT > allocations;
+
+    bool *uploaded = nullptr;
 };
 
 //

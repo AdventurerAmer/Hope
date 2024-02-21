@@ -479,10 +479,8 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     HE_CHECK_VKRESULT(vkCreatePipelineCache(context->logical_device, &pipeline_cache_create_info, nullptr, &context->pipeline_cache));
 
     VkCommandPoolCreateInfo graphics_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-
     graphics_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     graphics_command_pool_create_info.queueFamilyIndex = context->graphics_queue_family_index;
-
     HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &graphics_command_pool_create_info, nullptr, &context->graphics_command_pool));
 
     VkCommandBufferAllocateInfo graphics_command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
@@ -492,8 +490,9 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     graphics_command_buffer_allocate_info.commandBufferCount = HE_MAX_FRAMES_IN_FLIGHT;
     HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &graphics_command_buffer_allocate_info, context->graphics_command_buffers));
 
-    VkCommandPoolCreateInfo transfer_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &graphics_command_pool_create_info, nullptr, &context->upload_textures_command_pool));
 
+    VkCommandPoolCreateInfo transfer_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     transfer_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     transfer_command_pool_create_info.queueFamilyIndex = context->transfer_queue_family_index;
     HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &transfer_command_pool_create_info, nullptr, &context->transfer_command_pool));
@@ -506,7 +505,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     };
 
     VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-    descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+    descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT|VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     descriptor_pool_create_info.poolSizeCount = HE_ARRAYCOUNT(descriptor_pool_sizes);
     descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
     descriptor_pool_create_info.maxSets = HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT * HE_ARRAYCOUNT(descriptor_pool_sizes);
@@ -561,6 +560,7 @@ void deinit_vulkan(Vulkan_Context *context)
     }
 
     vkDestroyCommandPool(context->logical_device, context->graphics_command_pool, nullptr);
+    vkDestroyCommandPool(context->logical_device, context->upload_textures_command_pool, nullptr);
     vkDestroyCommandPool(context->logical_device, context->transfer_command_pool, nullptr);
 
     destroy_swapchain(context, &context->swapchain);
@@ -640,7 +640,7 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
 
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
 
-    // todo(amer): move this side.
+    // todo(amer): move this outside.
     Globals globals = {};
     globals.view = scene_data->view;
     globals.projection = scene_data->projection;
@@ -820,7 +820,10 @@ void vulkan_renderer_end_frame()
     submit_info.pSignalSemaphoreInfos = signal_semaphore_infos;
     submit_info.commandBufferInfoCount = 1;
     submit_info.pCommandBufferInfos = &command_buffer_submit_info;
+
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
     ImGuiIO &io = ImGui::GetIO();
     if (io.ConfigFlags&ImGuiConfigFlags_ViewportsEnable)
@@ -961,6 +964,13 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     {
         Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
         copy_data_to_image(context, image, descriptor.width, descriptor.height, mip_levels, descriptor.layer_count, get_texture_format(descriptor.format), descriptor.data, descriptor.allocation_group);
+    }
+
+    texture->is_uploaded_to_gpu = false;
+
+    if (descriptor.allocation_group)
+    {
+        descriptor.allocation_group->uploaded = &texture->is_uploaded_to_gpu;
     }
 
     texture->width = descriptor.width;
@@ -1802,7 +1812,6 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     U64 index_size = descriptor.index_count * sizeof(U16);
 
     HE_ASSERT(renderer_state->vertex_count + descriptor.vertex_count <= renderer_state->max_vertex_count);
-    // HE_ASSERT(descriptor.sub_meshes.data && descriptor.sub_meshes.count);
 
     static_mesh->vertex_count = u64_to_u32(descriptor.vertex_count);
     static_mesh->index_count = u64_to_u32(descriptor.index_count);

@@ -46,10 +46,10 @@ layout(set = 1, binding = 0) uniform sampler2D u_textures[];
 
 struct Material_Properties
 {
-    uint albedo_texture_index;
+    uint albedo_texture;
     vec3 albedo_color;
-    uint normal_texture_index;
-    uint occlusion_roughness_metallic_texture_index;
+    uint normal_texture;
+    uint occlusion_roughness_metallic_texture;
     float roughness_factor;
     float metallic_factor;
     float reflectance;
@@ -90,10 +90,10 @@ float geometry_smith(float NdotV, float NdotL, float roughness)
 
 void main()
 {
-    vec3 albedo = srgb_to_linear( texture( u_textures[ nonuniformEXT( material.albedo_texture_index) ], in_uv ).rgb, globals.gamma );
+    vec3 albedo = srgb_to_linear( texture( u_textures[ nonuniformEXT( material.albedo_texture) ], in_uv ).rgb, globals.gamma );
     albedo *= srgb_to_linear( material.albedo_color, globals.gamma );
 
-    vec3 occlusion_roughness_metallic = texture( u_textures[ nonuniformEXT( material.occlusion_roughness_metallic_texture_index ) ], in_uv ).rgb;
+    vec3 occlusion_roughness_metallic = texture( u_textures[ nonuniformEXT( material.occlusion_roughness_metallic_texture ) ], in_uv ).rgb;
     float occlusion = occlusion_roughness_metallic.r;
 
     float roughness = occlusion_roughness_metallic.g;
@@ -109,7 +109,7 @@ void main()
     vec3 bitangent = normalize(in_bitangent);
     mat3 TBN = mat3(tangent, bitangent, normal);
 
-    vec3 N = texture( u_textures[ nonuniformEXT( material.normal_texture_index ) ], in_uv ).rgb * 2.0 - 1.0;
+    vec3 N = texture( u_textures[ nonuniformEXT( material.normal_texture ) ], in_uv ).rgb * 2.0 - 1.0;
     N = normalize(TBN * N);
 
     vec3 L = -globals.directional_light_direction;

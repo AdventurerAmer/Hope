@@ -30,7 +30,9 @@ void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state)
     for (U32 allocation_group_index = 0; allocation_group_index < renderer_state->allocation_groups.count; allocation_group_index++)
     {
         Allocation_Group &allocation_group = renderer_state->allocation_groups[allocation_group_index];
-        U64 semaphore_value = renderer->get_semaphore_value(allocation_group.semaphore);
+
+        U64 semaphore_value = renderer_get_semaphore_value(allocation_group.semaphore);
+
         if (allocation_group.target_value == semaphore_value)
         {
             if (allocation_group.resource_index != -1)
@@ -38,7 +40,6 @@ void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state)
                 Resource *resource = get_resource((U32)allocation_group.resource_index);
                 platform_lock_mutex(&resource->mutex);
                 HE_ASSERT(resource->state == Resource_State::PENDING);
-                resource->ref_count++;
                 resource->state = Resource_State::LOADED;
                 platform_unlock_mutex(&resource->mutex);
 
@@ -54,6 +55,11 @@ void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state)
             for (void *memory : allocation_group.allocations)
             {
                 deallocate(&renderer_state->transfer_allocator, memory);
+            }
+
+            if (allocation_group.uploaded)
+            {
+                *allocation_group.uploaded = true;
             }
 
             remove_and_swap_back(&renderer_state->allocation_groups, allocation_group_index);
@@ -159,7 +165,6 @@ bool startup(Engine *engine, void *platform_state)
     scene_data->directional_light.color = { 1.0f, 1.0f, 1.0f, 1.0f };
     scene_data->directional_light.intensity = 1.0f;
 
-    auto start = std::chrono::steady_clock::now();
     bool game_initialized = game_code->init_game(engine);
 
     wait_for_all_jobs_to_finish();
@@ -226,9 +231,6 @@ bool startup(Engine *engine, void *platform_state)
         finalize_asset_loads(render_context.renderer, render_context.renderer_state);
     }
 
-    auto end = std::chrono::steady_clock::now();
-    const std::chrono::duration< F64 > elapsed_seconds = end - start;
-    HE_LOG(Core, Trace, "assets loaded %.2f ms to finish\n", elapsed_seconds * 1000.0f);
     return game_initialized;
 }
 
@@ -510,7 +512,17 @@ void game_loop(Engine *engine, F32 delta_time)
     Renderer *renderer = render_context.renderer;
     Renderer_State *renderer_state = render_context.renderer_state;
 
-    reload_resources();
+    static float reload_timer = 0;
+    float reload_time = 1.0f;
+
+    finalize_asset_loads(renderer, renderer_state);
+
+    reload_timer += delta_time;
+    while (reload_timer >= reload_time)
+    {
+        reload_resources();
+        reload_timer -= reload_time;
+    }
 
     Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
 
@@ -765,6 +777,10 @@ void game_loop(Engine *engine, F32 delta_time)
             {
                 textures[it.index] = renderer_state->white_pixel_texture;
             }
+            else if (!texture->is_uploaded_to_gpu)
+            {
+                textures[it.index] = renderer_state->white_pixel_texture;
+            }
             else
             {
                 textures[it.index] = it;
@@ -808,8 +824,6 @@ void game_loop(Engine *engine, F32 delta_time)
     }
 
     end_temprary_memory(&temprary_memory);
-
-    finalize_asset_loads(renderer, renderer_state);
 }
 
 void shutdown(Engine *engine)

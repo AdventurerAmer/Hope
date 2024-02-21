@@ -43,6 +43,20 @@ struct Win32_Platform_State
 
 static Win32_Platform_State win32_platform_state;
 
+// https://learn.microsoft.com/en-us/windows/win32/Debug/retrieving-the-last-error-code
+static void win32_log_last_error()
+{
+    DWORD error_code = GetLastError();
+
+    LPVOID message_buffer;
+    FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS, NULL, error_code, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                  (LPTSTR)&message_buffer, 0, NULL);
+
+    HE_LOG(Core, Fetal, "win32 platform error code %d: %s", error_code, message_buffer);
+
+    LocalFree(message_buffer);
+}
+
 static void win32_get_window_size(U32 client_width, U32 client_height, U32 *width, U32 *height)
 {
     RECT rect;
@@ -610,19 +624,23 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
 
     DWORD access_flags = 0;
     DWORD creation_disposition = OPEN_ALWAYS;
+    DWORD share_flags = 0;
 
     if ((open_file_flags & OpenFileFlag_Read) && (open_file_flags & OpenFileFlag_Write))
     {
         access_flags = GENERIC_READ|GENERIC_WRITE;
+        share_flags = FILE_SHARE_READ|FILE_SHARE_WRITE;
     }
     else if ((open_file_flags & OpenFileFlag_Read))
     {
         access_flags = GENERIC_READ;
         creation_disposition = OPEN_EXISTING;
+        share_flags = FILE_SHARE_READ;
     }
     else if ((open_file_flags & OpenFileFlag_Write))
     {
         access_flags = GENERIC_WRITE;
+        share_flags = FILE_SHARE_WRITE;
     }
 
     if ((open_file_flags & OpenFileFlag_Truncate))
@@ -630,9 +648,13 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
         creation_disposition = CREATE_ALWAYS;
     }
 
-    HANDLE file_handle = CreateFileA(filepath, access_flags, FILE_SHARE_READ|FILE_SHARE_WRITE, 0, creation_disposition, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE file_handle = CreateFileA(filepath, access_flags, share_flags, 0, creation_disposition, FILE_ATTRIBUTE_NORMAL, NULL);
 
-    if (file_handle != INVALID_HANDLE_VALUE)
+    if (file_handle == INVALID_HANDLE_VALUE)
+    {
+        win32_log_last_error();
+    }
+    else
     {
         LARGE_INTEGER file_size = {};
         BOOL success = GetFileSizeEx(file_handle, &file_size);

@@ -193,7 +193,7 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
     Renderer_State *renderer_state = context->renderer_state;
 
     VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    command_buffer_allocate_info.commandPool = context->graphics_command_pool;
+    command_buffer_allocate_info.commandPool = context->upload_textures_command_pool;
     command_buffer_allocate_info.commandBufferCount = 1;
     command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
@@ -335,4 +335,8 @@ void destroy_image(Vulkan_Image *image, Vulkan_Context *context)
     }
     
     vkDestroyImage(context->logical_device, image->handle, nullptr);
+
+    image->handle = VK_NULL_HANDLE;
+    image->memory = VK_NULL_HANDLE;
+    image->view = VK_NULL_HANDLE;
 }
