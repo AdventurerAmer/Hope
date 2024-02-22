@@ -117,12 +117,6 @@ struct Vulkan_Render_Pass
     VkRenderPass handle;
 };
 
-struct Vulkan_Static_Mesh
-{
-    U32 first_vertex;
-    U32 first_index;
-};
-
 struct Vulkan_Context
 {
     struct Renderer_State *renderer_state;
@@ -157,15 +151,14 @@ struct Vulkan_Context
     VkDescriptorPool imgui_descriptor_pool;
 
     VkCommandPool graphics_command_pool;
+    // todo(amer): this is temprary to test texture hot reloading in the future we are going to have to use a per thread command pool.
+    VkCommandPool upload_textures_command_pool;
+    VkCommandPool transfer_command_pool;
+
     VkCommandBuffer graphics_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
     VkCommandBuffer command_buffer;
 
-    // todo(amer): this is temprary to test texture hot reloading in the future we are going to have to use a per thread command pool.
-    VkCommandPool upload_textures_command_pool;
-
     VkPipelineCache pipeline_cache;
-
-    VkCommandPool transfer_command_pool;
 
     PFN_vkQueueSubmit2KHR vkQueueSubmit2KHR;
     PFN_vkCmdPipelineBarrier2KHR vkCmdPipelineBarrier2KHR;
@@ -180,7 +173,6 @@ struct Vulkan_Context
     Vulkan_Bind_Group *bind_groups;
     Vulkan_Render_Pass *render_passes;
     Vulkan_Frame_Buffer *frame_buffers;
-    Vulkan_Static_Mesh *static_meshes;
     Vulkan_Semaphore *semaphores;
 
 #if HE_GRAPHICS_DEBUGGING

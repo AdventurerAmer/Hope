@@ -61,7 +61,6 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->create_sampler = &vulkan_renderer_create_sampler;
             renderer->destroy_sampler = &vulkan_renderer_destroy_sampler;
             renderer->create_static_mesh = &vulkan_renderer_create_static_mesh;
-            renderer->destroy_static_mesh = &vulkan_renderer_destroy_static_mesh;
             renderer->create_shader = &vulkan_renderer_create_shader;
             renderer->destroy_shader = &vulkan_renderer_destroy_shader;
             renderer->create_pipeline_state = &vulkan_renderer_create_pipeline_state;
@@ -88,7 +87,6 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->set_vertex_buffers = &vulkan_renderer_set_vertex_buffers;
             renderer->set_index_buffer = &vulkan_renderer_set_index_buffer;
             renderer->set_pipeline_state = &vulkan_renderer_set_pipeline_state;
-            renderer->draw_static_mesh = &vulkan_renderer_draw_static_mesh;
             renderer->draw_sub_mesh = &vulkan_renderer_draw_sub_mesh;
             renderer->end_frame = &vulkan_renderer_end_frame;
             renderer->set_vsync = &vulkan_renderer_set_vsync;
@@ -272,68 +270,6 @@ bool init_renderer_state(Engine *engine)
         renderer_state->normal_pixel_texture = renderer_create_texture(normal_pixel_descriptor);
     }
 
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        Buffer_Descriptor globals_uniform_buffer_descriptor =
-        {
-            .size = sizeof(Globals),
-            .usage = Buffer_Usage::UNIFORM,
-            .is_device_local = false,
-        };
-        renderer_state->globals_uniform_buffers[frame_index] = renderer_create_buffer(globals_uniform_buffer_descriptor);
-
-        Buffer_Descriptor object_data_storage_buffer_descriptor =
-        {
-            .size = sizeof(Object_Data) * HE_MAX_OBJECT_DATA_COUNT,
-            .usage = Buffer_Usage::STORAGE,
-            .is_device_local = false
-        };
-        renderer_state->object_data_storage_buffers[frame_index] = renderer_create_buffer(object_data_storage_buffer_descriptor);
-    }
-
-    U32 max_vertex_count = 1'000'000; // todo(amer): @Hardcode
-    renderer_state->max_vertex_count = max_vertex_count;
-
-    Buffer_Descriptor position_buffer_descriptor =
-    {
-        .size = max_vertex_count * sizeof(glm::vec3),
-        .usage = Buffer_Usage::VERTEX,
-        .is_device_local = true
-    };
-    renderer_state->position_buffer = renderer_create_buffer(position_buffer_descriptor);
-
-    Buffer_Descriptor normal_buffer_descriptor =
-    {
-        .size = max_vertex_count * sizeof(glm::vec3),
-        .usage = Buffer_Usage::VERTEX,
-        .is_device_local = true
-    };
-    renderer_state->normal_buffer = renderer_create_buffer(normal_buffer_descriptor);
-
-    Buffer_Descriptor uv_buffer_descriptor =
-    {
-        .size = max_vertex_count * sizeof(glm::vec2),
-        .usage = Buffer_Usage::VERTEX,
-        .is_device_local = true
-    };
-    renderer_state->uv_buffer = renderer_create_buffer(uv_buffer_descriptor);
-
-    Buffer_Descriptor tangent_buffer_descriptor =
-    {
-        .size = max_vertex_count * sizeof(glm::vec4),
-        .usage = Buffer_Usage::VERTEX,
-        .is_device_local = true
-    };
-    renderer_state->tangent_buffer = renderer_create_buffer(tangent_buffer_descriptor);
-
-    Buffer_Descriptor index_buffer_descriptor =
-    {
-        .size = HE_MEGA_BYTES(128),
-        .usage = Buffer_Usage::INDEX,
-        .is_device_local = true
-    };
-    renderer_state->index_buffer = renderer_create_buffer(index_buffer_descriptor);
-
     init(&renderer_state->render_graph);
 
     {
@@ -348,7 +284,18 @@ bool init_renderer_state(Engine *engine)
                 if (cube_resource->state == Resource_State::LOADED)
                 {
                     renderer_use_material(renderer_state->skybox_material_handle);
+
                     Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(ref);
+                    Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+
+                    Buffer_Handle vertex_buffers[] =
+                    {
+                        static_mesh->positions_buffer,
+                    };
+                    U64 offsets[] = { 0 };
+
+                    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
+                    renderer->set_index_buffer(static_mesh->indices_buffer, 0);
                     renderer->draw_sub_mesh(static_mesh_handle, 0, 0);
                 }
             }
@@ -380,6 +327,7 @@ bool init_renderer_state(Engine *engine)
             std::sort(renderer_state->opaque_packets, renderer_state->opaque_packets + renderer_state->opaque_packet_count, comp);
 
             Material_Handle current_material_handle = Resource_Pool<Material>::invalid_handle;
+            Static_Mesh_Handle current_static_mesh_handle = Resource_Pool<Static_Mesh>::invalid_handle;
 
             for (U32 packet_index = 0; packet_index < renderer_state->opaque_packet_count; packet_index++)
             {
@@ -389,6 +337,25 @@ bool init_renderer_state(Engine *engine)
                 {
                     renderer_use_material(packet->material);
                     current_material_handle = packet->material;
+                }
+
+                if (current_static_mesh_handle != packet->static_mesh)
+                {
+                    Static_Mesh *static_mesh = renderer_get_static_mesh(packet->static_mesh);
+
+                    Buffer_Handle vertex_buffers[] =
+                    {
+                        static_mesh->positions_buffer,
+                        static_mesh->normals_buffer,
+                        static_mesh->uvs_buffer,
+                        static_mesh->tangents_buffer
+                    };
+                    U64 offsets[] = { 0, 0, 0, 0 };
+
+                    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
+                    renderer->set_index_buffer(static_mesh->indices_buffer, 0);
+
+                    current_static_mesh_handle = packet->static_mesh;
                 }
 
                 renderer->draw_sub_mesh(packet->static_mesh, packet->transform_index, packet->sub_mesh_index);
@@ -544,17 +511,33 @@ bool init_renderer_state(Engine *engine)
         Bind_Group_Descriptor per_frame_bind_group_descriptor =
         {
             .shader_group = renderer_state->default_shader_group,
-            .layout = default_shader_group->bind_group_layouts[0] // todo(amer): @Hardcoding
+            .layout = default_shader_group->bind_group_layouts[HE_PER_FRAME_BIND_GROUP_INDEX]
         };
 
         Bind_Group_Descriptor per_render_pass_bind_group_descriptor =
         {
             .shader_group = renderer_state->default_shader_group,
-            .layout = default_shader_group->bind_group_layouts[1] // todo(amer): @Hardcoding
+            .layout = default_shader_group->bind_group_layouts[HE_PER_PASS_BIND_GROUP_INDEX]
         };
 
         for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
         {
+            Buffer_Descriptor globals_uniform_buffer_descriptor =
+            {
+                .size = sizeof(Globals),
+                .usage = Buffer_Usage::UNIFORM,
+                .is_device_local = false,
+            };
+            renderer_state->globals_uniform_buffers[frame_index] = renderer_create_buffer(globals_uniform_buffer_descriptor);
+
+            Buffer_Descriptor object_data_storage_buffer_descriptor =
+            {
+                .size = sizeof(Object_Data) * HE_MAX_OBJECT_DATA_COUNT,
+                .usage = Buffer_Usage::STORAGE,
+                .is_device_local = false
+            };
+            renderer_state->object_data_storage_buffers[frame_index] = renderer_create_buffer(object_data_storage_buffer_descriptor);
+
             renderer_state->per_frame_bind_groups[frame_index] = renderer_create_bind_group(per_frame_bind_group_descriptor);
             renderer_state->per_render_pass_bind_groups[frame_index] = renderer_create_bind_group(per_render_pass_bind_group_descriptor);
 
@@ -579,10 +562,7 @@ bool init_renderer_state(Engine *engine)
                 globals_uniform_buffer_binding,
                 object_data_storage_buffer_binding
             };
-
-            platform_lock_mutex(&renderer_state->render_commands_mutex);
-            renderer->update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
-            platform_unlock_mutex(&renderer_state->render_commands_mutex);
+            renderer_update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
         }
     }
 
@@ -669,11 +649,6 @@ void deinit_renderer_state()
     for (auto it = iterator(&renderer_state->samplers); next(&renderer_state->samplers, it);)
     {
         renderer->destroy_sampler(it);
-    }
-
-    for (auto it = iterator(&renderer_state->static_meshes); next(&renderer_state->static_meshes, it);)
-    {
-        renderer->destroy_static_mesh(it);
     }
 
     for (auto it = iterator(&renderer_state->shaders); next(&renderer_state->shaders, it);)
@@ -793,6 +768,12 @@ void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_t
 
                 Resource_Ref material_ref = { sub_mesh->material_uuid };
                 Material_Handle material_handle = get_resource_handle_as<Material>(material_ref);
+
+                if (!is_valid_handle(&renderer_state->materials, material_handle))
+                {
+                    material_handle = renderer_state->default_material;
+                }
+
                 Material *material = renderer_get_material(material_handle);
                 Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
 
@@ -1100,6 +1081,13 @@ Bind_Group *renderer_get_bind_group(Bind_Group_Handle bind_group_handle)
     return get(&renderer_state->bind_groups, bind_group_handle);
 }
 
+void renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors)
+{
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
+    renderer->update_bind_group(bind_group_handle, update_binding_descriptors);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+}
+
 void renderer_destroy_bind_group(Bind_Group_Handle &bind_group_handle)
 {
     renderer->destroy_bind_group(bind_group_handle);
@@ -1192,12 +1180,65 @@ void renderer_destroy_frame_buffer(Frame_Buffer_Handle &frame_buffer_handle)
 // Static Meshes
 //
 
+// todo(amer): gpu memory allocator
 Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &descriptor)
 {
     Static_Mesh_Handle static_mesh_handle = aquire_handle(&renderer_state->static_meshes);
+    Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+
+    Buffer_Descriptor position_buffer_descriptor =
+    {
+        .size = descriptor.vertex_count * sizeof(glm::vec3),
+        .usage = Buffer_Usage::VERTEX,
+        .is_device_local = true
+    };
+
+    static_mesh->positions_buffer = renderer_create_buffer(position_buffer_descriptor);
+
+    Buffer_Descriptor normal_buffer_descriptor =
+    {
+        .size = descriptor.vertex_count * sizeof(glm::vec3),
+        .usage = Buffer_Usage::VERTEX,
+        .is_device_local = true
+    };
+
+    static_mesh->normals_buffer = renderer_create_buffer(normal_buffer_descriptor);
+
+    Buffer_Descriptor uv_buffer_descriptor =
+    {
+        .size = descriptor.vertex_count * sizeof(glm::vec2),
+        .usage = Buffer_Usage::VERTEX,
+        .is_device_local = true
+    };
+
+    static_mesh->uvs_buffer = renderer_create_buffer(uv_buffer_descriptor);
+
+    Buffer_Descriptor tangent_buffer_descriptor =
+    {
+        .size = descriptor.vertex_count * sizeof(glm::vec4),
+        .usage = Buffer_Usage::VERTEX,
+        .is_device_local = true
+    };
+
+    static_mesh->tangents_buffer = renderer_create_buffer(tangent_buffer_descriptor);
+
+    Buffer_Descriptor index_buffer_descriptor =
+    {
+        .size = descriptor.index_count * sizeof(U16),
+        .usage = Buffer_Usage::INDEX,
+        .is_device_local = true
+    };
+
+    static_mesh->indices_buffer = renderer_create_buffer(index_buffer_descriptor);
+
+    static_mesh->vertex_count = descriptor.vertex_count;
+    static_mesh->index_count = descriptor.index_count;
+    static_mesh->sub_meshes = descriptor.sub_meshes;
+
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_static_mesh(static_mesh_handle, descriptor);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
+
     return static_mesh_handle;
 }
 
@@ -1208,7 +1249,20 @@ Static_Mesh *renderer_get_static_mesh(Static_Mesh_Handle static_mesh_handle)
 
 void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle)
 {
-    renderer->destroy_static_mesh(static_mesh_handle);
+    // renderer->destroy_static_mesh(static_mesh_handle);
+    Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+
+    renderer_destroy_buffer(static_mesh->positions_buffer);
+    renderer_destroy_buffer(static_mesh->normals_buffer);
+    renderer_destroy_buffer(static_mesh->uvs_buffer);
+    renderer_destroy_buffer(static_mesh->tangents_buffer);
+    renderer_destroy_buffer(static_mesh->indices_buffer);
+
+    deinit(&static_mesh->sub_meshes);
+
+    static_mesh->vertex_count = 0;
+    static_mesh->index_count = 0;
+
     release_handle(&renderer_state->static_meshes, static_mesh_handle);
     static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
 }
@@ -1270,9 +1324,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
             .buffers = &material->buffers[frame_index],
         };
 
-        platform_lock_mutex(&renderer_state->render_commands_mutex);
-        renderer->update_bind_group(material->bind_groups[frame_index], { .count = 1, .data = &update_binding_descriptor });
-        platform_unlock_mutex(&renderer_state->render_commands_mutex);
+        renderer_update_bind_group(material->bind_groups[frame_index], { .count = 1, .data = &update_binding_descriptor });
     }
 
     init(&material->properties, properties->member_count);

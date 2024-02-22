@@ -177,7 +177,6 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
         context->bind_groups = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group, HE_MAX_BIND_GROUP_COUNT);
         context->render_passes = HE_ALLOCATE_ARRAY(arena, Vulkan_Render_Pass, HE_MAX_RENDER_PASS_COUNT);
         context->frame_buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Frame_Buffer, HE_MAX_FRAME_BUFFER_COUNT);
-        context->static_meshes = HE_ALLOCATE_ARRAY(arena, Vulkan_Static_Mesh, HE_MAX_STATIC_MESH_COUNT);
         context->semaphores = HE_ALLOCATE_ARRAY(arena, Vulkan_Semaphore, HE_MAX_SEMAPHORE_COUNT);
     }
 
@@ -616,7 +615,7 @@ void vulkan_renderer_on_resize(U32 width, U32 height)
     }
 }
 
-void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
+void vulkan_renderer_begin_frame()
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
@@ -639,18 +638,6 @@ void vulkan_renderer_begin_frame(const Scene_Data *scene_data)
     command_buffer_begin_info.pInheritanceInfo = 0;
 
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
-
-    // todo(amer): move this outside.
-    Globals globals = {};
-    globals.view = scene_data->view;
-    globals.projection = scene_data->projection;
-    globals.projection[1][1] *= -1;
-    globals.directional_light_direction = glm::vec4(scene_data->directional_light.direction, 0.0f);
-    globals.directional_light_color = srgb_to_linear(scene_data->directional_light.color) * scene_data->directional_light.intensity;
-    globals.gamma = renderer_state->gamma;
-
-    Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[current_frame_in_flight_index]);
-    memcpy(global_uniform_buffer->data, &globals, sizeof(Globals));
 
     context->command_buffer = command_buffer;
 }
@@ -715,32 +702,17 @@ void vulkan_renderer_set_pipeline_state(Pipeline_State_Handle pipeline_state_han
     vkCmdBindPipeline(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_pipeline_state->handle);
 }
 
-void vulkan_renderer_draw_static_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance)
-{
-    Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = context->renderer_state;
-    Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
-    Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
-
-    U32 instance_count = 1;
-    U32 first_index = vulkan_static_mesh->first_index;
-    S32 first_vertex = vulkan_static_mesh->first_vertex;
-
-    vkCmdDrawIndexed(context->command_buffer, static_mesh->index_count, instance_count, first_index, first_vertex, first_instance);
-}
-
 void vulkan_renderer_draw_sub_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index)
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
     Static_Mesh *static_mesh = get(&renderer_state->static_meshes, static_mesh_handle);
-    Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
 
     Sub_Mesh *sub_mesh = &static_mesh->sub_meshes[sub_mesh_index];
 
     U32 instance_count = 1;
-    S32 first_vertex = vulkan_static_mesh->first_vertex + sub_mesh->vertex_offset;
-    U32 first_index = vulkan_static_mesh->first_index + sub_mesh->index_offset;
+    S32 first_vertex = sub_mesh->vertex_offset;
+    U32 first_index = sub_mesh->index_offset;
     vkCmdDrawIndexed(context->command_buffer, sub_mesh->index_count, instance_count, first_index, first_vertex, first_instance);
 }
 
@@ -1811,14 +1783,6 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     U64 tangent_size = descriptor.vertex_count * sizeof(glm::vec4);
     U64 index_size = descriptor.index_count * sizeof(U16);
 
-    HE_ASSERT(renderer_state->vertex_count + descriptor.vertex_count <= renderer_state->max_vertex_count);
-
-    static_mesh->vertex_count = u64_to_u32(descriptor.vertex_count);
-    static_mesh->index_count = u64_to_u32(descriptor.index_count);
-    static_mesh->sub_meshes = descriptor.sub_meshes;
-
-    Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
-
     U64 position_offset = (U8 *)descriptor.positions - renderer_state->transfer_allocator.base;
     U64 normal_offset = (U8 *)descriptor.normals - renderer_state->transfer_allocator.base;
     U64 uv_offset = (U8 *)descriptor.uvs - renderer_state->transfer_allocator.base;
@@ -1841,42 +1805,42 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
 
     Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
-    Vulkan_Buffer *position_buffer = &context->buffers[renderer_state->position_buffer.index];
-    Vulkan_Buffer *normal_buffer = &context->buffers[renderer_state->normal_buffer.index];
-    Vulkan_Buffer *uv_buffer = &context->buffers[renderer_state->uv_buffer.index];
-    Vulkan_Buffer *tangent_buffer = &context->buffers[renderer_state->tangent_buffer.index];
+
+    Vulkan_Buffer *positions_buffer = &context->buffers[static_mesh->positions_buffer.index];
+    Vulkan_Buffer *normals_buffer = &context->buffers[static_mesh->normals_buffer.index];
+    Vulkan_Buffer *uvs_buffer = &context->buffers[static_mesh->uvs_buffer.index];
+    Vulkan_Buffer *tangents_buffer = &context->buffers[static_mesh->tangents_buffer.index];
+    Vulkan_Buffer *indices_buffer = &context->buffers[static_mesh->indices_buffer.index];
 
     VkBufferCopy position_copy_region = {};
     position_copy_region.srcOffset = position_offset;
-    position_copy_region.dstOffset = renderer_state->vertex_count * sizeof(glm::vec3);
+    position_copy_region.dstOffset = 0;
     position_copy_region.size = position_size;
-    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, position_buffer->handle, 1, &position_copy_region);
+    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, positions_buffer->handle, 1, &position_copy_region);
 
     VkBufferCopy normal_copy_region = {};
     normal_copy_region.srcOffset = normal_offset;
-    normal_copy_region.dstOffset = renderer_state->vertex_count * sizeof(glm::vec3);
+    normal_copy_region.dstOffset = 0;
     normal_copy_region.size = normal_size;
-    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, normal_buffer->handle, 1, &normal_copy_region);
+    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, normals_buffer->handle, 1, &normal_copy_region);
 
     VkBufferCopy uv_copy_region = {};
     uv_copy_region.srcOffset = uv_offset;
-    uv_copy_region.dstOffset = renderer_state->vertex_count * sizeof(glm::vec2);
+    uv_copy_region.dstOffset = 0;
     uv_copy_region.size = uv_size;
-    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, uv_buffer->handle, 1, &uv_copy_region);
+    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, uvs_buffer->handle, 1, &uv_copy_region);
 
     VkBufferCopy tangent_copy_region = {};
     tangent_copy_region.srcOffset = tangent_offset;
-    tangent_copy_region.dstOffset = renderer_state->vertex_count * sizeof(glm::vec4);
+    tangent_copy_region.dstOffset = 0;
     tangent_copy_region.size = tangent_size;
-    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, tangent_buffer->handle, 1, &tangent_copy_region);
-
-    Vulkan_Buffer *index_buffer = &context->buffers[renderer_state->index_buffer.index];
+    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, tangents_buffer->handle, 1, &tangent_copy_region);
 
     VkBufferCopy index_copy_region = {};
     index_copy_region.srcOffset = indicies_offset;
-    index_copy_region.dstOffset = renderer_state->index_offset;
+    index_copy_region.dstOffset = 0;
     index_copy_region.size = index_size;
-    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, index_buffer->handle, 1, &index_copy_region);
+    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, indices_buffer->handle, 1, &index_copy_region);
 
     vkEndCommandBuffer(command_buffer);
     
@@ -1891,7 +1855,7 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
 
     if (descriptor.allocation_group)
     {
-        Allocation_Group* allocation_group = descriptor.allocation_group;
+        Allocation_Group *allocation_group = descriptor.allocation_group;
         allocation_group->target_value++;
         Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[allocation_group->semaphore.index];
         
@@ -1904,22 +1868,7 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     }
 
     context->vkQueueSubmit2KHR(context->transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
-
-    // todo(amer): mesh allocator
-    vulkan_static_mesh->first_vertex = u64_to_u32(renderer_state->vertex_count);
-    vulkan_static_mesh->first_index = u64_to_u32(renderer_state->index_offset / sizeof(U16));
-
-    renderer_state->vertex_count += descriptor.vertex_count;
-    renderer_state->index_offset += index_size;
-
     return true;
-}
-
-// todo(amer): static mesh allocator...
-void vulkan_renderer_destroy_static_mesh(Static_Mesh_Handle static_mesh_handle)
-{
-    Vulkan_Context *context = &vulkan_context;
-    Vulkan_Static_Mesh *vulkan_static_mesh = &context->static_meshes[static_mesh_handle.index];
 }
 
 bool vulkan_renderer_create_semaphore(Semaphore_Handle semaphore_handle, const Renderer_Semaphore_Descriptor &descriptor)

@@ -30,7 +30,6 @@ struct Job_System_State
     std::atomic< bool > running;
     std::atomic< U32 > in_progress_job_count;
 
-    Memory_Arena arena;
     Free_List_Allocator job_data_allocator;
 
     U32 thread_count;
@@ -186,7 +185,6 @@ bool init_job_system()
 {
     Memory_Arena *arena = get_permenent_arena();
     bool inited = init_free_list_allocator(&job_system_state.job_data_allocator, nullptr, HE_MEGA_BYTES(32), HE_MEGA_BYTES(32));
-    inited &= init_memory_arena(&job_system_state.arena, HE_MEGA_BYTES(32), HE_MEGA_BYTES(1));
     HE_ASSERT(inited);
 
     U32 thread_count = platform_get_thread_count();
@@ -221,6 +219,7 @@ bool init_job_system()
         U32 thread_id = platform_get_thread_id(&thread_state->thread);
         Thread_Memory_State *memory_state = get_thread_memory_state(thread_id);
 
+        // todo(amer): temprary HE_MEGA_BYTES(32)
         bool memory_arena_inited = init_memory_arena(&memory_state->transient_arena, HE_MEGA_BYTES(32), HE_MEGA_BYTES(32));
         HE_ASSERT(memory_arena_inited);
 
@@ -345,8 +344,8 @@ void wait_for_all_jobs_to_finish()
         platform_unlock_mutex(&most_worked_thread_state->job_queue_mutex);
         HE_ASSERT(job->data.proc);
 
-        Temprary_Memory_Arena temprary_memory_arena = begin_temprary_memory(&job_system_state.arena);
-        job->data.parameters.arena = &job_system_state.arena;
+        Temprary_Memory_Arena scratch_memory = begin_scratch_memory();
+        job->data.parameters.arena = scratch_memory.arena;
 
         Job_Result result = job->data.proc(job->data.parameters);
         if (job->data.completed_proc)
@@ -354,7 +353,7 @@ void wait_for_all_jobs_to_finish()
             job->data.completed_proc(result);
         }
 
-        end_temprary_memory(&temprary_memory_arena);
+        end_temprary_memory(&scratch_memory);
 
         finalize_job(job_handle, result);
 

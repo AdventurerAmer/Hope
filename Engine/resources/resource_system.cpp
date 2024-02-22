@@ -573,12 +573,14 @@ static void write_attribute_for_all_sub_meshes(U8 *buffer, U64 *offset, cgltf_me
     }
 }
 
-static bool create_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cgltf_data *data, U64 *material_uuids, Memory_Arena *arena)
+static bool save_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cgltf_data *data, U64 *material_uuids)
 {
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+
     bool success = true;
 
     U64 offset = 0;
-    U8 *buffer = &arena->base[arena->offset];
+    U8 *buffer = &scratch_memory.arena->base[scratch_memory.arena->offset];
 
     Resource_Header header = make_resource_header(Asset_Type::STATIC_MESH, resource->asset_uuid, resource->uuid);
     copy_memory(&buffer[offset], &header, sizeof(header));
@@ -709,28 +711,16 @@ static bool condition_static_mesh_to_resource(Read_Entire_File_Result *asset_fil
     return true;
 }
 
-struct Create_Material_Resource_Job_Data
+static bool save_material_resource(Resource *resource, String render_pass_name, Pipeline_State_Settings pipeline_state_settings, String *property_names, Material_Property_Info *property_infos, U32 property_count)
 {
-    Resource *resource;
-    String render_pass_name;
-    Pipeline_State_Settings pipeline_state_settings;
-    String *property_names;
-    Material_Property_Info *property_infos;
-    U32 property_count;
-};
-
-static Job_Result create_material_resource_job(const Job_Parameters &params)
-{
-    Create_Material_Resource_Job_Data *data = (Create_Material_Resource_Job_Data *)params.data;
-
-    Resource *resource = data->resource;
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
     Resource_Header header = make_resource_header(Asset_Type::MATERIAL, resource->asset_uuid, resource->uuid);
     header.resource_ref_count = resource->resource_refs.count;
     header.child_count = resource->children.count;
 
     U64 offset = 0;
-    U8 *buffer = &params.arena->base[params.arena->offset];
+    U8 *buffer = &scratch_memory.arena->base[scratch_memory.arena->offset];
 
     copy_memory(&buffer[offset], &header, sizeof(header));
     offset += sizeof(header);
@@ -749,26 +739,26 @@ static Job_Result create_material_resource_job(const Job_Parameters &params)
 
     Material_Resource_Info info =
     {
-        .settings = data->pipeline_state_settings,
-        .render_pass_name_count = data->render_pass_name.count,
+        .settings = pipeline_state_settings,
+        .render_pass_name_count = render_pass_name.count,
         .render_pass_name_offset = offset + sizeof(Material_Resource_Info),
-        .property_count = u32_to_u16(data->property_count),
-        .property_data_offset = (S64)(offset + sizeof(Material_Resource_Info) + data->render_pass_name.count)
+        .property_count = u32_to_u16(property_count),
+        .property_data_offset = (S64)(offset + sizeof(Material_Resource_Info) + render_pass_name.count)
     };
 
     copy_memory(&buffer[offset], &info, sizeof(info));
     offset += sizeof(info);
 
-    copy_memory(&buffer[offset], (void *)data->render_pass_name.data, sizeof(char) * data->render_pass_name.count);
-    offset += sizeof(char) * data->render_pass_name.count;
+    copy_memory(&buffer[offset], (void *)render_pass_name.data, sizeof(char) * render_pass_name.count);
+    offset += sizeof(char) * render_pass_name.count;
 
-    U64 property_size = sizeof(Material_Property_Info) * data->property_count;
-    copy_memory(&buffer[offset], (void *)data->property_infos, property_size);
+    U64 property_size = sizeof(Material_Property_Info) * property_count;
+    copy_memory(&buffer[offset], (void *)property_infos, property_size);
     offset += property_size;
 
-    for (U32 property_index = 0; property_index < data->property_count; property_index++)
+    for (U32 property_index = 0; property_index < property_count; property_index++)
     {
-        String property_name = data->property_names[property_index];
+        String property_name = property_names[property_index];
 
         copy_memory(&buffer[offset], &property_name.count, sizeof(U64));
         offset += sizeof(U64);
@@ -778,12 +768,7 @@ static Job_Result create_material_resource_job(const Job_Parameters &params)
     }
 
     bool result = write_entire_file(resource->absolute_path.data, buffer, offset);
-    if (!result)
-    {
-        return Job_Result::FAILED;
-    }
-
-    return Job_Result::SUCCEEDED;
+    return result;
 }
 
 static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_result, Asset *asset, Resource *resource, Memory_Arena *arena)
@@ -952,27 +937,7 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
         set_property("metallic_factor", { .f32 = material->pbr_metallic_roughness.metallic_factor });
         set_property("reflectance", { .f32 = 0.04f });
 
-        Create_Material_Resource_Job_Data data =
-        {
-            .resource = material_resource,
-            .render_pass_name = render_pass_name,
-            .pipeline_state_settings = pipeline_state_settings,
-            .property_names = property_names,
-            .property_infos = properties,
-            .property_count = property_count
-        };
-
-        Job_Data create_material_resource_data =
-        {
-            .parameters =
-            {
-                .data = &data,
-                .size = sizeof(data)
-            },
-            .proc = create_material_resource_job
-        };
-
-        execute_job(create_material_resource_data);
+        save_material_resource(material_resource, render_pass_name, pipeline_state_settings, property_names, properties, property_count);
     }
 
     U64 *static_mesh_uuids = HE_ALLOCATE_ARRAY(arena, U64, data->meshes_count);
@@ -999,7 +964,7 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
         Resource *static_mesh_resource = &resource_system_state->resources[static_mesh_resource_index];
         static_mesh_uuids[static_mesh_index] = static_mesh_resource->uuid;
 
-        create_static_mesh_resource(static_mesh_resource, static_mesh, data, material_uuids, arena);
+        save_static_mesh_resource(static_mesh_resource, static_mesh, data, material_uuids);
     }
 
     U64 offset = 0;
@@ -1123,8 +1088,8 @@ static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resour
     U8 *data = HE_ALLOCATE_ARRAY(resource_system_state->resource_allocator, U8, data_size);
     success &= platform_read_data_from_file(open_file_result, info.data_offset, data, data_size);
 
-    U64 index_count = 0;
-    U64 vertex_count = 0;
+    U32 index_count = 0;
+    U32 vertex_count = 0;
 
     Dynamic_Array< Sub_Mesh > sub_meshes;
     init(&sub_meshes, info.sub_mesh_count);
@@ -1176,7 +1141,18 @@ static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resour
 
 static void unload_static_mesh_resource(Resource *resource)
 {
-    // todo(amer): unloade scene resource
+    HE_ASSERT(resource->state != Resource_State::UNLOADED);
+
+    Render_Context render_context = get_render_context();
+
+    Static_Mesh_Handle static_mesh_handle = { resource->index, resource->generation };
+
+    if (is_valid_handle(&render_context.renderer_state->static_meshes, static_mesh_handle) && static_mesh_handle != render_context.renderer_state->default_static_mesh)
+    {
+        renderer_destroy_static_mesh(static_mesh_handle);
+        resource->index = render_context.renderer_state->default_static_mesh.index;
+        resource->generation = render_context.renderer_state->default_static_mesh.generation;
+    }
 }
 
 static bool load_scene_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
@@ -1204,8 +1180,8 @@ static bool load_scene_resource(Open_File_Result *open_file_result, Resource *re
     }
     else
     {
-        scene = &nodes.data[nodes.count];
         // todo(amer): bulk append in array and dynamic array
+        scene = &nodes.data[nodes.count];
         nodes.count += 1 + info.node_count;
         HE_ASSERT(nodes.count <= nodes.capacity);
         first_node = scene + 1;
@@ -2016,7 +1992,7 @@ static void reload_child_resources(Resource *parent)
 
 void reload_resources()
 {
-    renderer_wait_for_gpu_to_finish_all_work();
+    bool wait_once = false;
 
     for (U32 asset_index = 0; asset_index < resource_system_state->assets.count; asset_index++)
     {
@@ -2024,6 +2000,13 @@ void reload_resources()
         U64 last_write_time = platform_get_file_last_write_time(asset.absolute_path.data);
         if (last_write_time != asset.last_write_time)
         {
+            // todo(amer): @Hack.
+            if (!wait_once)
+            {
+                renderer_wait_for_gpu_to_finish_all_work();
+                wait_once = true;
+            }
+
             Resource *resource = get_resource({ .uuid = asset.resource_refs[0] });
             U32 resource_index = index_of(&resource_system_state->resources, resource);
 

@@ -220,17 +220,10 @@ bool startup(Engine *engine, void *platform_state)
     renderer_state->skybox_material_handle = renderer_create_material(skybox_material_descriptor);
     set_property(renderer_state->skybox_material_handle, "skybox", { .u32 = (U32)renderer_state->skybox.index });
 
-    U64 cube_uuid = aquire_resource("Cube/Cube.hres").uuid;
-    render_context.renderer_state->cube_static_mesh_uuid = find_resource("Cube/static_mesh_Cube.hres").uuid;
+    // U64 cube_uuid = aquire_resource("Cube/Cube.hres").uuid;
+    // render_context.renderer_state->cube_static_mesh_uuid = find_resource("Cube/static_mesh_Cube.hres").uuid;
+    render_context.renderer_state->cube_static_mesh_uuid = aquire_resource("Cube/static_mesh_Cube.hres").uuid;
     aquire_resource("Corset/Corset.hres");
-
-    wait_for_all_jobs_to_finish();
-    renderer_wait_for_gpu_to_finish_all_work();
-    while (render_context.renderer_state->allocation_groups.count)
-    {
-        finalize_asset_loads(render_context.renderer, render_context.renderer_state);
-    }
-
     return game_initialized;
 }
 
@@ -513,7 +506,7 @@ void game_loop(Engine *engine, F32 delta_time)
     Renderer_State *renderer_state = render_context.renderer_state;
 
     static float reload_timer = 0;
-    float reload_time = 1.0f;
+    float reload_time = 0.5f;
 
     finalize_asset_loads(renderer, renderer_state);
 
@@ -524,7 +517,7 @@ void game_loop(Engine *engine, F32 delta_time)
         reload_timer -= reload_time;
     }
 
-    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
+    Temprary_Memory_Arena scratch_memory = begin_scratch_memory();
 
     Game_Code *game_code = &engine->game_code;
     game_code->on_update(engine, delta_time);
@@ -739,35 +732,27 @@ void game_loop(Engine *engine, F32 delta_time)
         renderer_state->object_data_count = 0;
 
         renderer_state->opaque_packet_count = 0;
-        renderer_state->opaque_packets = HE_ALLOCATE_ARRAY(temprary_memory.arena, Render_Packet, 4069); // todo(amer): @Hardcoding
+        renderer_state->opaque_packets = HE_ALLOCATE_ARRAY(scratch_memory.arena, Render_Packet, 4069); // todo(amer): @Hardcoding
         renderer_state->current_pipeline_state_handle = Resource_Pool<Pipeline_State>::invalid_handle;
 
         renderer_parse_scene_tree(renderer_state->root_scene_node);
 
-        renderer->begin_frame(scene_data);
+        renderer->begin_frame();
 
-        Buffer_Handle vertex_buffers[] =
-        {
-            renderer_state->position_buffer,
-            renderer_state->normal_buffer,
-            renderer_state->uv_buffer,
-            renderer_state->tangent_buffer
-        };
+        Globals globals = {};
+        globals.view = scene_data->view;
+        globals.projection = scene_data->projection;
+        globals.projection[1][1] *= -1;
+        globals.directional_light_direction = glm::vec4(scene_data->directional_light.direction, 0.0f);
+        globals.directional_light_color = srgb_to_linear(scene_data->directional_light.color) * scene_data->directional_light.intensity;
+        globals.gamma = renderer_state->gamma;
 
-        U64 offsets[] =
-        {
-            0,
-            0,
-            0,
-            0
-        };
-
-        renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
-        renderer->set_index_buffer(renderer_state->index_buffer, 0);
+        Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[renderer_state->current_frame_in_flight_index]);
+        memcpy(global_uniform_buffer->data, &globals, sizeof(Globals));
 
         U32 texture_count = renderer_state->textures.capacity;
-        Texture_Handle *textures = HE_ALLOCATE_ARRAY(temprary_memory.arena, Texture_Handle, texture_count);
-        Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(temprary_memory.arena, Sampler_Handle, texture_count);
+        Texture_Handle *textures = HE_ALLOCATE_ARRAY(scratch_memory.arena, Texture_Handle, texture_count);
+        Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(scratch_memory.arena, Sampler_Handle, texture_count);
 
         for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
         {
@@ -800,10 +785,7 @@ void game_loop(Engine *engine, F32 delta_time)
             },
         };
 
-        // todo(amer): renderer_update_bind_group
-        platform_lock_mutex(&renderer_state->render_commands_mutex);
-        renderer->update_bind_group(renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index], to_array_view(update_textures_binding_descriptors));
-        platform_unlock_mutex(&renderer_state->render_commands_mutex);
+        renderer_update_bind_group(renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index], to_array_view(update_textures_binding_descriptors));
 
         Bind_Group_Handle bind_groups[] =
         {
@@ -823,7 +805,7 @@ void game_loop(Engine *engine, F32 delta_time)
         }
     }
 
-    end_temprary_memory(&temprary_memory);
+    end_temprary_memory(&scratch_memory);
 }
 
 void shutdown(Engine *engine)

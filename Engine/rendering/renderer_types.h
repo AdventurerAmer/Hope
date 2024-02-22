@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include "core/defines.h"
@@ -26,6 +25,9 @@
 #define HE_MAX_SHADER_COUNT_PER_PIPELINE 8
 #define HE_MAX_OBJECT_DATA_COUNT UINT16_MAX
 #define HE_PIPELINE_CACHE_FILENAME "shaders/bin/pipeline.cache"
+#define HE_PER_FRAME_BIND_GROUP_INDEX 0
+#define HE_PER_PASS_BIND_GROUP_INDEX 1
+#define HE_PER_MATERIAL_BIND_GROUP_INDEX 2
 
 #ifdef HE_SHIPPING
 #undef HE_GRAPHICS_DEBUGGING
@@ -559,31 +561,36 @@ struct Sub_Mesh
     U64 material_uuid;
 };
 
-struct Static_Mesh_Descriptor
-{
-    U64 vertex_count;
-    U64 index_count;
-
-    glm::vec3 *positions;
-    glm::vec3 *normals;
-    glm::vec2 *uvs;
-    glm::vec4 *tangents;
-
-    U16 *indices;
-
-    Dynamic_Array< Sub_Mesh > sub_meshes;
-    
-    Allocation_Group *allocation_group;
-};
-
 struct Static_Mesh
 {
     String name;
+
+    Buffer_Handle positions_buffer;
+    Buffer_Handle normals_buffer;
+    Buffer_Handle uvs_buffer;
+    Buffer_Handle tangents_buffer;
+    Buffer_Handle indices_buffer;
 
     U32 vertex_count;
     U32 index_count;
 
     Dynamic_Array< Sub_Mesh > sub_meshes;
+};
+
+struct Static_Mesh_Descriptor
+{
+    U32 vertex_count;
+    U32 index_count;
+
+    glm::vec3 *positions;
+    glm::vec3 *normals;
+    glm::vec2 *uvs;
+    glm::vec4 *tangents;
+    U16 *indices;
+
+    Dynamic_Array< Sub_Mesh > sub_meshes;
+
+    Allocation_Group *allocation_group;
 };
 
 using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;
@@ -615,7 +622,6 @@ struct Scene_Node
     Transform global_transform;
 };
 
-// todo(amer): use handles instead of uuid's
 struct Render_Packet
 {
     Material_Handle material;

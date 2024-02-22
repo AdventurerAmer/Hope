@@ -44,7 +44,6 @@ bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle
 void vulkan_renderer_destroy_frame_buffer(Frame_Buffer_Handle frame_buffer_handle);
 
 bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
-void vulkan_renderer_destroy_static_mesh(Static_Mesh_Handle static_mesh_handle);
 
 bool vulkan_renderer_create_semaphore(Semaphore_Handle semaphore_handle, const Renderer_Semaphore_Descriptor &descriptor);
 U64 vulkan_renderer_get_semaphore_value(Semaphore_Handle semaphore_handle);
@@ -52,7 +51,7 @@ void vulkan_renderer_destroy_semaphore(Semaphore_Handle semaphore_handle);
 
 void vulkan_renderer_set_vsync(bool enabled);
 
-void vulkan_renderer_begin_frame(const struct Scene_Data *scene_data);
+void vulkan_renderer_begin_frame();
 
 void vulkan_renderer_set_viewport(U32 width, U32 height);
 
@@ -60,8 +59,6 @@ void vulkan_renderer_set_vertex_buffers(const Array_View< Buffer_Handle > &verte
 void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 offset);
 
 void vulkan_renderer_set_pipeline_state(Pipeline_State_Handle pipeline_state_handle);
-
-void vulkan_renderer_draw_static_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance);
 void vulkan_renderer_draw_sub_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index);
 
 void vulkan_renderer_end_frame();

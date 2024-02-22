@@ -57,7 +57,7 @@ bool init_memory_system()
     HE_ASSERT(slot_index != -1);
 
     Thread_Memory_State *main_thread_memory_state = &memory_system_state.thread_id_to_memory_state.values[slot_index];
-    if (!init_memory_arena(&main_thread_memory_state->transient_arena, capacity, HE_MEGA_BYTES(1)))
+    if (!init_memory_arena(&main_thread_memory_state->transient_arena, capacity, HE_MEGA_BYTES(32)))
     {
         return false;
     }

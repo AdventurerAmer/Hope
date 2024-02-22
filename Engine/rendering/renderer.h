@@ -52,7 +52,7 @@ struct Renderer
 
     void (*on_resize)(U32 width, U32 height);
 
-    void (*begin_frame)(const Scene_Data *scene_data);
+    void (*begin_frame)();
     void (*set_viewport)(U32 width, U32 height);
     void (*set_vertex_buffers)(const Array_View< Buffer_Handle > &vertex_buffer_handles, const Array_View< U64 > &offsets);
     void (*set_index_buffer)(Buffer_Handle index_buffer_handle, U64 offset);
@@ -160,17 +160,6 @@ struct Renderer_State
     Object_Data *object_data_base;
     U32 object_data_count;
 
-    // todo(amer): gpu memory allocator
-    U64 max_vertex_count;
-    U64 vertex_count;
-    Buffer_Handle position_buffer;
-    Buffer_Handle normal_buffer;
-    Buffer_Handle uv_buffer;
-    Buffer_Handle tangent_buffer;
-
-    Buffer_Handle index_buffer;
-    U64 index_offset;
-
     Buffer_Handle transfer_buffer;
     Free_List_Allocator transfer_allocator;
 
@@ -205,6 +194,7 @@ struct Renderer_State
     Sampler_Handle default_texture_sampler;
     Sampler_Handle default_cubemap_sampler;
 
+    // todo(amer): default static meshes...
     Static_Mesh_Handle default_static_mesh;
 
     Scene_Data scene_data;
@@ -287,9 +277,9 @@ void renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle &bind_group_lay
 //
 // Bind Groups
 //
-
 Bind_Group_Handle renderer_create_bind_group(const Bind_Group_Descriptor &descriptor);
 Bind_Group* renderer_get_bind_Group(Bind_Group_Handle bind_group_handle);
+void renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors);
 void renderer_destroy_bind_group(Bind_Group_Handle &bind_group_handle);
 
 //
