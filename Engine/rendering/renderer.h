@@ -28,6 +28,7 @@ enum RenderingAPI
 #define HE_MAX_BIND_GROUP_LAYOUT_COUNT 4096
 #define HE_MAX_BIND_GROUP_COUNT 4096
 #define HE_MAX_SEMAPHORE_COUNT 4096
+#define HE_MAX_SCENE_COUNT 4096
 
 struct Directional_Light
 {
@@ -132,13 +133,13 @@ struct Renderer_State
     Resource_Pool< Bind_Group > bind_groups;
     Resource_Pool< Render_Pass > render_passes;
     Resource_Pool< Frame_Buffer > frame_buffers;
+    Resource_Pool< Renderer_Semaphore > semaphores;
     Resource_Pool< Material > materials;
     Resource_Pool< Static_Mesh > static_meshes;
-    Resource_Pool< Renderer_Semaphore > semaphores;
+    Resource_Pool< Scene > scenes;
 
-    Mutex nodes_mutex;
-    Dynamic_Array< Scene_Node > nodes;
-    Scene_Node *root_scene_node;
+    Mutex root_scene_node_mutex;
+    Scene_Node root_scene_node;
 
     Pipeline_State_Handle current_pipeline_state_handle;
 
@@ -210,14 +211,6 @@ struct Render_Context
 bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);
 bool init_renderer_state(struct Engine *engine);
 void deinit_renderer_state();
-
-Transform get_identity_transform();
-Transform combine(const Transform &a, const Transform &b);
-glm::mat4 get_world_matrix(const Transform &transform);
-
-void add_child(Scene_Node *parent, Scene_Node *node);
-
-void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform = get_identity_transform());
 
 glm::vec4 srgb_to_linear(const glm::vec4 &color);
 glm::vec4 linear_to_srgb(const glm::vec4 &color);
@@ -307,6 +300,15 @@ Frame_Buffer* renderer_get_frame_buffer(Frame_Buffer_Handle frame_buffer_handle)
 void renderer_destroy_frame_buffer(Frame_Buffer_Handle &frame_buffer_handle);
 
 //
+// Semaphores
+//
+
+Semaphore_Handle renderer_create_semaphore(const Renderer_Semaphore_Descriptor &descriptor);
+Renderer_Semaphore *renderer_get_semaphore(Semaphore_Handle semaphore_handle);
+U64 renderer_get_semaphore_value(Semaphore_Handle semaphore_handle);
+void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle);
+
+//
 // Static Meshes
 //
 Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &descriptor);
@@ -329,12 +331,20 @@ bool set_property(Material_Handle material_handle, const char *name, Material_Pr
 bool set_property(Material_Handle material_handle, S32 property_id, Material_Property_Data data);
 
 //
-// Semaphores
+// Scenes
 //
-Semaphore_Handle renderer_create_semaphore(const Renderer_Semaphore_Descriptor &descriptor);
-Renderer_Semaphore *renderer_get_semaphore(Semaphore_Handle semaphore_handle);
-U64 renderer_get_semaphore_value(Semaphore_Handle semaphore_handle);
-void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle);
+
+Scene_Handle renderer_create_scene(U32 node_capacity, U32 node_count = 0);
+Scene *renderer_get_scene(Scene_Handle scene_handle);
+void renderer_destroy_scene(Scene_Handle &scene_handle);
+
+Transform get_identity_transform();
+Transform combine(const Transform &a, const Transform &b);
+glm::mat4 get_world_matrix(const Transform &transform);
+
+void add_child(Scene_Node *parent, Scene_Node *node);
+void remove_child(Scene_Node *parent, Scene_Node *node);
+void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform = get_identity_transform());
 
 //
 // Render Context

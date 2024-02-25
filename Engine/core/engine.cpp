@@ -217,12 +217,10 @@ bool startup(Engine *engine, void *platform_state)
     {
         .pipeline_state_handle = renderer_state->skybox_pipeline
     };
+
     renderer_state->skybox_material_handle = renderer_create_material(skybox_material_descriptor);
     set_property(renderer_state->skybox_material_handle, "skybox", { .u32 = (U32)renderer_state->skybox.index });
-
-    // U64 cube_uuid = aquire_resource("Cube/Cube.hres").uuid;
-    // render_context.renderer_state->cube_static_mesh_uuid = find_resource("Cube/static_mesh_Cube.hres").uuid;
-    render_context.renderer_state->cube_static_mesh_uuid = aquire_resource("Cube/static_mesh_Cube.hres").uuid;
+    
     aquire_resource("Corset/Corset.hres");
     return game_initialized;
 }
@@ -696,7 +694,7 @@ void game_loop(Engine *engine, F32 delta_time)
         {
             ImGui::Begin("Scene");
 
-            for (Scene_Node *node = renderer_state->root_scene_node->first_child; node; node = node->next_sibling)
+            for (Scene_Node *node = renderer_state->root_scene_node.first_child; node; node = node->next_sibling)
             {
                 draw_tree(node);
             }
@@ -735,7 +733,7 @@ void game_loop(Engine *engine, F32 delta_time)
         renderer_state->opaque_packets = HE_ALLOCATE_ARRAY(scratch_memory.arena, Render_Packet, 4069); // todo(amer): @Hardcoding
         renderer_state->current_pipeline_state_handle = Resource_Pool<Pipeline_State>::invalid_handle;
 
-        renderer_parse_scene_tree(renderer_state->root_scene_node);
+        renderer_parse_scene_tree(&renderer_state->root_scene_node);
 
         renderer->begin_frame();
 

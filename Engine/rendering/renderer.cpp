@@ -133,15 +133,12 @@ bool init_renderer_state(Engine *engine)
     init(&renderer_state->bind_groups, HE_MAX_BIND_GROUP_COUNT);
     init(&renderer_state->render_passes, HE_MAX_RENDER_PASS_COUNT);
     init(&renderer_state->frame_buffers, HE_MAX_FRAME_BUFFER_COUNT);
+    init(&renderer_state->semaphores, HE_MAX_SEMAPHORE_COUNT);
     init(&renderer_state->materials,  HE_MAX_MATERIAL_COUNT);
     init(&renderer_state->static_meshes, HE_MAX_STATIC_MESH_COUNT);
-    init(&renderer_state->semaphores, HE_MAX_SEMAPHORE_COUNT);
+    init(&renderer_state->scenes, HE_MAX_SCENE_COUNT);
 
-    init(&renderer_state->nodes);
-    platform_create_mutex(&renderer_state->nodes_mutex);
-
-    renderer_state->root_scene_node = &append(&renderer_state->nodes);
-    Scene_Node *root_scene_node = renderer_state->root_scene_node;
+    Scene_Node *root_scene_node = &renderer_state->root_scene_node;
     root_scene_node->name = HE_STRING_LITERAL("Root");
     root_scene_node->transform = root_scene_node->global_transform = get_identity_transform();
     root_scene_node->parent = nullptr;
@@ -149,6 +146,8 @@ bool init_renderer_state(Engine *engine)
     root_scene_node->first_child = nullptr;
     root_scene_node->next_sibling = nullptr;
     root_scene_node->static_mesh_uuid = HE_MAX_U64;
+
+    platform_create_mutex(&renderer_state->root_scene_node_mutex);
 
     bool render_commands_mutex_created = platform_create_mutex(&renderer_state->render_commands_mutex);
     HE_ASSERT(render_commands_mutex_created);
@@ -213,6 +212,7 @@ bool init_renderer_state(Engine *engine)
     Buffer *transfer_buffer = get(&renderer_state->buffers, renderer_state->transfer_buffer);
     init_free_list_allocator(&renderer_state->transfer_allocator, transfer_buffer->data, transfer_buffer->size, transfer_buffer->size);
 
+    // default resources
     Renderer_Semaphore_Descriptor semaphore_descriptor =
     {
         .initial_value = 0
@@ -270,6 +270,78 @@ bool init_renderer_state(Engine *engine)
         renderer_state->normal_pixel_texture = renderer_create_texture(normal_pixel_descriptor);
     }
 
+    {
+        U16 _indicies[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 };
+        U16 *indicies = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U16, HE_ARRAYCOUNT(_indicies));
+        copy_memory(indicies, _indicies, sizeof(U16) * HE_ARRAYCOUNT(_indicies));
+
+        U32 index_count = HE_ARRAYCOUNT(_indicies);
+
+        glm::vec3 _positions[] = { { 1.000000f, -1.000000f, 1.000000f }, { -1.000000f, -1.000000f, -1.000000f }, { 1.000000f, -1.000000f, -1.000000f }, { -1.000000f, 1.000000f, -1.000000f }, { 0.999999f, 1.000000f, 1.000001f }, { 1.000000f, 1.000000f, -0.999999f },{ 1.000000f, 1.000000f, -0.999999f },{ 1.000000f, -1.000000f, 1.000000f },{ 1.000000f, -1.000000f, -1.000000f }, { 0.999999f, 1.000000f, 1.000001f },{ -1.000000f, -1.000000f, 1.000000f },{ 1.000000f, -1.000000f, 1.000000f },{ -1.000000f, -1.000000f, 1.000000f },{ -1.000000f, 1.000000f, -1.000000f },{ -1.000000f, -1.000000f, -1.000000f },{ 1.000000f, -1.000000f, -1.000000f },{ -1.000000f, 1.000000f, -1.000000f },{ 1.000000f, 1.000000f, -0.999999f },{ 1.000000f, -1.000000f, 1.000000f },{ -1.000000f, -1.000000f, 1.000000f },{ -1.000000f, -1.000000f, -1.000000f },{ -1.000000f, 1.000000f, -1.000000f },{ -1.000000f, 1.000000f, 1.000000f },{ 0.999999f, 1.000000f, 1.000001f },{ 1.000000f, 1.000000f, -0.999999f },{ 0.999999f, 1.000000f, 1.000001f },{ 1.000000f, -1.000000f, 1.000000f },{ 0.999999f, 1.000000f, 1.000001f },{ -1.000000f, 1.000000f, 1.000000f },{ -1.000000f, -1.000000f, 1.000000f },{ -1.000000f, -1.000000f, 1.000000f },{ -1.000000f, 1.000000f, 1.000000f },{ -1.000000f, 1.000000f, -1.000000f },{ 1.000000f, -1.000000f, -1.000000f },{ -1.000000f, -1.000000f, -1.000000f },{ -1.000000f, 1.000000f, -1.000000f } };
+
+        glm::vec3 *positions = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, glm::vec3, HE_ARRAYCOUNT(_positions));
+        copy_memory(positions, _positions, sizeof(glm::vec3) * HE_ARRAYCOUNT(_positions));
+
+        U32 vertex_count = HE_ARRAYCOUNT(_positions);
+
+        glm::vec2 _uvs[] = { { 0.000000f, 0.000000f },{ -1.000000f, 1.000000f },{ 0.000000f, 1.000000f },{ 0.000000f, 0.000000f },{ 1.000000f, -1.000000f },{ 1.000000f, -0.000000f },{ 1.000000f, 0.000000f },{ 0.000000f, -1.000000f },{ 1.000000f, -1.000000f },{ 1.000000f, 0.000000f },{ -0.000000f, -1.000000f },{ 1.000000f, -1.000000f },{ 0.000000f, 0.000000f },{ 1.000000f, 1.000000f },{ 1.000000f, 0.000000f },{ 0.000000f, 0.000000f },{ -1.000000f, 1.000000f },{ 0.000000f, 1.000000f },{ 0.000000f, 0.000000f },{ -1.000000f, 0.000000f },{ -1.000000f, 1.000000f },{ 0.000000f, 0.000000f },{ -0.000000f, -1.000000f },{ 1.000000f, -1.000000f },{ 1.000000f, 0.000000f },{ -0.000000f, 0.000000f },{ 0.000000f, -1.000000f },{ 1.000000f, 0.000000f },{ -0.000000f, 0.000000f },{ -0.000000f, -1.000000f },{ 0.000000f, 0.000000f },{ 0.000000f, 1.000000f },{ 1.000000f, 1.000000f },{ 0.000000f, 0.000000f },{ -1.000000f, 0.000000f },{ -1.000000f, 1.000000f } };
+
+        glm::vec2 *uvs = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, glm::vec2, HE_ARRAYCOUNT(_uvs));
+        copy_memory(uvs, _uvs, sizeof(glm::vec2) * HE_ARRAYCOUNT(_uvs));
+
+        glm::vec3 _normals[] = { { -0.000000f, -1.000000f, 0.000000f },{ -0.000000f, -1.000000f, 0.000000f },{ -0.000000f, -1.000000f, 0.000000f },{ 0.000000f, 1.000000f, -0.000000f },{ 0.000000f, 1.000000f, -0.000000f },{ 0.000000f, 1.000000f, -0.000000f },{ 1.000000f, -0.000000f, -0.000000f },{ 1.000000f, -0.000000f, -0.000000f },{ 1.000000f, -0.000000f, -0.000000f },{ -0.000000f, -0.000000f, 1.000000f },{ -0.000000f, -0.000000f, 1.000000f },{ -0.000000f, -0.000000f, 1.000000f },{ -1.000000f, -0.000000f, -0.000000f },{ -1.000000f, -0.000000f, -0.000000f },{ -1.000000f, -0.000000f, -0.000000f },{ 0.000000f, 0.000000f, -1.000000f },{ 0.000000f, 0.000000f, -1.000000f },{ 0.000000f, 0.000000f, -1.000000f },{ 0.000000f, -1.000000f, 0.000000f },{ 0.000000f, -1.000000f, 0.000000f },{ 0.000000f, -1.000000f, 0.000000f },{ 0.000000f, 1.000000f, 0.000000f },{ 0.000000f, 1.000000f, 0.000000f },{ 0.000000f, 1.000000f, 0.000000f },{ 1.000000f, 0.000000f, 0.000001f },{ 1.000000f, 0.000000f, 0.000001f },{ 1.000000f, 0.000000f, 0.000001f },{ -0.000000f, 0.000000f, 1.000000f },{ -0.000000f, 0.000000f, 1.000000f },{ -0.000000f, 0.000000f, 1.000000f },{ -1.000000f, -0.000000f, -0.000000f },{ -1.000000f, -0.000000f, -0.000000f },{ -1.000000f, -0.000000f, -0.000000f },{ 0.000000f, 0.000000f, -1.000000f },{ 0.000000f, 0.000000f, -1.000000f },{ 0.000000f, 0.000000f, -1.000000f } };
+
+        glm::vec3 *normals = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, glm::vec3, HE_ARRAYCOUNT(_normals));
+        copy_memory(normals, _normals, sizeof(glm::vec3) * HE_ARRAYCOUNT(_normals));
+
+        glm::vec4 _tangents[] = { { 1.000000f, -0.000000f, -0.000000f, -1.000000f },{ 1.000000f, -0.000000f, -0.000000f, -1.000000f },{ 1.000000f, -0.000000f, -0.000000f, -1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, -0.000000f, 0.000000f, 1.000000f },{ 0.000000f, 0.000000f, -1.000000f, 1.000000f },{ 0.000000f, 0.000000f, -1.000000f, 1.000000f },{ 0.000000f, 0.000000f, -1.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 0.000000f, -0.000000f, -1.000000f, -1.000000f },{ 0.000000f, -0.000000f, -1.000000f, -1.000000f },{ 0.000000f, -0.000000f, -1.000000f, -1.000000f },{ 1.000000f, -0.000000f, 0.000000f, -1.000000f },{ 1.000000f, -0.000000f, 0.000000f, -1.000000f },{ 1.000000f, -0.000000f, 0.000000f, -1.000000f },{ 1.000000f, -0.000000f, -0.000000f, -1.000000f },{ 1.000000f, 0.000000f, -0.000000f, -1.000000f },{ 1.000000f, -0.000000f, -0.000000f, -1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 0.000001f, 0.000000f, -1.000000f, 1.000000f },{ 0.000001f, 0.000000f, -1.000000f, 1.000000f },{ 0.000001f, 0.000000f, -1.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 0.000000f, -0.000000f, -1.000000f, -1.000000f },{ 0.000000f, -0.000000f, -1.000000f, -1.000000f },{ 0.000000f, -0.000000f, -1.000000f, -1.000000f },{ 1.000000f, -0.000000f, 0.000000f, -1.000000f },{ 1.000000f, -0.000000f, 0.000000f, -1.000000f },{ 1.000000f, -0.000000f, 0.000000f, -1.000000f } };
+
+        glm::vec4 *tangents = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, glm::vec4, HE_ARRAYCOUNT(_tangents));
+        copy_memory(tangents, _tangents, sizeof(glm::vec4) * HE_ARRAYCOUNT(_tangents));
+
+        Allocation_Group allocation_group =
+        {
+            .resource_name = HE_STRING_LITERAL("cube static mesh"),
+            .semaphore = renderer_create_semaphore(semaphore_descriptor),
+        };
+
+        append(&allocation_group.allocations, (void *)indicies);
+        append(&allocation_group.allocations, (void *)positions);
+        append(&allocation_group.allocations, (void *)normals);
+        append(&allocation_group.allocations, (void *)uvs);
+        append(&allocation_group.allocations, (void *)tangents);
+
+        Dynamic_Array< Sub_Mesh > sub_meshes;
+        init(&sub_meshes, 1, 1);
+
+        Sub_Mesh &sub_mesh = sub_meshes[0];
+
+        sub_mesh.vertex_offset = 0;
+        sub_mesh.index_offset = 0;
+
+        sub_mesh.index_count = index_count;
+        sub_mesh.vertex_count = vertex_count;
+
+        sub_mesh.material_uuid = HE_MAX_U64;
+
+        Static_Mesh_Descriptor cube_static_mesh =
+        {
+            .vertex_count = vertex_count,
+            .index_count = index_count,
+            
+            .positions = positions,
+            .normals = normals,
+            .uvs = uvs,
+            .tangents = tangents,
+            .indices = indicies,
+
+            .sub_meshes = sub_meshes,
+            .allocation_group = &append(&renderer_state->allocation_groups, allocation_group)
+        };
+
+        renderer_state->default_static_mesh = renderer_create_static_mesh(cube_static_mesh);
+    }
+
     init(&renderer_state->render_graph);
 
     {
@@ -277,6 +349,7 @@ bool init_renderer_state(Engine *engine)
         {
             // draw skybox
             // todo(amer): primitve static meshes
+#if 0
             if (renderer_state->cube_static_mesh_uuid != HE_MAX_U64)
             {
                 Resource_Ref ref = { renderer_state->cube_static_mesh_uuid };
@@ -299,6 +372,22 @@ bool init_renderer_state(Engine *engine)
                     renderer->draw_sub_mesh(static_mesh_handle, 0, 0);
                 }
             }
+#else
+            renderer_use_material(renderer_state->skybox_material_handle);
+
+            Static_Mesh_Handle static_mesh_handle = renderer_state->default_static_mesh;
+            Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+
+            Buffer_Handle vertex_buffers[] =
+            {
+                static_mesh->positions_buffer,
+            };
+            U64 offsets[] = { 0 };
+
+            renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
+            renderer->set_index_buffer(static_mesh->indices_buffer, 0);
+            renderer->draw_sub_mesh(static_mesh_handle, 0, 0);
+#endif
 
             auto comp = [](const Render_Packet &a, const Render_Packet &b) -> bool
             {
@@ -490,7 +579,7 @@ bool init_renderer_state(Engine *engine)
                 .sample_shading = true,
             },
             .shader_group = renderer_state->default_shader_group,
-            .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"),
+            .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"), // todo(amer): we should not depend on the render graph here...
         };
         renderer_state->default_pipeline = renderer_create_pipeline_state(default_pipeline_state_descriptor);
         HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, renderer_state->default_pipeline));
@@ -585,7 +674,7 @@ bool init_renderer_state(Engine *engine)
             HE_STRING_LITERAL("textures/skybox/back.jpg"),
         };
 
-        void* datas[6] = {};
+        void *datas[6] = {};
 
         U32 width = 1;
         U32 height = 1;
@@ -609,7 +698,7 @@ bool init_renderer_state(Engine *engine)
             memcpy(data, pixels, data_size);
             stbi_image_free(pixels);
 
-            append(&allocation_group.allocations, (void*)data);
+            append(&allocation_group.allocations, (void *)data);
             datas[i] = data;
         }
 
@@ -690,123 +779,6 @@ void deinit_renderer_state()
 
     platform_shutdown_imgui();
     ImGui::DestroyContext();
-}
-
-Transform get_identity_transform()
-{
-    Transform result =
-    {
-        .position = { 0.0f, 0.0f, 0.0f },
-        .rotation = { 1.0f, 0.0f, 0.0f, 0.0f },
-        .euler_angles = { 0.0f, 0.0f, 0.0f },
-        .scale = { 1.0f, 1.0f, 1.0f }
-    };
-    return result;
-}
-
-Transform combine(const Transform &a, const Transform &b)
-{
-    Transform result =
-    {
-        .position = a.position + b.position,
-        .rotation = a.rotation * b.rotation,
-        .scale = a.scale * b.scale
-    };
-    result.euler_angles = glm::degrees(glm::eulerAngles(result.rotation));
-    return result;
-}
-
-glm::mat4 get_world_matrix(const Transform &transform)
-{
-    return glm::translate(glm::mat4(1.0f), transform.position) * glm::toMat4(transform.rotation) * glm::scale(glm::mat4(1.0f), transform.scale);
-}
-
-void add_child(Scene_Node *parent, Scene_Node *node)
-{
-    HE_ASSERT(parent);
-    HE_ASSERT(node);
-
-    node->parent = parent;
-
-    if (parent->last_child)
-    {
-        parent->last_child->next_sibling = node;
-        parent->last_child = node;
-    }
-    else
-    {
-        parent->first_child = parent->last_child = node;
-    }
-}
-
-void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform)
-{
-    Transform transform = combine(parent_transform, scene_node->transform);
-    scene_node->global_transform = transform;
-
-    Render_Pass_Handle opaque_pass = get_render_pass(&renderer_state->render_graph, "opaque");
-
-    if (scene_node->static_mesh_uuid != HE_MAX_U64)
-    {
-        Resource_Ref static_mesh_ref = { scene_node->static_mesh_uuid };
-        Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(static_mesh_ref);
-        // todo(amer): default static mesh...
-        if (is_valid_handle(&renderer_state->static_meshes, static_mesh_handle))
-        {
-            HE_ASSERT(renderer_state->object_data_count < HE_MAX_OBJECT_DATA_COUNT);
-            U32 object_data_index = renderer_state->object_data_count++;
-            Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
-            object_data->model = get_world_matrix(transform);
-
-            Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
-
-            Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
-            for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
-            {
-                Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
-                HE_ASSERT(sub_mesh->material_uuid != HE_MAX_U64);
-
-                Resource_Ref material_ref = { sub_mesh->material_uuid };
-                Material_Handle material_handle = get_resource_handle_as<Material>(material_ref);
-
-                if (!is_valid_handle(&renderer_state->materials, material_handle))
-                {
-                    material_handle = renderer_state->default_material;
-                }
-
-                Material *material = renderer_get_material(material_handle);
-                Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
-
-                if (pipeline_state->descriptor.render_pass == opaque_pass)
-                {
-                    Render_Packet *render_packet = &renderer_state->opaque_packets[renderer_state->opaque_packet_count++];
-
-                    Resource *material_resource = get_resource({ .uuid = sub_mesh->material_uuid });
-                    if ((Resource_State)std::atomic_load((std::atomic<U8>*)&material_resource->state) != Resource_State::LOADED)
-                    {
-                        render_packet->material = renderer_state->default_material;
-                    }
-                    else
-                    {
-                        render_packet->material =
-                        {
-                            .index = std::atomic_load((std::atomic<S32>*)&material_resource->index),
-                            .generation = atomic_load((std::atomic<U32>*)&material_resource->generation)
-                        };
-                    }
-
-                    render_packet->static_mesh = static_mesh_handle;
-                    render_packet->sub_mesh_index = sub_mesh_index;
-                    render_packet->transform_index = object_data_index;
-                }
-            }
-        }
-    }
-
-    for (Scene_Node *node = scene_node->first_child; node; node = node->next_sibling)
-    {
-        renderer_parse_scene_tree(node, transform);
-    }
 }
 
 glm::vec4 srgb_to_linear(const glm::vec4 &color)
@@ -1177,6 +1149,40 @@ void renderer_destroy_frame_buffer(Frame_Buffer_Handle &frame_buffer_handle)
 }
 
 //
+// Semaphores
+//
+Semaphore_Handle renderer_create_semaphore(const Renderer_Semaphore_Descriptor &descriptor)
+{
+    Semaphore_Handle semaphore_handle = aquire_handle(&renderer_state->semaphores);
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
+    renderer->create_semaphore(semaphore_handle, descriptor);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+    return semaphore_handle;
+}
+
+Renderer_Semaphore* renderer_get_semaphore(Semaphore_Handle semaphore_handle)
+{
+    return get(&renderer_state->semaphores, semaphore_handle);
+}
+
+U64 renderer_get_semaphore_value(Semaphore_Handle semaphore_handle)
+{
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
+    U64 value = renderer->get_semaphore_value(semaphore_handle);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+    return value;
+}
+
+void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle)
+{
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
+    renderer->destroy_semaphore(semaphore_handle);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+    release_handle(&renderer_state->semaphores, semaphore_handle);
+    semaphore_handle = Resource_Pool< Renderer_Semaphore >::invalid_handle;
+}
+
+//
 // Static Meshes
 //
 
@@ -1249,7 +1255,6 @@ Static_Mesh *renderer_get_static_mesh(Static_Mesh_Handle static_mesh_handle)
 
 void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle)
 {
-    // renderer->destroy_static_mesh(static_mesh_handle);
     Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
     renderer_destroy_buffer(static_mesh->positions_buffer);
@@ -1495,37 +1500,172 @@ void renderer_use_material(Material_Handle material_handle)
 }
 
 //
-// Semaphores
+// Scenes
 //
-Semaphore_Handle renderer_create_semaphore(const Renderer_Semaphore_Descriptor &descriptor)
+
+Scene_Handle renderer_create_scene(U32 node_capacity, U32 node_count)
 {
-    Semaphore_Handle semaphore_handle = aquire_handle(&renderer_state->semaphores);
-    platform_lock_mutex(&renderer_state->render_commands_mutex);
-    renderer->create_semaphore(semaphore_handle, descriptor);
-    platform_unlock_mutex(&renderer_state->render_commands_mutex);
-    return semaphore_handle;
+    Scene_Handle scene_handle = aquire_handle(&renderer_state->scenes);
+    Scene *scene = get(&renderer_state->scenes, scene_handle);
+    init(&scene->nodes, node_capacity, node_count);
+    return scene_handle;
 }
 
-Renderer_Semaphore* renderer_get_semaphore(Semaphore_Handle semaphore_handle)
+Scene *renderer_get_scene(Scene_Handle scene_handle)
 {
-    return get(&renderer_state->semaphores, semaphore_handle);
+    Scene *scene = get(&renderer_state->scenes, scene_handle);
+    return scene;
 }
 
-U64 renderer_get_semaphore_value(Semaphore_Handle semaphore_handle)
+void renderer_destroy_scene(Scene_Handle &scene_handle)
 {
-    platform_lock_mutex(&renderer_state->render_commands_mutex);
-    U64 value = renderer->get_semaphore_value(semaphore_handle);
-    platform_unlock_mutex(&renderer_state->render_commands_mutex);
-    return value;
+    Scene *scene = get(&renderer_state->scenes, scene_handle);
+    deinit(&scene->nodes);
+    release_handle(&renderer_state->scenes, scene_handle);
+    scene_handle = Resource_Pool< Scene >::invalid_handle;
 }
 
-void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle)
+Transform get_identity_transform()
 {
-    platform_lock_mutex(&renderer_state->render_commands_mutex);
-    renderer->destroy_semaphore(semaphore_handle);
-    platform_unlock_mutex(&renderer_state->render_commands_mutex);
-    release_handle(&renderer_state->semaphores, semaphore_handle);
-    semaphore_handle = Resource_Pool< Renderer_Semaphore >::invalid_handle;
+    Transform result =
+    {
+        .position = { 0.0f, 0.0f, 0.0f },
+        .rotation = { 1.0f, 0.0f, 0.0f, 0.0f },
+        .euler_angles = { 0.0f, 0.0f, 0.0f },
+        .scale = { 1.0f, 1.0f, 1.0f }
+    };
+    return result;
+}
+
+Transform combine(const Transform &a, const Transform &b)
+{
+    Transform result =
+    {
+        .position = a.position + b.position,
+        .rotation = a.rotation * b.rotation,
+        .scale = a.scale * b.scale
+    };
+    result.euler_angles = glm::degrees(glm::eulerAngles(result.rotation));
+    return result;
+}
+
+glm::mat4 get_world_matrix(const Transform &transform)
+{
+    return glm::translate(glm::mat4(1.0f), transform.position) * glm::toMat4(transform.rotation) * glm::scale(glm::mat4(1.0f), transform.scale);
+}
+
+void add_child(Scene_Node *parent, Scene_Node *node)
+{
+    HE_ASSERT(parent);
+    HE_ASSERT(node);
+
+    node->parent = parent;
+
+    if (parent->last_child)
+    {
+        node->prev_sibling = parent->last_child;
+        parent->last_child->next_sibling = node;
+        parent->last_child = node;
+    }
+    else
+    {
+        parent->first_child = parent->last_child = node;
+    }
+}
+
+void remove_child(Scene_Node *parent, Scene_Node *node)
+{
+    HE_ASSERT(parent);
+    HE_ASSERT(node);
+    HE_ASSERT(node->parent == parent);
+    
+    node->parent = nullptr;
+    
+    if (node->prev_sibling)
+    {
+        node->prev_sibling->next_sibling = node->next_sibling;
+    }
+    else
+    {
+        parent->first_child = node->next_sibling;
+    }
+
+    if (node->next_sibling)
+    {
+        node->next_sibling->prev_sibling = node->prev_sibling;
+    }
+    else
+    {
+        parent->last_child = node->prev_sibling;
+    }
+}
+
+void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform)
+{
+    Transform transform = combine(parent_transform, scene_node->transform);
+    scene_node->global_transform = transform;
+
+    Render_Pass_Handle opaque_pass = get_render_pass(&renderer_state->render_graph, "opaque");
+
+    if (scene_node->static_mesh_uuid != HE_MAX_U64)
+    {
+        Resource_Ref static_mesh_ref = { scene_node->static_mesh_uuid };
+        Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(static_mesh_ref);
+
+        HE_ASSERT(renderer_state->object_data_count < HE_MAX_OBJECT_DATA_COUNT);
+        U32 object_data_index = renderer_state->object_data_count++;
+        Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
+        object_data->model = get_world_matrix(transform);
+
+        Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+
+        Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
+        for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
+        {
+            Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
+            HE_ASSERT(sub_mesh->material_uuid != HE_MAX_U64);
+
+            Resource_Ref material_ref = { sub_mesh->material_uuid };
+            Material_Handle material_handle = get_resource_handle_as<Material>(material_ref);
+
+            if (!is_valid_handle(&renderer_state->materials, material_handle))
+            {
+                material_handle = renderer_state->default_material;
+            }
+
+            Material *material = renderer_get_material(material_handle);
+            Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
+
+            if (pipeline_state->descriptor.render_pass == opaque_pass)
+            {
+                Render_Packet *render_packet = &renderer_state->opaque_packets[renderer_state->opaque_packet_count++];
+
+                Resource *material_resource = get_resource({ .uuid = sub_mesh->material_uuid });
+                if ((Resource_State)std::atomic_load((std::atomic<U8>*)&material_resource->state) != Resource_State::LOADED)
+                {
+                    render_packet->material = renderer_state->default_material;
+                }
+                else
+                {
+                    render_packet->material =
+                    {
+                        .index = std::atomic_load((std::atomic<S32>*)&material_resource->index),
+                        .generation = atomic_load((std::atomic<U32>*)&material_resource->generation)
+                    };
+                }
+
+                render_packet->static_mesh = static_mesh_handle;
+                render_packet->sub_mesh_index = sub_mesh_index;
+                render_packet->transform_index = object_data_index;
+            }
+        }
+        
+    }
+
+    for (Scene_Node *node = scene_node->first_child; node; node = node->next_sibling)
+    {
+        renderer_parse_scene_tree(node, transform);
+    }
 }
 
 //

@@ -865,32 +865,46 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
         }
 
         String material_resource_absloute_path = format_string(arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(asset_parent_path), HE_EXPAND_STRING(material_resource_name));
+        String material_resource_relative_path = absolute_path_to_relative(material_resource_absloute_path);
+        
+        auto it = path_to_resource_index.find(material_resource_relative_path);
+        U32 material_resource_index;
+        
+        if (it == path_to_resource_index.end())
+        {
+            material_resource_index = create_resource(copy_string(material_resource_absloute_path, allocator), Asset_Type::MATERIAL, asset->uuid);
+            Resource *material_resource = &resource_system_state->resources[material_resource_index];
+            append(&asset->resource_refs, material_resource->uuid);
 
-        U32 material_resource_index = create_resource(copy_string(material_resource_absloute_path, allocator), Asset_Type::MATERIAL, asset->uuid);
+            Resource_Ref shaders[] =
+            {
+                find_resource(HE_STRING_LITERAL("opaque_pbr_vert.hres")),
+                find_resource(HE_STRING_LITERAL("opaque_pbr_frag.hres"))
+            };
+
+            for (Resource_Ref ref : shaders)
+            {
+                HE_ASSERT(ref.uuid != HE_MAX_U64);
+                append(&material_resource->resource_refs, ref.uuid);
+
+                auto it = uuid_to_resource_index.find(ref.uuid);
+                Resource *shader_resource = &resource_system_state->resources[it->second];
+
+                platform_lock_mutex(&shader_resource->mutex);
+                append(&shader_resource->children, material_resource->uuid);
+                platform_unlock_mutex(&shader_resource->mutex);
+            }    
+        }
+        else
+        {
+            material_resource_index = it->second;
+        }
+        
         Resource *material_resource = &resource_system_state->resources[material_resource_index];
         material_uuids[material_index] = material_resource->uuid;
 
         // todo(amer): transparent materials...
         String render_pass_name = HE_STRING_LITERAL("opaque");
-
-        Resource_Ref shaders[] =
-        {
-            find_resource(HE_STRING_LITERAL("opaque_pbr_vert.hres")),
-            find_resource(HE_STRING_LITERAL("opaque_pbr_frag.hres"))
-        };
-
-        for (Resource_Ref ref : shaders)
-        {
-            HE_ASSERT(ref.uuid != HE_MAX_U64);
-            append(&material_resource->resource_refs, ref.uuid);
-
-            auto it = uuid_to_resource_index.find(ref.uuid);
-            Resource *shader_resource = &resource_system_state->resources[it->second];
-
-            platform_lock_mutex(&shader_resource->mutex);
-            append(&shader_resource->children, material_resource->uuid);
-            platform_unlock_mutex(&shader_resource->mutex);
-        }
 
         Pipeline_State_Settings pipeline_state_settings =
         {
@@ -936,7 +950,7 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
         set_property("roughness_factor", { .f32 = material->pbr_metallic_roughness.roughness_factor });
         set_property("metallic_factor", { .f32 = material->pbr_metallic_roughness.metallic_factor });
         set_property("reflectance", { .f32 = 0.04f });
-
+        
         save_material_resource(material_resource, render_pass_name, pipeline_state_settings, property_names, properties, property_count);
     }
 
@@ -959,8 +973,23 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
         }
 
         String static_mesh_resource_absloute_path = format_string(arena, "%.*s/%.*s.hres", HE_EXPAND_STRING(asset_parent_path), HE_EXPAND_STRING(static_mesh_resource_name));
+        String static_mesh_resource_relative_path = absolute_path_to_relative(static_mesh_resource_absloute_path);
 
-        U32 static_mesh_resource_index = create_resource(copy_string(static_mesh_resource_absloute_path, allocator), Asset_Type::STATIC_MESH, asset->uuid);
+        U32 static_mesh_resource_index;
+        auto it = path_to_resource_index.find(static_mesh_resource_relative_path);
+
+        if (it == path_to_resource_index.end())
+        {
+            static_mesh_resource_index = create_resource(copy_string(static_mesh_resource_absloute_path, allocator), Asset_Type::STATIC_MESH, asset->uuid);
+            
+            Resource *static_mesh_resource = &resource_system_state->resources[static_mesh_resource_index];
+            append(&asset->resource_refs, static_mesh_resource->uuid);
+        }
+        else
+        {
+            static_mesh_resource_index = it->second;
+        }
+
         Resource *static_mesh_resource = &resource_system_state->resources[static_mesh_resource_index];
         static_mesh_uuids[static_mesh_index] = static_mesh_resource->uuid;
 
@@ -972,6 +1001,18 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
     Resource_Header header = make_resource_header(Asset_Type::SCENE, resource->asset_uuid, resource->uuid);
     copy_memory(&buffer[offset], &header, sizeof(header));
     offset += sizeof(header);
+
+    if (resource->resource_refs.count)
+    {
+        copy_memory(&buffer[offset], resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
+        offset += sizeof(U64) * resource->resource_refs.count;
+    }
+
+    if (resource->children.count)
+    {
+        copy_memory(&buffer[offset], resource->children.data, sizeof(U64) * resource->children.count);
+        offset += sizeof(U64) * resource->children.count;
+    }
 
     U64 string_size = 0;
     cgltf_scene *scene = &data->scenes[0];
@@ -1044,7 +1085,7 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
 
         node_name_data_file_offset += node_name.count;
     }
-
+    
     bool result = write_entire_file(resource->absolute_path.data, buffer, offset);
     return result;
 }
@@ -1114,11 +1155,12 @@ static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resour
 
     U16 *indices = (U16 *)data;
     U8 *vertex_data = data + sizeof(U16) * index_count;
-
     glm::vec3 *positions = (glm::vec3 *)vertex_data;
     glm::vec2 *uvs = (glm::vec2 *)(vertex_data + sizeof(glm::vec3) * vertex_count);
     glm::vec3 *normals = (glm::vec3 *)(vertex_data + (sizeof(glm::vec3) + sizeof(glm::vec2)) * vertex_count);
     glm::vec4 *tangents = (glm::vec4 *)(vertex_data + (sizeof(glm::vec3) + sizeof(glm::vec2) + sizeof(glm::vec3)) * vertex_count);
+
+    append(&resource->allocation_group.allocations, (void *)data);    
 
     Static_Mesh_Descriptor static_mesh_descriptor =
     {
@@ -1157,7 +1199,7 @@ static void unload_static_mesh_resource(Resource *resource)
 
 static bool load_scene_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
 {
-    U64 file_offset = sizeof(Resource_Header) + sizeof(U64) * resource->resource_refs.count;
+    U64 file_offset = sizeof(Resource_Header) + sizeof(U64) * resource->resource_refs.count + sizeof(U64) * resource->children.count;
 
     Render_Context render_context = get_render_context();
 
@@ -1165,40 +1207,9 @@ static bool load_scene_resource(Open_File_Result *open_file_result, Resource *re
 
     Scene_Resource_Info info;
     success &= platform_read_data_from_file(open_file_result, file_offset, &info, sizeof(info));
-
-    Scene_Node *scene = nullptr;
-    Scene_Node *first_node;
-
-    Dynamic_Array< Scene_Node > &nodes = render_context.renderer_state->nodes;
-    platform_lock_mutex(&render_context.renderer_state->nodes_mutex);
-
-    if (info.node_count == 1)
-    {
-        Scene_Node *node = &append(&nodes);
-        scene = node;
-        first_node = node;
-    }
-    else
-    {
-        // todo(amer): bulk append in array and dynamic array
-        scene = &nodes.data[nodes.count];
-        nodes.count += 1 + info.node_count;
-        HE_ASSERT(nodes.count <= nodes.capacity);
-        first_node = scene + 1;
-    }
-
-    HE_ASSERT(scene);
-    HE_ASSERT(first_node);
-
-    scene->parent = nullptr;
-    scene->first_child = nullptr;
-    scene->last_child = nullptr;
-    scene->next_sibling = nullptr;
-    scene->name = get_name(resource->relative_path);
-    scene->static_mesh_uuid = HE_MAX_U64;
-    scene->transform = get_identity_transform();
-
-    platform_unlock_mutex(&render_context.renderer_state->nodes_mutex);
+    
+    Scene_Handle scene_handle = renderer_create_scene(info.node_count, info.node_count);
+    Scene *scene = renderer_get_scene(scene_handle);
 
     for (U32 node_index = 0; node_index < info.node_count; node_index++)
     {
@@ -1212,11 +1223,12 @@ static bool load_scene_resource(Open_File_Result *open_file_result, Resource *re
         success &= platform_read_data_from_file(open_file_result, node_info.name_offset, node_name_data, node_name_data_size);
 
         String node_name = { node_name_data, node_info.name_count };
-        Scene_Node *node = first_node + node_index;
+        Scene_Node *node = &scene->nodes[node_index];
         node->parent = nullptr;
         node->first_child = nullptr;
         node->last_child = nullptr;
         node->next_sibling = nullptr;
+        node->prev_sibling = nullptr;
 
         node->name = node_name;
         node->static_mesh_uuid = node_info.static_mesh_uuid;
@@ -1225,28 +1237,39 @@ static bool load_scene_resource(Open_File_Result *open_file_result, Resource *re
         Resource_Ref static_mesh_ref = { node_info.static_mesh_uuid };
         aquire_resource(static_mesh_ref);
 
-        HE_ASSERT(first_node);
-        Scene_Node *parent = node_info.parent_index != -1 ? first_node + node_info.parent_index : scene;
-        if (node != scene)
+        if (node_info.parent_index != -1)
         {
-            platform_lock_mutex(&render_context.renderer_state->nodes_mutex);
+            Scene_Node *parent = &scene->nodes[node_info.parent_index];   
             add_child(parent, node);
-            platform_unlock_mutex(&render_context.renderer_state->nodes_mutex);
         }
     }
+    
+    // todo(amer): temprary we add the this root scene to.
+    platform_lock_mutex(&render_context.renderer_state->root_scene_node_mutex);
+    add_child(&render_context.renderer_state->root_scene_node, &scene->nodes[0]);
+    platform_unlock_mutex(&render_context.renderer_state->root_scene_node_mutex);
 
-    // todo(amer): @temprary
-    platform_lock_mutex(&render_context.renderer_state->nodes_mutex);
-    add_child(render_context.renderer_state->root_scene_node, scene);
-    platform_unlock_mutex(&render_context.renderer_state->nodes_mutex);
-
-    resource->index = index_of(&render_context.renderer_state->nodes, scene);
+    resource->index = scene_handle.index;
+    resource->generation = scene_handle.generation;
     return success;
 }
 
 static void unload_scene_resource(Resource *resource)
 {
-    // todo(amer): unloade scene resource
+    Render_Context render_context = get_render_context();
+
+    Scene_Handle scene_handle = { .index = resource->index, .generation = resource->generation };
+    Scene *scene = renderer_get_scene(scene_handle);
+
+    platform_lock_mutex(&render_context.renderer_state->root_scene_node_mutex);
+    remove_child(&render_context.renderer_state->root_scene_node, &scene->nodes[0]);
+    platform_unlock_mutex(&render_context.renderer_state->root_scene_node_mutex);
+    
+    renderer_destroy_scene(scene_handle);
+
+    // todo(amer): default scene node.
+    resource->index = -1;
+    resource->generation = 0;
 }
 
 //==================================== Jobs ==================================================
@@ -2006,10 +2029,7 @@ void reload_resources()
                 renderer_wait_for_gpu_to_finish_all_work();
                 wait_once = true;
             }
-
-            Resource *resource = get_resource({ .uuid = asset.resource_refs[0] });
-            U32 resource_index = index_of(&resource_system_state->resources, resource);
-
+            
             {
                 Dynamic_Array<Job_Handle> wait_for_jobs;
                 init(&wait_for_jobs);
@@ -2034,7 +2054,7 @@ void reload_resources()
                 Condition_Asset_Job_Data data =
                 {
                     .asset_index = asset_index,
-                    .resource_index = resource_index
+                    .resource_index = uuid_to_resource_index.find(asset.resource_refs[0])->second
                 };
 
                 Job_Data job_data =
@@ -2051,55 +2071,58 @@ void reload_resources()
             }
 
             {
-                Dynamic_Array<Job_Handle> wait_for_jobs;
-                init(&wait_for_jobs);
-                HE_DEFER { deinit(&wait_for_jobs); };
-
-                Resource *resource = &resource_system_state->resources[resource_index];
-                platform_lock_mutex(&resource->mutex);
-
-                Resource_Type_Info &info = resource_system_state->resource_type_infos[(U32)resource->type];
-                if (resource->state == Resource_State::LOADED)
+                for (U32 i = 0; i < asset.resource_refs.count; i++)
                 {
-                    info.loader.unload(resource);
-                }
+                    Dynamic_Array<Job_Handle> wait_for_jobs;
+                    init(&wait_for_jobs);
+                    HE_DEFER { deinit(&wait_for_jobs); };
 
-                if (resource->state == Resource_State::UNLOADED || resource->state == Resource_State::LOADED)
-                {
-                    resource->state = Resource_State::PENDING;
-                }
-                else
-                {
-                    append(&wait_for_jobs, resource->job_handle);
-                }
+                    Resource *r = get_resource({ .uuid = asset.resource_refs[i] });
+                    platform_lock_mutex(&r->mutex);
 
-                platform_unlock_mutex(&resource->mutex);
-
-                Load_Resource_Job_Data data =
-                {
-                    .resource = resource
-                };
-
-                Job_Data job_data =
-                {
-                    .parameters =
+                    Resource_Type_Info &info = resource_system_state->resource_type_infos[(U32)r->type];
+                    if (r->state == Resource_State::LOADED)
                     {
-                        .data = &data,
-                        .size = sizeof(data)
-                    },
-                    .proc = &load_resource_job
-                };
+                        info.loader.unload(r);
+                    }
 
-                append(&wait_for_jobs, asset.job_handle);
+                    if (r->state == Resource_State::UNLOADED || r->state == Resource_State::LOADED)
+                    {
+                        r->state = Resource_State::PENDING;
+                    }
+                    else
+                    {
+                        append(&wait_for_jobs, r->job_handle);
+                    }
 
-                for (U64 uuid : resource->resource_refs)
-                {
-                    Resource *r = get_resource({ .uuid = uuid });
-                    append(&wait_for_jobs, r->job_handle);
+                    platform_unlock_mutex(&r->mutex);
+
+                    Load_Resource_Job_Data data =
+                    {
+                        .resource = r
+                    };
+
+                    Job_Data job_data =
+                    {
+                        .parameters =
+                        {
+                            .data = &data,
+                            .size = sizeof(data)
+                        },
+                        .proc = &load_resource_job
+                    };
+
+                    append(&wait_for_jobs, asset.job_handle);
+
+                    for (U64 uuid : r->resource_refs)
+                    {
+                        Resource *rr = get_resource({ .uuid = uuid });
+                        append(&wait_for_jobs, rr->job_handle);
+                    }
+
+                    r->job_handle = execute_job(job_data, to_array_view(wait_for_jobs));
+                    reload_child_resources(r);
                 }
-
-                resource->job_handle = execute_job(job_data, to_array_view(wait_for_jobs));
-                reload_child_resources(resource);
             }
         }
     }

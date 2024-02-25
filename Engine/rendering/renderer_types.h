@@ -615,12 +615,20 @@ struct Scene_Node
     Scene_Node *first_child;
     Scene_Node *last_child;
     Scene_Node *next_sibling;
+    Scene_Node *prev_sibling;
 
     U64 static_mesh_uuid;
 
     Transform transform;
     Transform global_transform;
 };
+
+struct Scene
+{
+    Dynamic_Array< Scene_Node > nodes;
+};
+
+using Scene_Handle = Resource_Handle< Scene >;
 
 struct Render_Packet
 {

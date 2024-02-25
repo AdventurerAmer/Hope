@@ -1,24 +1,38 @@
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Corset/Corset.gltf
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_MetallicRoughness.png
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube.gltf
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Cube/Cube_BaseColor.png
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Corset/Corset_occlusionRoughnessMetallic.png
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Corset/Corset_normal.png
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Corset/Corset_baseColor.png
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_vert.vert
-[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag
 [Resource-Trace]: resource loaded: white pixel
 [Resource-Trace]: resource loaded: normal pixel
 [Resource-Trace]: resource loaded: skybox
+[Resource-Trace]: resource loaded: cube static mesh
 [Resource-Trace]: resource loaded: Corset/Corset.hres
+[Resource-Trace]: resource loaded: opaque_pbr_frag.hres
 [Resource-Trace]: resource loaded: opaque_pbr_vert.hres
+[Resource-Trace]: resource loaded: Corset/material_Corset_O.hres
+[Resource-Trace]: resource loaded: Corset/static_mesh_pCube49.hres
+[Resource-Trace]: resource loaded: Corset/Corset_normal.hres
+[Resource-Trace]: resource loaded: Corset/Corset_baseColor.hres
+[Resource-Trace]: resource loaded: Corset/Corset_occlusionRoughnessMetallic.hres
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Corset/Corset.gltf
+[Resource-Trace]: resource loaded: Corset/material_Corset_O.hres
+[Resource-Trace]: resource loaded: Corset/Corset.hres
+[Resource-Trace]: resource loaded: Corset/static_mesh_pCube49.hres
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Corset/Corset.gltf
+[Resource-Trace]: resource loaded: Corset/material_Corset_O.hres
+[Resource-Trace]: resource loaded: Corset/Corset.hres
+[Resource-Trace]: resource loaded: Corset/static_mesh_pCube49.hres
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag
 [Resource-Trace]: resource loaded: opaque_pbr_frag.hres
 [Resource-Trace]: resource loaded: Corset/material_Corset_O.hres
-[Resource-Trace]: resource loaded: Cube/material_Cube.hres
-[Resource-Trace]: resource loaded: Cube/static_mesh_Cube.hres
-[Resource-Trace]: resource loaded: Corset/static_mesh_pCube49.hres
-[Resource-Trace]: resource loaded: Cube/Cube_BaseColor.hres
-[Resource-Trace]: resource loaded: Cube/Cube_MetallicRoughness.hres
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag
+[Resource-Trace]: resource loaded: opaque_pbr_frag.hres
+[Resource-Trace]: resource loaded: Corset/material_Corset_O.hres
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag
+[Resource-Trace]: resource loaded: opaque_pbr_frag.hres
+[Resource-Trace]: resource loaded: Corset/material_Corset_O.hres
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/opaque_pbr_frag.frag
+[Resource-Trace]: resource loaded: opaque_pbr_frag.hres
+[Resource-Trace]: resource loaded: Corset/material_Corset_O.hres
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Corset/Corset_baseColor.png
 [Resource-Trace]: resource loaded: Corset/Corset_baseColor.hres
-[Resource-Trace]: resource loaded: Corset/Corset_normal.hres
-[Resource-Trace]: resource loaded: Corset/Corset_occlusionRoughnessMetallic.hres
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Corset/Corset_baseColor.png
+[Resource-Trace]: resource loaded: Corset/Corset_baseColor.hres
+[Resource-Trace]: successfully conditioned asset: c:/dev/cpp/hope/data/resources/Corset/Corset_baseColor.png
+[Resource-Trace]: resource loaded: Corset/Corset_baseColor.hres

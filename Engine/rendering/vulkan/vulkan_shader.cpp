@@ -904,8 +904,7 @@ static VkFrontFace get_front_face(Front_Face front_face)
 
 bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  const Pipeline_State_Descriptor &descriptor, Vulkan_Context *context)
 {
-    // Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
-    // HE_DEFER { end_temprary_memory(&temprary_memory); };
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
     Renderer_State *renderer_state = context->renderer_state;
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, pipeline_state_handle);
@@ -917,7 +916,7 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[descriptor.shader_group.index];
     Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[pipeline_state_handle.index];
 
-    VkPipelineShaderStageCreateInfo shader_stage_create_infos[16];
+    VkPipelineShaderStageCreateInfo shader_stage_create_infos[HE_MAX_SHADER_COUNT_PER_PIPELINE];
 
     bool is_using_vertex_shader = false;
     VkVertexInputBindingDescription vertex_input_binding_descriptions[128];
