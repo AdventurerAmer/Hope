@@ -50,22 +50,22 @@ enum class Buffer_Usage : U8
     VERTEX,
     INDEX,
     UNIFORM,
-    STORAGE,
+    STORAGE_CPU_SIDE,
+    STORAGE_GPU_SIDE
 };
 
 struct Buffer_Descriptor
 {
     U64 size;
     Buffer_Usage usage;
-    bool is_device_local;
 };
 
 struct Buffer
 {
     String name;
 
-    Buffer_Usage usage;
     U64 size;
+    Buffer_Usage usage;
     void *data;
 };
 
@@ -543,6 +543,8 @@ struct Allocation_Group
 
     Array< void*, HE_MAX_ALLOCATION_COUNT > allocations;
 
+    S32 index = -1;
+    U32 generation = 0;
     bool *uploaded = nullptr;
 };
 
@@ -619,7 +621,7 @@ struct Scene_Node
 
     U64 static_mesh_uuid;
 
-    Transform transform;
+    Transform local_transform;
     Transform global_transform;
 };
 

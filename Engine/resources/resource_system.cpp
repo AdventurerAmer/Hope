@@ -154,11 +154,13 @@ static U32 create_resource(String absolute_path, Asset_Type type, U64 asset_uuid
 
     resource_mutex.unlock();
 
+    Resource_Loader *loader = &resource_system_state->resource_type_infos[(U32)type].loader;
+
     resource.asset_uuid = asset_uuid;
     resource.state = Resource_State::UNLOADED;
     resource.type = type;
-    resource.index = -1;
-    resource.generation = 0;
+    resource.index = loader->index;
+    resource.generation = loader->generation;
     resource.ref_count = 0;
     resource.job_handle = Resource_Pool<Job>::invalid_handle;
 
@@ -248,8 +250,8 @@ static bool load_texture_resource(Open_File_Result *open_file_result, Resource *
     };
 
     Texture_Handle texture_handle = renderer_create_texture(texture_descriptor);
-    resource->index = texture_handle.index;
-    resource->generation = texture_handle.generation;
+    resource->allocation_group.index = texture_handle.index;
+    resource->allocation_group.generation = texture_handle.generation;
     return success;
 }
 
@@ -1176,8 +1178,8 @@ static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resour
     };
 
     Static_Mesh_Handle static_mesh_handle = renderer_create_static_mesh(static_mesh_descriptor);
-    resource->index = static_mesh_handle.index;
-    resource->generation = static_mesh_handle.generation;
+    resource->allocation_group.index = static_mesh_handle.index;
+    resource->allocation_group.generation = static_mesh_handle.generation;
     return success;
 }
 
@@ -1232,7 +1234,7 @@ static bool load_scene_resource(Open_File_Result *open_file_result, Resource *re
 
         node->name = node_name;
         node->static_mesh_uuid = node_info.static_mesh_uuid;
-        node->transform = node_info.transform;
+        node->local_transform = node_info.transform;
 
         Resource_Ref static_mesh_ref = { node_info.static_mesh_uuid };
         aquire_resource(static_mesh_ref);
@@ -1277,6 +1279,7 @@ struct Condition_Asset_Job_Data
 {
     U32 asset_index;
     U32 resource_index;
+    U64 last_write_time;
 };
 
 static Job_Result condition_asset_job(const Job_Parameters &params)
@@ -1315,6 +1318,7 @@ static Job_Result condition_asset_job(const Job_Parameters &params)
     HE_LOG(Resource, Trace, "successfully conditioned asset: %.*s\n", HE_EXPAND_STRING(asset_path));
 
     asset->state = Asset_State::CONDITIONED;
+    asset->last_write_time = job_data->last_write_time;
     return Job_Result::SUCCEEDED;
 }
 
@@ -1366,7 +1370,6 @@ static Job_Result load_resource_job(const Job_Parameters &params)
     {
         // todo(amer): we should free or reset the semaphore here is we are using allocation groups
         resource->state = Resource_State::UNLOADED;
-        resource->ref_count = 0;
         HE_LOG(Resource, Fetal, "failed to open resource file: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
         return Job_Result::FAILED;
     }
@@ -1379,8 +1382,6 @@ static Job_Result load_resource_job(const Job_Parameters &params)
     {
         // todo(amer): we should free or reset the semaphore here is we are using allocation groups
         resource->state = Resource_State::UNLOADED;
-        resource->ref_count = 0;
-
         HE_LOG(Resource, Trace, "failed to load resource: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
         return Job_Result::FAILED;
     }
@@ -1658,7 +1659,9 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
         {
             .use_allocation_group = true,
             .load = &load_texture_resource,
-            .unload = &unload_texture_resource
+            .unload = &unload_texture_resource,
+            .index = render_context.renderer_state->white_pixel_texture.index,
+            .generation = render_context.renderer_state->white_pixel_texture.generation
         };
 
         register_asset(Asset_Type::TEXTURE, "texture", 1, conditioner, loader);
@@ -1678,11 +1681,14 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             .condition_asset = &condition_shader_to_resource,
         };
 
+        // todo(amer): we need tags here...
         Resource_Loader loader =
         {
             .use_allocation_group = false,
             .load = &load_shader_resource,
             .unload = &unload_shader_resource,
+            .index = render_context.renderer_state->default_vertex_shader.index,
+            .generation = render_context.renderer_state->default_vertex_shader.generation
         };
 
         register_asset(Asset_Type::SHADER, "shader", 1, conditioner, loader);
@@ -1706,6 +1712,8 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             .use_allocation_group = false,
             .load = &load_material_resource,
             .unload = &unload_material_resource,
+            .index = render_context.renderer_state->default_material.index,
+            .generation = render_context.renderer_state->default_material.generation
         };
 
         register_asset(Asset_Type::MATERIAL, "material", 1, conditioner, loader);
@@ -1728,7 +1736,9 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
         {
             .use_allocation_group = true,
             .load = &load_static_mesh_resource,
-            .unload = &unload_static_mesh_resource
+            .unload = &unload_static_mesh_resource,
+            .index = render_context.renderer_state->default_static_mesh.index,
+            .generation = render_context.renderer_state->default_static_mesh.generation
         };
 
         register_asset(Asset_Type::STATIC_MESH, "static mesh", 1, conditioner, loader);
@@ -1751,7 +1761,9 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
         {
             .use_allocation_group = false,
             .load = &load_scene_resource,
-            .unload = &unload_scene_resource
+            .unload = &unload_scene_resource,
+            .index = render_context.renderer_state->default_scene.index,
+            .generation = render_context.renderer_state->default_scene.generation
         };
 
         register_asset(Asset_Type::SCENE, "scene", 1, conditioner, loader);
@@ -1783,7 +1795,8 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
         Condition_Asset_Job_Data data =
         {
             .asset_index = asset_index,
-            .resource_index = it->second
+            .resource_index = it->second,
+            .last_write_time = asset->last_write_time
         };
 
         Job_Data job_data =
@@ -1874,7 +1887,7 @@ static void aquire_resource(Resource *resource)
         Job_Data job_data = {};
         job_data.parameters.data = &data;
         job_data.parameters.size = sizeof(data);
-        job_data.proc = load_resource_job;
+        job_data.proc = &load_resource_job;
         resource->job_handle = execute_job(job_data, to_array_view(wait_for_jobs));
     }
     else
@@ -1927,12 +1940,13 @@ void release_resource(Resource_Ref ref)
     HE_ASSERT(resource->ref_count);
     platform_lock_mutex(&resource->mutex);
     resource->ref_count--;
-    if (resource->ref_count == 0)
+    if (resource->ref_count == 0 && resource->state == Resource_State::LOADED)
     {
-        Resource_Type_Info &info = resource_system_state->resource_type_infos[(U32)resource->type];
-        info.loader.unload(resource);
-        resource->index = -1;
-        resource->generation = 0;
+        Resource_Type_Info *info = &resource_system_state->resource_type_infos[(U32)resource->type];
+        Resource_Loader *loader = &info->loader;
+        loader->unload(resource);
+        resource->index = loader->index;
+        resource->generation = loader->generation;
         resource->state = Resource_State::UNLOADED;
     }
     platform_unlock_mutex(&resource->mutex);
@@ -2020,41 +2034,83 @@ void reload_resources()
     for (U32 asset_index = 0; asset_index < resource_system_state->assets.count; asset_index++)
     {
         Asset &asset = resource_system_state->assets[asset_index];
+        platform_lock_mutex(&asset.mutex);
         U64 last_write_time = platform_get_file_last_write_time(asset.absolute_path.data);
-        if (last_write_time != asset.last_write_time)
+        if (last_write_time == asset.last_write_time)
         {
-            // todo(amer): @Hack.
-            if (!wait_once)
+            platform_unlock_mutex(&asset.mutex);
+            continue;
+        }
+
+        HE_ASSERT(asset.state == Asset_State::UNCONDITIONED || asset.state == Asset_State::CONDITIONED);
+        asset.state = Asset_State::PENDING;
+        platform_unlock_mutex(&asset.mutex);
+
+        // todo(amer): @Hack. we should delete the resources after 'frame_in_flight_count' frames...
+        if (!wait_once)
+        {
+            renderer_wait_for_gpu_to_finish_all_work();
+            wait_once = true;
+        }
+
+        {
+            Dynamic_Array<Job_Handle> wait_for_jobs;
+            init(&wait_for_jobs);
+
+            HE_DEFER { deinit(&wait_for_jobs); };
+
+            platform_unlock_mutex(&asset.mutex);
+
+            Condition_Asset_Job_Data data =
             {
-                renderer_wait_for_gpu_to_finish_all_work();
-                wait_once = true;
-            }
-            
+                .asset_index = asset_index,
+                .resource_index = uuid_to_resource_index.find(asset.resource_refs[0])->second,
+                .last_write_time = last_write_time
+            };
+
+            Job_Data job_data =
+            {
+                .parameters =
+                {
+                    .data = &data,
+                    .size = sizeof(data)
+                },
+                .proc = &condition_asset_job
+            };
+
+            asset.job_handle = execute_job(job_data, to_array_view(wait_for_jobs));
+        }
+
+        {
+            for (U32 i = 0; i < asset.resource_refs.count; i++)
             {
                 Dynamic_Array<Job_Handle> wait_for_jobs;
                 init(&wait_for_jobs);
-
                 HE_DEFER { deinit(&wait_for_jobs); };
 
-                platform_lock_mutex(&asset.mutex);
+                Resource *r = get_resource({ .uuid = asset.resource_refs[i] });
+                platform_lock_mutex(&r->mutex);
 
-                asset.last_write_time = last_write_time;
-
-                if (asset.state == Asset_State::UNCONDITIONED || asset.state == Asset_State::CONDITIONED)
+                Resource_Type_Info &info = resource_system_state->resource_type_infos[(U32)r->type];
+                if (r->state == Resource_State::LOADED)
                 {
-                    asset.state = Asset_State::PENDING;
+                    info.loader.unload(r);
+                }
+
+                if (r->state == Resource_State::UNLOADED || r->state == Resource_State::LOADED)
+                {
+                    r->state = Resource_State::PENDING;
                 }
                 else
                 {
-                    append(&wait_for_jobs, asset.job_handle);
+                    append(&wait_for_jobs, r->job_handle);
                 }
 
-                platform_unlock_mutex(&asset.mutex);
+                platform_unlock_mutex(&r->mutex);
 
-                Condition_Asset_Job_Data data =
+                Load_Resource_Job_Data data =
                 {
-                    .asset_index = asset_index,
-                    .resource_index = uuid_to_resource_index.find(asset.resource_refs[0])->second
+                    .resource = r
                 };
 
                 Job_Data job_data =
@@ -2064,65 +2120,19 @@ void reload_resources()
                         .data = &data,
                         .size = sizeof(data)
                     },
-                    .proc = &condition_asset_job
+                    .proc = &load_resource_job
                 };
 
-                asset.job_handle = execute_job(job_data, to_array_view(wait_for_jobs));
-            }
+                append(&wait_for_jobs, asset.job_handle);
 
-            {
-                for (U32 i = 0; i < asset.resource_refs.count; i++)
+                for (U64 uuid : r->resource_refs)
                 {
-                    Dynamic_Array<Job_Handle> wait_for_jobs;
-                    init(&wait_for_jobs);
-                    HE_DEFER { deinit(&wait_for_jobs); };
-
-                    Resource *r = get_resource({ .uuid = asset.resource_refs[i] });
-                    platform_lock_mutex(&r->mutex);
-
-                    Resource_Type_Info &info = resource_system_state->resource_type_infos[(U32)r->type];
-                    if (r->state == Resource_State::LOADED)
-                    {
-                        info.loader.unload(r);
-                    }
-
-                    if (r->state == Resource_State::UNLOADED || r->state == Resource_State::LOADED)
-                    {
-                        r->state = Resource_State::PENDING;
-                    }
-                    else
-                    {
-                        append(&wait_for_jobs, r->job_handle);
-                    }
-
-                    platform_unlock_mutex(&r->mutex);
-
-                    Load_Resource_Job_Data data =
-                    {
-                        .resource = r
-                    };
-
-                    Job_Data job_data =
-                    {
-                        .parameters =
-                        {
-                            .data = &data,
-                            .size = sizeof(data)
-                        },
-                        .proc = &load_resource_job
-                    };
-
-                    append(&wait_for_jobs, asset.job_handle);
-
-                    for (U64 uuid : r->resource_refs)
-                    {
-                        Resource *rr = get_resource({ .uuid = uuid });
-                        append(&wait_for_jobs, rr->job_handle);
-                    }
-
-                    r->job_handle = execute_job(job_data, to_array_view(wait_for_jobs));
-                    reload_child_resources(r);
+                    Resource *rr = get_resource({ .uuid = uuid });
+                    append(&wait_for_jobs, rr->job_handle);
                 }
+
+                r->job_handle = execute_job(job_data, to_array_view(wait_for_jobs));
+                reload_child_resources(r);
             }
         }
     }

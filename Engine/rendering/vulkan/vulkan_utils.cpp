@@ -328,15 +328,20 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
 void destroy_image(Vulkan_Image *image, Vulkan_Context *context)
 {
     vkDestroyImageView(context->logical_device, image->view, nullptr);
-    
+
+#if 0
     if (image->memory)
     {
         vkFreeMemory(context->logical_device, image->memory, nullptr);
     }
     
     vkDestroyImage(context->logical_device, image->handle, nullptr);
+    
+    image->memory = VK_NULL_HANDLE;
+#endif
+
+    vmaDestroyImage(context->allocator, image->handle, image->allocation);
 
     image->handle = VK_NULL_HANDLE;
-    image->memory = VK_NULL_HANDLE;
     image->view = VK_NULL_HANDLE;
 }

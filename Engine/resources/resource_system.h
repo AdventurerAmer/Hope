@@ -113,6 +113,8 @@ struct Resource_Loader
     bool use_allocation_group;
     load_resource_proc load;
     unload_resource_proc unload;
+    S32 index;
+    U32 generation;
 };
 
 #pragma pack(push, 1)

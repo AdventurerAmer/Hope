@@ -1,7 +1,6 @@
 #include <string.h>
 
 #include "vulkan_renderer.h"
-#include "vulkan_buffer.h"
 #include "vulkan_swapchain.h"
 #include "vulkan_shader.h"
 #include "vulkan_utils.h"
@@ -18,6 +17,9 @@
 
 #include "containers/dynamic_array.h"
 #include "ImGui/backends/imgui_impl_vulkan.cpp"
+
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
 
 static Vulkan_Context vulkan_context;
 
@@ -441,6 +443,20 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     vkGetDeviceQueue(context->logical_device, context->present_queue_family_index, 0, &context->present_queue);
     vkGetDeviceQueue(context->logical_device, context->transfer_queue_family_index, 0, &context->transfer_queue);
 
+    VmaVulkanFunctions vulkan_functions = {};
+    vulkan_functions.vkGetInstanceProcAddr = &vkGetInstanceProcAddr;
+    vulkan_functions.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
+
+    VmaAllocatorCreateInfo allocator_create_info = {};
+    allocator_create_info.flags = VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
+    allocator_create_info.vulkanApiVersion = VK_API_VERSION_1_2;
+    allocator_create_info.physicalDevice = context->physical_device;
+    allocator_create_info.device = context->logical_device;
+    allocator_create_info.instance = context->instance;
+    allocator_create_info.pVulkanFunctions = &vulkan_functions;
+
+    vmaCreateAllocator(&allocator_create_info, &context->allocator);
+
     VkFormat image_formats[] =
     {
         VK_FORMAT_B8G8R8A8_SRGB,
@@ -579,6 +595,8 @@ void deinit_vulkan(Vulkan_Context *context)
     vkDestroyPipelineCache(context->logical_device, context->pipeline_cache, nullptr);
 
     vkDestroySurfaceKHR(context->instance, context->surface, nullptr);
+
+    vmaDestroyAllocator(context->allocator);
     vkDestroyDevice(context->logical_device, nullptr);
 
 #if HE_GRAPHICS_DEBUGGING
@@ -891,31 +909,12 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     image_create_info.samples = get_sample_count(descriptor.sample_count);
     image_create_info.flags = descriptor.is_cubemap ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
-    
-    HE_CHECK_VKRESULT(vkCreateImage(context->logical_device, &image_create_info, nullptr, &image->handle));
 
-    VkMemoryRequirements memory_requirements = {};
-    vkGetImageMemoryRequirements(context->logical_device, image->handle, &memory_requirements);
-    image->memory_requirements = memory_requirements;
+    VmaAllocationCreateInfo allocation_create_info = {};
+    allocation_create_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    if (is_valid_handle(&context->renderer_state->textures, descriptor.alias))
-    {
-        Texture *alias_texture = renderer_get_texture(descriptor.alias);
-        Vulkan_Image *alias_image = &context->textures[descriptor.alias.index]; 
-        HE_ASSERT(alias_texture->size >= memory_requirements.size);
-        HE_ASSERT(alias_texture->alignment == memory_requirements.alignment);
-
-        vkBindImageMemory(context->logical_device, image->handle, alias_image->memory, 0);
-        image->memory = VK_NULL_HANDLE;
-    }
-    else
-    {
-        VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
-        memory_allocate_info.allocationSize = memory_requirements.size;
-        memory_allocate_info.memoryTypeIndex = find_memory_type_index(memory_requirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, context);
-        HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info, nullptr, &image->memory));
-        vkBindImageMemory(context->logical_device, image->handle, image->memory, 0);
-    }
+    VmaAllocationInfo allocation_info = {};
+    vmaCreateImage(context->allocator, &image_create_info, &allocation_create_info, &image->handle, &image->allocation, &image->allocation_info);
 
     VkImageViewCreateInfo image_view_create_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
     image_view_create_info.image = image->handle;
@@ -931,7 +930,7 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     image_view_create_info.subresourceRange.baseArrayLayer = 0;
     image_view_create_info.subresourceRange.layerCount = descriptor.layer_count;
     HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, nullptr, &image->view));
-    
+
     if (descriptor.data.count > 0)
     {
         Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
@@ -952,8 +951,8 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     texture->format = descriptor.format;
     texture->sample_count = descriptor.sample_count;
     texture->alias = descriptor.alias;
-    texture->size = image->memory_requirements.size;
-    texture->alignment = image->memory_requirements.alignment;
+    texture->size = image->allocation_info.size;
+    texture->alignment = image->allocation->GetAlignment();
     return true;
 }
 
@@ -1198,8 +1197,9 @@ static VkDescriptorType get_descriptor_type(Buffer_Usage usage)
     switch (usage)
     {
         case Buffer_Usage::UNIFORM: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        case Buffer_Usage::STORAGE: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-
+        case Buffer_Usage::STORAGE_CPU_SIDE:
+        case Buffer_Usage::STORAGE_GPU_SIDE:
+            return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         default:
         {
             HE_ASSERT(!"unsupported binding type");
@@ -1690,16 +1690,36 @@ void vulkan_renderer_destroy_frame_buffer(Frame_Buffer_Handle frame_buffer_handl
     vkDestroyFramebuffer(context->logical_device, vulkan_frame_buffer->handle, nullptr);
 }
 
-static VkBufferUsageFlags get_buffer_usage(Buffer_Usage usage)
+static VkBufferUsageFlags get_buffer_usage_flags(Buffer_Usage usage)
 {
     switch (usage)
     {
-        case Buffer_Usage::TRANSFER: return 0;
-        case Buffer_Usage::VERTEX:   return VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-        case Buffer_Usage::INDEX:    return VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-        case Buffer_Usage::UNIFORM:  return VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-        case Buffer_Usage::STORAGE:  return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-
+        case Buffer_Usage::TRANSFER:
+        { 
+            return VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        } break;
+        
+        case Buffer_Usage::VERTEX:
+        {
+            return VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        } break;
+        
+        case Buffer_Usage::INDEX:
+        {
+            return VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        } break;
+            
+        case Buffer_Usage::UNIFORM:
+        {
+            return VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        } break;
+        
+        case Buffer_Usage::STORAGE_CPU_SIDE:
+        case Buffer_Usage::STORAGE_GPU_SIDE:
+        {
+            return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        } break;
+        
         default:
         {
             HE_ASSERT(!"unsupported buffer usage");
@@ -1709,6 +1729,46 @@ static VkBufferUsageFlags get_buffer_usage(Buffer_Usage usage)
     return VK_BUFFER_USAGE_FLAG_BITS_MAX_ENUM;
 }
 
+static VmaAllocationCreateInfo get_vma_allocation_create_info(Buffer_Usage usage)
+{
+    VmaAllocationCreateInfo result = {};
+    
+    switch (usage)
+    {
+        case Buffer_Usage::TRANSFER:
+        { 
+            result.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+            result.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        } break;
+        
+        case Buffer_Usage::VERTEX:
+        case Buffer_Usage::INDEX:
+        case Buffer_Usage::STORAGE_GPU_SIDE:
+        {
+            result.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+        } break;
+            
+        case Buffer_Usage::UNIFORM:
+        {
+            result.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+            result.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        } break;
+        
+        case Buffer_Usage::STORAGE_CPU_SIDE:
+        {
+            result.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+            result.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        } break;
+        
+        default:
+        {
+            HE_ASSERT(!"unsupported buffer usage");
+        } break;
+    }
+
+    return result;
+}
+
 bool vulkan_renderer_create_buffer(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor)
 {
     HE_ASSERT(descriptor.size);
@@ -1716,49 +1776,19 @@ bool vulkan_renderer_create_buffer(Buffer_Handle buffer_handle, const Buffer_Des
 
     Buffer *buffer = get(&context->renderer_state->buffers, buffer_handle);
     Vulkan_Buffer *vulkan_buffer = &context->buffers[buffer_handle.index];
-
-    VkBufferUsageFlags usage = get_buffer_usage(descriptor.usage);
-    VkMemoryPropertyFlags memory_property_flags = 0;
-
-    if (descriptor.is_device_local)
-    {
-        usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        memory_property_flags |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    }
-    else
-    {
-        usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-        memory_property_flags |= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    }
-
+    
     VkBufferCreateInfo buffer_create_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     buffer_create_info.size = descriptor.size;
-    buffer_create_info.usage = usage;
+    buffer_create_info.usage = get_buffer_usage_flags(descriptor.usage);
     buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     buffer_create_info.flags = 0;
-
-    HE_CHECK_VKRESULT(vkCreateBuffer(context->logical_device, &buffer_create_info, nullptr, &vulkan_buffer->handle));
-
-    VkMemoryRequirements memory_requirements = {};
-    vkGetBufferMemoryRequirements(context->logical_device, vulkan_buffer->handle, &memory_requirements);
-
-    S32 memory_type_index = find_memory_type_index(memory_requirements, memory_property_flags, context);
-    HE_ASSERT(memory_type_index != -1);
-
-    VkMemoryAllocateInfo memory_allocate_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
-    memory_allocate_info.allocationSize = memory_requirements.size;
-    memory_allocate_info.memoryTypeIndex = memory_type_index;
-
-    HE_CHECK_VKRESULT(vkAllocateMemory(context->logical_device, &memory_allocate_info, nullptr, &vulkan_buffer->memory));
-    HE_CHECK_VKRESULT(vkBindBufferMemory(context->logical_device, vulkan_buffer->handle, vulkan_buffer->memory, 0));
-
-    if ((memory_property_flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
-    {
-        vkMapMemory(context->logical_device, vulkan_buffer->memory, 0, descriptor.size, 0, &buffer->data);
-    }
+    
+    VmaAllocationCreateInfo allocation_create_info = get_vma_allocation_create_info(descriptor.usage);
+    vmaCreateBuffer(context->allocator, &buffer_create_info, &allocation_create_info, &vulkan_buffer->handle, &vulkan_buffer->allocation, &vulkan_buffer->allocation_info);
 
     buffer->usage = descriptor.usage;
-    buffer->size = descriptor.size;
+    buffer->size = vulkan_buffer->allocation_info.size;
+    buffer->data = vulkan_buffer->allocation_info.pMappedData;
     return true;
 }
 
@@ -1766,9 +1796,7 @@ void vulkan_renderer_destroy_buffer(Buffer_Handle buffer_handle)
 {
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Buffer *vulkan_buffer = &context->buffers[buffer_handle.index];
-
-    vkFreeMemory(context->logical_device, vulkan_buffer->memory, nullptr);
-    vkDestroyBuffer(context->logical_device, vulkan_buffer->handle, nullptr);
+    vmaDestroyBuffer(context->allocator, vulkan_buffer->handle, vulkan_buffer->allocation);
 }
 
 bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor)

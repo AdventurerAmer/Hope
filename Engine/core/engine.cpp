@@ -23,6 +23,7 @@ void hock_engine_api(Engine_API *api)
     api->get_render_context = &get_render_context;
 }
 
+// todo(amer): move this to the resource system or renderer
 void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state)
 {
     platform_lock_mutex(&renderer_state->allocation_groups_mutex);
@@ -41,8 +42,9 @@ void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state)
                 platform_lock_mutex(&resource->mutex);
                 HE_ASSERT(resource->state == Resource_State::PENDING);
                 resource->state = Resource_State::LOADED;
+                resource->index = allocation_group.index;
+                resource->generation = allocation_group.generation;
                 platform_unlock_mutex(&resource->mutex);
-
                 HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
             }
             else
@@ -173,53 +175,6 @@ bool startup(Engine *engine, void *platform_state)
     {
         finalize_asset_loads(renderer, renderer_state);
     }
-
-    Read_Entire_File_Result result = read_entire_file("shaders/bin/skybox.vert.spv", &renderer_state->transfer_allocator);
-    Shader_Descriptor skybox_vertex_shader_descriptor =
-    {
-        .data = result.data,
-        .size = result.size
-    };
-    renderer_state->skybox_vertex_shader = renderer_create_shader(skybox_vertex_shader_descriptor);
-
-    result = read_entire_file("shaders/bin/skybox.frag.spv", &renderer_state->transfer_allocator);
-    Shader_Descriptor skybox_fragment_shader_descriptor =
-    {
-        .data = result.data,
-        .size = result.size
-    };
-    renderer_state->skybox_fragment_shader = renderer_create_shader(skybox_fragment_shader_descriptor);
-
-    Shader_Group_Descriptor skybox_shader_descriptor = {};
-    skybox_shader_descriptor.shaders =
-    {
-        renderer_state->skybox_vertex_shader,
-        renderer_state->skybox_fragment_shader
-    };
-    renderer_state->skybox_shader_group = renderer_create_shader_group(skybox_shader_descriptor);
-
-    Pipeline_State_Descriptor skybox_pipeline_state_descriptor =
-    {
-        .settings =
-        {
-            .cull_mode = Cull_Mode::NONE,
-            .front_face = Front_Face::COUNTER_CLOCKWISE,
-            .fill_mode = Fill_Mode::SOLID,
-            .depth_testing = false,
-            .sample_shading = true,
-        },
-        .shader_group = renderer_state->skybox_shader_group,
-        .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"),
-    };
-    renderer_state->skybox_pipeline = renderer_create_pipeline_state(skybox_pipeline_state_descriptor);
-
-    Material_Descriptor skybox_material_descriptor =
-    {
-        .pipeline_state_handle = renderer_state->skybox_pipeline
-    };
-
-    renderer_state->skybox_material_handle = renderer_create_material(skybox_material_descriptor);
-    set_property(renderer_state->skybox_material_handle, "skybox", { .u32 = (U32)renderer_state->skybox.index });
     
     aquire_resource("Corset/Corset.hres");
     return game_initialized;
@@ -242,7 +197,7 @@ static void draw_node(Scene_Node *node)
     ImGui::Text("Transfom");
     ImGui::Separator();
 
-    Transform &transform = node->transform;
+    Transform &transform = node->local_transform;
 
     ImGui::Text("Position");
     ImGui::SameLine();
@@ -503,17 +458,8 @@ void game_loop(Engine *engine, F32 delta_time)
     Renderer *renderer = render_context.renderer;
     Renderer_State *renderer_state = render_context.renderer_state;
 
-    static float reload_timer = 0;
-    float reload_time = 0.5f;
-
     finalize_asset_loads(renderer, renderer_state);
-
-    reload_timer += delta_time;
-    while (reload_timer >= reload_time)
-    {
-        reload_resources();
-        reload_timer -= reload_time;
-    }
+    reload_resources();
 
     Temprary_Memory_Arena scratch_memory = begin_scratch_memory();
 

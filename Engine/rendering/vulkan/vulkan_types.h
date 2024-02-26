@@ -1,15 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
-
-#include <glm/vec3.hpp> // glm::vec3
-#include <glm/vec4.hpp> // glm::vec4
-#include <glm/mat4x4.hpp> // glm::mat4
-#include <glm/gtc/quaternion.hpp> // quaternion
-#include <glm/gtx/quaternion.hpp> // quaternion
-#include <glm/ext/matrix_transform.hpp> // glm::translate, glm::rotate, glm::scale
-#include <glm/ext/matrix_clip_space.hpp> // glm::perspective
-#include <glm/ext/scalar_constants.hpp> // glm::pi
+#include <vk_mem_alloc.h>
 
 #include "core/defines.h"
 #include "core/memory.h"
@@ -33,9 +25,9 @@
 struct Vulkan_Image
 {
     VkImage handle;
-    VkMemoryRequirements memory_requirements;
-    VkDeviceMemory memory;
     VkImageView view;
+    VmaAllocation allocation;
+    VmaAllocationInfo allocation_info;
 };
 
 struct Vulkan_Sampler
@@ -46,9 +38,8 @@ struct Vulkan_Sampler
 struct Vulkan_Buffer
 {
     VkBuffer handle;
-    VkDeviceMemory memory;
-    void *data;
-    U64 size;
+    VmaAllocation allocation;
+    VmaAllocationInfo allocation_info;
 };
 
 struct Vulkan_Shader
@@ -132,7 +123,8 @@ struct Vulkan_Context
     U32 present_queue_family_index;
     U32 transfer_queue_family_index;
     VkDevice logical_device;
-
+    VmaAllocator allocator;
+    
     VkQueue graphics_queue;
     VkQueue present_queue;
     VkQueue transfer_queue;

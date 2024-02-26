@@ -624,23 +624,19 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
 
     DWORD access_flags = 0;
     DWORD creation_disposition = OPEN_ALWAYS;
-    DWORD share_flags = 0;
 
     if ((open_file_flags & OpenFileFlag_Read) && (open_file_flags & OpenFileFlag_Write))
     {
         access_flags = GENERIC_READ|GENERIC_WRITE;
-        share_flags = FILE_SHARE_READ|FILE_SHARE_WRITE;
     }
     else if ((open_file_flags & OpenFileFlag_Read))
     {
         access_flags = GENERIC_READ;
         creation_disposition = OPEN_EXISTING;
-        share_flags = FILE_SHARE_READ;
     }
     else if ((open_file_flags & OpenFileFlag_Write))
     {
         access_flags = GENERIC_WRITE;
-        share_flags = FILE_SHARE_WRITE;
     }
 
     if ((open_file_flags & OpenFileFlag_Truncate))
@@ -648,7 +644,7 @@ Open_File_Result platform_open_file(const char *filepath, Open_File_Flags open_f
         creation_disposition = CREATE_ALWAYS;
     }
 
-    HANDLE file_handle = CreateFileA(filepath, access_flags, share_flags, 0, creation_disposition, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE file_handle = CreateFileA(filepath, access_flags, FILE_SHARE_READ|FILE_SHARE_WRITE, 0, creation_disposition, FILE_ATTRIBUTE_NORMAL, NULL);
 
     if (file_handle == INVALID_HANDLE_VALUE)
     {

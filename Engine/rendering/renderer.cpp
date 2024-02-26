@@ -109,6 +109,7 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
 bool init_renderer_state(Engine *engine)
 {
     Memory_Arena *arena = get_permenent_arena();
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
     Free_List_Allocator *allocator = get_general_purpose_allocator();
 
     renderer_state = HE_ALLOCATE(arena, Renderer_State);
@@ -140,7 +141,7 @@ bool init_renderer_state(Engine *engine)
 
     Scene_Node *root_scene_node = &renderer_state->root_scene_node;
     root_scene_node->name = HE_STRING_LITERAL("Root");
-    root_scene_node->transform = root_scene_node->global_transform = get_identity_transform();
+    root_scene_node->local_transform = root_scene_node->global_transform = get_identity_transform();
     root_scene_node->parent = nullptr;
     root_scene_node->last_child = nullptr;
     root_scene_node->first_child = nullptr;
@@ -204,8 +205,7 @@ bool init_renderer_state(Engine *engine)
     Buffer_Descriptor transfer_buffer_descriptor =
     {
         .size = HE_MEGA_BYTES(512),
-        .usage = Buffer_Usage::TRANSFER,
-        .is_device_local = false
+        .usage = Buffer_Usage::TRANSFER
     };
     renderer_state->transfer_buffer = renderer_create_buffer(transfer_buffer_descriptor);
 
@@ -322,7 +322,7 @@ bool init_renderer_state(Engine *engine)
         sub_mesh.index_count = index_count;
         sub_mesh.vertex_count = vertex_count;
 
-        sub_mesh.material_uuid = HE_MAX_U64;
+        sub_mesh.material_uuid = HE_MAX_U64; // todo(amer): should we use handles here...
 
         Static_Mesh_Descriptor cube_static_mesh =
         {
@@ -342,37 +342,26 @@ bool init_renderer_state(Engine *engine)
         renderer_state->default_static_mesh = renderer_create_static_mesh(cube_static_mesh);
     }
 
+    {
+        renderer_state->default_scene = renderer_create_scene(1, 1);
+        Scene *scene = renderer_get_scene(renderer_state->default_scene);
+        Scene_Node *root = &scene->nodes[0];
+        root->name = HE_STRING_LITERAL("Empty");
+        root->parent = nullptr;
+        root->first_child = nullptr;
+        root->last_child = nullptr;
+        root->next_sibling = nullptr;
+        root->prev_sibling = nullptr;
+        root->local_transform = get_identity_transform();
+        root->global_transform = get_identity_transform();
+        root->static_mesh_uuid = HE_MAX_U64; // todo(amer): should we use handles here...
+    }
+
     init(&renderer_state->render_graph);
 
     {
         auto render = [](Renderer *renderer, Renderer_State *renderer_state)
         {
-            // draw skybox
-            // todo(amer): primitve static meshes
-#if 0
-            if (renderer_state->cube_static_mesh_uuid != HE_MAX_U64)
-            {
-                Resource_Ref ref = { renderer_state->cube_static_mesh_uuid };
-                Resource *cube_resource = get_resource(ref);
-                if (cube_resource->state == Resource_State::LOADED)
-                {
-                    renderer_use_material(renderer_state->skybox_material_handle);
-
-                    Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(ref);
-                    Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
-
-                    Buffer_Handle vertex_buffers[] =
-                    {
-                        static_mesh->positions_buffer,
-                    };
-                    U64 offsets[] = { 0 };
-
-                    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
-                    renderer->set_index_buffer(static_mesh->indices_buffer, 0);
-                    renderer->draw_sub_mesh(static_mesh_handle, 0, 0);
-                }
-            }
-#else
             renderer_use_material(renderer_state->skybox_material_handle);
 
             Static_Mesh_Handle static_mesh_handle = renderer_state->default_static_mesh;
@@ -387,7 +376,6 @@ bool init_renderer_state(Engine *engine)
             renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
             renderer->set_index_buffer(static_mesh->indices_buffer, 0);
             renderer->draw_sub_mesh(static_mesh_handle, 0, 0);
-#endif
 
             auto comp = [](const Render_Packet &a, const Render_Packet &b) -> bool
             {
@@ -615,15 +603,13 @@ bool init_renderer_state(Engine *engine)
             {
                 .size = sizeof(Globals),
                 .usage = Buffer_Usage::UNIFORM,
-                .is_device_local = false,
             };
             renderer_state->globals_uniform_buffers[frame_index] = renderer_create_buffer(globals_uniform_buffer_descriptor);
 
             Buffer_Descriptor object_data_storage_buffer_descriptor =
             {
                 .size = sizeof(Object_Data) * HE_MAX_OBJECT_DATA_COUNT,
-                .usage = Buffer_Usage::STORAGE,
-                .is_device_local = false
+                .usage = Buffer_Usage::STORAGE_CPU_SIDE,
             };
             renderer_state->object_data_storage_buffers[frame_index] = renderer_create_buffer(object_data_storage_buffer_descriptor);
 
@@ -714,6 +700,53 @@ bool init_renderer_state(Engine *engine)
             .allocation_group = &append(&renderer_state->allocation_groups, allocation_group),
         };
         renderer_state->skybox = renderer_create_texture(cubmap_texture_descriptor);
+
+        Read_Entire_File_Result result = read_entire_file("shaders/bin/skybox.vert.spv", scratch_memory.arena);
+        Shader_Descriptor skybox_vertex_shader_descriptor =
+        {
+            .data = result.data,
+            .size = result.size
+        };
+        renderer_state->skybox_vertex_shader = renderer_create_shader(skybox_vertex_shader_descriptor);
+
+        result = read_entire_file("shaders/bin/skybox.frag.spv", scratch_memory.arena);
+        Shader_Descriptor skybox_fragment_shader_descriptor =
+        {
+            .data = result.data,
+            .size = result.size
+        };
+        renderer_state->skybox_fragment_shader = renderer_create_shader(skybox_fragment_shader_descriptor);
+
+        Shader_Group_Descriptor skybox_shader_descriptor = {};
+        skybox_shader_descriptor.shaders =
+        {
+            renderer_state->skybox_vertex_shader,
+            renderer_state->skybox_fragment_shader
+        };
+        renderer_state->skybox_shader_group = renderer_create_shader_group(skybox_shader_descriptor);
+
+        Pipeline_State_Descriptor skybox_pipeline_state_descriptor =
+        {
+            .settings =
+            {
+                .cull_mode = Cull_Mode::NONE,
+                .front_face = Front_Face::COUNTER_CLOCKWISE,
+                .fill_mode = Fill_Mode::SOLID,
+                .depth_testing = false,
+                .sample_shading = true,
+            },
+            .shader_group = renderer_state->skybox_shader_group,
+            .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"),
+        };
+        renderer_state->skybox_pipeline = renderer_create_pipeline_state(skybox_pipeline_state_descriptor);
+
+        Material_Descriptor skybox_material_descriptor =
+        {
+            .pipeline_state_handle = renderer_state->skybox_pipeline
+        };
+
+        renderer_state->skybox_material_handle = renderer_create_material(skybox_material_descriptor);
+        set_property(renderer_state->skybox_material_handle, "skybox", { .u32 = (U32)renderer_state->skybox.index });
     }
 
     bool imgui_inited = init_imgui(engine);
@@ -1000,6 +1033,10 @@ Shader_Group* renderer_get_shader_group(Shader_Group_Handle shader_group_handle)
 
 void renderer_destroy_shader_group(Shader_Group_Handle &shader_group_handle)
 {
+    Shader_Group *shader_group = get(&renderer_state->shader_groups, shader_group_handle);
+    reset(&shader_group->shaders);
+    reset(&shader_group->bind_group_layouts);
+
     renderer->destroy_shader_group(shader_group_handle);
     release_handle(&renderer_state->shader_groups, shader_group_handle);
     shader_group_handle = Resource_Pool< Shader_Group >::invalid_handle;
@@ -1195,8 +1232,7 @@ Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &des
     Buffer_Descriptor position_buffer_descriptor =
     {
         .size = descriptor.vertex_count * sizeof(glm::vec3),
-        .usage = Buffer_Usage::VERTEX,
-        .is_device_local = true
+        .usage = Buffer_Usage::VERTEX
     };
 
     static_mesh->positions_buffer = renderer_create_buffer(position_buffer_descriptor);
@@ -1204,8 +1240,7 @@ Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &des
     Buffer_Descriptor normal_buffer_descriptor =
     {
         .size = descriptor.vertex_count * sizeof(glm::vec3),
-        .usage = Buffer_Usage::VERTEX,
-        .is_device_local = true
+        .usage = Buffer_Usage::VERTEX
     };
 
     static_mesh->normals_buffer = renderer_create_buffer(normal_buffer_descriptor);
@@ -1213,8 +1248,7 @@ Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &des
     Buffer_Descriptor uv_buffer_descriptor =
     {
         .size = descriptor.vertex_count * sizeof(glm::vec2),
-        .usage = Buffer_Usage::VERTEX,
-        .is_device_local = true
+        .usage = Buffer_Usage::VERTEX
     };
 
     static_mesh->uvs_buffer = renderer_create_buffer(uv_buffer_descriptor);
@@ -1222,8 +1256,7 @@ Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &des
     Buffer_Descriptor tangent_buffer_descriptor =
     {
         .size = descriptor.vertex_count * sizeof(glm::vec4),
-        .usage = Buffer_Usage::VERTEX,
-        .is_device_local = true
+        .usage = Buffer_Usage::VERTEX
     };
 
     static_mesh->tangents_buffer = renderer_create_buffer(tangent_buffer_descriptor);
@@ -1231,8 +1264,7 @@ Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &des
     Buffer_Descriptor index_buffer_descriptor =
     {
         .size = descriptor.index_count * sizeof(U16),
-        .usage = Buffer_Usage::INDEX,
-        .is_device_local = true
+        .usage = Buffer_Usage::INDEX
     };
 
     static_mesh->indices_buffer = renderer_create_buffer(index_buffer_descriptor);
@@ -1307,11 +1339,14 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
-        Buffer_Descriptor material_buffer_descriptor = {};
-        material_buffer_descriptor.usage = Buffer_Usage::UNIFORM;
-        material_buffer_descriptor.size = size;
-        material_buffer_descriptor.is_device_local = false;
-        append(&material->buffers, renderer_create_buffer(material_buffer_descriptor));
+        Buffer_Descriptor material_buffer_descriptor =
+        {
+            .size = size,
+            .usage = Buffer_Usage::UNIFORM
+        };
+        
+        Buffer_Handle buffer_handle = renderer_create_buffer(material_buffer_descriptor);
+        append(&material->buffers, buffer_handle);
     }
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -1363,6 +1398,9 @@ Material *renderer_get_material(Material_Handle material_handle)
 void renderer_destroy_material(Material_Handle &material_handle)
 {
     Material *material = get(&renderer_state->materials, material_handle);
+    Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle); 
+    renderer_destroy_shader_group(pipeline_state->descriptor.shader_group);
+    renderer_destroy_pipeline_state(material->pipeline_state_handle);
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
@@ -1602,7 +1640,7 @@ void remove_child(Scene_Node *parent, Scene_Node *node)
 
 void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform)
 {
-    Transform transform = combine(parent_transform, scene_node->transform);
+    Transform transform = combine(parent_transform, scene_node->local_transform);
     scene_node->global_transform = transform;
 
     Render_Pass_Handle opaque_pass = get_render_pass(&renderer_state->render_graph, "opaque");
@@ -1623,12 +1661,15 @@ void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_t
         for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
         {
             Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
-            HE_ASSERT(sub_mesh->material_uuid != HE_MAX_U64);
 
-            Resource_Ref material_ref = { sub_mesh->material_uuid };
-            Material_Handle material_handle = get_resource_handle_as<Material>(material_ref);
+            Material_Handle material_handle = Resource_Pool<Material>::invalid_handle;
 
-            if (!is_valid_handle(&renderer_state->materials, material_handle))
+            if (sub_mesh->material_uuid != HE_MAX_U64)
+            {
+                Resource_Ref material_ref = { sub_mesh->material_uuid };
+                material_handle = get_resource_handle_as<Material>(material_ref);
+            }
+            else
             {
                 material_handle = renderer_state->default_material;
             }
@@ -1639,24 +1680,10 @@ void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_t
             if (pipeline_state->descriptor.render_pass == opaque_pass)
             {
                 Render_Packet *render_packet = &renderer_state->opaque_packets[renderer_state->opaque_packet_count++];
-
-                Resource *material_resource = get_resource({ .uuid = sub_mesh->material_uuid });
-                if ((Resource_State)std::atomic_load((std::atomic<U8>*)&material_resource->state) != Resource_State::LOADED)
-                {
-                    render_packet->material = renderer_state->default_material;
-                }
-                else
-                {
-                    render_packet->material =
-                    {
-                        .index = std::atomic_load((std::atomic<S32>*)&material_resource->index),
-                        .generation = atomic_load((std::atomic<U32>*)&material_resource->generation)
-                    };
-                }
-
                 render_packet->static_mesh = static_mesh_handle;
                 render_packet->sub_mesh_index = sub_mesh_index;
                 render_packet->transform_index = object_data_index;
+                render_packet->material = material_handle;
             }
         }
         

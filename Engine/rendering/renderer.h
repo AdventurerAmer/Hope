@@ -174,14 +174,11 @@ struct Renderer_State
     Shader_Handle skybox_fragment_shader;
     Shader_Group_Handle skybox_shader_group;
     Pipeline_State_Handle skybox_pipeline;
-
     Texture_Handle skybox;
     Material_Handle skybox_material_handle;
 
     Mutex allocation_groups_mutex;
     Array< Allocation_Group, HE_MAX_SEMAPHORE_COUNT > allocation_groups;
-
-    U64 cube_static_mesh_uuid; // todo(amer): temprary
 
     Shader_Handle default_vertex_shader;
     Shader_Handle default_fragment_shader;
@@ -194,9 +191,10 @@ struct Renderer_State
 
     Sampler_Handle default_texture_sampler;
     Sampler_Handle default_cubemap_sampler;
-
-    // todo(amer): default static meshes...
+    
     Static_Mesh_Handle default_static_mesh;
+
+    Scene_Handle default_scene;
 
     Scene_Data scene_data;
     Render_Graph render_graph;

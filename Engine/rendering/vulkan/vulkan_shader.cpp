@@ -919,8 +919,8 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     VkPipelineShaderStageCreateInfo shader_stage_create_infos[HE_MAX_SHADER_COUNT_PER_PIPELINE];
 
     bool is_using_vertex_shader = false;
-    VkVertexInputBindingDescription vertex_input_binding_descriptions[128];
-    VkVertexInputAttributeDescription vertex_input_attribute_descriptions[128];
+    VkVertexInputBindingDescription *vertex_input_binding_descriptions = nullptr;
+    VkVertexInputAttributeDescription *vertex_input_attribute_descriptions = nullptr;
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 
@@ -940,6 +940,8 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
         if (shader->stage == Shader_Stage::VERTEX)
         {
             is_using_vertex_shader = true;
+            vertex_input_binding_descriptions = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkVertexInputBindingDescription, shader->input_count);
+            vertex_input_attribute_descriptions = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkVertexInputAttributeDescription, shader->input_count);
 
             for (U32 input_variable_index = 0; input_variable_index < shader->input_count; input_variable_index++)
             {
