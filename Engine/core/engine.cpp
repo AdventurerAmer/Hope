@@ -449,6 +449,20 @@ static void draw_tree(Scene_Node *node)
     ImGui::PopID();
 }
 
+static U8* get_pointer(Shader_Struct *_struct, U8 *data, String name)
+{
+    for (U32 i = 0; i < _struct->member_count; i++)
+    {
+        Shader_Struct_Member *member = &_struct->members[i];
+        if (member->name == name)
+        {
+            return &data[member->offset];
+        }
+    }
+
+    return nullptr;
+}
+
 void game_loop(Engine *engine, F32 delta_time)
 {
     Render_Context render_context = get_render_context();
@@ -683,16 +697,24 @@ void game_loop(Engine *engine, F32 delta_time)
 
         renderer->begin_frame();
 
-        Globals globals = {};
-        globals.view = scene_data->view;
-        globals.projection = scene_data->projection;
-        globals.projection[1][1] *= -1;
-        globals.directional_light_direction = glm::vec4(scene_data->directional_light.direction, 0.0f);
-        globals.directional_light_color = srgb_to_linear(scene_data->directional_light.color) * scene_data->directional_light.intensity;
-        globals.gamma = renderer_state->gamma;
-
         Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[renderer_state->current_frame_in_flight_index]);
-        memcpy(global_uniform_buffer->data, &globals, sizeof(Globals));
+        
+        Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_vertex_shader, HE_STRING_LITERAL("Globals"));
+        
+        glm::mat4 *view = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("view"));
+        glm::mat4 *projection = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("projection"));
+        glm::vec3 *eye = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("eye"));
+        glm::vec3 *directional_light_direction = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("directional_light_direction"));
+        glm::vec3 *directional_light_color = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("directional_light_color"));
+        F32 *gamma = (F32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("gamma"));
+
+        *view = scene_data->view;
+        scene_data->projection[1][1] *= -1;
+        *projection = scene_data->projection;
+        *eye = scene_data->eye;
+        *directional_light_direction = scene_data->directional_light.direction;
+        *directional_light_color = srgb_to_linear(scene_data->directional_light.color) * scene_data->directional_light.intensity;
+        *gamma = renderer_state->gamma;
 
         U32 texture_count = renderer_state->textures.capacity;
         Texture_Handle *textures = HE_ALLOCATE_ARRAY(scratch_memory.arena, Texture_Handle, texture_count);

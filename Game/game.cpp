@@ -113,5 +113,6 @@ HE_API void on_update(Engine *engine, F32 delta_time)
         Scene_Data *scene_data = &render_context.renderer_state->scene_data;
         scene_data->view = camera->view;
         scene_data->projection = camera->projection;
+        scene_data->eye = camera->position;
     }
 }

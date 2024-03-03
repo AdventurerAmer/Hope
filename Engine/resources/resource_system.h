@@ -140,7 +140,6 @@ struct Resource_Header
     U64 uuid;
     U64 asset_uuid;
     U16 resource_ref_count;
-    U16 child_count;
 };
 
 struct Texture_Resource_Info

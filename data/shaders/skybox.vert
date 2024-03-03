@@ -7,15 +7,23 @@
 
 layout (location = 0) in vec3 in_position;
 
-layout (std430, set = 0, binding = 0) uniform u_Globals
+layout (std430, set = 0, binding = 0) uniform Globals
 {
-    Globals globals;
-};
+    mat4 view;
+    mat4 projection;
 
-layout (std430, set = 0, binding = 1) readonly buffer u_Object_Buffer
+    vec3 eye;
+
+    vec3 directional_light_direction;
+    vec3 directional_light_color;
+
+    float gamma;
+} globals;
+
+layout (std430, set = 0, binding = 1) readonly buffer Instance_Buffer
 {
-    Object_Data objects[];
-};
+    mat4 models[];
+} instance_buffer;
 
 out vec3 out_cubemap_uv;
 

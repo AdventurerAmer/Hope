@@ -334,6 +334,8 @@ struct Shader_Struct_Member
 struct Shader_Struct
 {
     String name;
+    
+    U64 size;
 
     U32 member_count;
     Shader_Struct_Member *members;
@@ -627,6 +629,7 @@ struct Scene_Node
 
 struct Scene
 {
+    Scene_Node root;
     Dynamic_Array< Scene_Node > nodes;
 };
 
@@ -650,26 +653,6 @@ struct Object_Data
 {
     glm::mat4 model;
 };
-
-static_assert( offsetof(Object_Data, model) == 0 );
-static_assert( sizeof(Object_Data) == 64 );
-
-struct Globals
-{
-    glm::mat4 view;
-    glm::mat4 projection;
-
-    glm::vec3 directional_light_direction;
-    alignas(16) glm::vec3 directional_light_color;
-
-    float gamma;
-};
-
-static_assert( offsetof(Globals, view) == 0 );
-static_assert( offsetof(Globals, projection) == 64 );
-static_assert( offsetof(Globals, directional_light_direction) == 128 );
-static_assert( offsetof(Globals, directional_light_color) == 144 );
-static_assert( offsetof(Globals, gamma) == 156 );
 
 //
 // Settings

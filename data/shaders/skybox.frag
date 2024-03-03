@@ -10,28 +10,25 @@ in vec3 in_cubemap_uv;
 
 layout (location = 0) out vec4 out_color;
 
-layout (std430, set = 0, binding = 0) uniform u_Globals
+layout (std430, set = 0, binding = 0) uniform Globals
 {
-    Globals globals;
-};
+    mat4 view;
+    mat4 projection;
 
-// layout(set = 1, binding = 0) uniform sampler2D u_textures[];
+    vec3 eye;
+
+    vec3 directional_light_direction;
+    vec3 directional_light_color;
+
+    float gamma;
+} globals;
+
 layout(set = 1, binding = 0) uniform samplerCube u_cubemaps[];
 
-struct Material_Properties
+layout (std430, set = 2, binding = 0) uniform Material
 {
-    uint skybox;
-};
-
-layout (std430, set = 2, binding = 0) uniform u_Material
-{
-    Material_Properties mat;
-};
-
-// vec4 sample_texture(uint texture_index, vec2 uv)
-// {
-//     return texture(u_textures[nonuniformEXT(texture_index)], uv);
-// }
+    uint skybox_texture_index;
+} material;
 
 vec4 sample_cubemap(uint texture_index, vec3 uv)
 {
@@ -40,5 +37,5 @@ vec4 sample_cubemap(uint texture_index, vec3 uv)
 
 void main()
 {
-    out_color = vec4(sample_cubemap(mat.skybox, in_cubemap_uv).rgb, 1.0f);
+    out_color = vec4(sample_cubemap(material.skybox_texture_index, in_cubemap_uv).rgb, 1.0f);
 }

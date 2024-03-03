@@ -36,28 +36,28 @@ bool init_memory_system()
 {
     U64 capacity = platform_get_total_memory_size();
 
-    if (!init_memory_arena(&memory_system_state.permenent_arena, capacity, HE_MEGA_BYTES(1)))
+    if (!init_memory_arena(&memory_system_state.permenent_arena, capacity, HE_MEGA_BYTES(64)))
     {
         return false;
     }
 
-    if (!init_memory_arena(&memory_system_state.debug_arena, capacity, HE_MEGA_BYTES(1)))
+    if (!init_memory_arena(&memory_system_state.debug_arena, capacity, HE_MEGA_BYTES(64)))
     {
         return false;
     }
 
-    if (!init_free_list_allocator(&memory_system_state.general_purpose_allocator, nullptr, capacity, HE_MEGA_BYTES(1)))
+    if (!init_free_list_allocator(&memory_system_state.general_purpose_allocator, nullptr, capacity, HE_MEGA_BYTES(256)))
     {
         return false;
     }
 
-    init(&memory_system_state.thread_id_to_memory_state, platform_get_thread_count() + 1); // +1 for the main thread
+    init(&memory_system_state.thread_id_to_memory_state, get_effective_thread_count() + 1); // +1 for the main thread
 
     S32 slot_index = insert(&memory_system_state.thread_id_to_memory_state, platform_get_current_thread_id());
     HE_ASSERT(slot_index != -1);
 
     Thread_Memory_State *main_thread_memory_state = &memory_system_state.thread_id_to_memory_state.values[slot_index];
-    if (!init_memory_arena(&main_thread_memory_state->transient_arena, capacity, HE_MEGA_BYTES(32)))
+    if (!init_memory_arena(&main_thread_memory_state->transient_arena, capacity, HE_MEGA_BYTES(64)))
     {
         return false;
     }

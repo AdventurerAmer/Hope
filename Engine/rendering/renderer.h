@@ -42,6 +42,7 @@ struct Scene_Data
     glm::mat4 view;
     glm::mat4 projection;
     Directional_Light directional_light;
+    glm::vec3 eye;
 };
 
 struct Renderer
@@ -247,6 +248,7 @@ void renderer_destroy_sampler(Sampler_Handle &sampler_handle);
 
 Shader_Handle renderer_create_shader(const Shader_Descriptor &descriptor);
 Shader* renderer_get_shader(Shader_Handle shader_handle);
+Shader_Struct *renderer_find_shader_struct(Shader_Handle shader_handle, String name);
 void renderer_destroy_shader(Shader_Handle &shader_handle);
 
 //

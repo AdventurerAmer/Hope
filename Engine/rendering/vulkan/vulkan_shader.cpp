@@ -753,6 +753,11 @@ bool load_shader(Shader_Handle shader_handle, void *data, U64 size, Vulkan_Conte
         shader_struct->member_count = member_count;
         shader_struct->members = HE_ALLOCATE_ARRAY(allocator, Shader_Struct_Member, member_count);
         copy_memory(shader_struct->members, spirv_struct.members.data, sizeof(Shader_Struct_Member) * member_count);
+
+        Shader_Struct_Member *last_member = &shader_struct->members[shader_struct->member_count - 1];
+        U32 last_member_size = get_size_of_shader_data_type(last_member->data_type);
+        U32 size = last_member->offset + last_member_size;
+        shader_struct->size = size;
     }
 
     shader->struct_count = struct_count;

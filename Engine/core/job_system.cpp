@@ -360,3 +360,13 @@ void wait_for_all_jobs_to_finish()
         job_system_state.in_progress_job_count.fetch_sub(1);
     }
 }
+
+U32 get_effective_thread_count()
+{
+    U32 thread_count = platform_get_thread_count();
+    if (thread_count > 2)
+    {
+        thread_count -= 2;
+    }
+    return thread_count;
+}

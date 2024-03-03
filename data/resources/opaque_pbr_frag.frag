@@ -4,67 +4,42 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
 
-#define PI 3.14159265359
+#include "common.glsl"
 
-struct Globals
+in Fragment_Input
 {
-    mat4 view;
-    mat4 projection;
-
-    vec3 directional_light_direction;
-    vec3 directional_light_color;
-    float gamma;
-};
-
-struct Object_Data
-{
-    mat4 model;
-};
-
-vec3 srgb_to_linear(vec3 color, float gamma)
-{
-    return pow(color, vec3(gamma));
-}
-
-vec3 linear_to_srgb(vec3 color, float gamma)
-{
-    return pow(color, vec3(1.0/gamma));
-}
-
-in vec3 in_position;
-in vec3 in_normal;
-in vec2 in_uv;
-in vec3 in_tangent;
-in vec3 in_bitangent;
-
-layout (std430, set = 0, binding = 0) uniform u_Globals
-{
-    Globals globals;
-};
+    vec3 position;
+    vec2 uv;
+    vec3 normal;
+    vec4 tangent;
+} frag_input;
 
 layout(set = 1, binding = 0) uniform sampler2D u_textures[];
 
-struct Material_Properties
+vec4 sample_texture(uint texture_index, vec2 uv)
+{
+    return texture( u_textures[ nonuniformEXT( texture_index ) ], uv );
+}
+
+layout (std430, set = 2, binding = 0) uniform Material
 {
     uint albedo_texture;
     vec3 albedo_color;
+
     uint normal_texture;
-    uint occlusion_roughness_metallic_texture;
+
+    uint roughness_metallic_texture;
     float roughness_factor;
     float metallic_factor;
-    float reflectance;
-};
-
-layout (std430, set = 2, binding = 0) uniform u_Material
-{
-    Material_Properties material;
-};
+    
+    uint occlusion_texture;
+} material;
 
 layout(location = 0) out vec4 out_color;
 
 vec3 fresnel_schlick(float NdotL, vec3 f0)
 {
-    return f0 + (1.0 - f0) * pow(clamp(1 - NdotL, 0.0, 1.0), 5.0);
+    return f0 + (vec3(1.0) - f0) * pow(clamp(1.0 - NdotL, 0.0, 1.0), 5.0);
 }
 
 float distribution_GGX(float NdotH, float roughness)
@@ -72,7 +47,7 @@ float distribution_GGX(float NdotH, float roughness)
     float a = roughness * roughness;
     float a2 = a * a;
     float NdotH2 = NdotH * NdotH;
-    float b = NdotH2 * (a2 - 1) + 1;
+    float b = NdotH2 * (a2 - 1.0) + 1.0;
     return a2 / (PI * b * b);
 }
 
@@ -90,33 +65,34 @@ float geometry_smith(float NdotV, float NdotL, float roughness)
 
 void main()
 {
-    vec3 albedo = srgb_to_linear( texture( u_textures[ nonuniformEXT( material.albedo_texture) ], in_uv ).rgb, globals.gamma );
-    albedo *= srgb_to_linear( material.albedo_color, globals.gamma );
+    float gamma = globals.gamma;
+    
+    vec3 albedo = srgb_to_linear( sample_texture(material.albedo_texture, frag_input.uv).rgb, gamma );
+    albedo *= srgb_to_linear( material.albedo_color, gamma );
+    
+    vec3 roughness_metallic = sample_texture(material.roughness_metallic_texture, frag_input.uv).rgb;
 
-    vec3 occlusion_roughness_metallic = texture( u_textures[ nonuniformEXT( material.occlusion_roughness_metallic_texture ) ], in_uv ).rgb;
-    float occlusion = occlusion_roughness_metallic.r;
-
-    float roughness = occlusion_roughness_metallic.g;
+    float roughness = roughness_metallic.g;
     roughness *= material.roughness_factor;
 
-    float metallic = occlusion_roughness_metallic.b;
+    float metallic = roughness_metallic.b;
     metallic *= material.metallic_factor;
 
-    vec3 light_color = globals.directional_light_color;
+    float occlusion = sample_texture(material.occlusion_texture, frag_input.uv).r;
 
-    vec3 normal = normalize(in_normal);
-    vec3 tangent = normalize(in_tangent);
-    vec3 bitangent = normalize(in_bitangent);
+    vec3 normal = normalize(frag_input.normal);
+    vec3 tangent = normalize(frag_input.tangent.xyz);
+    tangent = normalize(tangent - dot(tangent, normal) * normal);
+    vec3 bitangent = cross(tangent, normal) * sign(frag_input.tangent.w);
     mat3 TBN = mat3(tangent, bitangent, normal);
 
-    vec3 N = texture( u_textures[ nonuniformEXT( material.normal_texture ) ], in_uv ).rgb * 2.0 - 1.0;
+    vec3 N = sample_texture( material.normal_texture, frag_input.uv ).xyz * 2.0 - vec3(1.0, 1.0, 1.0);
     N = normalize(TBN * N);
 
-    vec3 L = -globals.directional_light_direction;
+    vec3 light_color = globals.directional_light_color;
+    vec3 L = normalize(-globals.directional_light_direction);
 
-    vec3 eye = globals.view[3].xyz;
-    vec3 V = eye - in_position;
-
+    vec3 V = normalize(globals.eye - frag_input.position);
     vec3 H = normalize(L + V);
 
     float NdotL = max(0.0, dot(N, L));
@@ -124,20 +100,19 @@ void main()
     float NdotV = max(0.0, dot(N, V));
     float HdotV = max(0.0, dot(H, V));
 
-    vec3 f0 = mix(vec3(material.reflectance), albedo, metallic);
+    vec3 f0 = mix(vec3(0.04), albedo, metallic);
     vec3 F = fresnel_schlick(HdotV, f0);
-
     float D = distribution_GGX(NdotH, roughness);
     float G = geometry_smith(NdotV, NdotL, roughness);
 
     vec3 specular = (F * D * G) / ((4.0 * NdotV * NdotL) + 0.0001);
-    vec3 kd = (1.0 - F) * (1.0 - metallic);
-    vec3 diffuse = kd * albedo / PI;
+    vec3 Ks = F;
+    vec3 Kd = (1.0 - metallic) * (vec3(1.0) - Ks);
+    vec3 diffuse = Kd * albedo / PI;
     vec3 Lo = (diffuse + specular) * light_color * NdotL;
-    vec3 ambient = 0.03 * albedo * occlusion;
+    vec3 ambient = vec3(0.03) * albedo * occlusion;
     vec3 color = ambient + Lo;
     color = color / (color + vec3(1.0));
-    color = linear_to_srgb(color, globals.gamma);
+    color = linear_to_srgb(color, gamma);
     out_color = vec4(color, 1.0);
-    // out_color = vec4(1.0, 0.0, 0.0, 1.0);
 }

@@ -12,23 +12,26 @@ in vec2 in_uv;
 in vec3 in_tangent;
 in vec3 in_bitangent;
 
-layout (std430, set = 0, binding = 0) uniform u_Globals
+layout (std430, set = 0, binding = 0) uniform Globals
 {
-    Globals globals;
-};
+    mat4 view;
+    mat4 projection;
+
+    vec3 eye;
+
+    vec3 directional_light_direction;
+    vec3 directional_light_color;
+
+    float gamma;
+} globals;
 
 layout(set = 1, binding = 0) uniform sampler2D u_textures[];
 
-struct Material_Properties
+layout (std430, set = 2, binding = 0) uniform Material
 {
     uint debug_texture_index;
     vec3 debug_color;
-};
-
-layout (std430, set = 2, binding = 0) uniform u_Material
-{
-    Material_Properties material;
-};
+} material;
 
 layout(location = 0) out vec4 out_color;
 

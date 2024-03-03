@@ -35,6 +35,7 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
+#include "renderer.h"
 
 #pragma warning(pop)
 
@@ -597,11 +598,14 @@ bool init_renderer_state(Engine *engine)
             .layout = default_shader_group->bind_group_layouts[HE_PER_PASS_BIND_GROUP_INDEX]
         };
 
+        Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_vertex_shader, HE_STRING_LITERAL("Globals"));
+        HE_ASSERT(globals_struct);
+
         for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
         {
             Buffer_Descriptor globals_uniform_buffer_descriptor =
             {
-                .size = sizeof(Globals),
+                .size = globals_struct->size,
                 .usage = Buffer_Usage::UNIFORM,
             };
             renderer_state->globals_uniform_buffers[frame_index] = renderer_create_buffer(globals_uniform_buffer_descriptor);
@@ -746,7 +750,7 @@ bool init_renderer_state(Engine *engine)
         };
 
         renderer_state->skybox_material_handle = renderer_create_material(skybox_material_descriptor);
-        set_property(renderer_state->skybox_material_handle, "skybox", { .u32 = (U32)renderer_state->skybox.index });
+        set_property(renderer_state->skybox_material_handle, "skybox_texture_index", { .u32 = (U32)renderer_state->skybox.index });
     }
 
     bool imgui_inited = init_imgui(engine);
@@ -970,6 +974,20 @@ Shader_Handle renderer_create_shader(const Shader_Descriptor &descriptor)
 Shader* renderer_get_shader(Shader_Handle shader_handle)
 {
     return get(&renderer_state->shaders, shader_handle);
+}
+
+Shader_Struct *renderer_find_shader_struct(Shader_Handle shader_handle, String name)
+{
+    Shader *shader = renderer_get_shader(shader_handle);
+    for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
+    {
+        Shader_Struct *shader_struct = &shader->structs[struct_index];
+        if (shader_struct->name == name)
+        {
+            return shader_struct;
+        }
+    }
+    return nullptr;
 }
 
 void renderer_destroy_shader(Shader_Handle &shader_handle)
@@ -1323,7 +1341,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
         {
             Shader_Struct *shader_struct = &shader->structs[struct_index];
-            if (shader_struct->name == "Material_Properties")
+            if (shader_struct->name == "Material")
             {
                 properties = shader_struct;
                 break;
@@ -1332,16 +1350,13 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
     }
 
     HE_ASSERT(properties);
-
-    Shader_Struct_Member *last_member = &properties->members[properties->member_count - 1];
-    U32 last_member_size = get_size_of_shader_data_type(last_member->data_type);
-    U32 size = last_member->offset + last_member_size;
+    
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
         Buffer_Descriptor material_buffer_descriptor =
         {
-            .size = size,
+            .size = properties->size,
             .usage = Buffer_Usage::UNIFORM
         };
         
@@ -1383,8 +1398,8 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
     }
 
     material->pipeline_state_handle = descriptor.pipeline_state_handle;
-    material->data = HE_ALLOCATE_ARRAY( get_general_purpose_allocator(), U8, size );
-    material->size = size;
+    material->data = HE_ALLOCATE_ARRAY( get_general_purpose_allocator(), U8, properties->size );
+    material->size = properties->size;
     material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
 
     return material_handle;
@@ -1545,6 +1560,14 @@ Scene_Handle renderer_create_scene(U32 node_capacity, U32 node_count)
 {
     Scene_Handle scene_handle = aquire_handle(&renderer_state->scenes);
     Scene *scene = get(&renderer_state->scenes, scene_handle);
+    Scene_Node *root = &scene->root;
+    root->parent = nullptr;
+    root->first_child = nullptr;
+    root->last_child = nullptr;
+    root->next_sibling = nullptr;
+    root->prev_sibling = nullptr;
+    root->static_mesh_uuid = HE_MAX_U64;
+    root->local_transform = get_identity_transform();
     init(&scene->nodes, node_capacity, node_count);
     return scene_handle;
 }
