@@ -111,6 +111,7 @@ struct Vulkan_Context
 {
     struct Renderer_State *renderer_state;
 
+    VkAllocationCallbacks allocation_callbacks;
     VkInstance instance;
 
     VkSurfaceKHR surface;

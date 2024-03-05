@@ -138,7 +138,7 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
     }
 
     HE_ASSERT(swapchain->handle == VK_NULL_HANDLE);
-    HE_CHECK_VKRESULT(vkCreateSwapchainKHR(context->logical_device, &swapchain_create_info, nullptr, &swapchain->handle));
+    HE_CHECK_VKRESULT(vkCreateSwapchainKHR(context->logical_device, &swapchain_create_info, &context->allocation_callbacks, &swapchain->handle));
 
     HE_CHECK_VKRESULT(vkGetSwapchainImagesKHR(context->logical_device, swapchain->handle, &swapchain->image_count, nullptr));
 
@@ -163,7 +163,7 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
         image_view_create_info.subresourceRange.levelCount = 1;
         image_view_create_info.subresourceRange.baseArrayLayer = 0;
         image_view_create_info.subresourceRange.layerCount = 1;
-        HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, nullptr, &swapchain->image_views[image_index]));
+        HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, &context->allocation_callbacks, &swapchain->image_views[image_index]));
     }
 
     return true;
@@ -173,7 +173,7 @@ void destroy_swapchain(Vulkan_Context *context, Vulkan_Swapchain *swapchain)
 {
     for (U32 image_index = 0; image_index < swapchain->image_count; image_index++)
     {
-        vkDestroyImageView(context->logical_device, swapchain->image_views[image_index], nullptr);
+        vkDestroyImageView(context->logical_device, swapchain->image_views[image_index], &context->allocation_callbacks);
         swapchain->image_views[image_index] = VK_NULL_HANDLE;
     }
 
@@ -181,7 +181,7 @@ void destroy_swapchain(Vulkan_Context *context, Vulkan_Swapchain *swapchain)
     deallocate(allocator, swapchain->images);
     deallocate(allocator, swapchain->image_views);
 
-    vkDestroySwapchainKHR(context->logical_device, swapchain->handle, nullptr);
+    vkDestroySwapchainKHR(context->logical_device, swapchain->handle, &context->allocation_callbacks);
     swapchain->handle = VK_NULL_HANDLE;
 }
 

@@ -165,22 +165,45 @@ static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR s
     return physical_device;
 }
 
+static void* vulkan_allocate(void *user_data, size_t size, size_t alignment, VkSystemAllocationScope allocation_scope)
+{
+    HE_ASSERT(alignment <= HE_MAX_U16);
+    return allocate((Free_List_Allocator *)user_data, size, (U16)alignment);
+}
+
+static void vulkan_deallocate(void *user_data, void *memory)
+{
+    return deallocate((Free_List_Allocator *)user_data, memory);
+}
+
+static void* vulkan_reallocate(void *user_data, void *original, size_t size, size_t alignment, VkSystemAllocationScope allocation_scope)
+{
+    HE_ASSERT(alignment <= HE_MAX_U16);
+    return reallocate((Free_List_Allocator *)user_data, original, size, (U16)alignment);
+}
+
 static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State *renderer_state)
 {
     context->renderer_state = renderer_state;
     
-    {
-        Memory_Arena* arena = get_permenent_arena();
-        context->buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Buffer, HE_MAX_BUFFER_COUNT);
-        context->textures = HE_ALLOCATE_ARRAY(arena, Vulkan_Image, HE_MAX_TEXTURE_COUNT);
-        context->samplers = HE_ALLOCATE_ARRAY(arena, Vulkan_Sampler, HE_MAX_SAMPLER_COUNT);
-        context->shaders = HE_ALLOCATE_ARRAY(arena, Vulkan_Shader, HE_MAX_SHADER_COUNT);
-        context->pipeline_states = HE_ALLOCATE_ARRAY(arena, Vulkan_Pipeline_State, HE_MAX_PIPELINE_STATE_COUNT);
-        context->bind_groups = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group, HE_MAX_BIND_GROUP_COUNT);
-        context->render_passes = HE_ALLOCATE_ARRAY(arena, Vulkan_Render_Pass, HE_MAX_RENDER_PASS_COUNT);
-        context->frame_buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Frame_Buffer, HE_MAX_FRAME_BUFFER_COUNT);
-        context->semaphores = HE_ALLOCATE_ARRAY(arena, Vulkan_Semaphore, HE_MAX_SEMAPHORE_COUNT);
-    }
+    VkAllocationCallbacks *allocation_callbacks = &context->allocation_callbacks;
+    allocation_callbacks->pUserData = get_general_purpose_allocator();
+    allocation_callbacks->pfnAllocation = &vulkan_allocate;
+    allocation_callbacks->pfnReallocation = &vulkan_reallocate;
+    allocation_callbacks->pfnFree = &vulkan_deallocate;
+    allocation_callbacks->pfnInternalAllocation = nullptr;
+    allocation_callbacks->pfnInternalFree = nullptr;
+
+    Memory_Arena *arena = get_permenent_arena();
+    context->buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Buffer, HE_MAX_BUFFER_COUNT);
+    context->textures = HE_ALLOCATE_ARRAY(arena, Vulkan_Image, HE_MAX_TEXTURE_COUNT);
+    context->samplers = HE_ALLOCATE_ARRAY(arena, Vulkan_Sampler, HE_MAX_SAMPLER_COUNT);
+    context->shaders = HE_ALLOCATE_ARRAY(arena, Vulkan_Shader, HE_MAX_SHADER_COUNT);
+    context->pipeline_states = HE_ALLOCATE_ARRAY(arena, Vulkan_Pipeline_State, HE_MAX_PIPELINE_STATE_COUNT);
+    context->bind_groups = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group, HE_MAX_BIND_GROUP_COUNT);
+    context->render_passes = HE_ALLOCATE_ARRAY(arena, Vulkan_Render_Pass, HE_MAX_RENDER_PASS_COUNT);
+    context->frame_buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Frame_Buffer, HE_MAX_FRAME_BUFFER_COUNT);
+    context->semaphores = HE_ALLOCATE_ARRAY(arena, Vulkan_Semaphore, HE_MAX_SEMAPHORE_COUNT);
 
     Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
@@ -247,18 +270,18 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
 
 #endif
 
-    HE_CHECK_VKRESULT(vkCreateInstance(&instance_create_info, nullptr, &context->instance));
+    HE_CHECK_VKRESULT(vkCreateInstance(&instance_create_info, &context->allocation_callbacks, &context->instance));
 
 #if HE_GRAPHICS_DEBUGGING
 
     auto vkCreateDebugUtilsMessengerExt = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(context->instance, "vkCreateDebugUtilsMessengerEXT");
     HE_ASSERT(vkCreateDebugUtilsMessengerExt);
 
-    HE_CHECK_VKRESULT(vkCreateDebugUtilsMessengerExt(context->instance, &debug_messenger_create_info, nullptr, &context->debug_messenger));
+    HE_CHECK_VKRESULT(vkCreateDebugUtilsMessengerExt(context->instance, &debug_messenger_create_info, &context->allocation_callbacks, &context->debug_messenger));
 
 #endif
 
-    context->surface = (VkSurfaceKHR)platform_create_vulkan_surface(engine, context->instance);
+    context->surface = (VkSurfaceKHR)platform_create_vulkan_surface(engine, context->instance, &context->allocation_callbacks);
     HE_ASSERT(context->surface);
 
     VkPhysicalDeviceVulkan12Features features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
@@ -437,7 +460,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     device_create_info.ppEnabledExtensionNames = required_device_extensions;
     device_create_info.enabledExtensionCount = HE_ARRAYCOUNT(required_device_extensions);
 
-    HE_CHECK_VKRESULT(vkCreateDevice(context->physical_device, &device_create_info, nullptr, &context->logical_device));
+    HE_CHECK_VKRESULT(vkCreateDevice(context->physical_device, &device_create_info, &context->allocation_callbacks, &context->logical_device));
 
     vkGetDeviceQueue(context->logical_device, context->graphics_queue_family_index, 0, &context->graphics_queue);
     vkGetDeviceQueue(context->logical_device, context->present_queue_family_index, 0, &context->present_queue);
@@ -454,6 +477,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     allocator_create_info.device = context->logical_device;
     allocator_create_info.instance = context->instance;
     allocator_create_info.pVulkanFunctions = &vulkan_functions;
+    allocator_create_info.pAllocationCallbacks = &context->allocation_callbacks;
 
     vmaCreateAllocator(&allocator_create_info, &context->allocator);
 
@@ -491,12 +515,12 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     VkPipelineCacheCreateInfo pipeline_cache_create_info = { VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
     pipeline_cache_create_info.initialDataSize = pipeline_cache_size;
     pipeline_cache_create_info.pInitialData = pipeline_cache_data;
-    HE_CHECK_VKRESULT(vkCreatePipelineCache(context->logical_device, &pipeline_cache_create_info, nullptr, &context->pipeline_cache));
+    HE_CHECK_VKRESULT(vkCreatePipelineCache(context->logical_device, &pipeline_cache_create_info, &context->allocation_callbacks, &context->pipeline_cache));
 
     VkCommandPoolCreateInfo graphics_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     graphics_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     graphics_command_pool_create_info.queueFamilyIndex = context->graphics_queue_family_index;
-    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &graphics_command_pool_create_info, nullptr, &context->graphics_command_pool));
+    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &graphics_command_pool_create_info, &context->allocation_callbacks, &context->graphics_command_pool));
 
     VkCommandBufferAllocateInfo graphics_command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
 
@@ -505,12 +529,12 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     graphics_command_buffer_allocate_info.commandBufferCount = HE_MAX_FRAMES_IN_FLIGHT;
     HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &graphics_command_buffer_allocate_info, context->graphics_command_buffers));
 
-    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &graphics_command_pool_create_info, nullptr, &context->upload_textures_command_pool));
+    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &graphics_command_pool_create_info, &context->allocation_callbacks, &context->upload_textures_command_pool));
 
     VkCommandPoolCreateInfo transfer_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     transfer_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     transfer_command_pool_create_info.queueFamilyIndex = context->transfer_queue_family_index;
-    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &transfer_command_pool_create_info, nullptr, &context->transfer_command_pool));
+    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &transfer_command_pool_create_info, &context->allocation_callbacks, &context->transfer_command_pool));
 
     VkDescriptorPoolSize descriptor_pool_sizes[] =
     {
@@ -525,7 +549,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
     descriptor_pool_create_info.maxSets = HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT * HE_ARRAYCOUNT(descriptor_pool_sizes);
 
-    HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, nullptr, &context->descriptor_pool));
+    HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, &context->allocation_callbacks, &context->descriptor_pool));
     
     context->timeline_value = HE_MAX_FRAMES_IN_FLIGHT;
     
@@ -537,15 +561,15 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     timeline_semaphore_create_info.pNext = &timeline_semaphore_type_create_info;
     timeline_semaphore_create_info.flags = 0;
 
-    HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &timeline_semaphore_create_info, nullptr, &context->timeline_semaphore));
+    HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &timeline_semaphore_create_info, &context->allocation_callbacks, &context->timeline_semaphore));
 
     VkSemaphoreCreateInfo binary_semaphore_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     binary_semaphore_create_info.flags = 0;
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
-        HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &binary_semaphore_create_info, nullptr, &context->image_available_semaphores[frame_index]));
-        HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &binary_semaphore_create_info, nullptr, &context->rendering_finished_semaphores[frame_index]));
+        HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &binary_semaphore_create_info, &context->allocation_callbacks, &context->image_available_semaphores[frame_index]));
+        HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &binary_semaphore_create_info, &context->allocation_callbacks, &context->rendering_finished_semaphores[frame_index]));
     }
 
     context->vkQueueSubmit2KHR = (PFN_vkQueueSubmit2KHR)vkGetDeviceProcAddr(context->logical_device, "vkQueueSubmit2KHR");
@@ -561,27 +585,27 @@ void deinit_vulkan(Vulkan_Context *context)
 {
     vkDeviceWaitIdle(context->logical_device);
 
-    vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, nullptr);
-    vkDestroyDescriptorPool(context->logical_device, context->imgui_descriptor_pool, nullptr);
+    vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, &context->allocation_callbacks);
+    vkDestroyDescriptorPool(context->logical_device, context->imgui_descriptor_pool, &context->allocation_callbacks);
 
     ImGui_ImplVulkan_Shutdown();
     
-    vkDestroySemaphore(context->logical_device, context->timeline_semaphore, nullptr);
+    vkDestroySemaphore(context->logical_device, context->timeline_semaphore, &context->allocation_callbacks);
     
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
-        vkDestroySemaphore(context->logical_device, context->image_available_semaphores[frame_index], nullptr);
-        vkDestroySemaphore(context->logical_device, context->rendering_finished_semaphores[frame_index], nullptr);
+        vkDestroySemaphore(context->logical_device, context->image_available_semaphores[frame_index], &context->allocation_callbacks);
+        vkDestroySemaphore(context->logical_device, context->rendering_finished_semaphores[frame_index], &context->allocation_callbacks);
     }
 
-    vkDestroyCommandPool(context->logical_device, context->graphics_command_pool, nullptr);
-    vkDestroyCommandPool(context->logical_device, context->upload_textures_command_pool, nullptr);
-    vkDestroyCommandPool(context->logical_device, context->transfer_command_pool, nullptr);
+    vkDestroyCommandPool(context->logical_device, context->graphics_command_pool, &context->allocation_callbacks);
+    vkDestroyCommandPool(context->logical_device, context->upload_textures_command_pool, &context->allocation_callbacks);
+    vkDestroyCommandPool(context->logical_device, context->transfer_command_pool, &context->allocation_callbacks);
 
     destroy_swapchain(context, &context->swapchain);
 
     U64 pipeline_cache_size = 0;
-    vkGetPipelineCacheData(context->logical_device, context->pipeline_cache, &pipeline_cache_size, nullptr);
+    vkGetPipelineCacheData(context->logical_device, context->pipeline_cache, &pipeline_cache_size, &context->allocation_callbacks);
 
     if (pipeline_cache_size)
     {
@@ -596,20 +620,20 @@ void deinit_vulkan(Vulkan_Context *context)
         end_temprary_memory(&temprary_memory);
     }
 
-    vkDestroyPipelineCache(context->logical_device, context->pipeline_cache, nullptr);
+    vkDestroyPipelineCache(context->logical_device, context->pipeline_cache, &context->allocation_callbacks);
 
-    vkDestroySurfaceKHR(context->instance, context->surface, nullptr);
+    vkDestroySurfaceKHR(context->instance, context->surface, &context->allocation_callbacks);
 
     vmaDestroyAllocator(context->allocator);
-    vkDestroyDevice(context->logical_device, nullptr);
+    vkDestroyDevice(context->logical_device, &context->allocation_callbacks);
 
 #if HE_GRAPHICS_DEBUGGING
     auto vkDestroyDebugUtilsMessengerExt = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(context->instance, "vkDestroyDebugUtilsMessengerEXT");
     HE_ASSERT(vkDestroyDebugUtilsMessengerExt);
-    vkDestroyDebugUtilsMessengerExt(context->instance, context->debug_messenger, nullptr);
+    vkDestroyDebugUtilsMessengerExt(context->instance, context->debug_messenger, &context->allocation_callbacks);
 #endif
 
-    vkDestroyInstance(context->instance, nullptr);
+    vkDestroyInstance(context->instance, &context->allocation_callbacks);
 }
 
 bool vulkan_renderer_init(Engine *engine, Renderer_State *renderer_state)
@@ -933,7 +957,7 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     image_view_create_info.subresourceRange.levelCount = mip_levels;
     image_view_create_info.subresourceRange.baseArrayLayer = 0;
     image_view_create_info.subresourceRange.layerCount = descriptor.layer_count;
-    HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, nullptr, &image->view));
+    HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, &context->allocation_callbacks, &image->view));
 
     if (descriptor.data.count > 0)
     {
@@ -1043,7 +1067,7 @@ bool vulkan_renderer_create_sampler(Sampler_Handle sampler_handle, const Sampler
         sampler_create_info.maxAnisotropy = (F32)descriptor.anisotropy;
     }
 
-    HE_CHECK_VKRESULT(vkCreateSampler(context->logical_device, &sampler_create_info, nullptr, &vulkan_sampler->handle));
+    HE_CHECK_VKRESULT(vkCreateSampler(context->logical_device, &sampler_create_info, &context->allocation_callbacks, &vulkan_sampler->handle));
     sampler->descriptor = descriptor;
     return true;
 }
@@ -1053,7 +1077,7 @@ void vulkan_renderer_destroy_sampler(Sampler_Handle sampler_handle)
     Vulkan_Context *context = &vulkan_context;
     Sampler *sampler = get(&context->renderer_state->samplers, sampler_handle);
     Vulkan_Sampler *vulkan_sampler = &context->samplers[sampler_handle.index];
-    vkDestroySampler(context->logical_device, vulkan_sampler->handle, nullptr);
+    vkDestroySampler(context->logical_device, vulkan_sampler->handle, &context->allocation_callbacks);
 }
 
 bool vulkan_renderer_create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descriptor)
@@ -1414,7 +1438,7 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     render_pass_create_info.subpassCount = 1;
     render_pass_create_info.pSubpasses = &subpass;
 
-    HE_CHECK_VKRESULT(vkCreateRenderPass(context->logical_device, &render_pass_create_info, nullptr, &vulkan_render_pass->handle));
+    HE_CHECK_VKRESULT(vkCreateRenderPass(context->logical_device, &render_pass_create_info, &context->allocation_callbacks, &vulkan_render_pass->handle));
 
     render_pass->name = descriptor.name;
      
@@ -1484,7 +1508,7 @@ void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle)
 {
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
-    vkDestroyRenderPass(context->logical_device, vulkan_render_pass->handle, nullptr);
+    vkDestroyRenderPass(context->logical_device, vulkan_render_pass->handle, &context->allocation_callbacks);
 }
 
 bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor)
@@ -1521,7 +1545,7 @@ bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle
     frame_buffer_create_info.height = descriptor.height;
     frame_buffer_create_info.layers = 1;
 
-    HE_CHECK_VKRESULT(vkCreateFramebuffer(context->logical_device, &frame_buffer_create_info, nullptr, &vulkan_frame_buffer->handle));
+    HE_CHECK_VKRESULT(vkCreateFramebuffer(context->logical_device, &frame_buffer_create_info, &context->allocation_callbacks, &vulkan_frame_buffer->handle));
     return true;
 }
 
@@ -1530,7 +1554,7 @@ void vulkan_renderer_destroy_frame_buffer(Frame_Buffer_Handle frame_buffer_handl
     Vulkan_Context *context = &vulkan_context;
     Frame_Buffer *frame_buffer = get(&context->renderer_state->frame_buffers, frame_buffer_handle);
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
-    vkDestroyFramebuffer(context->logical_device, vulkan_frame_buffer->handle, nullptr);
+    vkDestroyFramebuffer(context->logical_device, vulkan_frame_buffer->handle, &context->allocation_callbacks);
 }
 
 static VkBufferUsageFlags get_buffer_usage_flags(Buffer_Usage usage)
@@ -1755,7 +1779,7 @@ bool vulkan_renderer_create_semaphore(Semaphore_Handle semaphore_handle, const R
     semaphore_create_info.pNext = &semaphore_type_create_info;
     semaphore_create_info.flags = 0;
 
-    HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &semaphore_create_info, nullptr, &vulkan_semaphore->handle));
+    HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &semaphore_create_info, &context->allocation_callbacks, &vulkan_semaphore->handle));
     return true;
 }
 
@@ -1772,7 +1796,7 @@ void vulkan_renderer_destroy_semaphore(Semaphore_Handle semaphore_handle)
 {
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[semaphore_handle.index];
-    vkDestroySemaphore(context->logical_device, vulkan_semaphore->handle, nullptr);
+    vkDestroySemaphore(context->logical_device, vulkan_semaphore->handle, &context->allocation_callbacks);
     vulkan_semaphore->handle = VK_NULL_HANDLE;
 }
 
@@ -1818,20 +1842,21 @@ bool vulkan_renderer_init_imgui()
     descriptor_pool_create_info.poolSizeCount = HE_ARRAYCOUNT(pool_sizes);
     descriptor_pool_create_info.pPoolSizes = pool_sizes;
 
-    HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, nullptr, &context->imgui_descriptor_pool));
+    HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, &context->allocation_callbacks, &context->imgui_descriptor_pool));
 
-    ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = context->instance;
-    init_info.PhysicalDevice = context->physical_device;
-    init_info.Device = context->logical_device;
-    init_info.Queue = context->graphics_queue;
-    init_info.QueueFamily = context->graphics_queue_family_index;
-    init_info.DescriptorPool = context->imgui_descriptor_pool;
-    init_info.MinImageCount = context->swapchain.image_count;
-    init_info.ImageCount = context->swapchain.image_count;
-    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-    init_info.PipelineCache = context->pipeline_cache;
-
+    ImGui_ImplVulkan_InitInfo imgui_impl_vulkan_init_info = {};
+    imgui_impl_vulkan_init_info.Allocator = &context->allocation_callbacks;
+    imgui_impl_vulkan_init_info.Instance = context->instance;
+    imgui_impl_vulkan_init_info.PhysicalDevice = context->physical_device;
+    imgui_impl_vulkan_init_info.Device = context->logical_device;
+    imgui_impl_vulkan_init_info.Queue = context->graphics_queue;
+    imgui_impl_vulkan_init_info.QueueFamily = context->graphics_queue_family_index;
+    imgui_impl_vulkan_init_info.DescriptorPool = context->imgui_descriptor_pool;
+    imgui_impl_vulkan_init_info.MinImageCount = context->swapchain.image_count;
+    imgui_impl_vulkan_init_info.ImageCount = context->swapchain.image_count;
+    imgui_impl_vulkan_init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    imgui_impl_vulkan_init_info.PipelineCache = context->pipeline_cache;
+    
     Render_Pass_Descriptor render_pass_descriptor = {};
     render_pass_descriptor.color_attachments =
     {
@@ -1845,7 +1870,7 @@ bool vulkan_renderer_init_imgui()
     Render_Pass_Handle imgui_render_pass = renderer_create_render_pass(render_pass_descriptor);
 
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[ imgui_render_pass.index ];
-    ImGui_ImplVulkan_Init(&init_info, vulkan_render_pass->handle);
+    ImGui_ImplVulkan_Init(&imgui_impl_vulkan_init_info, vulkan_render_pass->handle);
 
     VkCommandBuffer command_buffer = context->graphics_command_buffers[0];
     vkResetCommandBuffer(command_buffer, 0);
@@ -1948,11 +1973,11 @@ Memory_Requirements vulkan_renderer_get_texture_memory_requirements(const Textur
     image_create_info.flags = 0;
 
     VkImage image = VK_NULL_HANDLE;
-    HE_CHECK_VKRESULT(vkCreateImage(context->logical_device, &image_create_info, nullptr, &image));
+    HE_CHECK_VKRESULT(vkCreateImage(context->logical_device, &image_create_info, &context->allocation_callbacks, &image));
 
     VkMemoryRequirements vulkan_memory_requirements = {};
     vkGetImageMemoryRequirements(context->logical_device, image, &vulkan_memory_requirements);    
-    vkDestroyImage(context->logical_device, image, nullptr);
+    vkDestroyImage(context->logical_device, image, &context->allocation_callbacks);
 
     Memory_Requirements result = {};
     result.size = vulkan_memory_requirements.size;

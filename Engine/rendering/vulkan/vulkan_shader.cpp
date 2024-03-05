@@ -226,7 +226,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
         shader_module_create_info.pCode = (U32 *)blob.data;
         shader_module_create_info.codeSize = blob.count;
         
-        VkResult result = vkCreateShaderModule(context->logical_device, &shader_module_create_info, nullptr, &vulkan_shader->handles[stage_index]);
+        VkResult result = vkCreateShaderModule(context->logical_device, &shader_module_create_info, &context->allocation_callbacks, &vulkan_shader->handles[stage_index]);
         if (result != VK_SUCCESS)
         {
             return false;
@@ -411,13 +411,13 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
         descriptor_set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         descriptor_set_layout_create_info.pNext = &extended_descriptor_set_layout_create_info;
 
-        vkCreateDescriptorSetLayout(context->logical_device, &descriptor_set_layout_create_info, nullptr, &vulkan_shader->descriptor_set_layouts[set_index]);
+        vkCreateDescriptorSetLayout(context->logical_device, &descriptor_set_layout_create_info, &context->allocation_callbacks, &vulkan_shader->descriptor_set_layouts[set_index]);
     }
 
     VkPipelineLayoutCreateInfo pipeline_layout_create_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
     pipeline_layout_create_info.setLayoutCount = set_count;
     pipeline_layout_create_info.pSetLayouts = vulkan_shader->descriptor_set_layouts;
-    vkCreatePipelineLayout(context->logical_device, &pipeline_layout_create_info, nullptr, &vulkan_shader->pipeline_layout);
+    vkCreatePipelineLayout(context->logical_device, &pipeline_layout_create_info, &context->allocation_callbacks, &vulkan_shader->pipeline_layout);
 
     return true;
 }
@@ -432,19 +432,19 @@ void destroy_shader(Shader_Handle shader_handle, Vulkan_Context *context)
         {
             continue;
         }
-        vkDestroyShaderModule(context->logical_device, vulkan_shader->handles[stage_index], nullptr);
+        vkDestroyShaderModule(context->logical_device, vulkan_shader->handles[stage_index], &context->allocation_callbacks);
     }
 
     for (U32 i = 0; i < HE_MAX_BIND_GROUP_INDEX_COUNT; i++)
     {
         if (vulkan_shader->descriptor_set_layouts[i] != VK_NULL_HANDLE)
         {
-            vkDestroyDescriptorSetLayout(context->logical_device, vulkan_shader->descriptor_set_layouts[i], nullptr);
+            vkDestroyDescriptorSetLayout(context->logical_device, vulkan_shader->descriptor_set_layouts[i], &context->allocation_callbacks);
             vulkan_shader->descriptor_set_layouts[i] = VK_NULL_HANDLE;
         }
     }
 
-    vkDestroyPipelineLayout(context->logical_device, vulkan_shader->pipeline_layout, nullptr);
+    vkDestroyPipelineLayout(context->logical_device, vulkan_shader->pipeline_layout, &context->allocation_callbacks);
 }
 
 static VkPolygonMode get_polygon_mode(Fill_Mode fill_mode)
@@ -645,7 +645,7 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     graphics_pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
     graphics_pipeline_create_info.basePipelineIndex = -1;
 
-    HE_CHECK_VKRESULT(vkCreateGraphicsPipelines(context->logical_device, context->pipeline_cache, 1, &graphics_pipeline_create_info, nullptr, &vulkan_pipeline_state->handle));
+    HE_CHECK_VKRESULT(vkCreateGraphicsPipelines(context->logical_device, context->pipeline_cache, 1, &graphics_pipeline_create_info, &context->allocation_callbacks, &vulkan_pipeline_state->handle));
     return true;
 }
 
@@ -653,5 +653,5 @@ void destroy_pipeline(Pipeline_State_Handle pipeline_state_handle, Vulkan_Contex
 {
     HE_ASSERT(context);
     Vulkan_Pipeline_State *pipeline = &context->pipeline_states[pipeline_state_handle.index];
-    vkDestroyPipeline(context->logical_device, pipeline->handle, nullptr);
+    vkDestroyPipeline(context->logical_device, pipeline->handle, &context->allocation_callbacks);
 }
