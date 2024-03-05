@@ -18,8 +18,6 @@ U32 get_size_of_shader_data_type(Shader_Data_Type data_type)
 {
     switch (data_type)
     {
-        case Shader_Data_Type::BOOL: return 1;
-
         case Shader_Data_Type::S8: return 1;
         case Shader_Data_Type::S16: return 2;
         case Shader_Data_Type::S32: return 4;

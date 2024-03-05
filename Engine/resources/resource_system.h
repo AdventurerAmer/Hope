@@ -151,10 +151,15 @@ struct Texture_Resource_Info
     U64 data_offset;
 };
 
+struct Shader_Stage_Info
+{
+    Shader_Stage stage;
+    U64 size;
+};
+
 struct Shader_Resource_Info
 {
-    U64 data_offset;
-    U64 data_size;
+    U32 shader_stage_info_count;
 };
 
 struct Material_Property_Info
@@ -237,6 +242,8 @@ Resource_Handle<T> get_resource_handle_as(Resource_Ref ref)
         .generation = std::atomic_load( (std::atomic<U32>*)&resource->generation )
     };
 }
+
+String get_resource_path();
 
 const Dynamic_Array< Resource >& get_resources();
 

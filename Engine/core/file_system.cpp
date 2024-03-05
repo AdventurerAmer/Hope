@@ -31,7 +31,7 @@ bool directory_exists(const String &path)
 
 String get_parent_path(const String &path)
 {
-    S64 slash_index = find_first_char_from_right(path, "\\/");
+    S64 slash_index = find_first_char_from_right(path, HE_STRING_LITERAL("\\/"));
     if (slash_index != -1)
     {
         return sub_string(path, 0, slash_index);
@@ -41,7 +41,7 @@ String get_parent_path(const String &path)
 
 String get_extension(const String &path)
 {
-    S64 dot_index = find_first_char_from_right(path, ".");
+    S64 dot_index = find_first_char_from_right(path, HE_STRING_LITERAL("."));
     if (dot_index != -1)
     {
         return sub_string(path, dot_index + 1);
@@ -51,7 +51,7 @@ String get_extension(const String &path)
 
 String get_name(const String &path)
 {
-    S64 start_index = find_first_char_from_right(path, "\\/");
+    S64 start_index = find_first_char_from_right(path, HE_STRING_LITERAL("\\/"));
     if (start_index == -1)
     {
         start_index = 0;
@@ -61,7 +61,7 @@ String get_name(const String &path)
         start_index++;
     }
 
-    S64 end_index = find_first_char_from_right(path, ".");
+    S64 end_index = find_first_char_from_right(path, HE_STRING_LITERAL("."));
     if (end_index == -1)
     {
         end_index = path.count - 1;

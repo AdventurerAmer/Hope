@@ -15,6 +15,7 @@
 
 #include <algorithm> // todo(amer): to be removed
 
+#include <shaderc/shaderc.h>
 #include <spirv_cross/spirv_cross_c.h>
 
 #if HE_OS_WINDOWS
@@ -66,10 +67,6 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->destroy_shader = &vulkan_renderer_destroy_shader;
             renderer->create_pipeline_state = &vulkan_renderer_create_pipeline_state;
             renderer->destroy_pipeline_state = &vulkan_renderer_destroy_pipeline_state;
-            renderer->create_shader_group = &vulkan_renderer_create_shader_group;
-            renderer->destroy_shader_group = &vulkan_renderer_destroy_shader_group;
-            renderer->create_bind_group_layout = &vulkan_renderer_create_bind_group_layout;
-            renderer->destroy_bind_group_layout = &vulkan_renderer_destroy_bind_group_layout;
             renderer->create_bind_group = &vulkan_renderer_create_bind_group;
             renderer->set_bind_groups = &vulkan_renderer_set_bind_groups;
             renderer->update_bind_group = &vulkan_renderer_update_bind_group;
@@ -129,9 +126,7 @@ bool init_renderer_state(Engine *engine)
     init(&renderer_state->textures, HE_MAX_TEXTURE_COUNT);
     init(&renderer_state->samplers, HE_MAX_SAMPLER_COUNT);
     init(&renderer_state->shaders, HE_MAX_SHADER_COUNT);
-    init(&renderer_state->shader_groups, HE_MAX_SHADER_GROUP_COUNT);
     init(&renderer_state->pipeline_states, HE_MAX_PIPELINE_STATE_COUNT);
-    init(&renderer_state->bind_group_layouts, HE_MAX_BIND_GROUP_LAYOUT_COUNT);
     init(&renderer_state->bind_groups, HE_MAX_BIND_GROUP_COUNT);
     init(&renderer_state->render_passes, HE_MAX_RENDER_PASS_COUNT);
     init(&renderer_state->frame_buffers, HE_MAX_FRAME_BUFFER_COUNT);
@@ -530,34 +525,22 @@ bool init_renderer_state(Engine *engine)
     renderer_state->default_cubemap_sampler = renderer_create_sampler(default_cubemap_sampler_descriptor);
 
     {
-        Read_Entire_File_Result result = read_entire_file("shaders/bin/default_vert.spv", arena);
+        Read_Entire_File_Result result = read_entire_file("shaders/default.glsl", scratch_memory.arena);
+        String default_shader_source = { .data = (const char *)result.data, .count = result.size };
+        
+        Shader_Compilation_Result default_shader_compilation_result = renderer_compile_shader(default_shader_source, HE_STRING_LITERAL("shaders")); // todo(amer): @Leak
+        HE_ASSERT(default_shader_compilation_result.success);
 
-        Shader_Descriptor default_vertex_shader_descriptor =
+        Shader_Descriptor default_shader_descriptor =
         {
-            .data = result.data,
-            .size = result.size
+            .name = HE_STRING_LITERAL("default"),
+            .compilation_result = &default_shader_compilation_result
         };
-        renderer_state->default_vertex_shader = renderer_create_shader(default_vertex_shader_descriptor);
-        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->default_vertex_shader));
 
-        result = read_entire_file("shaders/bin/default_frag.spv", arena);
-        Shader_Descriptor default_fragment_shader_descriptor =
-        {
-            .data = result.data,
-            .size = result.size
-        };
-        renderer_state->default_fragment_shader = renderer_create_shader(default_fragment_shader_descriptor);
-        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->default_fragment_shader));
-
-        Shader_Group_Descriptor default_shader_group_descriptor;
-        default_shader_group_descriptor.shaders =
-        {
-            renderer_state->default_vertex_shader,
-            renderer_state->default_fragment_shader
-        };
-        renderer_state->default_shader_group = renderer_create_shader_group(default_shader_group_descriptor);
-        HE_ASSERT(is_valid_handle(&renderer_state->shader_groups, renderer_state->default_shader_group));
-
+        renderer_state->default_shader = renderer_create_shader(default_shader_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->default_shader));
+        renderer_destroy_shader_compilation_result(&default_shader_compilation_result);
+        
         Pipeline_State_Descriptor default_pipeline_state_descriptor =
         {
             .settings =
@@ -567,9 +550,10 @@ bool init_renderer_state(Engine *engine)
                 .fill_mode = Fill_Mode::SOLID,
                 .sample_shading = true,
             },
-            .shader_group = renderer_state->default_shader_group,
+            .shader = renderer_state->default_shader,
             .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"), // todo(amer): we should not depend on the render graph here...
         };
+
         renderer_state->default_pipeline = renderer_create_pipeline_state(default_pipeline_state_descriptor);
         HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, renderer_state->default_pipeline));
 
@@ -579,26 +563,26 @@ bool init_renderer_state(Engine *engine)
         };
 
         renderer_state->default_material = renderer_create_material(default_material_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->materials, renderer_state->default_material));
+        
         set_property(renderer_state->default_material, "debug_texture_index", { .u32 = (U32)renderer_state->white_pixel_texture.index });
         set_property(renderer_state->default_material, "debug_color", { .v3 = { 1.0f, 0.0f, 1.0f }});
 
-        HE_ASSERT(is_valid_handle(&renderer_state->materials, renderer_state->default_material));
-
-        Shader_Group *default_shader_group = get(&renderer_state->shader_groups, renderer_state->default_shader_group);
+        Shader *default_shader = get(&renderer_state->shaders, renderer_state->default_shader);
 
         Bind_Group_Descriptor per_frame_bind_group_descriptor =
         {
-            .shader_group = renderer_state->default_shader_group,
-            .layout = default_shader_group->bind_group_layouts[HE_PER_FRAME_BIND_GROUP_INDEX]
+            .shader = renderer_state->default_shader,
+            .group_index = HE_PER_FRAME_BIND_GROUP_INDEX
         };
 
         Bind_Group_Descriptor per_render_pass_bind_group_descriptor =
         {
-            .shader_group = renderer_state->default_shader_group,
-            .layout = default_shader_group->bind_group_layouts[HE_PER_PASS_BIND_GROUP_INDEX]
+            .shader = renderer_state->default_shader,
+            .group_index = HE_PER_PASS_BIND_GROUP_INDEX
         };
 
-        Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_vertex_shader, HE_STRING_LITERAL("Globals"));
+        Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_shader, HE_STRING_LITERAL("Globals"));
         HE_ASSERT(globals_struct);
 
         for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -612,7 +596,7 @@ bool init_renderer_state(Engine *engine)
 
             Buffer_Descriptor object_data_storage_buffer_descriptor =
             {
-                .size = sizeof(Object_Data) * HE_MAX_OBJECT_DATA_COUNT,
+                .size = sizeof(Object_Data) * HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT,
                 .usage = Buffer_Usage::STORAGE_CPU_SIDE,
             };
             renderer_state->object_data_storage_buffers[frame_index] = renderer_create_buffer(object_data_storage_buffer_descriptor);
@@ -705,29 +689,18 @@ bool init_renderer_state(Engine *engine)
         };
         renderer_state->skybox = renderer_create_texture(cubmap_texture_descriptor);
 
-        Read_Entire_File_Result result = read_entire_file("shaders/bin/skybox.vert.spv", scratch_memory.arena);
-        Shader_Descriptor skybox_vertex_shader_descriptor =
+        Read_Entire_File_Result result = read_entire_file("shaders/skybox.glsl", scratch_memory.arena);
+        String skybox_shader_source = { .data = (const char *)result.data, .count = result.size };
+        Shader_Compilation_Result skybox_compilation_result = renderer_compile_shader(skybox_shader_source, HE_STRING_LITERAL("shaders"));
+        HE_ASSERT(skybox_compilation_result.success);
+        
+        Shader_Descriptor skybox_shader_descriptor =
         {
-            .data = result.data,
-            .size = result.size
+            .name = HE_STRING_LITERAL("skybox"),
+            .compilation_result = &skybox_compilation_result
         };
-        renderer_state->skybox_vertex_shader = renderer_create_shader(skybox_vertex_shader_descriptor);
-
-        result = read_entire_file("shaders/bin/skybox.frag.spv", scratch_memory.arena);
-        Shader_Descriptor skybox_fragment_shader_descriptor =
-        {
-            .data = result.data,
-            .size = result.size
-        };
-        renderer_state->skybox_fragment_shader = renderer_create_shader(skybox_fragment_shader_descriptor);
-
-        Shader_Group_Descriptor skybox_shader_descriptor = {};
-        skybox_shader_descriptor.shaders =
-        {
-            renderer_state->skybox_vertex_shader,
-            renderer_state->skybox_fragment_shader
-        };
-        renderer_state->skybox_shader_group = renderer_create_shader_group(skybox_shader_descriptor);
+        renderer_state->skybox_shader = renderer_create_shader(skybox_shader_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->skybox_shader));
 
         Pipeline_State_Descriptor skybox_pipeline_state_descriptor =
         {
@@ -739,7 +712,7 @@ bool init_renderer_state(Engine *engine)
                 .depth_testing = false,
                 .sample_shading = true,
             },
-            .shader_group = renderer_state->skybox_shader_group,
+            .shader = renderer_state->skybox_shader,
             .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"),
         };
         renderer_state->skybox_pipeline = renderer_create_pipeline_state(skybox_pipeline_state_descriptor);
@@ -751,6 +724,7 @@ bool init_renderer_state(Engine *engine)
 
         renderer_state->skybox_material_handle = renderer_create_material(skybox_material_descriptor);
         set_property(renderer_state->skybox_material_handle, "skybox_texture_index", { .u32 = (U32)renderer_state->skybox.index });
+        set_property(renderer_state->skybox_material_handle, "sky_color", { .v3 = { 1.0f, 1.0f, 1.0f } });
     }
 
     bool imgui_inited = init_imgui(engine);
@@ -780,16 +754,6 @@ void deinit_renderer_state()
     for (auto it = iterator(&renderer_state->shaders); next(&renderer_state->shaders, it);)
     {
         renderer->destroy_shader(it);
-    }
-
-    for (auto it = iterator(&renderer_state->shader_groups); next(&renderer_state->shader_groups, it);)
-    {
-        renderer->destroy_shader_group(it);
-    }
-
-    for (auto it = iterator(&renderer_state->bind_group_layouts); next(&renderer_state->bind_group_layouts, it);)
-    {
-        renderer->destroy_bind_group_layout(it);
     }
 
     for (auto it = iterator(&renderer_state->frame_buffers); next(&renderer_state->frame_buffers, it);)
@@ -962,8 +926,193 @@ void renderer_destroy_sampler(Sampler_Handle &sampler_handle)
 // Shaders
 //
 
+static shaderc_shader_kind shader_stage_to_shaderc_kind(Shader_Stage stage)
+{
+    switch (stage)
+    {
+        case Shader_Stage::VERTEX: return shaderc_vertex_shader;
+        case Shader_Stage::FRAGMENT: return shaderc_fragment_shader;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported stage");
+        } break;
+    }
+
+    return shaderc_vertex_shader;
+}
+
+struct Shaderc_UserData
+{
+    Free_List_Allocator *allocator;
+    String include_path;
+};
+
+shaderc_include_result *shaderc_include_resolve(void *user_data, const char *requested_source, int type, const char *requesting_source, size_t include_depth)
+{
+    Shaderc_UserData *ud = (Shaderc_UserData *)user_data;
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    String source = HE_STRING(requested_source);
+    String path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(ud->include_path), HE_EXPAND_STRING(source));
+    Read_Entire_File_Result file_result = read_entire_file(path.data, ud->allocator);
+    HE_ASSERT(file_result.success);
+    shaderc_include_result *result = HE_ALLOCATE(ud->allocator, shaderc_include_result);
+    result->source_name = requested_source;
+    result->source_name_length = string_length(requested_source);
+    result->user_data = ud;
+    result->content = (const char *)file_result.data;
+    result->content_length = file_result.size;
+    return result;
+}
+
+void shaderc_include_result_release(void *user_data, shaderc_include_result *include_result)
+{
+    Shaderc_UserData *ud = (Shaderc_UserData *)user_data;
+    deallocate(ud->allocator, (void *)include_result->content);
+    deallocate(ud->allocator, include_result);
+}
+
+Shader_Compilation_Result renderer_compile_shader(String source, String include_path)
+{
+    static shaderc_compiler_t compiler = shaderc_compiler_initialize();
+    static shaderc_compile_options_t options = shaderc_compile_options_initialize();
+
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+
+    Shaderc_UserData *shaderc_userdata = HE_ALLOCATE(allocator, Shaderc_UserData);
+    shaderc_userdata->allocator = allocator;
+    shaderc_userdata->include_path = include_path;
+
+    HE_DEFER
+    {
+        deallocate(allocator, shaderc_userdata);
+    };
+
+    shaderc_compile_options_set_include_callbacks(options, shaderc_include_resolve, shaderc_include_result_release, shaderc_userdata);
+    shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
+    shaderc_compile_options_set_generate_debug_info(options);
+    shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_performance);
+    shaderc_compile_options_set_auto_map_locations(options, true);
+
+    static String shader_stage_signature[(U32)Shader_Stage::COUNT];
+    shader_stage_signature[(U32)Shader_Stage::VERTEX] = HE_STRING_LITERAL("vertex");
+    shader_stage_signature[(U32)Shader_Stage::FRAGMENT] = HE_STRING_LITERAL("fragment");
+
+    String sources[(U32)Shader_Stage::COUNT] = {};
+
+    Shader_Compilation_Result compilation_result = {};
+    
+    String str = source;
+    S32 last_shader_stage_index = -1;
+    
+    String type_literal = HE_STRING_LITERAL("type");
+    U64 search_offset = 0;
+
+    while (true)
+    {
+        S64 hash_symbol_index = find_first_char_from_left(str, HE_STRING_LITERAL("#"), search_offset);
+        if (hash_symbol_index == -1)
+        {
+            break;
+        }
+        
+        String str_after_index = sub_string(str, hash_symbol_index + 1);
+        if (!starts_with(str_after_index, type_literal))
+        {
+            search_offset = hash_symbol_index + 1;
+            continue;
+        }
+
+        search_offset = 0;
+
+        if (last_shader_stage_index != -1)
+        {
+            sources[last_shader_stage_index].count = hash_symbol_index;
+        }
+
+        str = sub_string(str, hash_symbol_index + type_literal.count + 1);
+        String whitespace = HE_STRING_LITERAL(" \n\r\f\t\v");
+        str = eat_chars(str, whitespace);
+
+        for (U32 i = 0; i < (U32)Shader_Stage::COUNT; i++)
+        {
+            if (!starts_with(str, shader_stage_signature[i]))
+            {
+                continue;
+            }
+            HE_ASSERT(sources[i].count == 0);
+
+            str = advance(str, shader_stage_signature[i].count);
+            sources[i] = str;
+            last_shader_stage_index = (S32)i;
+            break;                
+        }    
+    }
+    
+    for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
+    {
+        if (!sources[stage_index].count)
+        {
+            continue;
+        }
+
+        // shaderc requires a string to be null-terminated
+        String source = format_string(scratch_memory.arena, "%.*s", HE_EXPAND_STRING(sources[stage_index]));
+
+        shaderc_shader_kind kind = shader_stage_to_shaderc_kind((Shader_Stage)stage_index);
+        shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, source.data, source.count, kind, include_path.data, "main", options);
+        
+        HE_DEFER
+        {
+            shaderc_result_release(result);
+        };
+
+        shaderc_compilation_status status = shaderc_result_get_compilation_status(result);
+        if (status != shaderc_compilation_status_success)
+        {
+            HE_LOG(Resource, Fetal, "%s\n", shaderc_result_get_error_message(result));
+            
+            for (U32 i = 0; i < stage_index; i++)
+            {
+                if (compilation_result.stages[stage_index].count)
+                {
+                    deallocate(allocator, (void *)compilation_result.stages[stage_index].data);
+                }
+            }
+
+            return { .success = false };
+        }
+
+        const char *data = shaderc_result_get_bytes(result);
+        U64 size = shaderc_result_get_length(result);
+        String blob = { data, size };
+        compilation_result.stages[stage_index] = copy_string(blob, allocator);
+    }
+
+    compilation_result.success = true;
+    return compilation_result;
+}
+
+void renderer_destroy_shader_compilation_result(Shader_Compilation_Result *result)
+{
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
+
+    for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
+    {
+        if (!result->stages[stage_index].count)
+        {
+            continue;
+        }
+
+        deallocate(allocator, (void *)result->stages[stage_index].data);
+        result->stages[stage_index] = {};
+    }
+}
+
 Shader_Handle renderer_create_shader(const Shader_Descriptor &descriptor)
 {
+    HE_ASSERT(descriptor.compilation_result->success);
     Shader_Handle shader_handle = aquire_handle(&renderer_state->shaders);
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_shader(shader_handle, descriptor);
@@ -992,24 +1141,11 @@ Shader_Struct *renderer_find_shader_struct(Shader_Handle shader_handle, String n
 
 void renderer_destroy_shader(Shader_Handle &shader_handle)
 {
-    HE_ASSERT(shader_handle != renderer_state->default_vertex_shader);
-    HE_ASSERT(shader_handle != renderer_state->default_fragment_shader);
+    HE_ASSERT(shader_handle != renderer_state->default_shader);
 
     // todo(amer): can we make the shader reflection data a one memory block to free it in one step...
     Free_List_Allocator *allocator = get_general_purpose_allocator();
     Shader *shader = renderer_get_shader(shader_handle);
-
-    for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
-    {
-        Bind_Group_Layout_Descriptor *set = &shader->sets[set_index];
-        if (set->binding_count)
-        {
-            deallocate(allocator, set->bindings);
-        }
-    }
-
-    deallocate(allocator, shader->inputs);
-    deallocate(allocator, shader->outputs);
 
     for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
     {
@@ -1025,66 +1161,6 @@ void renderer_destroy_shader(Shader_Handle &shader_handle)
 
     release_handle(&renderer_state->shaders, shader_handle);
     shader_handle = Resource_Pool< Shader >::invalid_handle;
-}
-
-//
-// Shader Groups
-//
-
-Shader_Group_Handle renderer_create_shader_group(const Shader_Group_Descriptor &descriptor)
-{
-    Shader_Group_Handle shader_group_handle = aquire_handle(&renderer_state->shader_groups);
-
-    platform_lock_mutex(&renderer_state->render_commands_mutex);
-    renderer->create_shader_group(shader_group_handle, descriptor);
-    platform_unlock_mutex(&renderer_state->render_commands_mutex);
-
-    Shader_Group *shader_group = &renderer_state->shader_groups.data[shader_group_handle.index];
-    copy(&shader_group->shaders, &descriptor.shaders);
-    return shader_group_handle;
-}
-
-Shader_Group* renderer_get_shader_group(Shader_Group_Handle shader_group_handle)
-{
-    return get(&renderer_state->shader_groups, shader_group_handle);
-}
-
-void renderer_destroy_shader_group(Shader_Group_Handle &shader_group_handle)
-{
-    Shader_Group *shader_group = get(&renderer_state->shader_groups, shader_group_handle);
-    reset(&shader_group->shaders);
-    reset(&shader_group->bind_group_layouts);
-
-    renderer->destroy_shader_group(shader_group_handle);
-    release_handle(&renderer_state->shader_groups, shader_group_handle);
-    shader_group_handle = Resource_Pool< Shader_Group >::invalid_handle;
-}
-
-//
-// Bind Group Layouts
-//
-
-Bind_Group_Layout_Handle renderer_create_bind_group_layout(const Bind_Group_Layout_Descriptor &descriptor)
-{
-    Bind_Group_Layout_Handle bind_group_layout_handle = aquire_handle(&renderer_state->bind_group_layouts);
-    platform_lock_mutex(&renderer_state->render_commands_mutex);
-    renderer->create_bind_group_layout(bind_group_layout_handle, descriptor);
-    platform_unlock_mutex(&renderer_state->render_commands_mutex);
-    Bind_Group_Layout *bind_group_layout = &renderer_state->bind_group_layouts.data[bind_group_layout_handle.index];
-    bind_group_layout->descriptor = descriptor;
-    return bind_group_layout_handle;
-}
-
-Bind_Group_Layout* renderer_get_bind_group_layout(Bind_Group_Layout_Handle bind_group_layout_handle)
-{
-    return get(&renderer_state->bind_group_layouts, bind_group_layout_handle);
-}
-
-void renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle &bind_group_layout_handle)
-{
-    renderer->destroy_bind_group_layout(bind_group_layout_handle);
-    release_handle(&renderer_state->bind_group_layouts, bind_group_layout_handle);
-    bind_group_layout_handle = Resource_Pool< Bind_Group_Layout >::invalid_handle;
 }
 
 //
@@ -1331,26 +1407,9 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
     Material_Handle material_handle = aquire_handle(&renderer_state->materials);
     Material *material = get(&renderer_state->materials, material_handle);
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, descriptor.pipeline_state_handle);
-    Shader_Group *shader_group = get(&renderer_state->shader_groups, pipeline_state->descriptor.shader_group);
-
-    Shader_Struct *properties = nullptr;
-
-    for (U32 shader_index = 0; shader_index < shader_group->shaders.count; shader_index++)
-    {
-        Shader *shader = get(&renderer_state->shaders, shader_group->shaders[shader_index]);
-        for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
-        {
-            Shader_Struct *shader_struct = &shader->structs[struct_index];
-            if (shader_struct->name == "Material")
-            {
-                properties = shader_struct;
-                break;
-            }
-        }
-    }
-
+    Shader *shader = get(&renderer_state->shaders, pipeline_state->descriptor.shader);
+    Shader_Struct *properties = renderer_find_shader_struct(pipeline_state->descriptor.shader, HE_STRING_LITERAL("Material"));
     HE_ASSERT(properties);
-    
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
@@ -1366,9 +1425,11 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
-        Bind_Group_Descriptor bind_group_descriptor = {};
-        bind_group_descriptor.shader_group = pipeline_state->descriptor.shader_group;
-        bind_group_descriptor.layout = shader_group->bind_group_layouts[2]; // todo(amer): Hardcoding
+        Bind_Group_Descriptor bind_group_descriptor =
+        {
+            .shader = pipeline_state->descriptor.shader,
+            .group_index = HE_PER_OBJECT_BIND_GROUP_INDEX
+        };
         append(&material->bind_groups, renderer_create_bind_group(bind_group_descriptor));
 
         Update_Binding_Descriptor update_binding_descriptor =
@@ -1393,12 +1454,12 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         property->data_type = member->data_type;
         property->offset_in_buffer = member->offset;
 
-        property->is_texture_resource = ends_with(property->name, "_texture") && member->data_type == Shader_Data_Type::U32;
-        property->is_color = ends_with(property->name, "_color") && (member->data_type == Shader_Data_Type::VECTOR3F || member->data_type == Shader_Data_Type::VECTOR4F);
+        property->is_texture_resource = ends_with(property->name, HE_STRING_LITERAL("_texture")) && member->data_type == Shader_Data_Type::U32;
+        property->is_color = ends_with(property->name, HE_STRING_LITERAL("_color")) && (member->data_type == Shader_Data_Type::VECTOR3F || member->data_type == Shader_Data_Type::VECTOR4F);
     }
 
     material->pipeline_state_handle = descriptor.pipeline_state_handle;
-    material->data = HE_ALLOCATE_ARRAY( get_general_purpose_allocator(), U8, properties->size );
+    material->data = HE_ALLOCATE_ARRAY(get_general_purpose_allocator(), U8, properties->size);
     material->size = properties->size;
     material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
 
@@ -1414,7 +1475,7 @@ void renderer_destroy_material(Material_Handle &material_handle)
 {
     Material *material = get(&renderer_state->materials, material_handle);
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle); 
-    renderer_destroy_shader_group(pipeline_state->descriptor.shader_group);
+    
     renderer_destroy_pipeline_state(material->pipeline_state_handle);
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -1543,7 +1604,7 @@ void renderer_use_material(Material_Handle material_handle)
         material->bind_groups[renderer_state->current_frame_in_flight_index]
     };
 
-    renderer->set_bind_groups(2, to_array_view(material_bind_groups));
+    renderer->set_bind_groups(HE_PER_OBJECT_BIND_GROUP_INDEX, to_array_view(material_bind_groups));
 
     if (renderer_state->current_pipeline_state_handle.index != material->pipeline_state_handle.index)
     {
@@ -1673,7 +1734,7 @@ void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_t
         Resource_Ref static_mesh_ref = { scene_node->static_mesh_uuid };
         Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(static_mesh_ref);
 
-        HE_ASSERT(renderer_state->object_data_count < HE_MAX_OBJECT_DATA_COUNT);
+        HE_ASSERT(renderer_state->object_data_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
         U32 object_data_index = renderer_state->object_data_count++;
         Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
         object_data->model = get_world_matrix(transform);

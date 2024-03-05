@@ -44,7 +44,7 @@ project "Engine"
     location "Engine"
     language "C++"
     cppdialect "C++20"
-    staticruntime "on"
+    staticruntime "off"
 
     files { "Engine/**.h", "Engine/**.hpp", "Engine/**.cpp" }
 
@@ -81,7 +81,7 @@ project "Engine"
             "SPIRV-Tools",
             "shaderc_shared",
             "spirv-cross-core",
-            "spirv-cross-glsl"
+            "spirv-cross-glsl",
         }
 
     filter {}
@@ -98,7 +98,7 @@ project "Game"
     location "Game"
     language "C++"
     cppdialect "C++20"
-    staticruntime "on"
+    staticruntime "off"
 
     defines { "HE_EXPORT" }
     files { "Game/**.h", "Game/**.hpp", "Game/**.cpp" }

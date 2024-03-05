@@ -59,6 +59,7 @@ struct Renderer
     void (*set_vertex_buffers)(const Array_View< Buffer_Handle > &vertex_buffer_handles, const Array_View< U64 > &offsets);
     void (*set_index_buffer)(Buffer_Handle index_buffer_handle, U64 offset);
     void (*set_pipeline_state)(Pipeline_State_Handle pipeline_state_handle);
+    void (*set_bind_groups)(U32 first_bind_group, const Array_View< Bind_Group_Handle > &bind_group_handles);
     void (*draw_static_mesh)(Static_Mesh_Handle static_mesh_handle, U32 first_instance);
     void (*draw_sub_mesh)(Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index);
     void (*end_frame)();
@@ -75,18 +76,11 @@ struct Renderer
     bool (*create_shader)(Shader_Handle shader_handle, const Shader_Descriptor &descriptor);
     void (*destroy_shader)(Shader_Handle shader_handle);
 
-    bool (*create_shader_group)(Shader_Group_Handle shader_group_handle, const Shader_Group_Descriptor &descriptor);
-    void (*destroy_shader_group)(Shader_Group_Handle shader_group_handle);
-
     bool (*create_pipeline_state)(Pipeline_State_Handle pipeline_state_handle, const Pipeline_State_Descriptor &descriptor);
     void (*destroy_pipeline_state)(Pipeline_State_Handle pipeline_state_handle);
 
-    bool (*create_bind_group_layout)(Bind_Group_Layout_Handle bind_group_layout_handle, const Bind_Group_Layout_Descriptor &descriptor);
-    void (*destroy_bind_group_layout)(Bind_Group_Layout_Handle bind_group_layout_handle);
-
     bool (*create_bind_group)(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor);
     void (*update_bind_group)(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors);
-    void (*set_bind_groups)(U32 first_bind_group, const Array_View< Bind_Group_Handle > &bind_group_handles);
     void (*destroy_bind_group)(Bind_Group_Handle bind_group_handle);
 
     bool (*create_render_pass)(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor);
@@ -128,9 +122,7 @@ struct Renderer_State
     Resource_Pool< Texture > textures;
     Resource_Pool< Sampler > samplers;
     Resource_Pool< Shader > shaders;
-    Resource_Pool< Shader_Group > shader_groups;
     Resource_Pool< Pipeline_State > pipeline_states;
-    Resource_Pool< Bind_Group_Layout > bind_group_layouts;
     Resource_Pool< Bind_Group > bind_groups;
     Resource_Pool< Render_Pass > render_passes;
     Resource_Pool< Frame_Buffer > frame_buffers;
@@ -171,9 +163,7 @@ struct Renderer_State
     Mutex render_commands_mutex;
 
     // todo(amer): temprary
-    Shader_Handle skybox_vertex_shader;
-    Shader_Handle skybox_fragment_shader;
-    Shader_Group_Handle skybox_shader_group;
+    Shader_Handle skybox_shader;
     Pipeline_State_Handle skybox_pipeline;
     Texture_Handle skybox;
     Material_Handle skybox_material_handle;
@@ -181,9 +171,7 @@ struct Renderer_State
     Mutex allocation_groups_mutex;
     Array< Allocation_Group, HE_MAX_SEMAPHORE_COUNT > allocation_groups;
 
-    Shader_Handle default_vertex_shader;
-    Shader_Handle default_fragment_shader;
-    Shader_Group_Handle default_shader_group;
+    Shader_Handle default_shader;
     Pipeline_State_Handle default_pipeline;
     Material_Handle default_material;
 
@@ -246,26 +234,13 @@ void renderer_destroy_sampler(Sampler_Handle &sampler_handle);
 // Shaders
 //
 
+Shader_Compilation_Result renderer_compile_shader(String source, String path = HE_STRING_LITERAL(""));
+void renderer_destroy_shader_compilation_result(Shader_Compilation_Result *result);
+
 Shader_Handle renderer_create_shader(const Shader_Descriptor &descriptor);
 Shader* renderer_get_shader(Shader_Handle shader_handle);
 Shader_Struct *renderer_find_shader_struct(Shader_Handle shader_handle, String name);
 void renderer_destroy_shader(Shader_Handle &shader_handle);
-
-//
-// Shader Groups
-//
-
-Shader_Group_Handle renderer_create_shader_group(const Shader_Group_Descriptor &descriptor);
-Shader_Group* renderer_get_shader_group(Shader_Group_Handle shader_group_handle);
-void renderer_destroy_shader_group(Shader_Group_Handle &shader_group_handle);
-
-//
-// Bind Group Layouts
-//
-
-Bind_Group_Layout_Handle renderer_create_bind_group_layout(const Bind_Group_Layout_Descriptor &descriptor);
-Bind_Group_Layout* renderer_get_bind_group_layout(Bind_Group_Layout_Handle bind_group_layout_handle);
-void renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle &bind_group_layout_handle);
 
 //
 // Bind Groups

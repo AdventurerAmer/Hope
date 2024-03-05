@@ -66,6 +66,14 @@
         "xstring": "cpp",
         "xtr1common": "cpp",
         "xutility": "cpp",
-        "random": "cpp"
+        "random": "cpp",
+        "array": "cpp",
+        "deque": "cpp",
+        "stack": "cpp",
+        "xtree": "cpp",
+        "ranges": "cpp",
+        "span": "cpp",
+        "map": "cpp",
+        "set": "cpp"
     }
 }

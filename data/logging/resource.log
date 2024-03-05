@@ -1,11 +1,15 @@
+[Resource-Trace]: successfully conditioned asset: c:/dev/hope/data/resources/Corset/Corset.gltf
+[Resource-Trace]: successfully conditioned asset: c:/dev/hope/data/resources/Corset/Corset_baseColor.png
+[Resource-Trace]: successfully conditioned asset: c:/dev/hope/data/resources/Corset/Corset_occlusionRoughnessMetallic.png
+[Resource-Trace]: successfully conditioned asset: c:/dev/hope/data/resources/Corset/Corset_normal.png
+[Resource-Trace]: successfully conditioned asset: c:/dev/hope/data/resources/opaque_pbr.glsl
 [Resource-Trace]: resource loaded: white pixel
 [Resource-Trace]: resource loaded: normal pixel
 [Resource-Trace]: resource loaded: skybox
 [Resource-Trace]: resource loaded: cube static mesh
 [Resource-Trace]: resource loaded: Corset/Corset.hres
-[Resource-Trace]: resource loaded: opaque_pbr_frag.hres
-[Resource-Trace]: resource loaded: opaque_pbr_vert.hres
 [Resource-Trace]: resource loaded: Corset/static_mesh_pCube49.hres
+[Resource-Trace]: resource loaded: opaque_pbr.hres
 [Resource-Trace]: resource loaded: Corset/material_Corset_O.hres
 [Resource-Trace]: resource loaded: Corset/Corset_baseColor.hres
 [Resource-Trace]: resource loaded: Corset/Corset_normal.hres

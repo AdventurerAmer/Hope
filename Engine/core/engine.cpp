@@ -176,6 +176,8 @@ bool startup(Engine *engine, void *platform_state)
         finalize_asset_loads(renderer, renderer_state);
     }
     
+    // aquire_resource("Sponza/Sponza.hres");
+    // aquire_resource("FlightHelmet/FlightHelmet.hres");
     aquire_resource("Corset/Corset.hres");
     return game_initialized;
 }
@@ -699,7 +701,7 @@ void game_loop(Engine *engine, F32 delta_time)
 
         Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[renderer_state->current_frame_in_flight_index]);
         
-        Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_vertex_shader, HE_STRING_LITERAL("Globals"));
+        Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_shader, HE_STRING_LITERAL("Globals"));
         
         glm::mat4 *view = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("view"));
         glm::mat4 *projection = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("projection"));

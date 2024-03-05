@@ -16,7 +16,7 @@ HE_API bool init_game(Engine *engine)
     glm::vec2 viewport = { render_context.renderer_state->back_buffer_width, render_context.renderer_state->back_buffer_height };
     
     F32 aspect_ratio = viewport.x / viewport.y;
-    glm::quat camera_rotation = glm::quat({ 0.0f, 0.0f, 0.0f });
+    glm::quat camera_rotation = glm::quat();
     Camera *camera = &game_state.camera;
 	F32 fov = 45.0f;
 	F32 near = 0.1f;

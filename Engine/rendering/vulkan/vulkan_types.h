@@ -8,6 +8,8 @@
 #include "core/platform.h"
 #include "rendering/renderer_types.h"
 
+#define HE_VULKAN_PIPELINE_CACHE_FILE_PATH "vulkan/pipeline_cache.bin"
+
 #if HE_GRAPHICS_DEBUGGING
 
 #define HE_CHECK_VKRESULT(vulkan_function_call)\
@@ -44,17 +46,14 @@ struct Vulkan_Buffer
 
 struct Vulkan_Shader
 {
-    VkShaderModule handle;
-};
+    VkShaderModule handles[(U32)Shader_Stage::COUNT];
 
-struct Vulkan_Bind_Group_Layout
-{
-    VkDescriptorSetLayout handle;
-};
-
-struct Vulkan_Shader_Group
-{
+    VkDescriptorSetLayout descriptor_set_layouts[HE_MAX_BIND_GROUP_INDEX_COUNT];
     VkPipelineLayout pipeline_layout;
+    
+    U32 vertex_shader_input_count = 0;
+    VkVertexInputBindingDescription *vertex_input_binding_descriptions = nullptr;
+    VkVertexInputAttributeDescription *vertex_input_attribute_descriptions = nullptr;
 };
 
 struct Vulkan_Bind_Group
@@ -159,9 +158,7 @@ struct Vulkan_Context
     Vulkan_Image *textures;
     Vulkan_Sampler *samplers;
     Vulkan_Shader *shaders;
-    Vulkan_Shader_Group *shader_groups;
     Vulkan_Pipeline_State *pipeline_states;
-    Vulkan_Bind_Group_Layout *bind_group_layouts;
     Vulkan_Bind_Group *bind_groups;
     Vulkan_Render_Pass *render_passes;
     Vulkan_Frame_Buffer *frame_buffers;

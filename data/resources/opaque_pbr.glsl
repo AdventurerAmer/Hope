@@ -1,10 +1,57 @@
+#type vertex
+
+#version 450
+
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+
+#include "common.glsl.inc"
+
+layout (location = 0) in vec3 in_position;
+layout (location = 1) in vec3 in_normal;
+layout (location = 2) in vec2 in_uv;
+layout (location = 3) in vec4 in_tangent;
+
+out Fragment_Input
+{
+    vec3 position;
+    vec2 uv;
+    vec3 normal;
+    vec4 tangent;
+} frag_input;
+
+layout (std430, set = 0, binding = 1) readonly buffer Instance_Buffer
+{
+    mat4 model;
+} instances[];
+
+void main()
+{
+    mat4 model = instances[gl_InstanceIndex].model;
+
+    vec4 world_position = model * vec4(in_position, 1.0);
+    frag_input.position = world_position.xyz;
+    gl_Position = globals.projection * globals.view * world_position;
+
+    mat3 normal_matrix = transpose(inverse(mat3(model)));
+    vec3 normal = normalize(normal_matrix * in_normal);
+    vec4 tangent = vec4(normalize(normal_matrix * in_tangent.xyz), in_tangent.w);
+
+    frag_input.uv = in_uv;
+    frag_input.normal = normal;
+    frag_input.tangent = tangent;
+}
+
+#type fragment
+
 #version 450
 
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
 
-#include "common.glsl"
+#include "common.glsl.inc"
 
 in Fragment_Input
 {
@@ -31,7 +78,7 @@ layout (std430, set = 2, binding = 0) uniform Material
     uint roughness_metallic_texture;
     float roughness_factor;
     float metallic_factor;
-    
+
     uint occlusion_texture;
 } material;
 
@@ -92,7 +139,9 @@ void main()
     vec3 light_color = globals.directional_light_color;
     vec3 L = normalize(-globals.directional_light_direction);
 
-    vec3 V = normalize(globals.eye - frag_input.position);
+    vec3 eye = globals.eye;
+
+    vec3 V = normalize(eye - frag_input.position);
     vec3 H = normalize(L + V);
 
     float NdotL = max(0.0, dot(N, L));
@@ -115,4 +164,5 @@ void main()
     color = color / (color + vec3(1.0));
     color = linear_to_srgb(color, gamma);
     out_color = vec4(color, 1.0);
+    // out_color = vec4(1.0, 0.0, 0.0, 1.0);
 }

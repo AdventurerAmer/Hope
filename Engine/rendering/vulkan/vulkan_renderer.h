@@ -21,14 +21,11 @@ void vulkan_renderer_destroy_buffer(Buffer_Handle buffer_handle);
 bool vulkan_renderer_create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descriptor);
 void vulkan_renderer_destroy_shader(Shader_Handle shader_handle);
 
-bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle, const Shader_Group_Descriptor &descriptor);
-void vulkan_renderer_destroy_shader_group(Shader_Group_Handle shader_group_handle);
-
 bool vulkan_renderer_create_pipeline_state(Pipeline_State_Handle pipeline_state_handle, const Pipeline_State_Descriptor &descriptor);
 void vulkan_renderer_destroy_pipeline_state(Pipeline_State_Handle pipeline_state_handle);
 
-bool vulkan_renderer_create_bind_group_layout(Bind_Group_Layout_Handle bind_group_layout_handle, const Bind_Group_Layout_Descriptor &descriptor);
-void vulkan_renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle bind_group_layout_handle);
+// bool vulkan_renderer_create_bind_group_layout(Bind_Group_Layout_Handle bind_group_layout_handle, const Bind_Group_Layout_Descriptor &descriptor);
+// void vulkan_renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle bind_group_layout_handle);
 
 bool vulkan_renderer_create_bind_group(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor);
 void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors);

@@ -47,15 +47,15 @@ bool equal(const char *a, U64 a_length, const char *b, U64 b_length)
 }
 
 // todo(amer): SIMD version
-S64 find_first_char_from_left(const String &str, const char *chars)
+S64 find_first_char_from_left(const String &str, const String &chars, U64 offset)
 {
-    U64 chars_count = string_length(chars);
+    HE_ASSERT(offset <= str.count);
 
-    for (U64 i = 0; i < str.count; i++)
+    for (U64 i = offset; i < str.count; i++)
     {
-        for (U64 j = 0; j < chars_count; j++)
+        for (U64 j = 0; j < chars.count; j++)
         {
-            if (str.data[i] == chars[j])
+            if (str.data[i] == chars.data[j])
             {
                 return i;
             }
@@ -66,15 +66,13 @@ S64 find_first_char_from_left(const String &str, const char *chars)
 }
 
 // todo(amer): SIMD version
-S64 find_first_char_from_right(const String &str, const char *chars)
+S64 find_first_char_from_right(const String &str, const String &chars)
 {
-    U64 chars_count = string_length(chars);
-
     for (S64 i = str.count - 1; i >= 0; i--)
     {
-        for (U64 j = 0; j < chars_count; j++)
+        for (U64 j = 0; j < chars.count; j++)
         {
-            if (str.data[i] == chars[j])
+            if (str.data[i] == chars.data[j])
             {
                 return i;
             }
@@ -84,27 +82,24 @@ S64 find_first_char_from_right(const String &str, const char *chars)
     return -1;
 }
 
-bool starts_with(const String &str, const char *start)
+bool starts_with(const String &str, const String &start)
 {
-    String start_ = HE_STRING(start);
-    if (start_.count > str.count)
+    if (start.count > str.count)
     {
         return false;
     }
-    return sub_string(str, 0, start_.count) == start_;
+    return sub_string(str, 0, start.count) == start;
 }
 
-bool ends_with(const String &str, const char *end)
+bool ends_with(const String &str, const String &end)
 {
-    String end_ = HE_STRING(end);
-
-    if (end_.count > str.count)
+    if (end.count > str.count)
     {
         return false;
     }
 
-    U64 offset = str.count - end_.count;
-    return sub_string(str, offset, end_.count) == end_;
+    U64 offset = str.count - end.count;
+    return sub_string(str, offset, end.count) == end;
 }
 
 String sub_string(const String &str, U64 index)
@@ -128,6 +123,36 @@ String format_string(Memory_Arena *arena, const char *format, va_list args)
     HE_ASSERT(arena->offset + count + 1 <= arena->size);
     arena->offset += count + 1;
     return { (const char *)buffer, (U64)count };
+}
+
+String advance(const String &str, U64 count)
+{
+    HE_ASSERT(count <= str.count);
+    return { .data = str.data + count, .count = str.count - count }; 
+}
+
+String eat_chars(const String &str, const String &chars)
+{
+    for (U64 i = 0; i < str.count; i++)
+    {
+        bool should_eat = false;
+
+        for (U64 j = 0; j < chars.count; j++)
+        {
+            if (str.data[i] == chars.data[j])
+            {
+                should_eat = true;
+                break;
+            }
+        }
+
+        if (!should_eat)
+        {
+            return sub_string(str, i);
+        }
+    }
+
+    return { };
 }
 
 String format_string(Memory_Arena *arena, const char *format, ...)

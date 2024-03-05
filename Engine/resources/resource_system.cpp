@@ -18,8 +18,6 @@
 #include <stb/stb_image.h>
 #include <imgui.h>
 
-#include <shaderc/shaderc.h>
-
 struct Resource_Type_Info
 {
     String name;
@@ -271,80 +269,23 @@ static void unload_texture_resource(Resource *resource)
     }
 }
 
-shaderc_include_result *shaderc_include_resolve(void *user_data, const char *requested_source, int type, const char *requesting_source, size_t include_depth)
-{
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    String source = HE_STRING(requested_source);
-    String path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(resource_system_state->resource_path), HE_EXPAND_STRING(source));
-    Read_Entire_File_Result file_result = read_entire_file(path.data, allocator);
-    HE_ASSERT(file_result.success);
-    shaderc_include_result *result = HE_ALLOCATE(allocator, shaderc_include_result);
-    result->source_name = requested_source;
-    result->source_name_length = string_length(requested_source);
-    result->user_data = allocator;
-    result->content = (const char *)file_result.data;
-    result->content_length = file_result.size;
-    return result;
-}
-
-void shaderc_include_result_release(void *user_data, shaderc_include_result *include_result)
-{
-    deallocate((Free_List_Allocator*)user_data, (void *)include_result->content);
-    deallocate((Free_List_Allocator*)user_data, include_result);
-}
-
 static bool condition_shader_to_resource(Read_Entire_File_Result *asset_file_result, Asset *asset, Resource *resource, Memory_Arena *arena)
 {
-    String ext = get_extension(asset->relative_path);
-    shaderc_shader_kind shader_kind;
-
-    if (ext == "vert")
+    bool success = true;
+    
+    String source = { .data = (const char *)asset_file_result->data, .count = asset_file_result->size };
+    String include_path = get_parent_path(resource->absolute_path);
+    Shader_Compilation_Result compilation_result = renderer_compile_shader(source, include_path);
+    if (!compilation_result.success)
     {
-        shader_kind = shaderc_vertex_shader;
-    }
-    else if (ext == "frag")
-    {
-        shader_kind = shaderc_fragment_shader;
-    }
-    else
-    {
-        HE_ASSERT(!"we only support vert and frag shaders");
-    }
-
-    shaderc_compiler_t compiler = shaderc_compiler_initialize();
-    shaderc_compile_options_t options = shaderc_compile_options_initialize();
-    shaderc_compile_options_set_include_callbacks(options, shaderc_include_resolve, shaderc_include_result_release, get_general_purpose_allocator());
-    shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
-    shaderc_compile_options_set_generate_debug_info(options);
-    shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_performance);
-    shaderc_compile_options_set_auto_map_locations(options, true);
-
-    HE_DEFER
-    {
-        shaderc_compiler_release(compiler);
-        shaderc_compile_options_release(options);
-    };
-
-    shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, (const char *)asset_file_result->data, asset_file_result->size, shader_kind, (const char *)asset->relative_path.data, "main", options);
-
-    HE_DEFER
-    {
-        shaderc_result_release(result);
-    };
-
-    shaderc_compilation_status status = shaderc_result_get_compilation_status(result);
-
-    if (status != shaderc_compilation_status_success)
-    {
-        HE_LOG(Resource, Fetal, "%s\n", shaderc_result_get_error_message(result));
         return false;
     }
 
-    U64 size = shaderc_result_get_length(result);
-    const char *data = shaderc_result_get_bytes(result);
+    HE_DEFER
+    {
+        renderer_destroy_shader_compilation_result(&compilation_result);
+    };
 
-    bool success = true;
     U64 offset = 0;
 
     // todo(amer): buffer abstraction...
@@ -362,18 +303,44 @@ static bool condition_shader_to_resource(Read_Entire_File_Result *asset_file_res
         offset += sizeof(U64) * resource->resource_refs.count;
     }
 
+    U32 stage_count = 0;
+
+    for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
+    {
+        if (compilation_result.stages[stage_index].count)
+        {
+            stage_count++;
+        }
+    }
+
     Shader_Resource_Info info =
     {
-        .data_offset = sizeof(Resource_Header) + sizeof(U64) * resource->resource_refs.count + sizeof(Shader_Resource_Info),
-        .data_size = size
+        .shader_stage_info_count = stage_count
     };
 
     copy_memory(&buffer[offset], &info, sizeof(info));
     offset += sizeof(info);
 
+    for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
+    {
+        String stage = compilation_result.stages[stage_index]; 
+        if (!stage.count)
+        {
+            continue;
+        }
 
-    copy_memory(&buffer[offset], data, size);
-    offset += size;
+        Shader_Stage_Info stage_info =
+        {
+            .stage = (Shader_Stage)stage_index,
+            .size = stage.count
+        };
+
+        copy_memory(&buffer[offset], &stage_info, sizeof(stage_info));
+        offset += sizeof(stage_info);
+
+        copy_memory(&buffer[offset], stage.data, stage.count);
+        offset += stage.count;
+    }
 
     success &= write_entire_file(resource->absolute_path.data, buffer, offset);
     return success;
@@ -382,36 +349,40 @@ static bool condition_shader_to_resource(Read_Entire_File_Result *asset_file_res
 static bool load_shader_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
 {
     bool success = true;
-
-    U64 offset = 0;
-
-    if (resource->resource_refs.count)
-    {
-        offset += sizeof(U64) * resource->resource_refs.count;
-    }
+    U64 offset = sizeof(Resource_Header) + sizeof(U64) * resource->resource_refs.count;
 
     Shader_Resource_Info info;
-    success &= platform_read_data_from_file(open_file_result, sizeof(Resource_Header) + offset, &info, sizeof(info));
+    success &= platform_read_data_from_file(open_file_result, offset, &info, sizeof(info));
+    offset += sizeof(Shader_Resource_Info);
 
-    U8 *data = HE_ALLOCATE_ARRAY(arena, U8, info.data_size);
-    success &= platform_read_data_from_file(open_file_result, info.data_offset, data, info.data_size);
+    HE_ASSERT(info.shader_stage_info_count <= (U32)Shader_Stage::COUNT);
 
-    if (!success)
+    Shader_Compilation_Result result = { .success = true };
+
+    for (U32 i = 0; i < info.shader_stage_info_count; i++)
     {
-        resource->ref_count = 0;
-        return false;
+        Shader_Stage_Info stage_info;
+        success &= platform_read_data_from_file(open_file_result, offset, &stage_info, sizeof(stage_info));
+        offset += sizeof(stage_info);
+
+        U8 *data = HE_ALLOCATE_ARRAY(arena, U8, stage_info.size + 1);
+        success &= platform_read_data_from_file(open_file_result, offset, data, stage_info.size);
+        data[stage_info.size] = '\0';
+        offset += stage_info.size;
+
+        result.stages[(U32)stage_info.stage] = { .data = (const char *)data, .count = stage_info.size };
     }
 
     Shader_Descriptor shader_descriptor =
     {
-        .data = data,
-        .size = info.data_size
+        .name = get_name(resource->relative_path),
+        .compilation_result = &result
     };
 
     Shader_Handle shader_handle = renderer_create_shader(shader_descriptor);
     resource->index = shader_handle.index;
     resource->generation = shader_handle.generation;
-    return true;
+    return success;
 }
 
 static void unload_shader_resource(Resource *resource)
@@ -420,30 +391,11 @@ static void unload_shader_resource(Resource *resource)
     HE_ASSERT(resource->state != Resource_State::UNLOADED);
 
     Shader_Handle shader_handle = { resource->index, resource->generation };
-    if (is_valid_handle(&render_context.renderer_state->shaders, shader_handle) && (shader_handle != render_context.renderer_state->default_vertex_shader || shader_handle != render_context.renderer_state->default_fragment_shader))
+    if (is_valid_handle(&render_context.renderer_state->shaders, shader_handle) && shader_handle != render_context.renderer_state->default_shader)
     {
         Shader *shader = renderer_get_shader(shader_handle);
-
-        switch (shader->stage)
-        {
-            case Shader_Stage::VERTEX:
-            {
-                resource->index = render_context.renderer_state->default_vertex_shader.index;
-                resource->generation = render_context.renderer_state->default_vertex_shader.generation;
-            } break;
-
-            case Shader_Stage::FRAGMENT:
-            {
-                resource->index = render_context.renderer_state->default_fragment_shader.index;
-                resource->generation = render_context.renderer_state->default_fragment_shader.generation;
-            } break;
-
-            default:
-            {
-                HE_ASSERT(false);
-            } break;
-        }
-
+        resource->index = render_context.renderer_state->default_shader.index;
+        resource->generation = render_context.renderer_state->default_shader.generation;
         renderer_destroy_shader(shader_handle);
     }
 }
@@ -469,22 +421,11 @@ static bool load_material_resource(Open_File_Result *open_file_result, Resource 
 
     String render_pass_name = { string_buffer, info.render_pass_name_count };
     success &= platform_read_data_from_file(open_file_result, info.render_pass_name_offset, string_buffer, info.render_pass_name_count);
+    
+    Resource_Ref shader_resource = { .uuid = resource->resource_refs[0] };
+    Shader_Handle shader = get_resource_handle_as< Shader >(shader_resource);
 
-    Array< Shader_Handle, HE_MAX_SHADER_COUNT_PER_PIPELINE > shaders;
-
-    for (U64 uuid : resource->resource_refs)
-    {
-        Resource_Ref ref = { uuid };
-        Shader_Handle shader_handle = get_resource_handle_as< Shader >(ref);
-        append(&shaders, shader_handle);
-    }
-
-    Shader_Group_Descriptor shader_group_descriptor =
-    {
-        .shaders = shaders
-    };
-
-    Shader_Group_Handle shader_group = renderer_create_shader_group(shader_group_descriptor);
+    Shader *_shader = renderer_get_shader(shader);
 
     Render_Context render_context = get_render_context();
     Render_Pass_Handle render_pass = get_render_pass(&render_context.renderer_state->render_graph, render_pass_name.data);
@@ -492,7 +433,7 @@ static bool load_material_resource(Open_File_Result *open_file_result, Resource 
     Pipeline_State_Descriptor pipeline_state_descriptor =
     {
         .settings = info.settings,
-        .shader_group = shader_group,
+        .shader = shader,
         .render_pass = render_pass,
     };
 
@@ -736,7 +677,7 @@ static bool save_material_resource(Resource *resource, String render_pass_name, 
 
     copy_memory(&buffer[offset], &header, sizeof(header));
     offset += sizeof(header);
-
+    
     if (resource->resource_refs.count)
     {
         copy_memory(&buffer[offset], resource->resource_refs.data, sizeof(U64) * resource->resource_refs.count);
@@ -907,27 +848,20 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
         if (it == path_to_resource_index.end())
         {
             material_resource_index = create_resource(copy_string(material_resource_absloute_path, allocator), Asset_Type::MATERIAL, asset->uuid);
+            
             Resource *material_resource = &resource_system_state->resources[material_resource_index];
             append(&asset->resource_refs, material_resource->uuid);
 
-            Resource_Ref shaders[] =
-            {
-                find_resource(HE_STRING_LITERAL("opaque_pbr_vert.hres")),
-                find_resource(HE_STRING_LITERAL("opaque_pbr_frag.hres"))
-            };
+            Resource_Ref shader = find_resource(HE_STRING_LITERAL("opaque_pbr.hres"));
+            HE_ASSERT(shader.uuid != HE_MAX_U64);
+            append(&material_resource->resource_refs, shader.uuid);
 
-            for (Resource_Ref ref : shaders)
-            {
-                HE_ASSERT(ref.uuid != HE_MAX_U64);
-                append(&material_resource->resource_refs, ref.uuid);
+            auto it = uuid_to_resource_index.find(shader.uuid);
+            Resource *shader_resource = &resource_system_state->resources[it->second];
 
-                auto it = uuid_to_resource_index.find(ref.uuid);
-                Resource *shader_resource = &resource_system_state->resources[it->second];
-
-                platform_lock_mutex(&shader_resource->mutex);
-                append(&shader_resource->children, material_resource->uuid);
-                platform_unlock_mutex(&shader_resource->mutex);
-            }    
+            platform_lock_mutex(&shader_resource->mutex);
+            append(&shader_resource->children, material_resource->uuid);
+            platform_unlock_mutex(&shader_resource->mutex);
         }
         else
         {
@@ -1698,7 +1632,8 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             HE_STRING_LITERAL("jpeg"),
             HE_STRING_LITERAL("png"),
             HE_STRING_LITERAL("tga"),
-            HE_STRING_LITERAL("psd")
+            HE_STRING_LITERAL("psd"),
+            HE_STRING_LITERAL("jpg"),
         };
 
         Asset_Conditioner conditioner =
@@ -1723,8 +1658,7 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
     {
         static String extensions[] =
         {
-            HE_STRING_LITERAL("vert"),
-            HE_STRING_LITERAL("frag"),
+            HE_STRING_LITERAL("glsl"),
         };
 
         Asset_Conditioner conditioner =
@@ -1740,8 +1674,8 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
             .use_allocation_group = false,
             .load = &load_shader_resource,
             .unload = &unload_shader_resource,
-            .index = render_context.renderer_state->default_vertex_shader.index,
-            .generation = render_context.renderer_state->default_vertex_shader.generation
+            .index = render_context.renderer_state->default_shader.index,
+            .generation = render_context.renderer_state->default_shader.generation
         };
 
         register_asset(Asset_Type::SHADER, "shader", 1, conditioner, loader);
@@ -2088,6 +2022,11 @@ static void reload_child_resources(Resource *parent)
 
         child_resource->job_handle = execute_job(job_data, to_array_view(wait_for_jobs));
     }
+}
+
+String get_resource_path()
+{
+    return resource_system_state->resource_path;
 }
 
 void reload_resources()

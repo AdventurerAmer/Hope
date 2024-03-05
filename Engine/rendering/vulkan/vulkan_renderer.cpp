@@ -18,6 +18,8 @@
 #include "containers/dynamic_array.h"
 #include "ImGui/backends/imgui_impl_vulkan.cpp"
 
+#include <filesystem> // todo(amer): to be removed
+
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
@@ -173,9 +175,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
         context->textures = HE_ALLOCATE_ARRAY(arena, Vulkan_Image, HE_MAX_TEXTURE_COUNT);
         context->samplers = HE_ALLOCATE_ARRAY(arena, Vulkan_Sampler, HE_MAX_SAMPLER_COUNT);
         context->shaders = HE_ALLOCATE_ARRAY(arena, Vulkan_Shader, HE_MAX_SHADER_COUNT);
-        context->shader_groups = HE_ALLOCATE_ARRAY(arena, Vulkan_Shader_Group, HE_MAX_SHADER_GROUP_COUNT);
         context->pipeline_states = HE_ALLOCATE_ARRAY(arena, Vulkan_Pipeline_State, HE_MAX_PIPELINE_STATE_COUNT);
-        context->bind_group_layouts = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group_Layout, HE_MAX_BIND_GROUP_LAYOUT_COUNT);
         context->bind_groups = HE_ALLOCATE_ARRAY(arena, Vulkan_Bind_Group, HE_MAX_BIND_GROUP_COUNT);
         context->render_passes = HE_ALLOCATE_ARRAY(arena, Vulkan_Render_Pass, HE_MAX_RENDER_PASS_COUNT);
         context->frame_buffers = HE_ALLOCATE_ARRAY(arena, Vulkan_Frame_Buffer, HE_MAX_FRAME_BUFFER_COUNT);
@@ -476,8 +476,8 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
 
     U64 pipeline_cache_size = 0;
     U8 *pipeline_cache_data = nullptr;
-
-    Read_Entire_File_Result result = read_entire_file(HE_PIPELINE_CACHE_FILENAME, temprary_memory.arena);
+    
+    Read_Entire_File_Result result = read_entire_file(HE_VULKAN_PIPELINE_CACHE_FILE_PATH, temprary_memory.arena);
     if (result.success)
     {
         VkPipelineCacheHeaderVersionOne *pipeline_cache_header = (VkPipelineCacheHeaderVersionOne *)result.data;
@@ -588,7 +588,11 @@ void deinit_vulkan(Vulkan_Context *context)
         Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
         U8 *pipeline_cache_data = HE_ALLOCATE_ARRAY(temprary_memory.arena, U8, pipeline_cache_size);
         vkGetPipelineCacheData(context->logical_device, context->pipeline_cache, &pipeline_cache_size, pipeline_cache_data);
-        write_entire_file(HE_PIPELINE_CACHE_FILENAME, pipeline_cache_data, pipeline_cache_size);
+        
+        std::filesystem::path pipeline_cache_file_path(HE_VULKAN_PIPELINE_CACHE_FILE_PATH);
+        std::filesystem::create_directories(pipeline_cache_file_path.parent_path()); // todo(amer): to be removed
+
+        write_entire_file(HE_VULKAN_PIPELINE_CACHE_FILE_PATH, pipeline_cache_data, pipeline_cache_size);
         end_temprary_memory(&temprary_memory);
     }
 
@@ -1055,7 +1059,7 @@ void vulkan_renderer_destroy_sampler(Sampler_Handle sampler_handle)
 bool vulkan_renderer_create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    bool loaded = load_shader(shader_handle, descriptor.data, descriptor.size, context);
+    bool loaded = create_shader(shader_handle, descriptor, context);
     return loaded;
 }
 
@@ -1063,103 +1067,6 @@ void vulkan_renderer_destroy_shader(Shader_Handle shader_handle)
 {
     Vulkan_Context *context = &vulkan_context;
     destroy_shader(shader_handle, context);
-}
-
-static void combine_stage_flags_or_add_binding_if_not_found(Dynamic_Array< Binding > &set, const Binding &binding)
-{
-    U32 binding_count = set.count;
-    for (U32 binding_index = 0; binding_index < binding_count; binding_index++)
-    {
-        if (set[binding_index].number == binding.number)
-        {
-            set[binding_index].stage_flags = set[binding_index].stage_flags|binding.stage_flags;
-            return;
-        }
-    }
-    append(&set, binding);
-}
-
-bool vulkan_renderer_create_shader_group(Shader_Group_Handle shader_group_handle, const Shader_Group_Descriptor &descriptor)
-{
-    Vulkan_Context *context = &vulkan_context;
-    Renderer_State *renderer_state = context->renderer_state;
-
-    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
-    HE_DEFER { end_temprary_memory(&temprary_memory); };
-
-    Shader_Group *shader_group = get(&renderer_state->shader_groups, shader_group_handle);
-    Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[shader_group_handle.index];
-
-    Dynamic_Array< Binding > sets[HE_MAX_DESCRIPTOR_SET_COUNT];
-
-    for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
-    {
-        auto &set = sets[set_index];
-        init(&set); // todo(amer): @Leak
-    }
-
-    for (const Shader_Handle &shader_handle : descriptor.shaders)
-    {
-        Shader *shader = get(&renderer_state->shaders, shader_handle);
-
-        for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
-        {
-            const Bind_Group_Layout_Descriptor &set = shader->sets[set_index];
-            for (U32 binding_index = 0; binding_index < set.binding_count; binding_index++)
-            {
-                Binding &binding = set.bindings[binding_index];
-                combine_stage_flags_or_add_binding_if_not_found(sets[set_index], binding);
-            }
-        }
-    }
-
-    U32 set_count = HE_MAX_DESCRIPTOR_SET_COUNT;
-
-    for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
-    {
-        bool is_first_empty_set = sets[set_index].count == 0;
-        if (is_first_empty_set)
-        {
-            set_count = set_index;
-            break;
-        }
-    }
-
-    for (U32 set_index = 0; set_index < set_count; set_index++)
-    {
-        const Dynamic_Array< Binding > &set = sets[set_index];
-
-        Bind_Group_Layout_Descriptor bind_group_layout_descriptor = {};
-        bind_group_layout_descriptor.binding_count = set.count;
-        bind_group_layout_descriptor.bindings = set.data;
-
-        shader_group->bind_group_layouts[set_index] = aquire_handle(&renderer_state->bind_group_layouts);
-        vulkan_renderer_create_bind_group_layout(shader_group->bind_group_layouts[set_index], bind_group_layout_descriptor);
-    }
-
-    VkDescriptorSetLayout *descriptor_set_layouts = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorSetLayout, set_count);
-    for (U32 set_index = 0; set_index < set_count; set_index++)
-    {
-        Vulkan_Bind_Group_Layout *bind_group_layout = &context->bind_group_layouts[ shader_group->bind_group_layouts[set_index].index ];
-        descriptor_set_layouts[set_index] = bind_group_layout->handle;
-    }
-
-    VkPipelineLayoutCreateInfo pipeline_layout_create_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-    pipeline_layout_create_info.setLayoutCount = set_count;
-    pipeline_layout_create_info.pSetLayouts = descriptor_set_layouts;
-    pipeline_layout_create_info.pushConstantRangeCount = 0;
-    pipeline_layout_create_info.pPushConstantRanges = nullptr;
-
-    HE_CHECK_VKRESULT(vkCreatePipelineLayout(context->logical_device, &pipeline_layout_create_info, nullptr, &vulkan_shader_group->pipeline_layout));
-    copy(&shader_group->shaders, &descriptor.shaders);
-    return true;
-}
-
-void vulkan_renderer_destroy_shader_group(Shader_Group_Handle shader_group_handle)
-{
-    Vulkan_Context *context = &vulkan_context;
-    Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[shader_group_handle.index];
-    vkDestroyPipelineLayout(context->logical_device, vulkan_shader_group->pipeline_layout, nullptr);
 }
 
 bool vulkan_renderer_create_pipeline_state(Pipeline_State_Handle pipeline_state_handle, const Pipeline_State_Descriptor &descriptor)
@@ -1174,14 +1081,15 @@ void vulkan_renderer_destroy_pipeline_state(Pipeline_State_Handle pipeline_state
     destroy_pipeline(pipeline_state_handle, context);
 }
 
-static VkDescriptorType get_descriptor_type(Binding_Type type)
+static VkDescriptorType get_descriptor_type(Buffer_Usage usage)
 {
-    switch (type)
+    switch (usage)
     {
-        case Binding_Type::UNIFORM_BUFFER: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        case Binding_Type::STORAGE_BUFFER: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        case Binding_Type::COMBINED_IMAGE_SAMPLER: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        case Binding_Type::COMBINED_CUBE_SAMPLER: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        case Buffer_Usage::UNIFORM: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+
+        case Buffer_Usage::STORAGE_CPU_SIDE:
+        case Buffer_Usage::STORAGE_GPU_SIDE:
+            return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         
         default:
         {
@@ -1192,85 +1100,20 @@ static VkDescriptorType get_descriptor_type(Binding_Type type)
     return VK_DESCRIPTOR_TYPE_MAX_ENUM;
 }
 
-static VkDescriptorType get_descriptor_type(Buffer_Usage usage)
-{
-    switch (usage)
-    {
-        case Buffer_Usage::UNIFORM: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        case Buffer_Usage::STORAGE_CPU_SIDE:
-        case Buffer_Usage::STORAGE_GPU_SIDE:
-            return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        default:
-        {
-            HE_ASSERT(!"unsupported binding type");
-        } break;
-    }
-
-    return VK_DESCRIPTOR_TYPE_MAX_ENUM;
-}
-
-bool vulkan_renderer_create_bind_group_layout(Bind_Group_Layout_Handle bind_group_layout_handle, const Bind_Group_Layout_Descriptor &descriptor)
-{
-    Vulkan_Context *context = &vulkan_context;
-
-    Bind_Group_Layout *bind_group_layout = get(&context->renderer_state->bind_group_layouts, bind_group_layout_handle);
-    Vulkan_Bind_Group_Layout *vulkan_bind_group_layout = &context->bind_group_layouts[bind_group_layout_handle.index];
-
-    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
-    HE_DEFER { end_temprary_memory(&temprary_memory); };
-
-    VkDescriptorBindingFlags *layout_bindings_flags = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorBindingFlags, descriptor.binding_count);
-    VkDescriptorSetLayoutBinding *bindings = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorSetLayoutBinding, descriptor.binding_count);
-
-    for (U32 binding_index = 0; binding_index < descriptor.binding_count; binding_index++)
-    {
-        layout_bindings_flags[binding_index] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT|VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT;
-
-        VkDescriptorSetLayoutBinding &binding = bindings[binding_index];
-        binding = {};
-        binding.binding = descriptor.bindings[binding_index].number;
-        binding.descriptorType = get_descriptor_type(descriptor.bindings[binding_index].type);
-        binding.descriptorCount = descriptor.bindings[binding_index].count;
-        binding.stageFlags = descriptor.bindings[binding_index].stage_flags;
-        binding.pImmutableSamplers = nullptr;
-    }
-
-    VkDescriptorSetLayoutBindingFlagsCreateInfoEXT extended_descriptor_set_layout_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT };
-    extended_descriptor_set_layout_create_info.bindingCount = descriptor.binding_count;
-    extended_descriptor_set_layout_create_info.pBindingFlags = layout_bindings_flags;
-
-    VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-
-    descriptor_set_layout_create_info.bindingCount = descriptor.binding_count;
-    descriptor_set_layout_create_info.pBindings = bindings;
-    descriptor_set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-    descriptor_set_layout_create_info.pNext = &extended_descriptor_set_layout_create_info;
-
-    HE_CHECK_VKRESULT(vkCreateDescriptorSetLayout(context->logical_device, &descriptor_set_layout_create_info, nullptr, &vulkan_bind_group_layout->handle));
-    return true;
-}
-
-void vulkan_renderer_destroy_bind_group_layout(Bind_Group_Layout_Handle bind_group_layout_handle)
-{
-    Vulkan_Context *context = &vulkan_context;
-    Vulkan_Bind_Group_Layout *vulkan_bind_group_layout = &context->bind_group_layouts[bind_group_layout_handle.index];
-    vkDestroyDescriptorSetLayout(context->logical_device, vulkan_bind_group_layout->handle, nullptr);
-}
-
 bool vulkan_renderer_create_bind_group(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
+
     Bind_Group *bind_group = get(&context->renderer_state->bind_groups, bind_group_handle);
     Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[bind_group_handle.index];
-    Vulkan_Bind_Group_Layout *vulkan_bind_group_layout = &context->bind_group_layouts[descriptor.layout.index];
+    Vulkan_Shader *vulkan_shader = &context->shaders[descriptor.shader.index];
 
     VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
     descriptor_set_allocation_info.descriptorPool = context->descriptor_pool;
     descriptor_set_allocation_info.descriptorSetCount = 1;
-    descriptor_set_allocation_info.pSetLayouts = &vulkan_bind_group_layout->handle;
+    descriptor_set_allocation_info.pSetLayouts = &vulkan_shader->descriptor_set_layouts[descriptor.group_index];
 
     HE_CHECK_VKRESULT(vkAllocateDescriptorSets(context->logical_device, &descriptor_set_allocation_info, &vulkan_bind_group->handle));
-    bind_group->descriptor = descriptor;
     return true;
 }
 
@@ -1346,20 +1189,20 @@ void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bin
 {
     Vulkan_Context *context = &vulkan_context;
 
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+
     Bind_Group *bind_group = get(&context->renderer_state->bind_groups, bind_group_handles[0]);
-    Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[ bind_group->descriptor.shader_group.index ];
-
-    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
-    HE_DEFER{ end_temprary_memory(&temprary_memory); };
-
-    VkDescriptorSet *descriptor_sets = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorSet, bind_group_handles.count);
+    Vulkan_Shader *vulkan_shader = &context->shaders[bind_group->descriptor.shader.index];
+    
+    VkDescriptorSet *descriptor_sets = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkDescriptorSet, bind_group_handles.count);
+    
     for (U32 bind_group_index = 0; bind_group_index < bind_group_handles.count; bind_group_index++)
     {
         Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[ bind_group_handles[ bind_group_index ].index ];
         descriptor_sets[bind_group_index] = vulkan_bind_group->handle;
     }
-
-    vkCmdBindDescriptorSets(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_shader_group->pipeline_layout, first_bind_group, bind_group_handles.count, descriptor_sets, 0, nullptr);
+      
+    vkCmdBindDescriptorSets(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_shader->pipeline_layout, first_bind_group, bind_group_handles.count, descriptor_sets, 0, nullptr);
 }
 
 void vulkan_renderer_destroy_bind_group(Bind_Group_Handle bind_group_handle)

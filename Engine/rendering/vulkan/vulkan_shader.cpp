@@ -14,245 +14,7 @@
 
 #include <spirv_cross/spirv_glsl.hpp>
 
-static Vulkan_Context *vulkan_context;
-
-enum class SPRIV_Shader_Entity_Kind
-{
-    UNKNOWN,
-
-    CONSTANT,
-    VARIABLE,
-
-    TYPE,
-};
-
-enum class SPRIV_Shader_Entity_Type
-{
-    UNKNOWN,
-
-    BOOL,
-    INT,
-    FLOAT,
-
-    VECTOR,
-    MATRIX,
-
-    POINTER,
-
-    STRUCT,
-    STRUCT_MEMBER,
-
-    ARRAY,
-
-    SAMPLED_IMAGE
-};
-
-struct SPIRV_Struct_Member
-{
-    String name;
-
-    S32 offset = -1;
-    S32 id_of_type = -1;
-};
-
-struct SPIRV_Shader_Struct
-{
-    String name;
-    Dynamic_Array< Shader_Struct_Member > members;
-};
-
-struct SPIRV_Entity
-{
-    String name;
-
-    SPRIV_Shader_Entity_Kind kind = SPRIV_Shader_Entity_Kind::UNKNOWN;
-    SPRIV_Shader_Entity_Type type = SPRIV_Shader_Entity_Type::UNKNOWN;
-    S32 id_of_type = -1;
-
-    SpvStorageClass storage_class = SpvStorageClassMax;
-    SpvDecoration decoration = SpvDecorationMax;
-
-    Dynamic_Array< SPIRV_Struct_Member > members;
-
-    S32 component_count = 1;
-    S32 element_count = 1;
-
-    S32 location = -1;
-
-    U64 value = 0;
-
-    S32 binding = -1;
-    S32 set = -1;
-
-    Shader_Data_Type data_type;
-};
-
-static void parse_int(SPIRV_Entity &entity, const U32 *instruction)
-{
-    entity.kind = SPRIV_Shader_Entity_Kind::TYPE;
-    entity.type = SPRIV_Shader_Entity_Type::INT;
-
-    U32 width = instruction[2];
-    U32 signedness = instruction[3];
-
-    if (signedness == 0)
-    {
-        switch (width)
-        {
-            case 8:
-            {
-                entity.data_type = Shader_Data_Type::U8;
-            } break;
-
-            case 16:
-            {
-                entity.data_type = Shader_Data_Type::U16;
-            } break;
-
-            case 32:
-            {
-                entity.data_type = Shader_Data_Type::U32;
-            } break;
-
-            case 64:
-            {
-                entity.data_type = Shader_Data_Type::U64;
-            } break;
-
-            default:
-            {
-                HE_ASSERT(!"invalid width");
-            } break;
-        }
-    }
-    else
-    {
-        switch (width)
-        {
-            case 8:
-            {
-                entity.data_type = Shader_Data_Type::S8;
-            } break;
-
-            case 16:
-            {
-                entity.data_type = Shader_Data_Type::S16;
-            } break;
-
-            case 32:
-            {
-                entity.data_type = Shader_Data_Type::S32;
-            } break;
-
-            case 64:
-            {
-                entity.data_type = Shader_Data_Type::S64;
-            } break;
-
-            default:
-            {
-                HE_ASSERT(!"invalid width");
-            } break;
-        }
-    }
-}
-
-static void parse_float(SPIRV_Entity &entity, const U32* instruction)
-{
-    entity.kind = SPRIV_Shader_Entity_Kind::TYPE;
-    entity.type = SPRIV_Shader_Entity_Type::FLOAT;
-
-    U32 width = instruction[2];
-    if (width == 16)
-    {
-        entity.data_type = Shader_Data_Type::F16;
-    }
-    else if (width == 32)
-    {
-        entity.data_type = Shader_Data_Type::F32;
-    }
-    else if (width == 64)
-    {
-        entity.data_type = Shader_Data_Type::F64;
-    }
-    else
-    {
-        HE_ASSERT(!"invalid width");
-    }
-}
-
-static void set_descriptor_type(Binding &binding, const SPIRV_Entity &shader_entity)
-{
-    switch (shader_entity.type)
-    {
-        case SPRIV_Shader_Entity_Type::STRUCT:
-        {
-            if (shader_entity.decoration == SpvDecorationBlock)
-            {
-                binding.type = Binding_Type::UNIFORM_BUFFER;
-            }
-            else if (shader_entity.decoration == SpvDecorationBufferBlock)
-            {
-                binding.type = Binding_Type::STORAGE_BUFFER;
-            }
-        } break;
-
-        case SPRIV_Shader_Entity_Type::SAMPLED_IMAGE:
-        {
-            binding.type = Binding_Type::COMBINED_IMAGE_SAMPLER;
-        } break;
-    }
-}
-
-U32 parse_struct(const SPIRV_Entity &entity, Dynamic_Array< SPIRV_Shader_Struct > &structs, SPIRV_Entity *ids)
-{
-    for (U32 struct_index = 0; struct_index < structs.count; struct_index++)
-    {
-        if (entity.name == structs[struct_index].name)
-        {
-            return struct_index;
-        }
-    }
-
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
-
-    SPIRV_Shader_Struct struct_;
-    struct_.name = entity.name;
-    
-    U32 member_count = entity.members.count;
-    init(&struct_.members, member_count);
-
-    for (U32 member_index = 0; member_index < member_count; member_index++)
-    {
-        const SPIRV_Struct_Member &spirv_struct_member = entity.members[member_index];
-        Shader_Struct_Member &member = struct_.members[member_index];
-        member.name = spirv_struct_member.name;
-        member.offset = spirv_struct_member.offset;
-
-        SPIRV_Entity &spirv_struct_member_type = ids[spirv_struct_member.id_of_type];
-        member.data_type = spirv_struct_member_type.data_type;
-        
-        if (spirv_struct_member_type.type == SPRIV_Shader_Entity_Type::ARRAY)
-        {
-            member.is_array = true;
-            member.array_element_count = spirv_struct_member_type.element_count;
-            if (spirv_struct_member_type.data_type == Shader_Data_Type::STRUCT)
-            {
-                const SPIRV_Entity &array_type = ids[spirv_struct_member_type.id_of_type];
-                member.struct_index = parse_struct(array_type, structs, ids);
-            }
-        }
-        else if (spirv_struct_member_type.type == SPRIV_Shader_Entity_Type::STRUCT)
-        {
-            member.struct_index = parse_struct(spirv_struct_member_type, structs, ids);
-        }
-    }
-
-    append(&structs, struct_);
-    return u64_to_u32(structs.count - 1);
-}
-
-VkShaderStageFlagBits get_shader_stage(Shader_Stage shader_stage)
+static VkShaderStageFlagBits get_shader_stage(Shader_Stage shader_stage)
 {
     switch (shader_stage)
     {
@@ -266,572 +28,49 @@ VkShaderStageFlagBits get_shader_stage(Shader_Stage shader_stage)
     }
 
     return VK_SHADER_STAGE_ALL;
-}
+} 
 
-#include <span>
-
-bool load_shader(Shader_Handle shader_handle, void *data, U64 size, Vulkan_Context *context)
+// todo(amer): handle more vector types and matrices
+static VkFormat get_format_from_spirv_type(spirv_cross::SPIRType type)
 {
-    if (!vulkan_context)
+    using namespace spirv_cross;
+    
+    switch (type.basetype)
     {
-        vulkan_context = context;
-    }
-
-    Shader *shader = get(&context->renderer_state->shaders, shader_handle);
-    Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
-    HE_ASSERT(size % 4 == 0);
-
-#if 1
-    U32 *words = (U32 *)data;
-    U32 word_count = u64_to_u32(size / 4);
-
-    // note(amer): we can infer the endianness out of the magic number
-    U32 magic_number = words[0];
-    HE_ASSERT(magic_number == SpvMagicNumber);
-
-    U32 id_count = words[3];
-
-    SPIRV_Entity *ids = HE_ALLOCATE_ARRAY(allocator, SPIRV_Entity, id_count);
-
-    for (U32 i = 0; i < id_count; i++)
-    {
-        ids[i] = SPIRV_Entity {};
-    }
-
-    HE_DEFER
-    {
-        for (U32 i = 0; i < id_count; i++)
-        {
-            if (ids[i].members.data)
-            {
-                deinit(&ids[i].members);
-            }
-        }
-
-        deallocate(allocator, ids);
-    };
-
-    const U32 *instruction = &words[5];
-
-    while (instruction != words + word_count)
-    {
-        SpvOp op_code = SpvOp(instruction[0] & 0xff);
-        U16 count = U16(instruction[0] >> 16);
-
-        switch (op_code)
-        {
-            case SpvOpName:
-            {
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-
-                // note(amer): not proper utf8 paring here keep the shaders in english please.
-                // english mother fucker english do you speak it !!!!!.
-                const char *name = (const char*)(instruction + 2);
-                entity.name = copy_string(HE_STRING(name), allocator);
-            } break;
-
-            case SpvOpMemberName:
-            {
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-
-                U32 member_index = instruction[2];
-
-                if (!entity.members.data)
-                {
-                    init(&entity.members);
-                }
-
-                if (member_index >= entity.members.count)
-                {
-                    append(&entity.members, SPIRV_Struct_Member {});
-                }
-
-                SPIRV_Struct_Member &member = entity.members[member_index];
-                const char *name = (const char*)(instruction + 3);
-                member.name = copy_string(HE_STRING(name), allocator);
-            } break;
-
-            case SpvOpEntryPoint:
-            {
-                SpvExecutionModel model = (SpvExecutionModel)instruction[1];
-                switch (model)
-                {
-                    case SpvExecutionModelVertex:
-                    {
-                        shader->stage = Shader_Stage::VERTEX;
-                    } break;
-
-                    case SpvExecutionModelFragment:
-                    {
-                        shader->stage = Shader_Stage::FRAGMENT;
-                    } break;
-
-                    default:
-                    {
-                        HE_ASSERT(!"unsupported");
-                    } break;
-                }
-            } break;
-
-            case SpvOpDecorate:
-            {
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-
-                SpvDecoration decoration = (SpvDecoration)instruction[2];
-                entity.decoration = decoration;
-
-                switch (decoration)
-                {
-                    case SpvDecorationBinding:
-                    {
-                        HE_ASSERT(count <= 4);
-                        entity.binding = instruction[3];
-                    } break;
-
-                    case SpvDecorationDescriptorSet:
-                    {
-                        HE_ASSERT(count <= 4);
-                        entity.set = instruction[3];
-                    } break;
-
-                    case SpvDecorationLocation:
-                    {
-                        HE_ASSERT(count <= 4);
-                        entity.location = instruction[3];
-                    } break;
-                }
-
-            } break;
-
-            case SpvOpMemberDecorate:
-            {
-                U32 id = instruction[1];
-                SPIRV_Entity &struct_entity = ids[id];
-                U32 member_index = instruction[2];
-
-                if (!struct_entity.members.data)
-                {
-                    init(&struct_entity.members);
-                }
-
-                if (member_index >= struct_entity.members.count)
-                {
-                    append(&struct_entity.members, SPIRV_Struct_Member{});
-                }
-
-                SPIRV_Struct_Member &member = struct_entity.members[member_index];
-                U32 decoration = instruction[3];
-
-                switch (decoration)
-                {
-                    case SpvDecorationOffset:
-                    {
-                        member.offset = instruction[4];
-                    } break;
-                }
-            } break;
-
-            case SpvOpConstant:
-            {
-                U32 id = instruction[2];
-                SPIRV_Entity &entity = ids[id];
-                entity.id_of_type = instruction[1];
-                entity.value = instruction[3];
-                if (count == 5)
-                {
-                    U64 value = U64(instruction[4]);
-                    entity.value |= value << 31;
-                }
-            } break;
-
-            case SpvOpVariable:
-            {
-                HE_ASSERT(count <= 4);
-                U32 id = instruction[2];
-                SPIRV_Entity &entity = ids[id];
-
-                entity.kind = SPRIV_Shader_Entity_Kind::VARIABLE;
-                entity.id_of_type = instruction[1];
-                entity.storage_class = SpvStorageClass(instruction[3]);
-            } break;
-
-            case SpvOpTypeBool:
-            {
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-                entity.kind = SPRIV_Shader_Entity_Kind::TYPE;
-                entity.type = SPRIV_Shader_Entity_Type::BOOL;
-                entity.data_type = Shader_Data_Type::BOOL;
-            } break;
-
-            case SpvOpTypeInt:
-            {
-                HE_ASSERT(count <= 4);
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-                parse_int(entity, instruction);
-            }  break;
-
-            case SpvOpTypeFloat:
-            {
-                HE_ASSERT(count <= 3);
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-                parse_float(entity, instruction);
-            } break;
-
-            case SpvOpTypeVector:
-            {
-                HE_ASSERT(count <= 4);
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-                entity.kind = SPRIV_Shader_Entity_Kind::TYPE;
-                entity.type = SPRIV_Shader_Entity_Type::VECTOR;
-                entity.id_of_type = instruction[2];
-                entity.component_count = instruction[3];
-                const SPIRV_Entity& type_entity = ids[entity.id_of_type];
-                if (type_entity.type == SPRIV_Shader_Entity_Type::FLOAT)
-                {
-                    if (entity.component_count == 2)
-                    {
-                        entity.data_type = Shader_Data_Type::VECTOR2F;
-                    }
-                    else if (entity.component_count == 3)
-                    {
-                        entity.data_type = Shader_Data_Type::VECTOR3F;
-                    }
-                    else if (entity.component_count == 4)
-                    {
-                        entity.data_type = Shader_Data_Type::VECTOR4F;
-                    }
-                }
-            } break;
-
-            case SpvOpTypeMatrix:
-            {
-                HE_ASSERT(count <= 4);
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-                entity.kind = SPRIV_Shader_Entity_Kind::TYPE;
-                entity.type = SPRIV_Shader_Entity_Type::MATRIX;
-                entity.id_of_type = instruction[2];
-                entity.component_count = instruction[3];
-                const SPIRV_Entity &vector_type_entity = ids[ids[entity.id_of_type].id_of_type];
-                if (entity.component_count == 3)
-                {
-                    entity.data_type = Shader_Data_Type::MATRIX3F;
-                }
-                else if (entity.component_count == 4)
-                {
-                    entity.data_type = Shader_Data_Type::MATRIX4F;
-                }
-            } break;
-
-            case SpvOpTypePointer:
-            {
-                HE_ASSERT(count <= 4);
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-                entity.kind = SPRIV_Shader_Entity_Kind::TYPE;
-                entity.type = SPRIV_Shader_Entity_Type::POINTER;
-                entity.storage_class = SpvStorageClass(instruction[2]);
-                entity.id_of_type = instruction[3];
-            } break;
-
-            case SpvOpTypeForwardPointer:
-            {
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-                entity.kind = SPRIV_Shader_Entity_Kind::TYPE;
-                entity.type = SPRIV_Shader_Entity_Type::POINTER;
-                entity.storage_class = SpvStorageClass(instruction[2]);
-            } break;
-
-            case SpvOpTypeStruct:
-            {
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-                entity.kind = SPRIV_Shader_Entity_Kind::TYPE;
-                entity.type = SPRIV_Shader_Entity_Type::STRUCT;
-                entity.data_type = Shader_Data_Type::STRUCT;
-                U32 member_count = count - 2;
-                const U32 *member_instruction = &instruction[2];
-                for (U32 member_index = 0; member_index < member_count; member_index++)
-                {
-                    entity.members[member_index].id_of_type = member_instruction[member_index];
-                }
-            } break;
-
-            case SpvOpTypeArray:
-            {
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-                entity.kind = SPRIV_Shader_Entity_Kind::TYPE;
-                entity.type = SPRIV_Shader_Entity_Type::ARRAY;
-                entity.id_of_type = instruction[2];
-                const SPIRV_Entity &type_entity = ids[entity.id_of_type];
-                entity.data_type = type_entity.data_type;
-                U32 length_id = instruction[3];
-                SPIRV_Entity &length = ids[length_id];
-                entity.element_count = u64_to_u32(length.value);
-            } break;
-
-            case SpvOpTypeRuntimeArray:
-            {
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-                entity.kind = SPRIV_Shader_Entity_Kind::TYPE;
-                entity.type = SPRIV_Shader_Entity_Type::ARRAY;
-                entity.id_of_type = instruction[2];
-                const SPIRV_Entity &type_entity = ids[entity.id_of_type];
-                entity.data_type = type_entity.data_type;
-                entity.element_count = HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
-            } break;
-
-            case SpvOpTypeSampledImage:
-            {
-                HE_ASSERT(count <= 3);
-                U32 id = instruction[1];
-                SPIRV_Entity &entity = ids[id];
-                entity.kind = SPRIV_Shader_Entity_Kind::TYPE;
-                entity.type = SPRIV_Shader_Entity_Type::SAMPLED_IMAGE;
-                entity.id_of_type = instruction[2];
-            } break;
-        }
-
-        instruction += count;
-    }
-
-    Dynamic_Array< Binding > sets[HE_MAX_DESCRIPTOR_SET_COUNT];
-
-    for (U32 set_layout_binding_index = 0; set_layout_binding_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_layout_binding_index++)
-    {
-        init(&sets[set_layout_binding_index]);
-    }
-
-    Dynamic_Array< Shader_Input_Variable > inputs;
-    init(&inputs);
-
-    Dynamic_Array< Shader_Output_Variable > outputs;
-    init(&outputs);
-
-    Dynamic_Array< SPIRV_Shader_Struct > structs;
-    init(&structs);
-
-    HE_DEFER
-    {
-        for (U32 set_layout_binding_index = 0; set_layout_binding_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_layout_binding_index++)
-        {
-            deinit(&sets[set_layout_binding_index]);
-        }
-        deinit(&inputs);
-        deinit(&outputs);
-        deinit(&structs);
-    };
-
-    for (U32 entity_index = 0; entity_index < id_count; entity_index++)
-    {
-        const SPIRV_Entity &entity = ids[entity_index];
-
-        if (entity.kind == SPRIV_Shader_Entity_Kind::VARIABLE)
-        {
-            switch (entity.storage_class)
-            {
-                case SpvStorageClassUniform:
-                case SpvStorageClassUniformConstant:
-                {
-                    HE_ASSERT(entity.set >= 0 && entity.set < HE_MAX_DESCRIPTOR_SET_COUNT);
-
-                    auto &set = sets[entity.set];
-                    append(&set, Binding {});
-                    Binding &binding = back(&set);
-                    binding.stage_flags = get_shader_stage(shader->stage);
-                    binding.number = entity.binding;
-
-                    const SPIRV_Entity &uniform = ids[ ids[ entity.id_of_type ].id_of_type ];
-
-                    if (uniform.type == SPRIV_Shader_Entity_Type::ARRAY)
-                    {
-                        binding.count = uniform.element_count;
-                        const SPIRV_Entity &element_type = ids[uniform.id_of_type];
-                        set_descriptor_type(binding, element_type);
-                    }
-                    else if (uniform.type == SPRIV_Shader_Entity_Type::STRUCT)
-                    {
-                        binding.count = 1;
-                        set_descriptor_type(binding, uniform);
-                        parse_struct(uniform, structs, ids);
-                    }
-                    else if (uniform.type == SPRIV_Shader_Entity_Type::SAMPLED_IMAGE || 
-                    uniform.type == SPRIV_Shader_Entity_Type::POINTER)
-                    {
-                        binding.count = 1;
-                        set_descriptor_type(binding, uniform);
-                    }
-                } break;
-
-                case SpvStorageClassInput:
-                {
-                    const SPIRV_Entity &type_entity = ids[ ids[ entity.id_of_type ].id_of_type ];
-                    if (entity.location != -1)
-                    {
-                        Shader_Input_Variable input = {};
-                        input.name = entity.name;
-                        input.location = entity.location;
-                        input.data_type = type_entity.data_type;
-                        append(&inputs, input);
-                    }
-                } break;
-
-                case SpvStorageClassOutput:
-                {
-                    const SPIRV_Entity &type_entity = ids[ ids [ entity.id_of_type ].id_of_type ];
-                    if (entity.location != -1)
-                    {
-                        Shader_Output_Variable output = {};
-                        output.name = entity.name;
-                        output.location = entity.location;
-                        output.data_type = type_entity.data_type;
-                        append(&outputs, output);
-                    }
-                }
-            }
-        }
-    }
-
-    VkShaderModuleCreateInfo shader_create_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-    shader_create_info.codeSize = size;
-    shader_create_info.pCode = (U32 *)data;
-
-    HE_CHECK_VKRESULT(vkCreateShaderModule(context->logical_device, &shader_create_info, nullptr, &vulkan_shader->handle));
-
-    for (U32 set_index = 0; set_index < HE_MAX_DESCRIPTOR_SET_COUNT; set_index++)
-    {
-        U32 binding_count = sets[set_index].count;
-        if (!binding_count)
-        {
-            continue;
-        }
-
-        Bind_Group_Layout_Descriptor *set = &shader->sets[set_index];
-        set->binding_count = binding_count;
-        set->bindings = HE_ALLOCATE_ARRAY(allocator, Binding, binding_count);
-        for (U32 binding_index = 0; binding_index < binding_count; binding_index++)
-        {
-            set->bindings[binding_index] = sets[set_index][binding_index];
-        }
-    }
-
-    U32 input_count = inputs.count;
-    Shader_Input_Variable *input_variables = HE_ALLOCATE_ARRAY(allocator, Shader_Input_Variable, input_count);
-    memcpy(input_variables, inputs.data, sizeof(Shader_Input_Variable) * input_count);
-
-    shader->input_count = input_count;
-    shader->inputs = input_variables;
-
-    U32 output_count = outputs.count;
-    Shader_Output_Variable *output_variables = HE_ALLOCATE_ARRAY(allocator, Shader_Output_Variable, output_count);
-    memcpy(output_variables, outputs.data, sizeof(Shader_Output_Variable) * output_count);
-
-    shader->output_count = output_count;
-    shader->outputs = output_variables;
-
-    U32 struct_count = structs.count;
-    Shader_Struct *shader_structs = HE_ALLOCATE_ARRAY(allocator, Shader_Struct, struct_count);
-
-    for (U32 struct_index = 0; struct_index < struct_count; struct_index++)
-    {
-        const SPIRV_Shader_Struct &spirv_struct = structs[struct_index];
-        Shader_Struct *shader_struct = &shader_structs[struct_index];
-        shader_struct->name = spirv_struct.name;
+		case SPIRType::SByte: return VK_FORMAT_R8_SINT; 
+        case SPIRType::Short: return VK_FORMAT_R16_SINT;
+        case SPIRType::Int: return VK_FORMAT_R32_SINT;
+        case SPIRType::Int64: return VK_FORMAT_R64_SINT;
+
+        case SPIRType::UByte: return VK_FORMAT_R8_UINT;
+        case SPIRType::UShort: return VK_FORMAT_R16_UINT;
+        case SPIRType::UInt: return VK_FORMAT_R32_UINT;
+        case SPIRType::UInt64: return VK_FORMAT_R64_UINT;
+
+        case SPIRType::Half: return VK_FORMAT_R16_SFLOAT;
         
-        U32 member_count = spirv_struct.members.count;
-        shader_struct->member_count = member_count;
-        shader_struct->members = HE_ALLOCATE_ARRAY(allocator, Shader_Struct_Member, member_count);
-        copy_memory(shader_struct->members, spirv_struct.members.data, sizeof(Shader_Struct_Member) * member_count);
-
-        Shader_Struct_Member *last_member = &shader_struct->members[shader_struct->member_count - 1];
-        U32 last_member_size = get_size_of_shader_data_type(last_member->data_type);
-        U32 size = last_member->offset + last_member_size;
-        shader_struct->size = size;
-    }
-
-    shader->struct_count = struct_count;
-    shader->structs = shader_structs;
-
-#endif
-
-	// spirv_cross::CompilerGLSL glsl((uint32_t *)data, size / 4);
-
-	// // The SPIR-V is now parsed, and we can perform reflection on it.
-	// spirv_cross::ShaderResources resources = glsl.get_shader_resources();
-
-	// // Get all sampled images in the shader.
-	// for (auto &resource : resources.sampled_images)
-	// {
-	// 	unsigned set = glsl.get_decoration(resource.id, spv::DecorationDescriptorSet);
-	// 	unsigned binding = glsl.get_decoration(resource.id, spv::DecorationBinding);
-	// 	printf("Image %s at set = %u, binding = %u\n", resource.name.c_str(), set, binding);
-
-	// 	// Modify the decoration to prepare it for GLSL.
-	// 	glsl.unset_decoration(resource.id, spv::DecorationDescriptorSet);
-
-	// 	// Some arbitrary remapping if we want.
-	// 	glsl.set_decoration(resource.id, spv::DecorationBinding, set * 16 + binding);
-	// }
-
-    return true;
-}
-
-void destroy_shader(Shader_Handle shader_handle, Vulkan_Context *context)
-{
-    Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
-    vkDestroyShaderModule(context->logical_device, vulkan_shader->handle, nullptr);
-}
-
-static void combine_stage_flags_or_add_binding_if_not_found(Dynamic_Array< Binding > &set, const Binding &binding)
-{
-    U32 binding_count = set.count;
-    for (U32 binding_index = 0; binding_index < binding_count; binding_index++)
-    {
-        if (set[binding_index].number == binding.number)
+        case SPIRType::Float:
         {
-            set[binding_index].stage_flags = set[binding_index].stage_flags|binding.stage_flags;
-            return;
-        }
-    }
-    append(&set, binding);
-}
+            if (type.vecsize == 1)
+            {
+                return VK_FORMAT_R32_SFLOAT;
+            }
+            else if (type.vecsize == 2)
+            {
+                return VK_FORMAT_R32G32_SFLOAT;
+            }
+            else if (type.vecsize == 3)
+            {
+                return VK_FORMAT_R32G32B32_SFLOAT;
+            }
+            else if (type.vecsize == 4)
+            {
+                return VK_FORMAT_R32G32B32A32_SFLOAT;
+            }
+        } break;
+        
+        case SPIRType::Double: return VK_FORMAT_R64_SFLOAT;
 
-static VkFormat get_format_from_shader_data_type(Shader_Data_Type data_type)
-{
-    switch (data_type)
-    {
-        case Shader_Data_Type::BOOL: return VK_FORMAT_R8_UINT;
-
-        case Shader_Data_Type::S8: return VK_FORMAT_R8_SINT;
-        case Shader_Data_Type::S16: return VK_FORMAT_R16_SINT;
-        case Shader_Data_Type::S32: return VK_FORMAT_R32_SINT;
-        case Shader_Data_Type::S64: return VK_FORMAT_R64_SINT;
-
-        case Shader_Data_Type::U8: return VK_FORMAT_R8_UINT;
-        case Shader_Data_Type::U16: return VK_FORMAT_R16_UINT;
-        case Shader_Data_Type::U32: return VK_FORMAT_R32_UINT;
-        case Shader_Data_Type::U64: return VK_FORMAT_R64_UINT;
-
-        case Shader_Data_Type::F16: return VK_FORMAT_R16_SFLOAT;
-        case Shader_Data_Type::F32: return VK_FORMAT_R32_SFLOAT;
-        case Shader_Data_Type::F64: return VK_FORMAT_R64_SFLOAT;
-
-        case Shader_Data_Type::VECTOR2F: return VK_FORMAT_R32G32_SFLOAT;
-        case Shader_Data_Type::VECTOR3F: return VK_FORMAT_R32G32B32_SFLOAT;
-        case Shader_Data_Type::VECTOR4F: return VK_FORMAT_R32G32B32A32_SFLOAT;
-
-        // todo(amer): add support for ShaderDataType_Matrix3 and ShaderDataType_Matrix4
         default:
         {
             HE_ASSERT(!"unsupported type");
@@ -841,21 +80,371 @@ static VkFormat get_format_from_shader_data_type(Shader_Data_Type data_type)
     return VK_FORMAT_UNDEFINED;
 }
 
-static VkDescriptorType get_descriptor_type(Binding_Type type)
+static Shader_Data_Type spirv_type_to_shader_data_type(spirv_cross::SPIRType type)
 {
-    switch (type)
+    using namespace spirv_cross;
+    
+    switch (type.basetype)
     {
-        case Binding_Type::UNIFORM_BUFFER: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        case Binding_Type::STORAGE_BUFFER: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        case Binding_Type::COMBINED_IMAGE_SAMPLER: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		case SPIRType::SByte: return Shader_Data_Type::S8; 
+        case SPIRType::Short: return Shader_Data_Type::S16;
+        case SPIRType::Int: return Shader_Data_Type::S32;
+        case SPIRType::Int64: return Shader_Data_Type::S64;
+
+        case SPIRType::UByte: return Shader_Data_Type::U8;
+        case SPIRType::UShort: return Shader_Data_Type::U16;
+        case SPIRType::UInt: return Shader_Data_Type::U32;
+        case SPIRType::UInt64: return Shader_Data_Type::U64;
+
+        case SPIRType::Half: return Shader_Data_Type::F16;
+        
+        case SPIRType::Float:
+        {
+            if (type.vecsize == 1)
+            {
+                return Shader_Data_Type::F32;
+            }
+            else if (type.vecsize == 2)
+            {
+                return Shader_Data_Type::VECTOR2F;
+            }
+            else if (type.vecsize == 3)
+            {
+                return type.columns == 3 ? Shader_Data_Type::MATRIX3F : Shader_Data_Type::VECTOR3F;
+            }
+            else if (type.vecsize == 4)
+            {
+                return type.columns == 4 ? Shader_Data_Type::MATRIX4F : Shader_Data_Type::VECTOR4F;
+            }
+        } break;
+        
+        case SPIRType::Double: Shader_Data_Type::F64;
 
         default:
         {
-            HE_ASSERT(!"unsupported binding type");
+            HE_ASSERT(!"unsupported type");
+        } break;
+    }
+}
+
+static U32 get_size_of_spirv_type(spirv_cross::SPIRType type)
+{
+    using namespace spirv_cross;
+    
+    switch (type.basetype)
+    {
+		case SPIRType::SByte: return 1; 
+        case SPIRType::Short: return 2;
+        case SPIRType::Int: return 4;
+        case SPIRType::Int64: return 8;
+
+        case SPIRType::UByte: return 1;
+        case SPIRType::UShort: return 2;
+        case SPIRType::UInt: return 4;
+        case SPIRType::UInt64: return 8;
+
+        case SPIRType::Half: return 2;
+        
+        case SPIRType::Float:
+        {
+            if (type.vecsize == 1)
+            {
+                return 4;
+            }
+            else if (type.vecsize == 2)
+            {
+                return 4 * 2;
+            }
+            else if (type.vecsize == 3)
+            {
+                return type.columns == 3 ? 4 * 3 * 3 : 4 * 3;
+            }
+            else if (type.vecsize == 4)
+            {
+                return type.columns == 4 ? 4 * 4 * 4 : 4 * 4;
+            }
+        } break;
+        
+        case SPIRType::Double: return 8;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported type");
         } break;
     }
 
-    return VK_DESCRIPTOR_TYPE_MAX_ENUM;
+    return VK_FORMAT_UNDEFINED;
+}
+
+#define HE_MAX_BINDING_COUNT_PER_DESCRIPTOR_SET 64
+
+static VkDescriptorSetLayoutBinding& find_or_add_binding(Array< VkDescriptorSetLayoutBinding, HE_MAX_BINDING_COUNT_PER_DESCRIPTOR_SET > &set, U32 binding_number)
+{
+    for (U32 i = 0; i < set.count; i++)
+    {
+        if (set[i].binding == binding_number)
+        {
+            return set[i];
+        }
+    }
+    VkDescriptorSetLayoutBinding &binding = append(&set);
+    binding.binding = binding_number;
+    return binding;
+}
+
+bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descriptor, Vulkan_Context *context)
+{
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    
+    Shader *shader = get(&context->renderer_state->shaders, shader_handle);
+    Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
+
+    Array< VkDescriptorSetLayoutBinding, HE_MAX_BINDING_COUNT_PER_DESCRIPTOR_SET > sets[HE_MAX_BIND_GROUP_INDEX_COUNT] = {};
+    
+    U32 vertex_shader_input_count = 0;
+    VkVertexInputBindingDescription *vertex_input_binding_descriptions = nullptr;
+    VkVertexInputAttributeDescription *vertex_input_attribute_descriptions = nullptr;
+
+    Dynamic_Array< Shader_Struct > structs;
+    init(&structs);
+
+    for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
+    {
+        Shader_Stage stage = (Shader_Stage)stage_index;
+        vulkan_shader->handles[stage_index] = VK_NULL_HANDLE;
+
+        String blob = descriptor.compilation_result->stages[stage_index]; 
+        if (!blob.count)
+        {
+            continue;
+        }
+        
+        HE_ASSERT(blob.count % 4 == 0);
+
+        VkShaderModuleCreateInfo shader_module_create_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+        shader_module_create_info.pCode = (U32 *)blob.data;
+        shader_module_create_info.codeSize = blob.count;
+        
+        VkResult result = vkCreateShaderModule(context->logical_device, &shader_module_create_info, nullptr, &vulkan_shader->handles[stage_index]);
+        if (result != VK_SUCCESS)
+        {
+            return false;
+        }
+        
+        spirv_cross::CompilerGLSL compiler((U32 *)blob.data, blob.count / 4);
+        spirv_cross::ShaderResources resources = compiler.get_shader_resources();
+        
+        if (stage == Shader_Stage::VERTEX)
+        {
+            vertex_shader_input_count = u64_to_u32(resources.stage_inputs.size());
+            vertex_input_binding_descriptions = HE_ALLOCATE_ARRAY(allocator, VkVertexInputBindingDescription, vertex_shader_input_count);
+            vertex_input_attribute_descriptions = HE_ALLOCATE_ARRAY(allocator, VkVertexInputAttributeDescription, vertex_shader_input_count);
+            
+            U32 input_index = 0;
+
+            for (auto &input : resources.stage_inputs)
+            {
+                U32 location = compiler.get_decoration(input.id, spv::DecorationLocation);
+                const auto &type = compiler.get_type(input.type_id);
+
+                VkVertexInputBindingDescription *vertex_binding = &vertex_input_binding_descriptions[input_index];
+                vertex_binding->binding = u64_to_u32(location);
+                vertex_binding->stride = get_size_of_spirv_type(type);
+                vertex_binding->inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+                VkVertexInputAttributeDescription *vertex_attribute = &vertex_input_attribute_descriptions[input_index];
+                vertex_attribute->binding = location;
+                vertex_attribute->location = location;
+                vertex_attribute->format = get_format_from_spirv_type(type);
+                vertex_attribute->offset = 0;
+
+                input_index++;
+            }
+        }
+
+        for (auto &resource : resources.sampled_images)
+        {
+            U32 set_index = compiler.get_decoration(resource.id, spv::DecorationDescriptorSet);
+            U32 binding_number = compiler.get_decoration(resource.id, spv::DecorationBinding);
+            
+            const auto &type = compiler.get_type(resource.type_id);
+            VkDescriptorSetLayoutBinding &binding = find_or_add_binding(sets[set_index], binding_number);
+            binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            binding.stageFlags |= get_shader_stage(stage);
+            
+            U32 descriptor_count = 1;
+            if (!type.array.empty())
+            {
+                descriptor_count = type.array[0];
+                if (!descriptor_count)
+                {
+                    descriptor_count = HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
+                }
+            }
+
+            binding.descriptorCount = descriptor_count;
+        }
+
+        auto append_struct = [&](String name, const spirv_cross::SPIRType &type)
+        {
+            Shader_Struct &struct_ = append(&structs);
+            struct_.size = compiler.get_declared_struct_size(type);
+            struct_.name = name;
+
+            U32 member_count = u64_to_u32(type.member_types.size());
+            struct_.member_count = member_count;
+            struct_.members = HE_ALLOCATE_ARRAY(allocator, Shader_Struct_Member, member_count);
+
+            for (U32 i = 0; i < member_count; i++)
+            {
+                Shader_Struct_Member &member = struct_.members[i];
+
+                auto &member_type = compiler.get_type(type.member_types[i]);
+                size_t member_size = compiler.get_declared_struct_member_size(type, i);
+                const std::string &name = compiler.get_member_name(type.self, i);
+                size_t offset = compiler.type_struct_member_offset(type, i);
+                
+                member.offset = u64_to_u32(offset);
+                member.size = u64_to_u32(member_size);
+                member.name = copy_string(HE_STRING(name.c_str()), allocator);
+                member.data_type = spirv_type_to_shader_data_type(member_type);
+
+                if (!member_type.array.empty())
+                {
+                    // Get array stride, e.g. float4 foo[]; Will have array stride of 16 bytes.
+                    size_t array_stride = compiler.type_struct_member_array_stride(type, i);
+                }
+
+                if (member_type.columns > 1)
+                {
+                    // Get bytes stride between columns (if column major), for float4x4 -> 16 bytes.
+                    size_t matrix_stride = compiler.type_struct_member_matrix_stride(type, i);
+                }
+            }
+        };
+
+        for (auto &resource : resources.uniform_buffers)
+        {
+            U32 set_index = compiler.get_decoration(resource.id, spv::DecorationDescriptorSet);
+            U32 binding_number = compiler.get_decoration(resource.id, spv::DecorationBinding);
+
+            const auto &type = compiler.get_type(resource.type_id);
+            VkDescriptorSetLayoutBinding &binding = find_or_add_binding(sets[set_index], binding_number);
+            binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            binding.stageFlags |= get_shader_stage(stage);
+            
+            U32 descriptor_count = 1;
+            if (!type.array.empty())
+            {
+                descriptor_count = type.array[0];
+                if (!descriptor_count)
+                {
+                    descriptor_count = HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
+                }
+            }
+
+            binding.descriptorCount = descriptor_count;
+
+            String name = copy_string(HE_STRING(resource.name.c_str()), allocator);
+            append_struct(name, type);
+        }
+
+        for (auto &resource : resources.storage_buffers)
+        {
+            U32 set_index = compiler.get_decoration(resource.id, spv::DecorationDescriptorSet);
+            U32 binding_number = compiler.get_decoration(resource.id, spv::DecorationBinding);
+
+            const auto &type = compiler.get_type(resource.type_id);
+            VkDescriptorSetLayoutBinding &binding = find_or_add_binding(sets[set_index], binding_number);
+            binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            binding.stageFlags |= get_shader_stage(stage);
+            
+            U32 descriptor_count = 1;
+            if (!type.array.empty())
+            {
+                descriptor_count = type.array[0];
+                if (!descriptor_count)
+                {
+                    descriptor_count = HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
+                }
+            }
+
+            binding.descriptorCount = descriptor_count;
+
+            String name = copy_string(HE_STRING(resource.name.c_str()), allocator);
+            append_struct(name, type);
+        }
+    }
+
+    shader->structs = structs.data; // todo(amer): @Leak
+    shader->struct_count = structs.count;
+
+    vulkan_shader->vertex_shader_input_count = vertex_shader_input_count;
+    vulkan_shader->vertex_input_binding_descriptions = vertex_input_binding_descriptions;
+    vulkan_shader->vertex_input_attribute_descriptions = vertex_input_attribute_descriptions;
+    
+    U32 set_count = 0;
+
+    for (U32 set_index = 0; set_index < HE_MAX_BIND_GROUP_INDEX_COUNT; set_index++)
+    {
+        if (!sets[set_index].count)
+        {
+            set_count = set_index;
+            break;
+        }
+        const auto &set = sets[set_index];
+
+        VkDescriptorBindingFlags *bindings_flags = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkDescriptorBindingFlags, set.count);
+        for (U32 i = 0; i < set.count; i++)
+        {
+            bindings_flags[i] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT|VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT;
+        }
+
+        VkDescriptorSetLayoutBindingFlagsCreateInfoEXT extended_descriptor_set_layout_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT };
+        extended_descriptor_set_layout_create_info.bindingCount = set.count;
+        extended_descriptor_set_layout_create_info.pBindingFlags = bindings_flags;
+
+        VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        descriptor_set_layout_create_info.bindingCount = set.count;
+        descriptor_set_layout_create_info.pBindings = set.data;
+        descriptor_set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        descriptor_set_layout_create_info.pNext = &extended_descriptor_set_layout_create_info;
+
+        vkCreateDescriptorSetLayout(context->logical_device, &descriptor_set_layout_create_info, nullptr, &vulkan_shader->descriptor_set_layouts[set_index]);
+    }
+
+    VkPipelineLayoutCreateInfo pipeline_layout_create_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+    pipeline_layout_create_info.setLayoutCount = set_count;
+    pipeline_layout_create_info.pSetLayouts = vulkan_shader->descriptor_set_layouts;
+    vkCreatePipelineLayout(context->logical_device, &pipeline_layout_create_info, nullptr, &vulkan_shader->pipeline_layout);
+
+    return true;
+}
+
+void destroy_shader(Shader_Handle shader_handle, Vulkan_Context *context)
+{
+    Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
+
+    for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
+    {
+        if (vulkan_shader->handles[stage_index] == VK_NULL_HANDLE)
+        {
+            continue;
+        }
+        vkDestroyShaderModule(context->logical_device, vulkan_shader->handles[stage_index], nullptr);
+    }
+
+    for (U32 i = 0; i < HE_MAX_BIND_GROUP_INDEX_COUNT; i++)
+    {
+        if (vulkan_shader->descriptor_set_layouts[i] != VK_NULL_HANDLE)
+        {
+            vkDestroyDescriptorSetLayout(context->logical_device, vulkan_shader->descriptor_set_layouts[i], nullptr);
+            vulkan_shader->descriptor_set_layouts[i] = VK_NULL_HANDLE;
+        }
+    }
+
+    vkDestroyPipelineLayout(context->logical_device, vulkan_shader->pipeline_layout, nullptr);
 }
 
 static VkPolygonMode get_polygon_mode(Fill_Mode fill_mode)
@@ -912,63 +501,37 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
     Renderer_State *renderer_state = context->renderer_state;
+    
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, pipeline_state_handle);
     pipeline_state->descriptor = descriptor;
-    Render_Pass *render_pass = get(&renderer_state->render_passes, descriptor.render_pass);
+       
+    Shader *shader = get(&context->renderer_state->shaders, descriptor.shader);
+    Vulkan_Shader *vulkan_shader = &context->shaders[descriptor.shader.index];
 
-    Shader_Group *shader_group = get(&renderer_state->shader_groups, descriptor.shader_group);
-    
-    Vulkan_Shader_Group *vulkan_shader_group = &context->shader_groups[descriptor.shader_group.index];
+    Render_Pass *render_pass = get(&renderer_state->render_passes, descriptor.render_pass);
     Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[pipeline_state_handle.index];
 
-    VkPipelineShaderStageCreateInfo shader_stage_create_infos[HE_MAX_SHADER_COUNT_PER_PIPELINE];
+    Array< VkPipelineShaderStageCreateInfo, HE_MAX_SHADER_COUNT_PER_PIPELINE > shader_stage_create_infos = {};
 
-    bool is_using_vertex_shader = false;
-    VkVertexInputBindingDescription *vertex_input_binding_descriptions = nullptr;
-    VkVertexInputAttributeDescription *vertex_input_attribute_descriptions = nullptr;
+    for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
+    {
+        if (vulkan_shader->handles[stage_index] == VK_NULL_HANDLE)
+        {
+            continue;
+        }
+
+        VkPipelineShaderStageCreateInfo &pipeline_stage_create_info = append(&shader_stage_create_infos);
+        pipeline_stage_create_info = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+        pipeline_stage_create_info.stage  = get_shader_stage((Shader_Stage)stage_index);
+        pipeline_stage_create_info.module = vulkan_shader->handles[stage_index];
+        pipeline_stage_create_info.pName  = "main";
+    }
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-
-    for (U32 shader_index = 0; shader_index < shader_group->shaders.count; shader_index++)
-    {
-        Shader_Handle shader_handle = shader_group->shaders[shader_index];
-
-        Shader *shader = get(&context->renderer_state->shaders, shader_handle);
-        Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
-
-        VkPipelineShaderStageCreateInfo &pipeline_stage_create_info = shader_stage_create_infos[shader_index];
-        pipeline_stage_create_info = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
-        pipeline_stage_create_info.stage  = get_shader_stage(shader->stage);
-        pipeline_stage_create_info.module = vulkan_shader->handle;
-        pipeline_stage_create_info.pName  = "main";
-
-        if (shader->stage == Shader_Stage::VERTEX)
-        {
-            is_using_vertex_shader = true;
-            vertex_input_binding_descriptions = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkVertexInputBindingDescription, shader->input_count);
-            vertex_input_attribute_descriptions = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkVertexInputAttributeDescription, shader->input_count);
-
-            for (U32 input_variable_index = 0; input_variable_index < shader->input_count; input_variable_index++)
-            {
-                const Shader_Input_Variable *input_variable = &shader->inputs[input_variable_index];
-                VkVertexInputBindingDescription *vertex_binding = &vertex_input_binding_descriptions[input_variable_index];
-                vertex_binding->binding = input_variable->location;
-                vertex_binding->stride = get_size_of_shader_data_type(input_variable->data_type);
-                vertex_binding->inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-                VkVertexInputAttributeDescription *vertex_attribute = &vertex_input_attribute_descriptions[input_variable_index];
-                vertex_attribute->binding = input_variable->location;
-                vertex_attribute->location = input_variable->location;
-                vertex_attribute->format = get_format_from_shader_data_type(input_variable->data_type);
-                vertex_attribute->offset = 0;
-            }
-
-            vertex_input_state_create_info.vertexBindingDescriptionCount = shader->input_count;
-            vertex_input_state_create_info.pVertexBindingDescriptions = vertex_input_binding_descriptions;
-            vertex_input_state_create_info.vertexAttributeDescriptionCount = shader->input_count;
-            vertex_input_state_create_info.pVertexAttributeDescriptions = vertex_input_attribute_descriptions;
-        }
-    }
+    vertex_input_state_create_info.vertexBindingDescriptionCount = vulkan_shader->vertex_shader_input_count;
+    vertex_input_state_create_info.pVertexBindingDescriptions = vulkan_shader->vertex_input_binding_descriptions;
+    vertex_input_state_create_info.vertexAttributeDescriptionCount = vulkan_shader->vertex_shader_input_count;
+    vertex_input_state_create_info.pVertexAttributeDescriptions = vulkan_shader->vertex_input_attribute_descriptions;
 
     VkDynamicState dynamic_states[] =
     {
@@ -1066,22 +629,17 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     depth_stencil_state_create_info.back = {};
 
     VkGraphicsPipelineCreateInfo graphics_pipeline_create_info = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-    graphics_pipeline_create_info.stageCount = shader_group->shaders.count;
-    graphics_pipeline_create_info.pStages = shader_stage_create_infos;
-
-    if (is_using_vertex_shader)
-    {
-        graphics_pipeline_create_info.pVertexInputState = &vertex_input_state_create_info;
-        graphics_pipeline_create_info.pInputAssemblyState = &input_assembly_state_create_info;
-    }
-
+    graphics_pipeline_create_info.stageCount = shader_stage_create_infos.count;
+    graphics_pipeline_create_info.pStages = shader_stage_create_infos.data;
+    graphics_pipeline_create_info.pVertexInputState = &vertex_input_state_create_info;
+    graphics_pipeline_create_info.pInputAssemblyState = &input_assembly_state_create_info;
     graphics_pipeline_create_info.pViewportState = &viewport_state_create_info;
     graphics_pipeline_create_info.pRasterizationState = &rasterization_state_create_info;
     graphics_pipeline_create_info.pMultisampleState = &multisampling_state_create_info;
     graphics_pipeline_create_info.pDepthStencilState = &depth_stencil_state_create_info;
     graphics_pipeline_create_info.pColorBlendState = &color_blend_state_create_info;
     graphics_pipeline_create_info.pDynamicState = &dynamic_state_create_info;
-    graphics_pipeline_create_info.layout = vulkan_shader_group->pipeline_layout;
+    graphics_pipeline_create_info.layout = vulkan_shader->pipeline_layout;
     graphics_pipeline_create_info.renderPass = context->render_passes[ descriptor.render_pass.index ].handle;
     graphics_pipeline_create_info.subpass = 0;
     graphics_pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;

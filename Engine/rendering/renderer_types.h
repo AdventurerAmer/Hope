@@ -20,14 +20,12 @@
 #define HE_GRAPHICS_DEBUGGING 1
 #define HE_MAX_FRAMES_IN_FLIGHT 3
 #define HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
-#define HE_MAX_DESCRIPTOR_SET_COUNT 4
+#define HE_MAX_BIND_GROUP_INDEX_COUNT 4
 #define HE_MAX_ATTACHMENT_COUNT 16
 #define HE_MAX_SHADER_COUNT_PER_PIPELINE 8
-#define HE_MAX_OBJECT_DATA_COUNT UINT16_MAX
-#define HE_PIPELINE_CACHE_FILENAME "shaders/bin/pipeline.cache"
 #define HE_PER_FRAME_BIND_GROUP_INDEX 0
 #define HE_PER_PASS_BIND_GROUP_INDEX 1
-#define HE_PER_MATERIAL_BIND_GROUP_INDEX 2
+#define HE_PER_OBJECT_BIND_GROUP_INDEX 2
 
 #ifdef HE_SHIPPING
 #undef HE_GRAPHICS_DEBUGGING
@@ -156,51 +154,6 @@ struct Sampler
 using Sampler_Handle = Resource_Handle< Sampler >;
 
 //
-// Bind Group Layout
-//
-
-enum class Binding_Type : U8
-{
-    UNIFORM_BUFFER,
-    STORAGE_BUFFER,
-    COMBINED_IMAGE_SAMPLER,
-    COMBINED_CUBE_SAMPLER
-};
-
-struct Binding
-{
-    Binding_Type type;
-    U32 number;
-    U32 count;
-    U32 stage_flags;
-};
-
-struct Bind_Group_Layout_Descriptor
-{
-    U32 binding_count;
-    Binding *bindings;
-};
-
-struct Bind_Group_Layout
-{
-    Bind_Group_Layout_Descriptor descriptor;
-};
-
-using Bind_Group_Layout_Handle = Resource_Handle< Bind_Group_Layout >;
-
-struct Update_Binding_Descriptor
-{
-    U32 binding_number;
-
-    U32 element_index;
-    U32 count;
-
-    Buffer_Handle *buffers;
-    Texture_Handle *textures;
-    Sampler_Handle *samplers;
-};
-
-//
 // Render Pass
 //
 
@@ -276,8 +229,6 @@ using Frame_Buffer_Handle = Resource_Handle< Frame_Buffer >;
 
 enum class Shader_Data_Type
 {
-    BOOL,
-
     S8,
     S16,
     S32,
@@ -295,27 +246,7 @@ enum class Shader_Data_Type
     VECTOR4F,
 
     MATRIX3F,
-    MATRIX4F,
-
-    COMBINED_IMAGE_SAMPLER,
-    COMBINED_CUBE_SAMPLER,
-
-    STRUCT,
-    ARRAY,
-};
-
-struct Shader_Input_Variable
-{
-    String name;
-    Shader_Data_Type data_type;
-    U32 location;
-};
-
-struct Shader_Output_Variable
-{
-    String name;
-    Shader_Data_Type data_type;
-    U32 location;
+    MATRIX4F
 };
 
 struct Shader_Struct_Member
@@ -323,12 +254,9 @@ struct Shader_Struct_Member
     String name;
 
     Shader_Data_Type data_type;
-    U32 offset = 0;
 
-    bool is_array = false;
-    S32 array_element_count = -1;
-
-    S32 struct_index = -1;
+    U32 offset;
+    U32 size;
 };
 
 struct Shader_Struct
@@ -341,30 +269,28 @@ struct Shader_Struct
     Shader_Struct_Member *members;
 };
 
-struct Shader_Descriptor
-{
-    void *data;
-    U64 size;
-};
-
 enum class Shader_Stage : U8
 {
     VERTEX,
-    FRAGMENT
+    FRAGMENT,
+    COUNT
+};
+
+struct Shader_Compilation_Result
+{
+    bool success;
+    String stages[(U32)Shader_Stage::COUNT];
+};
+
+struct Shader_Descriptor
+{
+    String name;
+    const Shader_Compilation_Result *compilation_result;
 };
 
 struct Shader
 {
     String name;
-
-    Bind_Group_Layout_Descriptor sets[HE_MAX_DESCRIPTOR_SET_COUNT];
-    Shader_Stage stage;
-
-    U32 input_count;
-    Shader_Input_Variable *inputs;
-
-    U32 output_count;
-    Shader_Output_Variable *outputs;
 
     U32 struct_count;
     Shader_Struct *structs;
@@ -372,29 +298,26 @@ struct Shader
 
 using Shader_Handle = Resource_Handle< Shader >;
 
-struct Shader_Group_Descriptor
-{
-    Array< Shader_Handle, HE_MAX_SHADER_COUNT_PER_PIPELINE > shaders;
-};
-
-struct Shader_Group
-{
-    String name;
-
-    Array< Shader_Handle, HE_MAX_SHADER_COUNT_PER_PIPELINE > shaders;
-    Array< Bind_Group_Layout_Handle, HE_MAX_DESCRIPTOR_SET_COUNT > bind_group_layouts;
-};
-
-using Shader_Group_Handle = Resource_Handle< Shader_Group >;
-
 //
 // Bind Group
 //
 
+struct Update_Binding_Descriptor
+{
+    U32 binding_number;
+
+    U32 element_index;
+    U32 count;
+
+    Buffer_Handle *buffers;
+    Texture_Handle *textures;
+    Sampler_Handle *samplers;
+};
+
 struct Bind_Group_Descriptor
 {
-    Shader_Group_Handle shader_group;
-    Bind_Group_Layout_Handle layout;
+    Shader_Handle shader;
+    U32 group_index;
 };
 
 struct Bind_Group
@@ -439,8 +362,8 @@ struct Pipeline_State_Settings
 struct Pipeline_State_Descriptor
 {
     Pipeline_State_Settings settings;
-
-    Shader_Group_Handle shader_group;
+    
+    Shader_Handle shader;
     Render_Pass_Handle render_pass;
 };
 
@@ -635,12 +558,12 @@ struct Scene
 
 using Scene_Handle = Resource_Handle< Scene >;
 
+// todo(amer): Render_Packet term is not used currectly here...
 struct Render_Packet
 {
     Material_Handle material;
     Static_Mesh_Handle static_mesh;
     U16 sub_mesh_index;
-
     U32 transform_index;
 };
 

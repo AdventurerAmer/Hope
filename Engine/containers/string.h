@@ -92,17 +92,20 @@ HE_FORCE_INLINE bool operator!=(const char *lhs, const String &rhs)
     return !equal(lhs, lhs_length, rhs.data, rhs.count);
 }
 
-S64 find_first_char_from_left(const String &str, const char *chars);
-S64 find_first_char_from_right(const String &str, const char *chars);
+S64 find_first_char_from_left(const String &str, const String &chars, U64 offset = 0);
+S64 find_first_char_from_right(const String &str, const String &chars);
 
-bool starts_with(const String &str, const char *start);
-bool ends_with(const String &str, const char *end);
+bool starts_with(const String &str, const String &start);
+bool ends_with(const String &str, const String &end);
 
 String sub_string(const String &str, U64 index);
 String sub_string(const String &str, U64 index, U64 count);
 
 String format_string(struct Memory_Arena *arena, const char *format, ...);
 String format_string(struct Memory_Arena *arena, const char *format, va_list args);
+
+String advance(const String &str, U64 count);
+String eat_chars(const String &str, const String &chars);
 
 struct String_Builder
 {

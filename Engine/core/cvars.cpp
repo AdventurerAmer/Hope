@@ -100,7 +100,7 @@ bool init_cvars(const char *filepath)
 
         while (true)
         {
-            S64 new_line_index = find_first_char_from_left(str, "\n");
+            S64 new_line_index = find_first_char_from_left(str, HE_STRING_LITERAL("\n"));
             if (new_line_index == -1 || str.count == 0)
             {
                 break;
@@ -116,7 +116,7 @@ bool init_cvars(const char *filepath)
             {
                 String cvar_name_value_pair = sub_string(line, 1);
 
-                S64 space = find_first_char_from_left(cvar_name_value_pair, " ");
+                S64 space = find_first_char_from_left(cvar_name_value_pair, HE_STRING_LITERAL(" "));
                 HE_ASSERT(space != -1);
 
                 String name = sub_string(cvar_name_value_pair, 0, space);
