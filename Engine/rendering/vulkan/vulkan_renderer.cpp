@@ -483,12 +483,10 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
 
     VkFormat image_formats[] =
     {
-        VK_FORMAT_B8G8R8A8_SRGB,
-        VK_FORMAT_R8G8B8A8_SRGB
+        VK_FORMAT_R8G8B8A8_UNORM,
     };
 
-    VkColorSpaceKHR color_space = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-    init_swapchain_support(context, image_formats, HE_ARRAYCOUNT(image_formats), color_space, &context->swapchain_support);
+    init_swapchain_support(context, image_formats, HE_ARRAYCOUNT(image_formats), &context->swapchain_support);
 
     VkPresentModeKHR present_mode = pick_present_mode(renderer_state->vsync, &context->swapchain_support);
     U32 min_image_count = HE_MAX_FRAMES_IN_FLIGHT;
@@ -1861,7 +1859,7 @@ bool vulkan_renderer_init_imgui()
     render_pass_descriptor.color_attachments =
     {
         {
-            Texture_Format::B8G8R8A8_SRGB,
+            Texture_Format::R8G8B8A8_UNORM,
             1,
             Attachment_Operation::CLEAR        
         }

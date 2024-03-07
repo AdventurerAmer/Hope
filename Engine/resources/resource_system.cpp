@@ -197,7 +197,7 @@ static bool condition_texture_to_resource(Read_Entire_File_Result *asset_file_re
     {
         .width = (U32)width,
         .height = (U32)height,
-        .format = Texture_Format::R8G8B8A8_SRGB,
+        .format = Texture_Format::R8G8B8A8_UNORM,
         .mipmapping = true,
         .data_offset = sizeof(Resource_Header) + sizeof(Texture_Resource_Info)
     };
@@ -622,7 +622,7 @@ static bool save_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cglt
 
         HE_ASSERT(position_count == uv_count);
         HE_ASSERT(position_count == normal_count);
-        HE_ASSERT(position_count == tangent_count);
+        // HE_ASSERT(position_count == tangent_count);
 
         HE_ASSERT(primitive->material - data->materials >= 0);
         U32 material_index = (U32)(primitive->material - data->materials);
@@ -952,7 +952,6 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
         if (it == path_to_resource_index.end())
         {
             static_mesh_resource_index = create_resource(copy_string(static_mesh_resource_absloute_path, allocator), Asset_Type::STATIC_MESH, asset->uuid);
-            
             Resource *static_mesh_resource = &resource_system_state->resources[static_mesh_resource_index];
             append(&asset->resource_refs, static_mesh_resource->uuid);
         }

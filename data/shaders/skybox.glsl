@@ -10,23 +10,10 @@
 
 layout (location = 0) in vec3 in_position;
 
-layout (std430, set = 0, binding = 0) uniform Globals
+layout (std430, set = 0, binding = 1) readonly buffer Instance_Buffer
 {
-    mat4 view;
-    mat4 projection;
-
-    vec3 eye;
-
-    vec3 directional_light_direction;
-    vec3 directional_light_color;
-
-    float gamma;
-} globals;
-
-layout (std430, set = 0, binding = 1) readonly buffer Instance_Data
-{
-    mat4 model;
-} instances[];
+    Instance_Data instances[];
+};
 
 out vec3 out_cubemap_uv;
 
@@ -51,19 +38,6 @@ void main()
 in vec3 in_cubemap_uv;
 
 layout (location = 0) out vec4 out_color;
-
-layout (std430, set = 0, binding = 0) uniform Globals
-{
-    mat4 view;
-    mat4 projection;
-
-    vec3 eye;
-
-    vec3 directional_light_direction;
-    vec3 directional_light_color;
-
-    float gamma;
-} globals;
 
 layout(set = 1, binding = 0) uniform samplerCube u_cubemaps[];
 

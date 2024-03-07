@@ -118,7 +118,8 @@ static Shader_Data_Type spirv_type_to_shader_data_type(spirv_cross::SPIRType typ
             }
         } break;
         
-        case SPIRType::Double: Shader_Data_Type::F64;
+        case SPIRType::Double: return Shader_Data_Type::F64;
+        case SPIRType::Struct: return Shader_Data_Type::STRUCT;
 
         default:
         {
@@ -619,7 +620,7 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
     depth_stencil_state_create_info.depthTestEnable = descriptor.settings.depth_testing ? VK_TRUE : VK_FALSE;
-    depth_stencil_state_create_info.depthWriteEnable = VK_TRUE;
+    depth_stencil_state_create_info.depthWriteEnable = descriptor.settings.depth_testing ? VK_TRUE : VK_FALSE;
     depth_stencil_state_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
     depth_stencil_state_create_info.depthBoundsTestEnable = VK_FALSE;
     depth_stencil_state_create_info.minDepthBounds = 0.0f;

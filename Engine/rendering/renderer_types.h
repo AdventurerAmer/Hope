@@ -26,6 +26,7 @@
 #define HE_PER_FRAME_BIND_GROUP_INDEX 0
 #define HE_PER_PASS_BIND_GROUP_INDEX 1
 #define HE_PER_OBJECT_BIND_GROUP_INDEX 2
+#define HE_MAX_LIGHT_COUNT_PER_SCENE 1024
 
 #ifdef HE_SHIPPING
 #undef HE_GRAPHICS_DEBUGGING
@@ -74,8 +75,11 @@ using Buffer_Handle = Resource_Handle< Buffer >;
 //
 enum class Texture_Format
 {
+    R8G8B8A8_UNORM,
     R8G8B8A8_SRGB,
+
     B8G8R8A8_SRGB,
+    B8G8R8A8_UNORM,
     DEPTH_F32_STENCIL_U8,
     COUNT
 };
@@ -246,7 +250,9 @@ enum class Shader_Data_Type
     VECTOR4F,
 
     MATRIX3F,
-    MATRIX4F
+    MATRIX4F,
+
+    STRUCT
 };
 
 struct Shader_Struct_Member

@@ -1,7 +1,7 @@
 #include "vulkan_swapchain.h"
 #include "vulkan_utils.h"
 
-bool init_swapchain_support(Vulkan_Context *context, VkFormat *image_formats, U32 image_format_count, VkColorSpaceKHR color_space, Vulkan_Swapchain_Support *swapchain_support)
+bool init_swapchain_support(Vulkan_Context *context, VkFormat *image_formats, U32 image_format_count, Vulkan_Swapchain_Support *swapchain_support)
 {
     Memory_Arena *arena = get_permenent_arena();
 
@@ -34,9 +34,10 @@ bool init_swapchain_support(Vulkan_Context *context, VkFormat *image_formats, U3
         {
             const VkSurfaceFormatKHR *surface_format = &swapchain_support->surface_formats[j];
 
-            if (surface_format->format == format && surface_format->colorSpace == color_space)
+            if (surface_format->format == format)
             {
                 swapchain_support->image_format = format;
+                swapchain_support->color_space = surface_format->colorSpace;
                 found = true;
                 break;
             }
@@ -73,7 +74,6 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
     HE_ASSERT(swapchain);
     
     const Vulkan_Swapchain_Support *swapchain_support = &context->swapchain_support;
-    VkColorSpaceKHR image_color_space = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 
     VkSurfaceCapabilitiesKHR surface_capabilities;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context->physical_device, context->surface, &surface_capabilities);
@@ -82,7 +82,7 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
     height = HE_CLAMP(height, surface_capabilities.minImageExtent.height, surface_capabilities.maxImageExtent.height);
 
     swapchain->image_format = swapchain_support->image_format;
-    swapchain->image_color_space = image_color_space;
+    swapchain->image_color_space = swapchain_support->color_space;
     swapchain->width = width;
     swapchain->height = height;
     swapchain->present_mode = present_mode;

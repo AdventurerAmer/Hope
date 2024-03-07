@@ -6,7 +6,7 @@
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_EXT_nonuniform_qualifier : enable
 
-#include "common.glsl.inc"
+#include "../shaders/common.glsl"
 
 layout (location = 0) in vec3 in_position;
 layout (location = 1) in vec3 in_normal;
@@ -23,8 +23,8 @@ out Fragment_Input
 
 layout (std430, set = 0, binding = 1) readonly buffer Instance_Buffer
 {
-    mat4 model;
-} instances[];
+    Instance_Data instances[];
+};
 
 void main()
 {
@@ -51,7 +51,7 @@ void main()
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
 
-#include "common.glsl.inc"
+#include "../shaders/common.glsl"
 
 in Fragment_Input
 {
@@ -89,7 +89,7 @@ vec3 fresnel_schlick(float NdotL, vec3 f0)
     return f0 + (vec3(1.0) - f0) * pow(clamp(1.0 - NdotL, 0.0, 1.0), 5.0);
 }
 
-float distribution_GGX(float NdotH, float roughness)
+float distribution_ggx(float NdotH, float roughness)
 {
     float a = roughness * roughness;
     float a2 = a * a;
@@ -110,14 +110,34 @@ float geometry_smith(float NdotV, float NdotL, float roughness)
     return geometry_schlickGGX(NdotV, roughness) * geometry_schlickGGX(NdotL, roughness);
 }
 
+vec3 brdf(vec3 L, vec3 radiance, vec3 N, vec3 V, float NdotV, vec3 albedo, float roughness, float metallic)
+{
+    vec3 H = normalize(L + V);
+
+    float NdotL = max(0.0, dot(N, L));
+    float NdotH = max(0.0, dot(N, H));
+    float HdotV = max(0.0, dot(H, V));
+
+    vec3 f0 = mix(vec3(0.04), albedo, metallic);
+    vec3 F = fresnel_schlick(clamp(dot(H, V), 0.0, 1.0), f0);
+    float D = distribution_ggx(NdotH, roughness);
+    float G = geometry_smith(NdotV, NdotL, roughness);
+
+    vec3 specular = (F * D * G) / ((4.0 * NdotV * NdotL) + 0.0001);
+    vec3 Ks = F;
+    vec3 Kd = (1.0 - metallic) * (vec3(1.0) - Ks);
+    vec3 diffuse = Kd * albedo / PI;
+    return (diffuse + specular) * radiance * NdotL;
+}
+
 void main()
 {
     float gamma = globals.gamma;
     
-    vec3 albedo = srgb_to_linear( sample_texture(material.albedo_texture, frag_input.uv).rgb, gamma );
+    vec3 albedo = srgb_to_linear( sample_texture( material.albedo_texture, frag_input.uv ).rgb, gamma );
     albedo *= srgb_to_linear( material.albedo_color, gamma );
     
-    vec3 roughness_metallic = sample_texture(material.roughness_metallic_texture, frag_input.uv).rgb;
+    vec3 roughness_metallic = sample_texture( material.roughness_metallic_texture, frag_input.uv ).rgb;
 
     float roughness = roughness_metallic.g;
     roughness *= material.roughness_factor;
@@ -125,7 +145,7 @@ void main()
     float metallic = roughness_metallic.b;
     metallic *= material.metallic_factor;
 
-    float occlusion = sample_texture(material.occlusion_texture, frag_input.uv).r;
+    float occlusion = sample_texture( material.occlusion_texture, frag_input.uv ).r;
 
     vec3 normal = normalize(frag_input.normal);
     vec3 tangent = normalize(frag_input.tangent.xyz);
@@ -135,34 +155,39 @@ void main()
 
     vec3 N = sample_texture( material.normal_texture, frag_input.uv ).xyz * 2.0 - vec3(1.0, 1.0, 1.0);
     N = normalize(TBN * N);
+    
+    vec3 V = normalize(globals.eye - frag_input.position);
 
-    vec3 light_color = globals.directional_light_color;
-    vec3 L = normalize(-globals.directional_light_direction);
-
-    vec3 eye = globals.eye;
-
-    vec3 V = normalize(eye - frag_input.position);
-    vec3 H = normalize(L + V);
-
-    float NdotL = max(0.0, dot(N, L));
-    float NdotH = max(0.0, dot(N, H));
     float NdotV = max(0.0, dot(N, V));
-    float HdotV = max(0.0, dot(H, V));
+    vec3 Lo = brdf( -globals.directional_light_direction, globals.directional_light_color, N, V, NdotV, albedo, roughness, metallic );
+    
+    float rmin = 0.0001;
 
-    vec3 f0 = mix(vec3(0.04), albedo, metallic);
-    vec3 F = fresnel_schlick(HdotV, f0);
-    float D = distribution_GGX(NdotH, roughness);
-    float G = geometry_smith(NdotV, NdotL, roughness);
+    for (uint i = 0; i < globals.light_count; i++)
+    {
+        Light light = globals.lights[i];
+        vec3 frag_pos_to_light = light.position - frag_input.position; 
+        
+        // point light calculations
+        float r = length(frag_pos_to_light);
+        vec3 L = frag_pos_to_light / r;
+        float attenuation = pow(light.radius / max(r, rmin), 2);
+        attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
+        
+        // spot light calculations
+        float cos_theta_u = cos(light.outer_angle);
+        float cos_theta_p = cos(light.inner_angle);
+        float cos_theta_s = dot(light.direction, -L);
+        float t = pow(clamp((cos_theta_s - cos_theta_u) / (cos_theta_p - cos_theta_u), 0.0, 1.0), 2.0);
+        attenuation *= t;
 
-    vec3 specular = (F * D * G) / ((4.0 * NdotV * NdotL) + 0.0001);
-    vec3 Ks = F;
-    vec3 Kd = (1.0 - metallic) * (vec3(1.0) - Ks);
-    vec3 diffuse = Kd * albedo / PI;
-    vec3 Lo = (diffuse + specular) * light_color * NdotL;
+        vec3 radiance = light.color * attenuation; 
+        Lo += brdf(L, radiance, N, V, NdotV, albedo, roughness, metallic);
+    }
+
     vec3 ambient = vec3(0.03) * albedo * occlusion;
     vec3 color = ambient + Lo;
     color = color / (color + vec3(1.0));
     color = linear_to_srgb(color, gamma);
     out_color = vec4(color, 1.0);
-    // out_color = vec4(1.0, 0.0, 0.0, 1.0);
 }

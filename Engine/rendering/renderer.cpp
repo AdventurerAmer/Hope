@@ -230,7 +230,7 @@ bool init_renderer_state(Engine *engine)
         {
             .width = 1,
             .height = 1,
-            .format = Texture_Format::R8G8B8A8_SRGB,
+            .format = Texture_Format::R8G8B8A8_UNORM,
             .data = to_array_view(while_pixel_datas),
             .mipmapping = false,
             .allocation_group = &append(&renderer_state->allocation_groups, allocation_group)
@@ -257,7 +257,7 @@ bool init_renderer_state(Engine *engine)
         {
             .width = 1,
             .height = 1,
-            .format = Texture_Format::R8G8B8A8_SRGB,
+            .format = Texture_Format::R8G8B8A8_UNORM,
             .data = to_array_view(normal_pixel_datas),
             .mipmapping = false,
             .allocation_group = &append(&renderer_state->allocation_groups, allocation_group)
@@ -371,7 +371,11 @@ bool init_renderer_state(Engine *engine)
 
             renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
             renderer->set_index_buffer(static_mesh->indices_buffer, 0);
-            renderer->draw_sub_mesh(static_mesh_handle, 0, 0);
+
+            U32 object_data_index = renderer_state->object_data_count++;
+            Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
+            object_data->model = get_world_matrix(get_identity_transform());
+            renderer->draw_sub_mesh(static_mesh_handle, object_data_index, 0);
 
             auto comp = [](const Render_Packet &a, const Render_Packet &b) -> bool
             {
@@ -442,7 +446,7 @@ bool init_renderer_state(Engine *engine)
                 .operation = Attachment_Operation::CLEAR,
                 .info =
                 {
-                    .format = Texture_Format::B8G8R8A8_SRGB,
+                    .format = Texture_Format::R8G8B8A8_UNORM,
                     .resizable_sample = true,
                     .resizable = true,
                     .scale_x = 1.0f,
@@ -611,7 +615,7 @@ bool init_renderer_state(Engine *engine)
                 .count = 1,
                 .buffers = &renderer_state->globals_uniform_buffers[frame_index]
             };
-
+            
             Update_Binding_Descriptor object_data_storage_buffer_binding =
             {
                 .binding_number = 1,
@@ -668,7 +672,7 @@ bool init_renderer_state(Engine *engine)
             height = texture_height;
 
             U64 data_size = texture_width * texture_height * sizeof(U32);
-            U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, data_size);
+            U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, texture_width * texture_height);
             memcpy(data, pixels, data_size);
             stbi_image_free(pixels);
 
@@ -680,7 +684,7 @@ bool init_renderer_state(Engine *engine)
         {
             .width = width,
             .height = height,
-            .format = Texture_Format::R8G8B8A8_SRGB,
+            .format = Texture_Format::R8G8B8A8_UNORM,
             .layer_count = HE_ARRAYCOUNT(paths),
             .data = to_array_view(datas),
             .mipmapping = true,
@@ -782,14 +786,14 @@ void deinit_renderer_state()
     ImGui::DestroyContext();
 }
 
-glm::vec4 srgb_to_linear(const glm::vec4 &color)
+glm::vec3 srgb_to_linear(const glm::vec3 &color)
 {
-    return glm::pow(color, glm::vec4(renderer_state->gamma));
+    return glm::pow(color, glm::vec3(renderer_state->gamma));
 }
 
-glm::vec4 linear_to_srgb(const glm::vec4 &color)
+glm::vec3 linear_to_srgb(const glm::vec3 &color)
 {
-    return glm::pow(color, glm::vec4(1.0f / renderer_state->gamma));
+    return glm::pow(color, glm::vec3(1.0f / renderer_state->gamma));
 }
 
 void renderer_on_resize(U32 width, U32 height)
@@ -876,7 +880,6 @@ void renderer_destroy_texture(Texture_Handle &texture_handle)
     texture->name = HE_STRING_LITERAL("");
     texture->width = 0;
     texture->height = 0;
-    texture->format = Texture_Format::R8G8B8A8_SRGB;
     texture->sample_count = 1;
     texture->size = 0;
     texture->alignment = 0;

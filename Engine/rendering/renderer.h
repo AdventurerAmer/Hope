@@ -33,16 +33,39 @@ enum RenderingAPI
 struct Directional_Light
 {
     glm::vec3 direction;
-    glm::vec4 color;
+    glm::vec3 color;
     F32 intensity;
+};
+
+struct Point_Light
+{
+    glm::vec3 position;
+    float radius;
+
+    glm::vec3 color;
+    float intensity;
+};
+
+struct Spot_Light
+{
+    glm::vec3 position;
+    glm::vec3 direction;
+    F32 outer_angle;
+    F32 inner_angle;
+    float radius;
+
+    glm::vec3 color;
+    float intensity;
 };
 
 struct Scene_Data
 {
     glm::mat4 view;
     glm::mat4 projection;
-    Directional_Light directional_light;
     glm::vec3 eye;
+    Directional_Light directional_light;
+    Point_Light point_light;
+    Spot_Light spot_light;
 };
 
 struct Renderer
@@ -105,6 +128,16 @@ struct Renderer
     bool (*init_imgui)();
     void (*imgui_new_frame)();
     void (*imgui_render)();
+};
+
+struct Light
+{
+    glm::vec3 position;
+    alignas(16) glm::vec3 direction;
+    alignas(4) float radius;
+    alignas(4) float outer_angle;
+    alignas(4) float inner_angle;
+    alignas(16) glm::vec3 color;
 };
 
 struct Renderer_State
@@ -199,8 +232,8 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);
 bool init_renderer_state(struct Engine *engine);
 void deinit_renderer_state();
 
-glm::vec4 srgb_to_linear(const glm::vec4 &color);
-glm::vec4 linear_to_srgb(const glm::vec4 &color);
+glm::vec3 srgb_to_linear(const glm::vec3 &color);
+glm::vec3 linear_to_srgb(const glm::vec3 &color);
 
 void renderer_on_resize(U32 width, U32 height);
 

@@ -6,6 +6,8 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
 
+#include "common.glsl"
+
 layout (location = 0) in vec3 in_position;
 layout (location = 1) in vec3 in_normal;
 layout (location = 2) in vec2 in_uv;
@@ -17,23 +19,10 @@ out vec2 out_uv;
 out vec3 out_tangent;
 out vec3 out_bitangent;
 
-layout (std430, set = 0, binding = 0) uniform Globals
-{
-    mat4 view;
-    mat4 projection;
-
-    vec3 eye;
-
-    vec3 directional_light_direction;
-    vec3 directional_light_color;
-
-    float gamma;
-} globals;
-
 layout (std430, set = 0, binding = 1) readonly buffer Instance_Buffer
 {
-    mat4 model;
-} instances[];
+    Instance_Data instances[];
+};
 
 void main()
 {
@@ -69,19 +58,6 @@ in vec3 in_normal;
 in vec2 in_uv;
 in vec3 in_tangent;
 in vec3 in_bitangent;
-
-layout (std430, set = 0, binding = 0) uniform Globals
-{
-    mat4 view;
-    mat4 projection;
-
-    vec3 eye;
-
-    vec3 directional_light_direction;
-    vec3 directional_light_color;
-
-    float gamma;
-} globals;
 
 layout(set = 1, binding = 0) uniform sampler2D u_textures[];
 

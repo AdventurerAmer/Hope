@@ -86,6 +86,11 @@ VkFormat get_texture_format(Texture_Format texture_format)
 {
     switch (texture_format)
     {
+        case Texture_Format::R8G8B8A8_UNORM:
+        {
+            return VK_FORMAT_R8G8B8A8_UNORM;
+        } break;
+
         case Texture_Format::R8G8B8A8_SRGB:
         {
             return VK_FORMAT_R8G8B8A8_SRGB;
@@ -95,6 +100,11 @@ VkFormat get_texture_format(Texture_Format texture_format)
         {
             return VK_FORMAT_B8G8R8A8_SRGB;
         } break;
+
+        case Texture_Format::B8G8R8A8_UNORM:
+        {
+            return VK_FORMAT_B8G8R8A8_UNORM;
+        }
 
         case Texture_Format::DEPTH_F32_STENCIL_U8:
         {

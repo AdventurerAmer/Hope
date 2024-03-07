@@ -85,6 +85,7 @@ struct Vulkan_Swapchain_Support
     VkPresentModeKHR *present_modes;
 
     VkFormat image_format;
+    VkColorSpaceKHR color_space;
 };
 
 struct Vulkan_Swapchain

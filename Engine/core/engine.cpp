@@ -164,8 +164,21 @@ bool startup(Engine *engine, void *platform_state)
     Scene_Data *scene_data = &renderer_state->scene_data;
 
     scene_data->directional_light.direction = { 0.0f, -1.0f, 0.0f };
-    scene_data->directional_light.color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    scene_data->directional_light.color = { 1.0f, 1.0f, 1.0f };
     scene_data->directional_light.intensity = 1.0f;
+
+    scene_data->point_light.position = { -3.0f, 2.0f, 0.0f };
+    scene_data->point_light.radius = 5.0f;
+    scene_data->point_light.color = { 1.0f, 1.0f, 1.0f };
+    scene_data->point_light.intensity = 1.0f;
+
+    scene_data->spot_light.position = { 3.0f, 2.0f, 0.0f };
+    scene_data->spot_light.direction = { 0.0f, -1.0f, 0.0f };
+    scene_data->spot_light.outer_angle = 45.0f;
+    scene_data->spot_light.inner_angle = 30.0f;
+    scene_data->spot_light.radius = 5.0f;
+    scene_data->spot_light.color = { 1.0f, 1.0f, 1.0f };
+    scene_data->spot_light.intensity = 1.0f;
 
     bool game_initialized = game_code->init_game(engine);
 
@@ -470,6 +483,8 @@ void game_loop(Engine *engine, F32 delta_time)
     Render_Context render_context = get_render_context();
     Scene_Data *scene_data = &render_context.renderer_state->scene_data;
     Directional_Light *directional_light = &scene_data->directional_light;
+    Point_Light *point_light = &scene_data->point_light;
+    Spot_Light *spot_light = &scene_data->spot_light;
 
     Renderer *renderer = render_context.renderer;
     Renderer_State *renderer_state = render_context.renderer_state;
@@ -493,29 +508,92 @@ void game_loop(Engine *engine, F32 delta_time)
             ImGui::Text("Directional Light");
             ImGui::Separator();
 
-            ImGui::Text("Direction");
+            ImGui::Text("Directional Light Direction");
             ImGui::SameLine();
 
-            ImGui::DragFloat3("##Direction", &directional_light->direction.x, 0.1f, -1.0f, 1.0f);
+            ImGui::DragFloat3("##Directional Light Direction", &directional_light->direction.x, 0.1f, -1.0f, 1.0f);
 
-            if (glm::length(directional_light->direction) > 0.0f)
+            if (glm::length2(directional_light->direction) > 0.0f)
             {
                 directional_light->direction = glm::normalize(directional_light->direction);
             }
 
-            ImGui::Text("Color");
+            ImGui::Text("Directional Light Color");
             ImGui::SameLine();
 
-            ImGui::ColorEdit4("##Color", &directional_light->color.r);
+            ImGui::ColorEdit3("##Directional Light Color", &directional_light->color.r);
+            ImGui::DragFloat("##Directional Light Intensity", &directional_light->intensity);
 
-            ImGui::Text("Intensity");
+            ImGui::Text("Point Light");
+            ImGui::Separator();
+
+            ImGui::Text("Point Light Position");
             ImGui::SameLine();
 
-            ImGui::DragFloat("##Intensity", &directional_light->intensity, 0.1f, 0.0f, HE_MAX_F32);
+            ImGui::DragFloat3("##Point Light Position", &point_light->position.x, 0.1f);
+            
+            ImGui::Text("Point Light Radius");
+            ImGui::SameLine();
+
+            ImGui::DragFloat("##Point Light Radius", &point_light->radius);
+
+            ImGui::Text("Point Light Color");
+            ImGui::SameLine();
+
+            ImGui::ColorEdit3("##Point Light Color", &point_light->color.r);
+
+            ImGui::Text("Point Light Intensity");
+            ImGui::SameLine();
+            
+            ImGui::DragFloat("##Point Light Intensity", &point_light->intensity);
+
+            ImGui::Text("Spot Light");
+            ImGui::Separator();
+
+            ImGui::Text("Spot Light Position");
+            ImGui::SameLine();
+
+            ImGui::DragFloat3("##Spot Light Position", &spot_light->position.x, 0.1f);                    
+            
+            ImGui::Text("Spot Light Radius");
+            ImGui::SameLine();
+            
+            ImGui::DragFloat("##Spot Light Radius", &spot_light->radius);
+            
+            ImGui::Text("Spot Light Direction");
+            ImGui::SameLine();
+            
+            ImGui::DragFloat3("##Spot Light Direction", &spot_light->direction.x, 0.1f, -1.0f, 1.0f);
+
+            if (glm::length2(spot_light->direction) > 0.0f)
+            {
+                spot_light->direction = glm::normalize(spot_light->direction);
+            }
+
+            ImGui::Text("Spot Light Outer Angle");
+            ImGui::SameLine();
+
+            ImGui::DragFloat("##Spot Light Outer Angle", &spot_light->outer_angle, 1.0f, 0.0f, 360.0f);
+
+            ImGui::Text("Spot Light Inner Angle");
+            ImGui::SameLine();
+
+            ImGui::DragFloat("##Spot Light Inner Angle", &spot_light->inner_angle, 1.0f, 0.0f, 360.0f);
+
+            ImGui::Text("Spot Light Color");
+            ImGui::SameLine();
+
+            ImGui::ColorEdit3("##Spot Light Color", &spot_light->color.r);
+
+            ImGui::Text("Spot Light Intensity");
+            ImGui::SameLine();
+
+            ImGui::DragFloat("##Spot Light Intensity", &spot_light->intensity);
 
             ImGui::Text("");
             ImGui::Text("Settings");
             ImGui::Separator();
+
 
             //
             // VSync
@@ -699,15 +777,16 @@ void game_loop(Engine *engine, F32 delta_time)
 
         renderer->begin_frame();
 
-        Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[renderer_state->current_frame_in_flight_index]);
+        Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[frame_index]);
         
         Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_shader, HE_STRING_LITERAL("Globals"));
-        
         glm::mat4 *view = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("view"));
         glm::mat4 *projection = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("projection"));
         glm::vec3 *eye = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("eye"));
         glm::vec3 *directional_light_direction = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("directional_light_direction"));
         glm::vec3 *directional_light_color = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("directional_light_color"));
+        U32 *light_count = (U32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("light_count")); 
+        Light *lights = (Light*)get_pointer(globals_struct, (U8*)global_uniform_buffer->data, HE_STRING_LITERAL("lights"));
         F32 *gamma = (F32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("gamma"));
 
         *view = scene_data->view;
@@ -716,7 +795,30 @@ void game_loop(Engine *engine, F32 delta_time)
         *eye = scene_data->eye;
         *directional_light_direction = scene_data->directional_light.direction;
         *directional_light_color = srgb_to_linear(scene_data->directional_light.color) * scene_data->directional_light.intensity;
+        *light_count = 2;
         *gamma = renderer_state->gamma;
+
+        {
+            Light *light = &lights[0];
+            light->position = scene_data->point_light.position;
+            light->radius = scene_data->point_light.radius;
+            
+            light->direction = { 0.0f, 0.0f, 0.0f };
+            light->outer_angle = glm::radians(180.0f);
+            light->inner_angle = glm::radians(0.0f);
+
+            light->color = srgb_to_linear(scene_data->point_light.color) * scene_data->point_light.intensity;
+        }
+
+        {
+            Light *light = &lights[1];
+            light->position = scene_data->spot_light.position;
+            light->radius = scene_data->spot_light.radius;
+            light->direction = scene_data->spot_light.direction;
+            light->outer_angle = glm::radians(scene_data->spot_light.outer_angle);
+            light->inner_angle = glm::radians(scene_data->spot_light.inner_angle);
+            light->color = srgb_to_linear(scene_data->spot_light.color) * scene_data->spot_light.intensity;
+        }
 
         U32 texture_count = renderer_state->textures.capacity;
         Texture_Handle *textures = HE_ALLOCATE_ARRAY(scratch_memory.arena, Texture_Handle, texture_count);
