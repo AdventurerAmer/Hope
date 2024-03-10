@@ -499,7 +499,8 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     U64 pipeline_cache_size = 0;
     U8 *pipeline_cache_data = nullptr;
     
-    Read_Entire_File_Result result = read_entire_file(HE_VULKAN_PIPELINE_CACHE_FILE_PATH, temprary_memory.arena);
+    Allocator allocator = to_allocator(temprary_memory.arena);
+    Read_Entire_File_Result result = read_entire_file(HE_VULKAN_PIPELINE_CACHE_FILE_PATH, &allocator);
     if (result.success)
     {
         VkPipelineCacheHeaderVersionOne *pipeline_cache_header = (VkPipelineCacheHeaderVersionOne *)result.data;

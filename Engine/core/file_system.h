@@ -30,29 +30,5 @@ struct Read_Entire_File_Result
     U64 size;
 };
 
-Read_Entire_File_Result read_entire_file(const char *filepath, auto allocator)
-{
-    Open_File_Result open_file_result = platform_open_file(filepath, OpenFileFlag_Read);
-    
-    if (!open_file_result.success)
-    {
-        return { .success = false, .data = nullptr, .size = 0 };
-    }
-
-    if (!open_file_result.size)
-    {
-        return { .success = false, .data = nullptr, .size = 0 };
-    }
-
-    U8 *data = HE_ALLOCATE_ARRAY(allocator, U8, open_file_result.size);
-    bool read = platform_read_data_from_file(&open_file_result, 0, data, open_file_result.size);
-    if (!read)
-    {
-        deallocate(allocator, data);
-        return { .success = false, .data = nullptr, .size = open_file_result.size };
-    }
-    platform_close_file(&open_file_result);
-    return { .success = true, .data = data, .size = open_file_result.size };
-}
-
+Read_Entire_File_Result read_entire_file(const char *filepath, Allocator *allocator);
 bool write_entire_file(const char *filepath, void *data, U64 size);

@@ -38,6 +38,8 @@ struct Resource_System_State
     Dynamic_Array< Resource > resources;
 
     Dynamic_Array< U32 > assets_to_condition;
+
+    Job_Handle save_asset_database_job;
 };
 
 static std::mutex resource_mutex;
@@ -101,13 +103,25 @@ static String absolute_path_to_relative(String absolute_path)
     return sub_string(absolute_path, resource_system_state->resource_path.count + 1);
 }
 
+bool serialize_asset_database(const String &path);
+
+Job_Result save_asset_database(const Job_Parameters &params)
+{
+    // todo(amer): @Hack until i figure out a good solution for saving assets meta data
+    asset_mutex.lock();
+    serialize_asset_database(resource_system_state->asset_database_path);
+    asset_mutex.unlock();
+    return Job_Result::SUCCEEDED;
+}
+
 static U32 create_asset(String absolute_path, U64 uuid, Asset_Type type)
 {
+    asset_mutex.lock();
+
     Asset &asset = append(&resource_system_state->assets);
     U32 asset_index = index_of(&resource_system_state->assets, asset);
     asset.type = type;
     asset.job_handle = Resource_Pool<Job>::invalid_handle;
-
     asset.uuid = uuid;
     asset.last_write_time = platform_get_file_last_write_time(absolute_path.data);
     asset.state = Asset_State::UNCONDITIONED;
@@ -125,6 +139,18 @@ static U32 create_asset(String absolute_path, U64 uuid, Asset_Type type)
 
     platform_create_mutex(&asset.mutex);
 
+    asset_mutex.unlock();
+
+    Job_Data job_data =
+    {
+        .proc = &save_asset_database
+    };
+    
+    Job_Handle wait_for_jobs[] =
+    {
+        resource_system_state->save_asset_database_job
+    };
+    resource_system_state->save_asset_database_job = execute_job(job_data, to_array_view(wait_for_jobs));
     return asset_index;
 }
 
@@ -170,7 +196,6 @@ static U32 create_resource(String absolute_path, Asset_Type type, U64 asset_uuid
 }
 
 // ========================== Resources ====================================
-
 static bool condition_texture_to_resource(Read_Entire_File_Result *asset_file_result, Asset *asset, Resource *resource, Memory_Arena *arena)
 {
     S32 width;
@@ -847,7 +872,7 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
         
         if (it == path_to_resource_index.end())
         {
-            material_resource_index = create_resource(copy_string(material_resource_absloute_path, allocator), Asset_Type::MATERIAL, asset->uuid);
+            material_resource_index = create_resource(copy_string(material_resource_absloute_path, to_allocator(allocator)), Asset_Type::MATERIAL, asset->uuid);
             
             Resource *material_resource = &resource_system_state->resources[material_resource_index];
             append(&asset->resource_refs, material_resource->uuid);
@@ -951,7 +976,7 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
 
         if (it == path_to_resource_index.end())
         {
-            static_mesh_resource_index = create_resource(copy_string(static_mesh_resource_absloute_path, allocator), Asset_Type::STATIC_MESH, asset->uuid);
+            static_mesh_resource_index = create_resource(copy_string(static_mesh_resource_absloute_path, to_allocator(allocator)), Asset_Type::STATIC_MESH, asset->uuid);
             Resource *static_mesh_resource = &resource_system_state->resources[static_mesh_resource_index];
             append(&asset->resource_refs, static_mesh_resource->uuid);
         }
@@ -1291,7 +1316,8 @@ static Job_Result condition_asset_job(const Job_Parameters &params)
 
     Asset_Conditioner &conditioner = resource_system_state->resource_type_infos[(U32)resource->type].conditioner;
 
-    Read_Entire_File_Result asset_file_result = read_entire_file(asset_path.data, params.arena);
+    Allocator allocator = to_allocator(params.arena);
+    Read_Entire_File_Result asset_file_result = read_entire_file(asset_path.data, &allocator);
 
     if (!asset_file_result.success)
     {
@@ -1322,8 +1348,9 @@ struct Load_Resource_Job_Data
 static Job_Result load_resource_job(const Job_Parameters &params)
 {
     Load_Resource_Job_Data *job_data = (Load_Resource_Job_Data *)params.data;
+    Render_Context render_context = get_render_context();
+    finalize_asset_loads(render_context.renderer, render_context.renderer_state);
     Resource *resource = job_data->resource;
-
     HE_ASSERT(resource->asset_uuid != HE_MAX_U64);
     auto it = uuid_to_asset_index.find(resource->asset_uuid);
     HE_ASSERT(it != uuid_to_asset_index.end());
@@ -1405,7 +1432,7 @@ static void on_path(String *path, bool is_directory)
     Memory_Arena *arena = get_permenent_arena();
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
-    String absolute_path = copy_string(*path, arena);
+    String absolute_path = copy_string(*path, to_allocator(arena));
     String relative_path = absolute_path_to_relative(absolute_path);
     String extension = get_extension(relative_path);
 
@@ -1487,7 +1514,7 @@ static void on_path(String *path, bool is_directory)
 
     if (!file_exists(resource_absolute_path))
     {
-        U32 resource_index = create_resource(copy_string(resource_absolute_path, arena), asset->type, asset->uuid);
+        U32 resource_index = create_resource(copy_string(resource_absolute_path, to_allocator(arena)), asset->type, asset->uuid);
         Resource *resource = &resource_system_state->resources[resource_index];
         append(&asset->resource_refs, resource->uuid);
         append(&resource_system_state->assets_to_condition, (U32)asset_index);
@@ -1508,30 +1535,36 @@ static bool serialize_asset_database(const String &path)
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
     U8 *buffer = &scratch_memory.arena->base[scratch_memory.arena->offset];
-    U64 offset = scratch_memory.arena->offset;
+    U64 offset = 0;
 
-    Asset_Database_Header *header = HE_ALLOCATE(scratch_memory.arena, Asset_Database_Header);
+    Asset_Database_Header *header = (Asset_Database_Header *)&buffer[offset];
+    offset += sizeof(Asset_Database_Header);
+
     header->asset_count = resource_system_state->assets.count;
 
     for (Asset &asset : resource_system_state->assets)
     {
-        Asset_Info *info = HE_ALLOCATE(scratch_memory.arena, Asset_Info);
+        Asset_Info *info = (Asset_Info *)&buffer[offset];
+        offset += sizeof(Asset_Info);
+
         info->relative_path_count = asset.relative_path.count;
         info->uuid = asset.uuid;
         info->last_write_time = asset.last_write_time;
         info->resource_refs_count = asset.resource_refs.count;
-
-        char *relative_path = HE_ALLOCATE_ARRAY_UNALIGNED(scratch_memory.arena, char, asset.relative_path.count);
+        
+        char *relative_path = (char *)&buffer[offset];
+        offset += sizeof(char) * asset.relative_path.count;
         copy_memory(relative_path, asset.relative_path.data, sizeof(char) * asset.relative_path.count);
 
         if (asset.resource_refs.count)
         {
-            U64 *uuids = HE_ALLOCATE_ARRAY_UNALIGNED(scratch_memory.arena, U64, asset.resource_refs.count);
+            U64 *uuids = (U64 *)&buffer[offset];
+            offset += sizeof(U64) * asset.resource_refs.count;
             copy_memory(uuids, asset.resource_refs.data, sizeof(U64) * asset.resource_refs.count);
         }
     }
 
-    bool success = write_entire_file(path.data, buffer, scratch_memory.arena->offset - offset);
+    bool success = write_entire_file(path.data, buffer, offset);
     if (!success)
     {
         HE_LOG(Resource, Fetal, "failed to serialize asset database\n");
@@ -1544,7 +1577,8 @@ static bool deserialize_asset_database(const String &path)
     Memory_Arena *arena = get_permenent_arena();
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
-    Read_Entire_File_Result result = read_entire_file(path.data, scratch_memory.arena);
+    Allocator allocator = to_allocator(scratch_memory.arena);
+    Read_Entire_File_Result result = read_entire_file(path.data, &allocator);
     if (!result.success)
     {
         HE_LOG(Resource, Fetal, "failed to deserialize asset database\n");
@@ -1754,6 +1788,8 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
 
         register_asset(Asset_Type::SCENE, "scene", 1, conditioner, loader);
     }
+
+    resource_system_state->save_asset_database_job = Resource_Pool< Job >::invalid_handle;
 
     if (file_exists(resource_system_state->asset_database_path))
     {

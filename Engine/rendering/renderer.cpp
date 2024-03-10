@@ -529,7 +529,8 @@ bool init_renderer_state(Engine *engine)
     renderer_state->default_cubemap_sampler = renderer_create_sampler(default_cubemap_sampler_descriptor);
 
     {
-        Read_Entire_File_Result result = read_entire_file("shaders/default.glsl", scratch_memory.arena);
+        Allocator allocator = to_allocator(scratch_memory.arena);
+        Read_Entire_File_Result result = read_entire_file("shaders/default.glsl", &allocator);
         String default_shader_source = { .data = (const char *)result.data, .count = result.size };
         
         Shader_Compilation_Result default_shader_compilation_result = renderer_compile_shader(default_shader_source, HE_STRING_LITERAL("shaders")); // todo(amer): @Leak
@@ -633,7 +634,6 @@ bool init_renderer_state(Engine *engine)
         }
     }
 
-
     // skybox
     {
         Allocation_Group allocation_group =
@@ -692,34 +692,37 @@ bool init_renderer_state(Engine *engine)
             .allocation_group = &append(&renderer_state->allocation_groups, allocation_group),
         };
         renderer_state->skybox = renderer_create_texture(cubmap_texture_descriptor);
-
-        Read_Entire_File_Result result = read_entire_file("shaders/skybox.glsl", scratch_memory.arena);
-        String skybox_shader_source = { .data = (const char *)result.data, .count = result.size };
-        Shader_Compilation_Result skybox_compilation_result = renderer_compile_shader(skybox_shader_source, HE_STRING_LITERAL("shaders"));
-        HE_ASSERT(skybox_compilation_result.success);
-        
-        Shader_Descriptor skybox_shader_descriptor =
+       
         {
-            .name = HE_STRING_LITERAL("skybox"),
-            .compilation_result = &skybox_compilation_result
-        };
-        renderer_state->skybox_shader = renderer_create_shader(skybox_shader_descriptor);
-        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->skybox_shader));
+            Allocator allocator = to_allocator(scratch_memory.arena);
+            Read_Entire_File_Result result = read_entire_file("shaders/skybox.glsl", &allocator);
+            String skybox_shader_source = { .data = (const char*)result.data, .count = result.size };
+            Shader_Compilation_Result skybox_compilation_result = renderer_compile_shader(skybox_shader_source, HE_STRING_LITERAL("shaders"));
+            HE_ASSERT(skybox_compilation_result.success);
 
-        Pipeline_State_Descriptor skybox_pipeline_state_descriptor =
-        {
-            .settings =
+            Shader_Descriptor skybox_shader_descriptor =
             {
-                .cull_mode = Cull_Mode::NONE,
-                .front_face = Front_Face::COUNTER_CLOCKWISE,
-                .fill_mode = Fill_Mode::SOLID,
-                .depth_testing = false,
-                .sample_shading = true,
-            },
-            .shader = renderer_state->skybox_shader,
-            .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"),
-        };
-        renderer_state->skybox_pipeline = renderer_create_pipeline_state(skybox_pipeline_state_descriptor);
+                .name = HE_STRING_LITERAL("skybox"),
+                .compilation_result = &skybox_compilation_result
+            };
+            renderer_state->skybox_shader = renderer_create_shader(skybox_shader_descriptor);
+            HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->skybox_shader));
+
+            Pipeline_State_Descriptor skybox_pipeline_state_descriptor =
+            {
+                .settings =
+                {
+                    .cull_mode = Cull_Mode::NONE,
+                    .front_face = Front_Face::COUNTER_CLOCKWISE,
+                    .fill_mode = Fill_Mode::SOLID,
+                    .depth_testing = false,
+                    .sample_shading = true,
+                },
+                .shader = renderer_state->skybox_shader,
+                .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"),
+            };
+            renderer_state->skybox_pipeline = renderer_create_pipeline_state(skybox_pipeline_state_descriptor);
+        }
 
         Material_Descriptor skybox_material_descriptor =
         {
@@ -947,7 +950,7 @@ static shaderc_shader_kind shader_stage_to_shaderc_kind(Shader_Stage stage)
 
 struct Shaderc_UserData
 {
-    Free_List_Allocator *allocator;
+    Allocator allocator;
     String include_path;
 };
 
@@ -957,9 +960,9 @@ shaderc_include_result *shaderc_include_resolve(void *user_data, const char *req
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
     String source = HE_STRING(requested_source);
     String path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(ud->include_path), HE_EXPAND_STRING(source));
-    Read_Entire_File_Result file_result = read_entire_file(path.data, ud->allocator);
+    Read_Entire_File_Result file_result = read_entire_file(path.data, &ud->allocator);
     HE_ASSERT(file_result.success);
-    shaderc_include_result *result = HE_ALLOCATE(ud->allocator, shaderc_include_result);
+    shaderc_include_result *result = HE_ALLOCATOR_ALLOCATE(&ud->allocator, shaderc_include_result);
     result->source_name = requested_source;
     result->source_name_length = string_length(requested_source);
     result->user_data = ud;
@@ -971,8 +974,8 @@ shaderc_include_result *shaderc_include_resolve(void *user_data, const char *req
 void shaderc_include_result_release(void *user_data, shaderc_include_result *include_result)
 {
     Shaderc_UserData *ud = (Shaderc_UserData *)user_data;
-    deallocate(ud->allocator, (void *)include_result->content);
-    deallocate(ud->allocator, include_result);
+    HE_ALLOCATOR_DEALLOCATE(&ud->allocator, (void *)include_result->content);
+    HE_ALLOCATOR_DEALLOCATE(&ud->allocator, include_result);
 }
 
 Shader_Compilation_Result renderer_compile_shader(String source, String include_path)
@@ -984,7 +987,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
     Shaderc_UserData *shaderc_userdata = HE_ALLOCATE(allocator, Shaderc_UserData);
-    shaderc_userdata->allocator = allocator;
+    shaderc_userdata->allocator = to_allocator(allocator);
     shaderc_userdata->include_path = include_path;
 
     HE_DEFER
@@ -1090,7 +1093,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
         const char *data = shaderc_result_get_bytes(result);
         U64 size = shaderc_result_get_length(result);
         String blob = { data, size };
-        compilation_result.stages[stage_index] = copy_string(blob, allocator);
+        compilation_result.stages[stage_index] = copy_string(blob, to_allocator(allocator));
     }
 
     compilation_result.success = true;

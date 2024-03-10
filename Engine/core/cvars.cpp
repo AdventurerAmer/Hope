@@ -48,7 +48,7 @@ static CVar_Category* find_or_append_category(const String &name, bool should_ap
     if (should_append)
     {
         CVar_Category category = {};
-        category.name = copy_string(name, get_permenent_arena());
+        category.name = copy_string(name, to_allocator(get_permenent_arena()));
         init(&category.vars);
 
         append(&categories, category);
@@ -73,7 +73,7 @@ static CVar* find_or_append_cvar(CVar_Category *category, const String &name, bo
     if (should_append)
     {
         CVar var = {};
-        var.name = copy_string(name, get_permenent_arena());
+        var.name = copy_string(name, to_allocator(get_permenent_arena()));
         append(&vars, var);
         return &back(&vars);
     }
@@ -91,7 +91,8 @@ bool init_cvars(const char *filepath)
     Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
-    Read_Entire_File_Result result = read_entire_file(filepath, temprary_memory.arena);
+    Allocator allocator = to_allocator(temprary_memory.arena);
+    Read_Entire_File_Result result = read_entire_file(filepath, &allocator);
     CVar_Category *category = nullptr;
 
     if (result.success)
@@ -123,7 +124,7 @@ bool init_cvars(const char *filepath)
                 String value = sub_string(cvar_name_value_pair, space + 1);
 
                 CVar *var = find_or_append_cvar(category, name);
-                var->value = copy_string(value, get_permenent_arena());
+                var->value = copy_string(value, to_allocator(get_permenent_arena()));
             }
 
             str.data += new_line_index + 1;

@@ -308,7 +308,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
                 
                 member.offset = u64_to_u32(offset);
                 member.size = u64_to_u32(member_size);
-                member.name = copy_string(HE_STRING(name.c_str()), allocator);
+                member.name = copy_string(HE_STRING(name.c_str()), to_allocator(allocator));
                 member.data_type = spirv_type_to_shader_data_type(member_type);
 
                 if (!member_type.array.empty())
@@ -347,7 +347,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
 
             binding.descriptorCount = descriptor_count;
 
-            String name = copy_string(HE_STRING(resource.name.c_str()), allocator);
+            String name = copy_string(HE_STRING(resource.name.c_str()), to_allocator(allocator));
             append_struct(name, type);
         }
 
@@ -373,7 +373,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
 
             binding.descriptorCount = descriptor_count;
 
-            String name = copy_string(HE_STRING(resource.name.c_str()), allocator);
+            String name = copy_string(HE_STRING(resource.name.c_str()), to_allocator(allocator));
             append_struct(name, type);
         }
     }

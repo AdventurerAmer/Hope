@@ -14,7 +14,7 @@ U64 string_length(const char *str)
     return length;
 }
 
-U64 hash_key(const String &str)
+U64 hash_key(String str)
 {
     const U64 p = 31;
     const U64 m = U64(1e9) + 7;
@@ -27,6 +27,16 @@ U64 hash_key(const String &str)
         multiplier = (multiplier * p) % m;
     }
     return hash;
+}
+
+String copy_string(const char *str, U64 count, Allocator allocator)
+{
+    HE_ASSERT(str);
+    HE_ASSERT(count);
+    char *data = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, char, count + 1);
+    copy_memory(data, str, count);
+    data[count] = 0;
+    return { data, count };
 }
 
 // todo(amer): SIMD Version
@@ -47,7 +57,7 @@ bool equal(const char *a, U64 a_length, const char *b, U64 b_length)
 }
 
 // todo(amer): SIMD version
-S64 find_first_char_from_left(const String &str, const String &chars, U64 offset)
+S64 find_first_char_from_left(String str, String chars, U64 offset)
 {
     HE_ASSERT(offset <= str.count);
 
@@ -66,7 +76,7 @@ S64 find_first_char_from_left(const String &str, const String &chars, U64 offset
 }
 
 // todo(amer): SIMD version
-S64 find_first_char_from_right(const String &str, const String &chars)
+S64 find_first_char_from_right(String str, String chars)
 {
     for (S64 i = str.count - 1; i >= 0; i--)
     {
@@ -82,7 +92,7 @@ S64 find_first_char_from_right(const String &str, const String &chars)
     return -1;
 }
 
-bool starts_with(const String &str, const String &start)
+bool starts_with(String str, String start)
 {
     if (start.count > str.count)
     {
@@ -91,7 +101,7 @@ bool starts_with(const String &str, const String &start)
     return sub_string(str, 0, start.count) == start;
 }
 
-bool ends_with(const String &str, const String &end)
+bool ends_with(String str, String end)
 {
     if (end.count > str.count)
     {
@@ -102,13 +112,13 @@ bool ends_with(const String &str, const String &end)
     return sub_string(str, offset, end.count) == end;
 }
 
-String sub_string(const String &str, U64 index)
+String sub_string(String str, U64 index)
 {
     HE_ASSERT(index < str.count);
     return { str.data + index, str.count - index };
 }
 
-String sub_string(const String &str, U64 index, U64 count)
+String sub_string(String str, U64 index, U64 count)
 {
     HE_ASSERT(index < str.count);
     HE_ASSERT(str.count - index >= count);
@@ -125,13 +135,13 @@ String format_string(Memory_Arena *arena, const char *format, va_list args)
     return { (const char *)buffer, (U64)count };
 }
 
-String advance(const String &str, U64 count)
+String advance(String str, U64 count)
 {
     HE_ASSERT(count <= str.count);
     return { .data = str.data + count, .count = str.count - count }; 
 }
 
-String eat_chars(const String &str, const String &chars)
+String eat_chars(String str, String chars)
 {
     for (U64 i = 0; i < str.count; i++)
     {

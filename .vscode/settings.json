@@ -74,6 +74,7 @@
         "ranges": "cpp",
         "span": "cpp",
         "map": "cpp",
-        "set": "cpp"
+        "set": "cpp",
+        "filesystem": "cpp"
     }
 }

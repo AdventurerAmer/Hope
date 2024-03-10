@@ -51,7 +51,7 @@ bool init_memory_system()
         return false;
     }
 
-    init(&memory_system_state.thread_id_to_memory_state, get_effective_thread_count() + 1); // +1 for the main thread
+    init(&memory_system_state.thread_id_to_memory_state, get_effective_thread_count() + 1, to_allocator(&memory_system_state.permenent_arena)); // +1 for the main thread
 
     S32 slot_index = insert(&memory_system_state.thread_id_to_memory_state, platform_get_current_thread_id());
     HE_ASSERT(slot_index != -1);
@@ -87,7 +87,6 @@ Thread_Memory_State *get_thread_memory_state(U32 thread_id)
 void imgui_draw_arena(Memory_Arena *arena, const char *name)
 {
     float bytes_to_mega = 1.0f / (1024.0f * 1024.0f);
-
     ImGui::Text(name);
     ImGui::Text("capacity: %.2f mb", arena->capacity * bytes_to_mega);
     ImGui::Text("min allocation size: %.2f mb", arena->min_allocation_size * bytes_to_mega);
@@ -271,7 +270,7 @@ void* allocate(Memory_Arena *arena, U64 size, U16 alignment)
     return result;
 }
 
-void* reallocate(Memory_Arena *arena, void *memory, U64 new_size, U16 alignment)
+void *reallocate(Memory_Arena *arena, void *memory, U64 new_size, U16 alignment)
 {
     HE_ASSERT(false);
     return nullptr;

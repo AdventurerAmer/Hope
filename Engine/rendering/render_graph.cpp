@@ -6,11 +6,13 @@
 
 void init(Render_Graph *render_graph)
 {
+    Allocator allocator = to_allocator(get_permenent_arena());
+
     reset(&render_graph->nodes);
-    init(&render_graph->node_cache, HE_MAX_RENDER_GRAPH_NODE_COUNT);
+    init(&render_graph->node_cache, HE_MAX_RENDER_GRAPH_NODE_COUNT, allocator);
 
     reset(&render_graph->resources);
-    init(&render_graph->resource_cache, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT);
+    init(&render_graph->resource_cache, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT, allocator);
 
     reset(&render_graph->texture_free_list);
     

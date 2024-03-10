@@ -192,6 +192,7 @@ bool startup(Engine *engine, void *platform_state)
     // aquire_resource("Sponza/Sponza.hres");
     // aquire_resource("FlightHelmet/FlightHelmet.hres");
     aquire_resource("Corset/Corset.hres");
+
     return game_initialized;
 }
 
@@ -593,7 +594,6 @@ void game_loop(Engine *engine, F32 delta_time)
             ImGui::Text("");
             ImGui::Text("Settings");
             ImGui::Separator();
-
 
             //
             // VSync

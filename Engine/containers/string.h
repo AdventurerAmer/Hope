@@ -14,7 +14,7 @@ struct String
 #define HE_EXPAND_STRING(string) (U32)((string).count), (string).data
 
 U64 string_length(const char *str);
-U64 hash_key(const String &str);
+U64 hash_key(String str);
 
 template< U64 Count >
 constexpr U64 comptime_string_length(const char(&)[Count])
@@ -38,22 +38,11 @@ constexpr U64 comptime_string_hash(const char(&str)[Count])
     return hash;
 }
 
-String copy_string(const char *str, U64 count, auto allocator)
-{
-    if (!count)
-    {
-        return HE_STRING_LITERAL("");
-    }
+String copy_string(const char *str, U64 count, Allocator allocator);
 
-    char *data = HE_ALLOCATE_ARRAY(allocator, char, count + 1);
-    copy_memory(data, str, count);
-    data[count] = 0;
-    return { data, count };
-}
-
-String copy_string(const String &string, auto allocator)
+HE_FORCE_INLINE String copy_string(String str, Allocator allocator)
 {
-    return copy_string(string.data, string.count, allocator);
+    return copy_string(str.data, str.count, allocator);
 }
 
 bool equal(const char *a, U64 a_length, const char *b, U64 b_length);
@@ -92,20 +81,20 @@ HE_FORCE_INLINE bool operator!=(const char *lhs, const String &rhs)
     return !equal(lhs, lhs_length, rhs.data, rhs.count);
 }
 
-S64 find_first_char_from_left(const String &str, const String &chars, U64 offset = 0);
-S64 find_first_char_from_right(const String &str, const String &chars);
+S64 find_first_char_from_left(String str, String chars, U64 offset = 0);
+S64 find_first_char_from_right(String str, String chars);
 
-bool starts_with(const String &str, const String &start);
-bool ends_with(const String &str, const String &end);
+bool starts_with(String str, String start);
+bool ends_with(String str, String end);
 
-String sub_string(const String &str, U64 index);
-String sub_string(const String &str, U64 index, U64 count);
+String sub_string(String str, U64 index);
+String sub_string(String str, U64 index, U64 count);
 
 String format_string(struct Memory_Arena *arena, const char *format, ...);
 String format_string(struct Memory_Arena *arena, const char *format, va_list args);
 
-String advance(const String &str, U64 count);
-String eat_chars(const String &str, const String &chars);
+String advance(String str, U64 count);
+String eat_chars(String str, String chars);
 
 struct String_Builder
 {
