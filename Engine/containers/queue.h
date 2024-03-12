@@ -3,7 +3,7 @@
 #include "core/defines.h"
 #include "core/memory.h"
 
-template< typename T, typename Allocator >
+template< typename T >
 struct Ring_Queue
 {
     T *data;
@@ -11,14 +11,14 @@ struct Ring_Queue
     U32 mask;
     U32 write;
     U32 read;
-    Allocator *allocator;
+    Allocator allocator;
 };
 
-template< typename T, typename Allocator >
-void init(Ring_Queue< T, Allocator > *queue, U32 capacity, Allocator *allocator)
+template< typename T >
+void init(Ring_Queue< T > *queue, U32 capacity, Allocator allocator)
 {
     HE_ASSERT((capacity & (capacity - 1)) == 0);
-    queue->data = HE_ALLOCATE_ARRAY(allocator, T, capacity);
+    queue->data = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, T, capacity);
     queue->capacity = capacity;
     queue->mask = capacity - 1;
     queue->write = 0;
@@ -26,32 +26,32 @@ void init(Ring_Queue< T, Allocator > *queue, U32 capacity, Allocator *allocator)
     queue->allocator = allocator;
 }
 
-template< typename T, typename Allocator >
-void deinit(Ring_Queue< T, Allocator > *queue)
+template< typename T >
+void deinit(Ring_Queue< T > *queue)
 {
-    deallocate(queue->allocator, queue->data);
+    HE_ALLOCATOR_DEALLOCATE(&queue->allocator, queue->data);
 }
 
-template< typename T, typename Allocator >
-U32 count(Ring_Queue< T, Allocator > *queue)
+template< typename T >
+U32 count(Ring_Queue< T > *queue)
 {
     return queue->write - queue->read;
 }
 
-template< typename T, typename Allocator >
-bool empty(Ring_Queue< T, Allocator > *queue)
+template< typename T >
+bool empty(Ring_Queue< T > *queue)
 {
     return count(queue) == 0;
 }
 
-template< typename T, typename Allocator >
-bool full(Ring_Queue< T, Allocator > *queue)
+template< typename T >
+bool full(Ring_Queue< T > *queue)
 {
     return count(queue) == queue->capacity;
 }
 
-template< typename T, typename Allocator >
-S32 push(Ring_Queue< T, Allocator > *queue, const T &item)
+template< typename T >
+S32 push(Ring_Queue< T > *queue, const T &item)
 {
     if (full(queue))
     {
@@ -64,8 +64,8 @@ S32 push(Ring_Queue< T, Allocator > *queue, const T &item)
     return (S32)index;
 }
 
-template< typename T, typename Allocator >
-bool peek_front(Ring_Queue< T, Allocator > *queue, T *out_datum, U32 *index = nullptr)
+template< typename T >
+bool peek_front(Ring_Queue< T > *queue, T *out_datum, U32 *index = nullptr)
 {
     HE_ASSERT(out_datum);
     if (empty(queue))
@@ -81,8 +81,8 @@ bool peek_front(Ring_Queue< T, Allocator > *queue, T *out_datum, U32 *index = nu
     return true;
 }
 
-template < typename T, typename Allocator >
-bool peek_back(Ring_Queue< T, Allocator > *queue, T *out_datum)
+template < typename T >
+bool peek_back(Ring_Queue< T > *queue, T *out_datum)
 {
 
     HE_ASSERT(out_datum);
@@ -95,15 +95,15 @@ bool peek_back(Ring_Queue< T, Allocator > *queue, T *out_datum)
     return true;
 }
 
-template< typename T, typename Allocator >
-void pop_front(Ring_Queue< T, Allocator > *queue)
+template< typename T >
+void pop_front(Ring_Queue< T > *queue)
 {
     HE_ASSERT(!empty(queue));
     queue->read++;
 }
 
-template< typename T, typename Allocator >
-void pop_back(Ring_Queue< T, Allocator > *queue)
+template< typename T >
+void pop_back(Ring_Queue< T > *queue)
 {
     HE_ASSERT(!empty(queue));
     queue->write--;

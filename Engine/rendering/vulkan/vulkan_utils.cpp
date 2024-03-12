@@ -193,7 +193,7 @@ void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U3
     vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
-void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width, U32 height, U32 mip_levels, U32 layer_count, VkFormat format, Array_View< void * > data, Allocation_Group *allocation_group)
+void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width, U32 height, U32 mip_levels, U32 layer_count, VkFormat format, Array_View< void * > data, Upload_Request *upload_request)
 {
     HE_ASSERT(context);
     HE_ASSERT(image);
@@ -319,27 +319,18 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
 
     VkSemaphoreSubmitInfoKHR semaphore_submit_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 
-    if (allocation_group)
+    if (upload_request)
     {
-        allocation_group->target_value++;
-        Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[allocation_group->semaphore.index];
-        
+        upload_request->target_value++;
+        Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[upload_request->semaphore.index];
+
         semaphore_submit_info.semaphore = vulkan_semaphore->handle;
-        semaphore_submit_info.value = allocation_group->target_value;
+        semaphore_submit_info.value = upload_request->target_value;
         semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
 
         submit_info.signalSemaphoreInfoCount = 1;
         submit_info.pSignalSemaphoreInfos = &semaphore_submit_info;
     }
-    
+
     context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-}
-
-void destroy_image(Vulkan_Image *image, Vulkan_Context *context)
-{
-    vkDestroyImageView(context->logical_device, image->view, &context->allocation_callbacks);
-    vmaDestroyImage(context->allocator, image->handle, image->allocation);
-
-    image->handle = VK_NULL_HANDLE;
-    image->view = VK_NULL_HANDLE;
 }

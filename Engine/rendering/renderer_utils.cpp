@@ -86,3 +86,8 @@ U32 get_anisotropic_filtering_value(Anisotropic_Filtering_Setting anisotropic_fi
 
     return 0;
 }
+
+glm::vec3 srgb_to_linear(const glm::vec3 &color, F32 gamma)
+{
+    return glm::pow(color, glm::vec3(gamma));
+}

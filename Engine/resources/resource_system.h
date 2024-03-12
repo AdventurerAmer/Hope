@@ -69,8 +69,7 @@ struct Resource
     U64 asset_uuid;
 
     Mutex mutex;
-    Allocation_Group allocation_group;
-
+    
     // todo(amer): is volatile and atomics nessessary here.
     volatile Resource_State state;
     volatile U32 ref_count;
@@ -110,7 +109,6 @@ typedef void(*unload_resource_proc)(Resource *resource);
 
 struct Resource_Loader
 {
-    bool use_allocation_group;
     load_resource_proc load;
     unload_resource_proc unload;
     S32 index;

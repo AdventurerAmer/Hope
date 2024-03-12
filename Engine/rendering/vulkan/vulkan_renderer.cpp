@@ -873,7 +873,7 @@ void vulkan_renderer_end_frame()
     context->timeline_value++;
 }
 
-bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture_Descriptor &descriptor)
+bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture_Descriptor &descriptor, Upload_Request *upload_request)
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
@@ -961,23 +961,9 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     if (descriptor.data.count > 0)
     {
         Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
-        copy_data_to_image(context, image, descriptor.width, descriptor.height, mip_levels, descriptor.layer_count, get_texture_format(descriptor.format), descriptor.data, descriptor.allocation_group);
+        copy_data_to_image(context, image, descriptor.width, descriptor.height, mip_levels, descriptor.layer_count, get_texture_format(descriptor.format), descriptor.data, upload_request);
     }
-
-    texture->is_uploaded_to_gpu = false;
-
-    if (descriptor.allocation_group)
-    {
-        descriptor.allocation_group->uploaded = &texture->is_uploaded_to_gpu;
-    }
-
-    texture->width = descriptor.width;
-    texture->height = descriptor.height;
-    texture->is_attachment = descriptor.is_attachment;
-    texture->is_cubemap = descriptor.is_cubemap;
-    texture->format = descriptor.format;
-    texture->sample_count = descriptor.sample_count;
-    texture->alias = descriptor.alias;
+    
     texture->size = image->allocation_info.size;
     texture->alignment = image->allocation->GetAlignment();
     return true;
@@ -987,7 +973,11 @@ void vulkan_renderer_destroy_texture(Texture_Handle texture_handle)
 {
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Image *vulkan_image = &context->textures[texture_handle.index];
-    destroy_image(vulkan_image, &vulkan_context);
+    vkDestroyImageView(context->logical_device, vulkan_image->view, &context->allocation_callbacks);
+    vmaDestroyImage(context->allocator, vulkan_image->handle, vulkan_image->allocation);
+
+    vulkan_image->handle = VK_NULL_HANDLE;
+    vulkan_image->view = VK_NULL_HANDLE;
 }
 
 static VkSamplerAddressMode get_address_mode(Address_Mode address_mode)
@@ -1665,7 +1655,7 @@ void vulkan_renderer_destroy_buffer(Buffer_Handle buffer_handle)
     vmaDestroyBuffer(context->allocator, vulkan_buffer->handle, vulkan_buffer->allocation);
 }
 
-bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor)
+bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor, Upload_Request *upload_request)
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
@@ -1746,20 +1736,16 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     submit_info.pCommandBufferInfos = &command_buffer_submit_info;
 
     VkSemaphoreSubmitInfoKHR semaphore_submit_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+    
+    upload_request->target_value++;
+    Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[upload_request->semaphore.index];
+    
+    semaphore_submit_info.semaphore = vulkan_semaphore->handle;
+    semaphore_submit_info.value = upload_request->target_value;
+    semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
 
-    if (descriptor.allocation_group)
-    {
-        Allocation_Group *allocation_group = descriptor.allocation_group;
-        allocation_group->target_value++;
-        Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[allocation_group->semaphore.index];
-        
-        semaphore_submit_info.semaphore = vulkan_semaphore->handle;
-        semaphore_submit_info.value = allocation_group->target_value;
-        semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
-
-        submit_info.signalSemaphoreInfoCount = 1;
-        submit_info.pSignalSemaphoreInfos = &semaphore_submit_info;
-    }
+    submit_info.signalSemaphoreInfoCount = 1;
+    submit_info.pSignalSemaphoreInfos = &semaphore_submit_info;
 
     context->vkQueueSubmit2KHR(context->transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
     return true;

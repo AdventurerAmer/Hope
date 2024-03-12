@@ -22,7 +22,7 @@ struct Thread_State
     Mutex job_queue_mutex;
     Mutex dependency_mutex;
 
-    Ring_Queue< Job_Handle, Memory_Arena > job_queue;
+    Ring_Queue< Job_Handle > job_queue;
 };
 
 struct Job_System_State
@@ -136,7 +136,7 @@ unsigned long execute_thread_work(void *params)
     Semaphore *job_queue_semaphore = &thread_state->job_queue_semaphore;
     Mutex *job_queue_mutex = &thread_state->job_queue_mutex;
     Mutex *dependency_mutex = &thread_state->dependency_mutex;
-    Ring_Queue< Job_Handle, Memory_Arena > *job_queue = &thread_state->job_queue;
+    Ring_Queue< Job_Handle > *job_queue = &thread_state->job_queue;
 
     while (true)
     {
@@ -195,14 +195,14 @@ bool init_job_system()
     job_system_state.thread_count = thread_count;
     job_system_state.thread_states = HE_ALLOCATE_ARRAY(arena, Thread_State, thread_count);
 
-    init(&job_system_state.job_pool, thread_count * JOB_COUNT_PER_THREAD, &job_system_state.job_data_allocator);
+    init(&job_system_state.job_pool, thread_count * JOB_COUNT_PER_THREAD, to_allocator(&job_system_state.job_data_allocator));
 
     for (U32 thread_index = 0; thread_index < thread_count; thread_index++)
     {
         Thread_State *thread_state = &job_system_state.thread_states[thread_index];
         thread_state->thread_index = thread_index;
 
-        init(&thread_state->job_queue, JOB_COUNT_PER_THREAD, arena);
+        init(&thread_state->job_queue, JOB_COUNT_PER_THREAD, to_allocator(arena));
 
         bool job_queue_semaphore_created = platform_create_semaphore(&thread_state->job_queue_semaphore);
         HE_ASSERT(job_queue_semaphore_created);
@@ -335,7 +335,7 @@ void wait_for_all_jobs_to_finish()
         // we don't actually wait here we just decrement the semaphore counter...
         wait_for_semaphore(&most_worked_thread_state->job_queue_semaphore);
 
-        Ring_Queue< Job_Handle, Memory_Arena > *job_queue = &most_worked_thread_state->job_queue;
+        Ring_Queue< Job_Handle > *job_queue = &most_worked_thread_state->job_queue;
 
         Job_Handle job_handle = Resource_Pool< Job >::invalid_handle;
         bool peeked = peek_back(job_queue, &job_handle);

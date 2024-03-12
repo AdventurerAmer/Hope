@@ -40,6 +40,37 @@ struct Memory_Requirements
 };
 
 //
+// Semaphore
+//
+
+struct Renderer_Semaphore_Descriptor
+{
+    U64 initial_value = 0;
+};
+
+struct Renderer_Semaphore
+{
+    Renderer_Semaphore_Descriptor descriptor;
+};
+
+using Semaphore_Handle = Resource_Handle< Renderer_Semaphore >;
+
+//
+// Uploads
+//
+
+#define HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT 8
+
+struct Upload_Request
+{
+    String name;
+    Semaphore_Handle semaphore;
+    U64 target_value;
+    Array< void*, HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT > allocations_in_transfer_buffer;
+    bool *uploaded;
+};
+
+//
 // Buffer
 //
 
@@ -96,10 +127,10 @@ struct Texture
 
     U64 size;
     U64 alignment;
-
-    bool is_uploaded_to_gpu;
+    
     bool is_attachment;
     bool is_cubemap;
+    bool is_uploaded_to_gpu;
     Resource_Handle< Texture > alias;
 };
 
@@ -117,7 +148,6 @@ struct Texture_Descriptor
     bool is_attachment = false;
     bool is_cubemap = false;
     Texture_Handle alias = Resource_Pool< Texture >::invalid_handle;
-    struct Allocation_Group *allocation_group = nullptr;
 };
 
 //
@@ -443,43 +473,6 @@ struct Material
 using Material_Handle = Resource_Handle< Material >;
 
 //
-// Semaphore
-//
-
-struct Renderer_Semaphore_Descriptor
-{
-    U64 initial_value = 0;
-};
-
-struct Renderer_Semaphore
-{
-    Renderer_Semaphore_Descriptor descriptor;
-};
-
-using Semaphore_Handle = Resource_Handle< Renderer_Semaphore >;
-
-//
-// Allocation Group
-//
-
-#define HE_MAX_ALLOCATION_COUNT 8
-
-struct Allocation_Group
-{
-    String resource_name;
-    S32 resource_index = -1;
-
-    U64 target_value;
-    Semaphore_Handle semaphore;
-
-    Array< void*, HE_MAX_ALLOCATION_COUNT > allocations;
-
-    S32 index = -1;
-    U32 generation = 0;
-    bool *uploaded = nullptr;
-};
-
-//
 // Mesh
 //
 
@@ -498,11 +491,13 @@ struct Static_Mesh
 {
     String name;
 
+    bool is_uploaded_to_gpu;
+
+    Buffer_Handle indices_buffer;
     Buffer_Handle positions_buffer;
     Buffer_Handle normals_buffer;
     Buffer_Handle uvs_buffer;
     Buffer_Handle tangents_buffer;
-    Buffer_Handle indices_buffer;
 
     U32 vertex_count;
     U32 index_count;
@@ -512,18 +507,18 @@ struct Static_Mesh
 
 struct Static_Mesh_Descriptor
 {
-    U32 vertex_count;
+    void *data;
+    
+    U16 *indices;
     U32 index_count;
-
+    
+    U32 vertex_count;
     glm::vec3 *positions;
     glm::vec3 *normals;
     glm::vec2 *uvs;
     glm::vec4 *tangents;
-    U16 *indices;
 
     Dynamic_Array< Sub_Mesh > sub_meshes;
-
-    Allocation_Group *allocation_group;
 };
 
 using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;

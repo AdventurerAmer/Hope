@@ -1,6 +1,7 @@
 #include "engine.h"
 #include "platform.h"
 #include "rendering/renderer.h"
+#include "rendering/renderer_utils.h"
 #include "logging.h"
 #include "cvars.h"
 #include "job_system.h"
@@ -9,6 +10,8 @@
 
 #include <chrono>
 #include <imgui.h>
+
+#include <stb/stb_image.h>
 
 void hock_engine_api(Engine_API *api)
 {
@@ -23,52 +26,103 @@ void hock_engine_api(Engine_API *api)
     api->get_render_context = &get_render_context;
 }
 
-// todo(amer): move this to the resource system or renderer
-void finalize_asset_loads(Renderer *renderer, Renderer_State *renderer_state)
+// todo(amer): temprary
+Job_Result create_skybox_material_job(const Job_Parameters &params)
 {
-    platform_lock_mutex(&renderer_state->allocation_groups_mutex);
-
-    for (U32 allocation_group_index = 0; allocation_group_index < renderer_state->allocation_groups.count; allocation_group_index++)
+    Resource_Ref skybox_shader_ref = find_resource("skybox.hres"); // todo(amer): @Hardcoding
+    Resource *resource = get_resource(skybox_shader_ref);
+    if (resource->state != Resource_State::LOADED)
     {
-        Allocation_Group &allocation_group = renderer_state->allocation_groups[allocation_group_index];
-
-        U64 semaphore_value = renderer_get_semaphore_value(allocation_group.semaphore);
-
-        if (allocation_group.target_value == semaphore_value)
-        {
-            if (allocation_group.resource_index != -1)
-            {
-                Resource *resource = get_resource((U32)allocation_group.resource_index);
-                platform_lock_mutex(&resource->mutex);
-                HE_ASSERT(resource->state == Resource_State::PENDING);
-                resource->state = Resource_State::LOADED;
-                resource->index = allocation_group.index;
-                resource->generation = allocation_group.generation;
-                platform_unlock_mutex(&resource->mutex);
-                HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
-            }
-            else
-            {
-                HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(allocation_group.resource_name));
-            }
-
-            renderer_destroy_semaphore(allocation_group.semaphore);
-
-            for (void *memory : allocation_group.allocations)
-            {
-                deallocate(&renderer_state->transfer_allocator, memory);
-            }
-
-            if (allocation_group.uploaded)
-            {
-                *allocation_group.uploaded = true;
-            }
-
-            remove_and_swap_back(&renderer_state->allocation_groups, allocation_group_index);
-        }
+        HE_LOG(Rendering, Fetal, "failed to create skybox material shader failed to load...\n");
+        return Job_Result::FAILED; 
     }
 
-    platform_unlock_mutex(&renderer_state->allocation_groups_mutex);
+    Render_Context render_context = get_render_context();
+    Renderer_State *renderer_state = render_context.renderer_state; 
+    Shader_Handle skybox_shader = get_resource_handle_as<Shader>(skybox_shader_ref);
+
+    Resource_Ref texute_refs[] =
+    {
+        find_resource("skybox/right.hres"),
+        find_resource("skybox/left.hres"),
+        find_resource("skybox/top.hres"),
+        find_resource("skybox/bottom.hres"),
+        find_resource("skybox/front.hres"),
+        find_resource("skybox/back.hres"),
+    };
+
+    void *datas[6] = {};
+
+    U32 width = 0;
+    U32 height = 0;
+    Texture_Format format = Texture_Format::R8G8B8A8_UNORM;
+
+    for (U32 i = 0; i < HE_ARRAYCOUNT(texute_refs); i++)
+    {
+        Resource *texture_resoruce = get_resource(texute_refs[i]);
+        Open_File_Result open_file_result = platform_open_file(texture_resoruce->absolute_path.data, OpenFileFlag_Read);
+        if (!open_file_result.success)
+        {
+            return Job_Result::FAILED;
+        }
+
+        HE_DEFER
+        {
+            platform_close_file(&open_file_result);
+        };
+        
+        Texture_Resource_Info info;
+        platform_read_data_from_file(&open_file_result, sizeof(Resource_Header), &info, sizeof(Texture_Resource_Info));
+        
+        
+        width = info.width;
+        height = info.height;
+        format = info.format;
+
+        U64 data_size = sizeof(U32) * info.width * info.height;
+        U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, info.width * info.height);
+        bool success = platform_read_data_from_file(&open_file_result, info.data_offset, data, data_size);
+        
+        datas[i] = data;
+    }
+
+    Texture_Descriptor cubmap_texture_descriptor =
+    {
+        .width = width,
+        .height = height,
+        .format = format,
+        .layer_count = HE_ARRAYCOUNT(texute_refs),
+        .data = to_array_view(datas),
+        .mipmapping = true,
+        .is_cubemap = true
+    };
+    renderer_state->scene_data.skybox = renderer_create_texture(cubmap_texture_descriptor);
+       
+    Pipeline_State_Descriptor skybox_pipeline_state_descriptor =
+    {
+        .settings =
+        {
+            .cull_mode = Cull_Mode::NONE,
+            .front_face = Front_Face::COUNTER_CLOCKWISE,
+            .fill_mode = Fill_Mode::SOLID,
+            .depth_testing = false,
+            .sample_shading = true,
+        },
+        .shader = skybox_shader,
+        .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"),
+    };
+    Pipeline_State_Handle skybox_pipeline = renderer_create_pipeline_state(skybox_pipeline_state_descriptor);
+
+    Material_Descriptor skybox_material_descriptor =
+    {
+        .pipeline_state_handle = skybox_pipeline,
+    };
+
+    renderer_state->scene_data.skybox_material_handle = renderer_create_material(skybox_material_descriptor);
+    set_property(renderer_state->scene_data.skybox_material_handle, "skybox_texture_index", { .u32 = (U32)renderer_state->scene_data.skybox.index });
+    set_property(renderer_state->scene_data.skybox_material_handle, "sky_color", { .v3 = { 1.0f, 1.0f, 1.0f } });
+    
+    return Job_Result::SUCCEEDED;
 }
 
 bool startup(Engine *engine, void *platform_state)
@@ -184,14 +238,42 @@ bool startup(Engine *engine, void *platform_state)
 
     wait_for_all_jobs_to_finish();
     renderer_wait_for_gpu_to_finish_all_work();
-    while (renderer_state->allocation_groups.count)
-    {
-        finalize_asset_loads(renderer, renderer_state);
-    }
+    renderer_handle_upload_requests();
     
-    // aquire_resource("Sponza/Sponza.hres");
+    aquire_resource("Sponza/Sponza.hres");
     // aquire_resource("FlightHelmet/FlightHelmet.hres");
-    aquire_resource("Corset/Corset.hres");
+    // aquire_resource("Corset/Corset.hres");
+    
+    // skybox
+    {
+        renderer_state->scene_data.skybox_material_handle = renderer_state->default_material;
+        Resource_Ref skybox_shader_ref = aquire_resource("skybox.hres");
+        Resource *skybox_shader = get_resource(skybox_shader_ref);
+
+        Job_Data job_data =
+        {
+            .proc = &create_skybox_material_job
+        };
+        
+        Resource *right = get_resource(find_resource("skybox/right.hres"));
+        Resource *left = get_resource(find_resource("skybox/left.hres"));
+        Resource *top = get_resource(find_resource("skybox/top.hres"));
+        Resource *bottom = get_resource(find_resource("skybox/bottom.hres"));
+        Resource *front = get_resource(find_resource("skybox/front.hres"));
+        Resource *back = get_resource(find_resource("skybox/back.hres"));
+        
+        Job_Handle wait_for_jobs[] =
+        {
+            skybox_shader->job_handle,
+            right->job_handle,
+            left->job_handle,
+            top->job_handle,
+            bottom->job_handle,
+            front->job_handle,
+            back->job_handle
+        };
+        execute_job(job_data, to_array_view(wait_for_jobs));
+    }
 
     return game_initialized;
 }
@@ -465,6 +547,247 @@ static void draw_tree(Scene_Node *node)
     ImGui::PopID();
 }
 
+static void imgui_draw_graphics_window()
+{
+    Render_Context render_context = get_render_context();
+    Renderer *renderer = render_context.renderer;
+    Renderer_State *renderer_state = render_context.renderer_state;
+    
+    Scene_Data *scene_data = &render_context.renderer_state->scene_data;
+    Directional_Light *directional_light = &scene_data->directional_light;
+    Point_Light *point_light = &scene_data->point_light;
+    Spot_Light *spot_light = &scene_data->spot_light;
+
+    // ImGui Graphics Settings
+    {
+        ImGui::Begin("Graphics");
+
+        ImGui::Text("Directional Light");
+        ImGui::Separator();
+
+        ImGui::Text("Directional Light Direction");
+        ImGui::SameLine();
+
+        ImGui::DragFloat3("##Directional Light Direction", &directional_light->direction.x, 0.1f, -1.0f, 1.0f);
+
+        if (glm::length2(directional_light->direction) > 0.0f)
+        {
+            directional_light->direction = glm::normalize(directional_light->direction);
+        }
+
+        ImGui::Text("Directional Light Color");
+        ImGui::SameLine();
+
+        ImGui::ColorEdit3("##Directional Light Color", &directional_light->color.r);
+        ImGui::DragFloat("##Directional Light Intensity", &directional_light->intensity);
+
+        ImGui::Text("Point Light");
+        ImGui::Separator();
+
+        ImGui::Text("Point Light Position");
+        ImGui::SameLine();
+
+        ImGui::DragFloat3("##Point Light Position", &point_light->position.x, 0.1f);
+        
+        ImGui::Text("Point Light Radius");
+        ImGui::SameLine();
+
+        ImGui::DragFloat("##Point Light Radius", &point_light->radius);
+
+        ImGui::Text("Point Light Color");
+        ImGui::SameLine();
+
+        ImGui::ColorEdit3("##Point Light Color", &point_light->color.r);
+
+        ImGui::Text("Point Light Intensity");
+        ImGui::SameLine();
+        
+        ImGui::DragFloat("##Point Light Intensity", &point_light->intensity);
+
+        ImGui::Text("Spot Light");
+        ImGui::Separator();
+
+        ImGui::Text("Spot Light Position");
+        ImGui::SameLine();
+
+        ImGui::DragFloat3("##Spot Light Position", &spot_light->position.x, 0.1f);                    
+        
+        ImGui::Text("Spot Light Radius");
+        ImGui::SameLine();
+        
+        ImGui::DragFloat("##Spot Light Radius", &spot_light->radius);
+        
+        ImGui::Text("Spot Light Direction");
+        ImGui::SameLine();
+        
+        ImGui::DragFloat3("##Spot Light Direction", &spot_light->direction.x, 0.1f, -1.0f, 1.0f);
+
+        if (glm::length2(spot_light->direction) > 0.0f)
+        {
+            spot_light->direction = glm::normalize(spot_light->direction);
+        }
+
+        ImGui::Text("Spot Light Outer Angle");
+        ImGui::SameLine();
+
+        ImGui::DragFloat("##Spot Light Outer Angle", &spot_light->outer_angle, 1.0f, 0.0f, 360.0f);
+
+        ImGui::Text("Spot Light Inner Angle");
+        ImGui::SameLine();
+
+        ImGui::DragFloat("##Spot Light Inner Angle", &spot_light->inner_angle, 1.0f, 0.0f, 360.0f);
+
+        ImGui::Text("Spot Light Color");
+        ImGui::SameLine();
+
+        ImGui::ColorEdit3("##Spot Light Color", &spot_light->color.r);
+
+        ImGui::Text("Spot Light Intensity");
+        ImGui::SameLine();
+
+        ImGui::DragFloat("##Spot Light Intensity", &spot_light->intensity);
+
+        ImGui::Text("");
+        ImGui::Text("Settings");
+        ImGui::Separator();
+
+        //
+        // VSync
+        //
+        {
+            ImGui::Text("VSync");
+            ImGui::SameLine();
+
+            static bool vsync = renderer_state->vsync;
+            if (ImGui::Checkbox("##VSync", &vsync))
+            {
+                renderer_set_vsync(vsync);
+            }
+        }
+
+        //
+        // Triple Buffering
+        //
+        {
+            ImGui::Text("Triple Buffering");
+            ImGui::SameLine();
+
+            if (ImGui::Checkbox("##Triple Buffering", &renderer_state->triple_buffering))
+            {
+                if (renderer_state->triple_buffering)
+                {
+                    renderer_state->frames_in_flight = 3;
+                }
+                else
+                {
+                    renderer_state->frames_in_flight = 2;
+                }
+            }
+        }
+
+        //
+        // Gamma
+        //
+        {
+            ImGui::Text("Gamma");
+            ImGui::SameLine();
+            ImGui::SliderFloat("##Gamma", &renderer_state->gamma, 2.0, 2.4, "%.4f", ImGuiSliderFlags_AlwaysClamp);
+        }
+
+        //
+        // Anisotropic Filtering
+        //
+        {
+            const char *anisotropic_filtering_text[] =
+            {
+                "NONE",
+                "X2  ",
+                "X4  ",
+                "X8  ",
+                "X16 "
+            };
+
+            ImGui::Text("Anisotropic Filtering");
+            ImGui::SameLine();
+
+            const char *selected_anisotropic_filtering = nullptr;
+            for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
+            {
+                if ((U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index)
+                {
+                    selected_anisotropic_filtering = anisotropic_filtering_text[anisotropic_filtering_index];
+                    break;
+                }
+            }
+
+            if (ImGui::BeginCombo("##Anistropic Filtering", selected_anisotropic_filtering))
+            {
+                for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
+                {
+                    bool is_selected = (U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index;
+                    if (ImGui::Selectable(anisotropic_filtering_text[anisotropic_filtering_index], is_selected))
+                    {
+                        renderer_set_anisotropic_filtering((Anisotropic_Filtering_Setting)anisotropic_filtering_index);
+                    }
+
+                    if (is_selected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        }
+
+        //
+        // MSAA
+        //
+        {
+            const char* msaa_text[] =
+            {
+                "NONE",
+                "X2  ",
+                "X4  ",
+                "X8  "
+            };
+
+            ImGui::Text("MSAA");
+            ImGui::SameLine();
+
+            const char *selected_msaa = nullptr;
+            for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
+            {
+                if ((U32)renderer_state->msaa_setting == msaa_setting_index)
+                {
+                    selected_msaa = msaa_text[msaa_setting_index];
+                    break;
+                }
+            }
+
+            if (ImGui::BeginCombo("##MSAA", selected_msaa))
+            {
+                for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
+                {
+                    bool is_selected = (U32)renderer_state->msaa_setting == msaa_setting_index;
+                    if (ImGui::Selectable(msaa_text[msaa_setting_index], is_selected))
+                    {
+                        renderer_set_msaa((MSAA_Setting)msaa_setting_index);
+                    }
+
+                    if (is_selected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        }
+
+        ImGui::End();
+    }
+
+}
+
 static U8* get_pointer(Shader_Struct *_struct, U8 *data, String name)
 {
     for (U32 i = 0; i < _struct->member_count; i++)
@@ -482,15 +805,10 @@ static U8* get_pointer(Shader_Struct *_struct, U8 *data, String name)
 void game_loop(Engine *engine, F32 delta_time)
 {
     Render_Context render_context = get_render_context();
-    Scene_Data *scene_data = &render_context.renderer_state->scene_data;
-    Directional_Light *directional_light = &scene_data->directional_light;
-    Point_Light *point_light = &scene_data->point_light;
-    Spot_Light *spot_light = &scene_data->spot_light;
-
     Renderer *renderer = render_context.renderer;
     Renderer_State *renderer_state = render_context.renderer_state;
-
-    finalize_asset_loads(renderer, renderer_state);
+    
+    renderer_handle_upload_requests();
     reload_resources();
 
     Temprary_Memory_Arena scratch_memory = begin_scratch_memory();
@@ -501,234 +819,8 @@ void game_loop(Engine *engine, F32 delta_time)
     if (!engine->is_minimized)
     {
         imgui_new_frame();
-
-        // ImGui Graphics Settings
-        {
-            ImGui::Begin("Graphics");
-
-            ImGui::Text("Directional Light");
-            ImGui::Separator();
-
-            ImGui::Text("Directional Light Direction");
-            ImGui::SameLine();
-
-            ImGui::DragFloat3("##Directional Light Direction", &directional_light->direction.x, 0.1f, -1.0f, 1.0f);
-
-            if (glm::length2(directional_light->direction) > 0.0f)
-            {
-                directional_light->direction = glm::normalize(directional_light->direction);
-            }
-
-            ImGui::Text("Directional Light Color");
-            ImGui::SameLine();
-
-            ImGui::ColorEdit3("##Directional Light Color", &directional_light->color.r);
-            ImGui::DragFloat("##Directional Light Intensity", &directional_light->intensity);
-
-            ImGui::Text("Point Light");
-            ImGui::Separator();
-
-            ImGui::Text("Point Light Position");
-            ImGui::SameLine();
-
-            ImGui::DragFloat3("##Point Light Position", &point_light->position.x, 0.1f);
-            
-            ImGui::Text("Point Light Radius");
-            ImGui::SameLine();
-
-            ImGui::DragFloat("##Point Light Radius", &point_light->radius);
-
-            ImGui::Text("Point Light Color");
-            ImGui::SameLine();
-
-            ImGui::ColorEdit3("##Point Light Color", &point_light->color.r);
-
-            ImGui::Text("Point Light Intensity");
-            ImGui::SameLine();
-            
-            ImGui::DragFloat("##Point Light Intensity", &point_light->intensity);
-
-            ImGui::Text("Spot Light");
-            ImGui::Separator();
-
-            ImGui::Text("Spot Light Position");
-            ImGui::SameLine();
-
-            ImGui::DragFloat3("##Spot Light Position", &spot_light->position.x, 0.1f);                    
-            
-            ImGui::Text("Spot Light Radius");
-            ImGui::SameLine();
-            
-            ImGui::DragFloat("##Spot Light Radius", &spot_light->radius);
-            
-            ImGui::Text("Spot Light Direction");
-            ImGui::SameLine();
-            
-            ImGui::DragFloat3("##Spot Light Direction", &spot_light->direction.x, 0.1f, -1.0f, 1.0f);
-
-            if (glm::length2(spot_light->direction) > 0.0f)
-            {
-                spot_light->direction = glm::normalize(spot_light->direction);
-            }
-
-            ImGui::Text("Spot Light Outer Angle");
-            ImGui::SameLine();
-
-            ImGui::DragFloat("##Spot Light Outer Angle", &spot_light->outer_angle, 1.0f, 0.0f, 360.0f);
-
-            ImGui::Text("Spot Light Inner Angle");
-            ImGui::SameLine();
-
-            ImGui::DragFloat("##Spot Light Inner Angle", &spot_light->inner_angle, 1.0f, 0.0f, 360.0f);
-
-            ImGui::Text("Spot Light Color");
-            ImGui::SameLine();
-
-            ImGui::ColorEdit3("##Spot Light Color", &spot_light->color.r);
-
-            ImGui::Text("Spot Light Intensity");
-            ImGui::SameLine();
-
-            ImGui::DragFloat("##Spot Light Intensity", &spot_light->intensity);
-
-            ImGui::Text("");
-            ImGui::Text("Settings");
-            ImGui::Separator();
-
-            //
-            // VSync
-            //
-            {
-                ImGui::Text("VSync");
-                ImGui::SameLine();
-
-                static bool vsync = renderer_state->vsync;
-                if (ImGui::Checkbox("##VSync", &vsync))
-                {
-                    renderer_set_vsync(vsync);
-                }
-            }
-
-            //
-            // Triple Buffering
-            //
-            {
-                ImGui::Text("Triple Buffering");
-                ImGui::SameLine();
-
-                if (ImGui::Checkbox("##Triple Buffering", &renderer_state->triple_buffering))
-                {
-                    if (renderer_state->triple_buffering)
-                    {
-                        renderer_state->frames_in_flight = 3;
-                    }
-                    else
-                    {
-                        renderer_state->frames_in_flight = 2;
-                    }
-                }
-            }
-
-            //
-            // Gamma
-            //
-            {
-                ImGui::Text("Gamma");
-                ImGui::SameLine();
-                ImGui::SliderFloat("##Gamma", &renderer_state->gamma, 2.0, 2.4, "%.4f", ImGuiSliderFlags_AlwaysClamp);
-            }
-
-            //
-            // Anisotropic Filtering
-            //
-            {
-                const char *anisotropic_filtering_text[] =
-                {
-                    "NONE",
-                    "X2  ",
-                    "X4  ",
-                    "X8  ",
-                    "X16 "
-                };
-
-                ImGui::Text("Anisotropic Filtering");
-                ImGui::SameLine();
-
-                const char *selected_anisotropic_filtering = nullptr;
-                for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
-                {
-                    if ((U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index)
-                    {
-                        selected_anisotropic_filtering = anisotropic_filtering_text[anisotropic_filtering_index];
-                        break;
-                    }
-                }
-
-                if (ImGui::BeginCombo("##Anistropic Filtering", selected_anisotropic_filtering))
-                {
-                    for (U32 anisotropic_filtering_index = 0; anisotropic_filtering_index < HE_ARRAYCOUNT(anisotropic_filtering_text); anisotropic_filtering_index++)
-                    {
-                        bool is_selected = (U32)renderer_state->anisotropic_filtering_setting == anisotropic_filtering_index;
-                        if (ImGui::Selectable(anisotropic_filtering_text[anisotropic_filtering_index], is_selected))
-                        {
-                            renderer_set_anisotropic_filtering((Anisotropic_Filtering_Setting)anisotropic_filtering_index);
-                        }
-
-                        if (is_selected)
-                        {
-                            ImGui::SetItemDefaultFocus();
-                        }
-                    }
-                    ImGui::EndCombo();
-                }
-            }
-
-            //
-            // MSAA
-            //
-            {
-                const char* msaa_text[] =
-                {
-                    "NONE",
-                    "X2  ",
-                    "X4  ",
-                    "X8  "
-                };
-
-                ImGui::Text("MSAA");
-                ImGui::SameLine();
-
-                const char *selected_msaa = nullptr;
-                for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
-                {
-                    if ((U32)renderer_state->msaa_setting == msaa_setting_index)
-                    {
-                        selected_msaa = msaa_text[msaa_setting_index];
-                        break;
-                    }
-                }
-
-                if (ImGui::BeginCombo("##MSAA", selected_msaa))
-                {
-                    for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
-                    {
-                        bool is_selected = (U32)renderer_state->msaa_setting == msaa_setting_index;
-                        if (ImGui::Selectable(msaa_text[msaa_setting_index], is_selected))
-                        {
-                            renderer_set_msaa((MSAA_Setting)msaa_setting_index);
-                        }
-
-                        if (is_selected)
-                        {
-                            ImGui::SetItemDefaultFocus();
-                        }
-                    }
-                    ImGui::EndCombo();
-                }
-            }
-
-            ImGui::End();
-        }
+        
+        imgui_draw_graphics_window();
 
         // Scene
         {
@@ -789,12 +881,14 @@ void game_loop(Engine *engine, F32 delta_time)
         Light *lights = (Light*)get_pointer(globals_struct, (U8*)global_uniform_buffer->data, HE_STRING_LITERAL("lights"));
         F32 *gamma = (F32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("gamma"));
 
+        Scene_Data *scene_data = &renderer_state->scene_data;
+
         *view = scene_data->view;
         scene_data->projection[1][1] *= -1;
         *projection = scene_data->projection;
         *eye = scene_data->eye;
         *directional_light_direction = scene_data->directional_light.direction;
-        *directional_light_color = srgb_to_linear(scene_data->directional_light.color) * scene_data->directional_light.intensity;
+        *directional_light_color = srgb_to_linear(scene_data->directional_light.color, renderer_state->gamma) * scene_data->directional_light.intensity;
         *light_count = 2;
         *gamma = renderer_state->gamma;
 
@@ -807,7 +901,7 @@ void game_loop(Engine *engine, F32 delta_time)
             light->outer_angle = glm::radians(180.0f);
             light->inner_angle = glm::radians(0.0f);
 
-            light->color = srgb_to_linear(scene_data->point_light.color) * scene_data->point_light.intensity;
+            light->color = srgb_to_linear(scene_data->point_light.color, renderer_state->gamma) * scene_data->point_light.intensity;
         }
 
         {
@@ -817,7 +911,7 @@ void game_loop(Engine *engine, F32 delta_time)
             light->direction = scene_data->spot_light.direction;
             light->outer_angle = glm::radians(scene_data->spot_light.outer_angle);
             light->inner_angle = glm::radians(scene_data->spot_light.inner_angle);
-            light->color = srgb_to_linear(scene_data->spot_light.color) * scene_data->spot_light.intensity;
+            light->color = srgb_to_linear(scene_data->spot_light.color, renderer_state->gamma) * scene_data->spot_light.intensity;
         }
 
         U32 texture_count = renderer_state->textures.capacity;
@@ -828,11 +922,7 @@ void game_loop(Engine *engine, F32 delta_time)
         {
             Texture *texture = get(&renderer_state->textures, it);
 
-            if (texture->is_attachment)
-            {
-                textures[it.index] = renderer_state->white_pixel_texture;
-            }
-            else if (!texture->is_uploaded_to_gpu)
+            if (texture->is_attachment || !texture->is_uploaded_to_gpu)
             {
                 textures[it.index] = renderer_state->white_pixel_texture;
             }

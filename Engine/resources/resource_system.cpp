@@ -242,24 +242,12 @@ static bool load_texture_resource(Open_File_Result *open_file_result, Resource *
     Texture_Resource_Info info;
     platform_read_data_from_file(open_file_result, sizeof(Resource_Header), &info, sizeof(Texture_Resource_Info));
 
-    if (info.format >= Texture_Format::COUNT || info.width == 0 || info.height == 0)
-    {
-        return false;
-    }
-
-    U64 size = sizeof(Resource_Header) + sizeof(Texture_Resource_Info) + sizeof(U32) * info.width * info.height;
-    if (open_file_result->size != size)
-    {
-        return false;
-    }
-
     U64 data_size = sizeof(U32) * info.width * info.height;
     U32 *data = HE_ALLOCATE_ARRAY(resource_system_state->resource_allocator, U32, info.width * info.height);
     bool success = platform_read_data_from_file(open_file_result, info.data_offset, data, data_size);
 
     void *datas[] = { data };
-    append(&resource->allocation_group.allocations, (void*)data);
-
+    
     Texture_Descriptor texture_descriptor =
     {
         .width = info.width,
@@ -267,13 +255,12 @@ static bool load_texture_resource(Open_File_Result *open_file_result, Resource *
         .format = info.format,
         .data = to_array_view(datas),
         .mipmapping = info.mipmapping,
-        .sample_count = 1,
-        .allocation_group = &resource->allocation_group,
+        .sample_count = 1
     };
 
     Texture_Handle texture_handle = renderer_create_texture(texture_descriptor);
-    resource->allocation_group.index = texture_handle.index;
-    resource->allocation_group.generation = texture_handle.generation;
+    resource->index = texture_handle.index;
+    resource->generation = texture_handle.generation;
     return success;
 }
 
@@ -677,8 +664,8 @@ static bool save_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cglt
     }
 
     write_attribute_for_all_sub_meshes(buffer, &offset, mesh, cgltf_attribute_type_position);
-    write_attribute_for_all_sub_meshes(buffer, &offset, mesh, cgltf_attribute_type_texcoord);
     write_attribute_for_all_sub_meshes(buffer, &offset, mesh, cgltf_attribute_type_normal);
+    write_attribute_for_all_sub_meshes(buffer, &offset, mesh, cgltf_attribute_type_texcoord);
     write_attribute_for_all_sub_meshes(buffer, &offset, mesh, cgltf_attribute_type_tangent);
 
     bool result = write_entire_file(resource->absolute_path.data, buffer, offset);
@@ -1168,28 +1155,29 @@ static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resour
     U16 *indices = (U16 *)data;
     U8 *vertex_data = data + sizeof(U16) * index_count;
     glm::vec3 *positions = (glm::vec3 *)vertex_data;
-    glm::vec2 *uvs = (glm::vec2 *)(vertex_data + sizeof(glm::vec3) * vertex_count);
-    glm::vec3 *normals = (glm::vec3 *)(vertex_data + (sizeof(glm::vec3) + sizeof(glm::vec2)) * vertex_count);
+    glm::vec3 *normals = (glm::vec3 *)(vertex_data + sizeof(glm::vec3) * vertex_count);
+    glm::vec2 *uvs = (glm::vec2 *)(vertex_data + (sizeof(glm::vec3) + sizeof(glm::vec3)) * vertex_count);
     glm::vec4 *tangents = (glm::vec4 *)(vertex_data + (sizeof(glm::vec3) + sizeof(glm::vec2) + sizeof(glm::vec3)) * vertex_count);
-
-    append(&resource->allocation_group.allocations, (void *)data);    
 
     Static_Mesh_Descriptor static_mesh_descriptor =
     {
-        .vertex_count = vertex_count,
+        .data = data,
+
+        .indices = indices,
         .index_count = index_count,
+
+        .vertex_count = vertex_count,
         .positions = positions,
         .normals = normals,
         .uvs = uvs,
         .tangents = tangents,
-        .indices = indices,
+        
         .sub_meshes = sub_meshes,
-        .allocation_group = &resource->allocation_group,
     };
 
     Static_Mesh_Handle static_mesh_handle = renderer_create_static_mesh(static_mesh_descriptor);
-    resource->allocation_group.index = static_mesh_handle.index;
-    resource->allocation_group.generation = static_mesh_handle.generation;
+    resource->index = static_mesh_handle.index;
+    resource->generation = static_mesh_handle.generation;
     return success;
 }
 
@@ -1349,7 +1337,7 @@ static Job_Result load_resource_job(const Job_Parameters &params)
 {
     Load_Resource_Job_Data *job_data = (Load_Resource_Job_Data *)params.data;
     Render_Context render_context = get_render_context();
-    finalize_asset_loads(render_context.renderer, render_context.renderer_state);
+    
     Resource *resource = job_data->resource;
     HE_ASSERT(resource->asset_uuid != HE_MAX_U64);
     auto it = uuid_to_asset_index.find(resource->asset_uuid);
@@ -1366,23 +1354,7 @@ static Job_Result load_resource_job(const Job_Parameters &params)
     HE_DEFER {  platform_unlock_mutex(&resource->mutex); };
 
     Resource_Type_Info &info = resource_system_state->resource_type_infos[(U32)resource->type];
-    bool use_allocation_group = info.loader.use_allocation_group;
-
-    resource->allocation_group.resource_name = resource->relative_path;
-
-    if (use_allocation_group)
-    {
-        Renderer_Semaphore_Descriptor semaphore_descriptor =
-        {
-            .initial_value = 0
-        };
-
-        reset(&resource->allocation_group.allocations);
-        resource->allocation_group.semaphore = renderer_create_semaphore(semaphore_descriptor);
-        resource->allocation_group.resource_index = (S32)index_of(&resource_system_state->resources, resource);
-        resource->allocation_group.target_value = 0;
-    }
-
+    
     Open_File_Result open_file_result = platform_open_file(resource->absolute_path.data, OpenFileFlag_Read);
 
     if (!open_file_result.success)
@@ -1405,20 +1377,8 @@ static Job_Result load_resource_job(const Job_Parameters &params)
         return Job_Result::FAILED;
     }
 
-    if (use_allocation_group)
-    {
-        Render_Context context = get_render_context();
-        Renderer_State *renderer_state = context.renderer_state;
-        platform_lock_mutex(&renderer_state->allocation_groups_mutex);
-        append(&renderer_state->allocation_groups, resource->allocation_group);
-        platform_unlock_mutex(&renderer_state->allocation_groups_mutex);
-    }
-    else
-    {
-        resource->state = Resource_State::LOADED;
-        HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
-    }
-
+    resource->state = Resource_State::LOADED;
+    HE_LOG(Resource, Trace, "resource loaded: %.*s\n", HE_EXPAND_STRING(resource->relative_path));
     return Job_Result::SUCCEEDED;
 }
 
@@ -1678,7 +1638,6 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
 
         Resource_Loader loader =
         {
-            .use_allocation_group = true,
             .load = &load_texture_resource,
             .unload = &unload_texture_resource,
             .index = render_context.renderer_state->white_pixel_texture.index,
@@ -1704,7 +1663,6 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
         // todo(amer): we need tags here...
         Resource_Loader loader =
         {
-            .use_allocation_group = false,
             .load = &load_shader_resource,
             .unload = &unload_shader_resource,
             .index = render_context.renderer_state->default_shader.index,
@@ -1729,7 +1687,6 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
 
         Resource_Loader loader =
         {
-            .use_allocation_group = false,
             .load = &load_material_resource,
             .unload = &unload_material_resource,
             .index = render_context.renderer_state->default_material.index,
@@ -1754,7 +1711,6 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
 
         Resource_Loader loader =
         {
-            .use_allocation_group = true,
             .load = &load_static_mesh_resource,
             .unload = &unload_static_mesh_resource,
             .index = render_context.renderer_state->default_static_mesh.index,
@@ -1779,7 +1735,6 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
 
         Resource_Loader loader =
         {
-            .use_allocation_group = false,
             .load = &load_scene_resource,
             .unload = &unload_scene_resource,
             .index = render_context.renderer_state->default_scene.index,

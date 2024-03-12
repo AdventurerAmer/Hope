@@ -44,24 +44,19 @@ struct Resource_Pool
     U32 capacity;
     U32 count;
 
-    Free_List_Allocator *allocator;
+    Allocator allocator;
 
     Mutex mutex;
 };
 
 template< typename T >
-void init(Resource_Pool< T > *resource_pool, U32 capacity, Free_List_Allocator *allocator = nullptr)
+void init(Resource_Pool< T > *resource_pool, U32 capacity, Allocator allocator)
 {
     HE_ASSERT(resource_pool);
     HE_ASSERT(capacity);
 
-    if (!allocator)
-    {
-        allocator = get_general_purpose_allocator();
-    }
-
     U64 size = (sizeof(T) + sizeof(U32) + sizeof(bool)) * capacity;
-    U8 *memory = HE_ALLOCATE_ARRAY(allocator, U8, size);
+    U8 *memory = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, U8, size);
     resource_pool->memory = memory;
     resource_pool->data = (T *)memory;
     resource_pool->generations = (U32 *)(memory + sizeof(T) * capacity);
@@ -90,7 +85,7 @@ template< typename T >
 void deinit(Resource_Pool< T > *resource_pool)
 {
     HE_ASSERT(resource_pool);
-    deallocate(resource_pool->allocator, resource_pool->memory);
+    HE_ALLOCATOR_DEALLOCATE(resource_pool->allocator, resource_pool->memory);
 }
 
 template< typename T >

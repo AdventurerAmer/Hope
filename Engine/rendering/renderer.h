@@ -29,6 +29,7 @@ enum RenderingAPI
 #define HE_MAX_BIND_GROUP_COUNT 4096
 #define HE_MAX_SEMAPHORE_COUNT 4096
 #define HE_MAX_SCENE_COUNT 4096
+#define HE_MAX_UPLOAD_REQUEST_COUNT 4096
 
 struct Directional_Light
 {
@@ -66,6 +67,9 @@ struct Scene_Data
     Directional_Light directional_light;
     Point_Light point_light;
     Spot_Light spot_light;
+
+    Texture_Handle skybox;
+    Material_Handle skybox_material_handle;
 };
 
 struct Renderer
@@ -90,7 +94,7 @@ struct Renderer
     bool (*create_buffer)(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor);
     void (*destroy_buffer)(Buffer_Handle buffer_handle);
 
-    bool (*create_texture)(Texture_Handle texture_handle, const Texture_Descriptor &descriptor);
+    bool (*create_texture)(Texture_Handle texture_handle, const Texture_Descriptor &descriptor, Upload_Request *upload_request);
     void (*destroy_texture)(Texture_Handle texture_handle);
 
     bool (*create_sampler)(Sampler_Handle sampler_handle, const Sampler_Descriptor &descriptor);
@@ -114,7 +118,7 @@ struct Renderer
     bool (*create_frame_buffer)(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor);
     void (*destroy_frame_buffer)(Frame_Buffer_Handle frame_buffer_handle);
 
-    bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor);
+    bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor, Upload_Request *upload_request);
     void (*destroy_static_mesh)(Static_Mesh_Handle static_mesh_handle);
 
     bool (*create_semaphore)(Semaphore_Handle semaphore_handle, const Renderer_Semaphore_Descriptor &descriptor);
@@ -134,9 +138,9 @@ struct Light
 {
     glm::vec3 position;
     alignas(16) glm::vec3 direction;
-    alignas(4) float radius;
-    alignas(4) float outer_angle;
-    alignas(4) float inner_angle;
+    alignas(4) F32 radius;
+    alignas(4) F32 outer_angle;
+    alignas(4) F32 inner_angle;
     alignas(16) glm::vec3 color;
 };
 
@@ -194,15 +198,9 @@ struct Renderer_State
     U32 current_frame_in_flight_index;
 
     Mutex render_commands_mutex;
-
-    // todo(amer): temprary
-    Shader_Handle skybox_shader;
-    Pipeline_State_Handle skybox_pipeline;
-    Texture_Handle skybox;
-    Material_Handle skybox_material_handle;
-
-    Mutex allocation_groups_mutex;
-    Array< Allocation_Group, HE_MAX_SEMAPHORE_COUNT > allocation_groups;
+    
+    Mutex upload_request_mutex;
+    Array< Upload_Request, HE_MAX_UPLOAD_REQUEST_COUNT > upload_requests;
 
     Shader_Handle default_shader;
     Pipeline_State_Handle default_pipeline;
@@ -232,11 +230,7 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer);
 bool init_renderer_state(struct Engine *engine);
 void deinit_renderer_state();
 
-glm::vec3 srgb_to_linear(const glm::vec3 &color);
-glm::vec3 linear_to_srgb(const glm::vec3 &color);
-
 void renderer_on_resize(U32 width, U32 height);
-
 void renderer_wait_for_gpu_to_finish_all_work();
 
 //
@@ -353,6 +347,17 @@ glm::mat4 get_world_matrix(const Transform &transform);
 void add_child(Scene_Node *parent, Scene_Node *node);
 void remove_child(Scene_Node *parent, Scene_Node *node);
 void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform = get_identity_transform());
+
+
+//
+// Upload Request
+//
+
+void init(Upload_Request *upload_request);
+void deinit(Upload_Request *upload_request);
+
+void renderer_add_upload_request(const Upload_Request *upload_request);
+void renderer_handle_upload_requests();
 
 //
 // Render Context
