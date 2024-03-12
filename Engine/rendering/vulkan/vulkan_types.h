@@ -6,6 +6,9 @@
 #include "core/defines.h"
 #include "core/memory.h"
 #include "core/platform.h"
+
+#include "containers/hash_map.h"
+
 #include "rendering/renderer_types.h"
 
 #define HE_VULKAN_PIPELINE_CACHE_FILE_PATH "vulkan/pipeline_cache.bin"
@@ -108,6 +111,21 @@ struct Vulkan_Render_Pass
     VkRenderPass handle;
 };
 
+struct Vulkan_Upload_Request
+{
+    VkCommandPool graphics_command_pool;
+    VkCommandBuffer graphics_command_buffer;
+    
+    VkCommandPool transfer_command_pool;
+    VkCommandBuffer transfer_command_buffer;
+};
+
+struct Vulkan_Thread_State
+{
+    VkCommandPool graphics_command_pool;
+    VkCommandPool transfer_command_pool;
+};
+
 struct Vulkan_Context
 {
     struct Renderer_State *renderer_state;
@@ -143,10 +161,7 @@ struct Vulkan_Context
     VkDescriptorPool descriptor_pool;
     VkDescriptorPool imgui_descriptor_pool;
 
-    VkCommandPool graphics_command_pool;
-    // todo(amer): this is temprary to test texture hot reloading in the future we are going to have to use a per thread command pool.
-    VkCommandPool upload_textures_command_pool;
-    VkCommandPool transfer_command_pool;
+    Hash_Map< U32, Vulkan_Thread_State > thread_states;
 
     VkCommandBuffer graphics_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
     VkCommandBuffer command_buffer;
@@ -165,6 +180,7 @@ struct Vulkan_Context
     Vulkan_Render_Pass *render_passes;
     Vulkan_Frame_Buffer *frame_buffers;
     Vulkan_Semaphore *semaphores;
+    Vulkan_Upload_Request *upload_requests;
 
 #if HE_GRAPHICS_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;

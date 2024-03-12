@@ -10,4 +10,6 @@ VkFormat get_texture_format(Texture_Format texture_format);
 
 void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U32 mip_levels, U32 layer_count, VkImageLayout old_layout, VkImageLayout new_layout);
 
-void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width, U32 height, U32 mip_levels, U32 layer_count, VkFormat format, Array_View< void * > data, Upload_Request *upload_request);
+void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width, U32 height, U32 mip_levels, U32 layer_count, VkFormat format, Array_View< void * > data, Upload_Request_Handle upload_request_handle);
+
+Vulkan_Thread_State *get_thread_state(Vulkan_Context *context);

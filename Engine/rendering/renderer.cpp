@@ -81,6 +81,7 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->create_semaphore = &vulkan_renderer_create_semaphore;
             renderer->get_semaphore_value = &vulkan_renderer_get_semaphore_value;
             renderer->destroy_semaphore = &vulkan_renderer_destroy_semaphore;
+            renderer->destroy_upload_request = &vulkan_renderer_destroy_upload_request;
             renderer->begin_frame = &vulkan_renderer_begin_frame;
             renderer->set_viewport = &vulkan_renderer_set_viewport;
             renderer->set_vertex_buffers = &vulkan_renderer_set_vertex_buffers;
@@ -123,6 +124,10 @@ bool init_renderer_state(Engine *engine)
 
     renderer = &renderer_state->renderer;
 
+    bool render_commands_mutex_created = platform_create_mutex(&renderer_state->render_commands_mutex);
+    HE_ASSERT(render_commands_mutex_created);
+
+
     {
         Allocator allocator = to_allocator(arena);
         init(&renderer_state->buffers, HE_MAX_BUFFER_COUNT, allocator);
@@ -137,7 +142,11 @@ bool init_renderer_state(Engine *engine)
         init(&renderer_state->materials, HE_MAX_MATERIAL_COUNT, allocator);
         init(&renderer_state->static_meshes, HE_MAX_STATIC_MESH_COUNT, allocator);
         init(&renderer_state->scenes, HE_MAX_SCENE_COUNT, allocator);
+        init(&renderer_state->upload_requests, HE_MAX_UPLOAD_REQUEST_COUNT, allocator);
     }
+
+    platform_create_mutex(&renderer_state->pending_upload_requests_mutex); 
+    reset(&renderer_state->pending_upload_requests);
 
     Scene_Node *root_scene_node = &renderer_state->root_scene_node;
     root_scene_node->name = HE_STRING_LITERAL("Root");
@@ -149,13 +158,6 @@ bool init_renderer_state(Engine *engine)
     root_scene_node->static_mesh_uuid = HE_MAX_U64;
 
     platform_create_mutex(&renderer_state->root_scene_node_mutex);
-
-    bool render_commands_mutex_created = platform_create_mutex(&renderer_state->render_commands_mutex);
-    HE_ASSERT(render_commands_mutex_created);
-
-    bool allocation_groups_mutex_created = platform_create_mutex(&renderer_state->upload_request_mutex);
-    HE_ASSERT(allocation_groups_mutex_created);
-    reset(&renderer_state->upload_requests);
 
     U32 &back_buffer_width = renderer_state->back_buffer_width;
     U32 &back_buffer_height = renderer_state->back_buffer_height;
@@ -744,29 +746,33 @@ Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
     Texture_Handle texture_handle = aquire_handle(&renderer_state->textures);
     Texture *texture = renderer_get_texture(texture_handle);
 
-    Upload_Request upload_request = {};
-
-    if (descriptor.data.count)
-    {
-        init(&upload_request);
-        
-        for (U32 i = 0; i < descriptor.data.count; i++)
-        {
-            append(&upload_request.allocations_in_transfer_buffer, (void *)descriptor.data[i]);
-        }
-    }
-
-    platform_lock_mutex(&renderer_state->render_commands_mutex);
-    renderer->create_texture(texture_handle, descriptor, descriptor.data.count ? &upload_request : nullptr);
-    platform_unlock_mutex(&renderer_state->render_commands_mutex);
-
+    Upload_Request_Handle upload_request_handle = Resource_Pool< Upload_Request >::invalid_handle;
     texture->is_uploaded_to_gpu = true;
 
     if (descriptor.data.count)
     {
         texture->is_uploaded_to_gpu = false;
-        upload_request.uploaded = &texture->is_uploaded_to_gpu;
-        renderer_add_upload_request(&upload_request);
+
+        Upload_Request_Descriptor upload_request_descriptor = {
+            .name = texture->name,
+            .is_uploaded = &texture->is_uploaded_to_gpu
+        };
+        upload_request_handle = renderer_create_upload_request(upload_request_descriptor);
+        Upload_Request *upload_request = renderer_get_upload_request(upload_request_handle);
+
+        for (U32 i = 0; i < descriptor.data.count; i++)
+        {
+            append(&upload_request->allocations_in_transfer_buffer, (void *)descriptor.data[i]);
+        }
+    }
+
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
+    renderer->create_texture(texture_handle, descriptor, upload_request_handle);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+
+    if (descriptor.data.count)
+    {
+        renderer_add_pending_upload_request(upload_request_handle);
     }
 
     texture->width = descriptor.width;
@@ -1283,18 +1289,21 @@ Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &des
     static_mesh->sub_meshes = descriptor.sub_meshes;
     static_mesh->is_uploaded_to_gpu = false;
 
-    Upload_Request upload_request;
-    init(&upload_request);
-    append(&upload_request.allocations_in_transfer_buffer, descriptor.data);
-    
-    upload_request.uploaded = &static_mesh->is_uploaded_to_gpu;
+    Upload_Request_Descriptor upload_request_descriptor =
+    {
+        .name = static_mesh->name,
+        .is_uploaded = &static_mesh->is_uploaded_to_gpu
+    };
+
+    Upload_Request_Handle upload_request_handle = renderer_create_upload_request(upload_request_descriptor);
+    Upload_Request *upload_request = renderer_get_upload_request(upload_request_handle);
+    append(&upload_request->allocations_in_transfer_buffer, descriptor.data);
     
     platform_lock_mutex(&renderer_state->render_commands_mutex);
-    renderer->create_static_mesh(static_mesh_handle, descriptor, &upload_request);
+    renderer->create_static_mesh(static_mesh_handle, descriptor, upload_request_handle);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
-
-    renderer_add_upload_request(&upload_request);
-
+    
+    renderer_add_pending_upload_request(upload_request_handle);
     return static_mesh_handle;
 }
 
@@ -1711,23 +1720,42 @@ void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_t
 // Render Context
 //
 
-void init(Upload_Request *upload_request)
+Upload_Request_Handle renderer_create_upload_request(const Upload_Request_Descriptor &descriptor)
 {
-    HE_ASSERT(upload_request);
+    Upload_Request_Handle upload_request_handle = aquire_handle(&renderer_state->upload_requests);
+    Upload_Request *upload_request = get(&renderer_state->upload_requests, upload_request_handle);
+
     Renderer_Semaphore_Descriptor semaphore_descriptor =
     {
         .initial_value = 0
     };
+
     Semaphore_Handle semaphore = renderer_create_semaphore(semaphore_descriptor);
+    upload_request->name = descriptor.name;
     upload_request->semaphore = semaphore;
     upload_request->target_value = 0;
-    upload_request->uploaded = nullptr;
+    upload_request->uploaded = descriptor.is_uploaded;
     reset(&upload_request->allocations_in_transfer_buffer);
+
+    return upload_request_handle;
 }
 
-void deinit(Upload_Request *upload_request)
+Upload_Request *renderer_get_upload_request(Upload_Request_Handle upload_request_handle)
 {
-    HE_ASSERT(upload_request);
+    Upload_Request *upload_request = get(&renderer_state->upload_requests, upload_request_handle);
+    return upload_request;
+}
+
+void renderer_add_pending_upload_request(Upload_Request_Handle upload_request_handle)
+{
+    platform_lock_mutex(&renderer_state->pending_upload_requests_mutex);
+    append(&renderer_state->pending_upload_requests, upload_request_handle);
+    platform_unlock_mutex(&renderer_state->pending_upload_requests_mutex);
+}
+
+void renderer_destroy_upload_request(Upload_Request_Handle upload_request_handle)
+{
+    Upload_Request *upload_request = get(&renderer_state->upload_requests, upload_request_handle);
     HE_ASSERT(upload_request->target_value);
     
     renderer_destroy_semaphore(upload_request->semaphore);
@@ -1736,39 +1764,35 @@ void deinit(Upload_Request *upload_request)
     {
         deallocate(&renderer_state->transfer_allocator, upload_request->allocations_in_transfer_buffer[i]);
     }
-}
-
-void renderer_add_upload_request(const Upload_Request *upload_request)
-{
-    platform_lock_mutex(&renderer_state->upload_request_mutex);
-    append(&renderer_state->upload_requests, *upload_request);
-    platform_unlock_mutex(&renderer_state->upload_request_mutex);
+    
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
+    renderer->destroy_upload_request(upload_request_handle);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+    
+    release_handle(&renderer_state->upload_requests, upload_request_handle);
 }
 
 void renderer_handle_upload_requests()
 {
-    platform_lock_mutex(&renderer_state->upload_request_mutex);
+    platform_lock_mutex(&renderer_state->pending_upload_requests_mutex);
     
-    for (U32 upload_request_index = 0; upload_request_index < renderer_state->upload_requests.count; upload_request_index++)
+    for (U32 i = 0; i < renderer_state->pending_upload_requests.count; i++)
     {
-        Upload_Request *upload_request = &renderer_state->upload_requests[upload_request_index];
+        Upload_Request_Handle upload_request_handle = renderer_state->pending_upload_requests[i];
+        Upload_Request *upload_request = get(&renderer_state->upload_requests, upload_request_handle);
+
         U64 semaphore_value = renderer_get_semaphore_value(upload_request->semaphore);
         if (upload_request->target_value == semaphore_value)
         {
             HE_ASSERT(upload_request->uploaded);
             HE_ASSERT(*upload_request->uploaded == false);
             *upload_request->uploaded = true;
-            deinit(upload_request);
-
-            reset(&upload_request->allocations_in_transfer_buffer);
-            upload_request->semaphore = Resource_Pool< Renderer_Semaphore >::invalid_handle;
-            upload_request->target_value = 0;
-
-            remove_and_swap_back(&renderer_state->upload_requests, upload_request_index);
+            renderer_destroy_upload_request(upload_request_handle);
+            remove_and_swap_back(&renderer_state->pending_upload_requests, i);
         }
     }
 
-    platform_unlock_mutex(&renderer_state->upload_request_mutex);
+    platform_unlock_mutex(&renderer_state->pending_upload_requests_mutex);
 }
 
 Render_Context get_render_context()

@@ -94,7 +94,7 @@ struct Renderer
     bool (*create_buffer)(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor);
     void (*destroy_buffer)(Buffer_Handle buffer_handle);
 
-    bool (*create_texture)(Texture_Handle texture_handle, const Texture_Descriptor &descriptor, Upload_Request *upload_request);
+    bool (*create_texture)(Texture_Handle texture_handle, const Texture_Descriptor &descriptor, Upload_Request_Handle upload_request_handle);
     void (*destroy_texture)(Texture_Handle texture_handle);
 
     bool (*create_sampler)(Sampler_Handle sampler_handle, const Sampler_Descriptor &descriptor);
@@ -118,12 +118,14 @@ struct Renderer
     bool (*create_frame_buffer)(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor);
     void (*destroy_frame_buffer)(Frame_Buffer_Handle frame_buffer_handle);
 
-    bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor, Upload_Request *upload_request);
+    bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor, Upload_Request_Handle upload_request_handle);
     void (*destroy_static_mesh)(Static_Mesh_Handle static_mesh_handle);
 
     bool (*create_semaphore)(Semaphore_Handle semaphore_handle, const Renderer_Semaphore_Descriptor &descriptor);
     U64 (*get_semaphore_value)(Semaphore_Handle semaphore_handle);
     void (*destroy_semaphore)(Semaphore_Handle semaphore_handle);
+
+    void (*destroy_upload_request)(Upload_Request_Handle upload_request_handle);
 
     void (*set_vsync)(bool enabled);
 
@@ -148,9 +150,8 @@ struct Renderer_State
 {
     struct Engine *engine;
     
-    bool imgui_docking;
-    
     Renderer renderer;
+    Mutex render_commands_mutex;
 
     U32 back_buffer_width;
     U32 back_buffer_height;
@@ -167,6 +168,10 @@ struct Renderer_State
     Resource_Pool< Material > materials;
     Resource_Pool< Static_Mesh > static_meshes;
     Resource_Pool< Scene > scenes;
+    Resource_Pool< Upload_Request > upload_requests;
+
+    Mutex pending_upload_requests_mutex;
+    Array< Upload_Request_Handle, HE_MAX_UPLOAD_REQUEST_COUNT > pending_upload_requests;
 
     Mutex root_scene_node_mutex;
     Scene_Node root_scene_node;
@@ -197,11 +202,6 @@ struct Renderer_State
     U32 frames_in_flight;
     U32 current_frame_in_flight_index;
 
-    Mutex render_commands_mutex;
-    
-    Mutex upload_request_mutex;
-    Array< Upload_Request, HE_MAX_UPLOAD_REQUEST_COUNT > upload_requests;
-
     Shader_Handle default_shader;
     Pipeline_State_Handle default_pipeline;
     Material_Handle default_material;
@@ -218,6 +218,8 @@ struct Renderer_State
 
     Scene_Data scene_data;
     Render_Graph render_graph;
+
+    bool imgui_docking;
 };
 
 struct Render_Context
@@ -353,10 +355,10 @@ void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_t
 // Upload Request
 //
 
-void init(Upload_Request *upload_request);
-void deinit(Upload_Request *upload_request);
-
-void renderer_add_upload_request(const Upload_Request *upload_request);
+Upload_Request_Handle renderer_create_upload_request(const Upload_Request_Descriptor &descriptor);
+Upload_Request *renderer_get_upload_request(Upload_Request_Handle upload_request_handle);
+void renderer_destroy_upload_request(Upload_Request_Handle upload_request_handle);
+void renderer_add_pending_upload_request(Upload_Request_Handle upload_request_handle);
 void renderer_handle_upload_requests();
 
 //

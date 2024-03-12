@@ -193,7 +193,7 @@ void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U3
     vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
-void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width, U32 height, U32 mip_levels, U32 layer_count, VkFormat format, Array_View< void * > data, Upload_Request *upload_request)
+void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width, U32 height, U32 mip_levels, U32 layer_count, VkFormat format, Array_View< void * > data, Upload_Request_Handle upload_request_handle)
 {
     HE_ASSERT(context);
     HE_ASSERT(image);
@@ -202,14 +202,23 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
 
     Renderer_State *renderer_state = context->renderer_state;
 
+    Vulkan_Thread_State *thread_state = get_thread_state(context);
+
     VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    command_buffer_allocate_info.commandPool = context->upload_textures_command_pool;
+    command_buffer_allocate_info.commandPool = thread_state->graphics_command_pool;
     command_buffer_allocate_info.commandBufferCount = 1;
     command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
     VkCommandBuffer command_buffer = {};
-    vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer); // @Leak
+    vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
     vkResetCommandBuffer(command_buffer, 0);
+
+    Vulkan_Upload_Request *vulkan_upload_request = &context->upload_requests[upload_request_handle.index];
+    vulkan_upload_request->graphics_command_pool = thread_state->graphics_command_pool;
+    vulkan_upload_request->graphics_command_buffer = command_buffer;
+    
+    vulkan_upload_request->transfer_command_pool = VK_NULL_HANDLE;
+    vulkan_upload_request->transfer_command_buffer = VK_NULL_HANDLE;
 
     VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     command_buffer_begin_info.flags = 0;
@@ -318,19 +327,44 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
     submit_info.pCommandBufferInfos = &command_buffer_submit_info;
 
     VkSemaphoreSubmitInfoKHR semaphore_submit_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+    
+    Upload_Request *upload_request = renderer_get_upload_request(upload_request_handle);
+    upload_request->target_value++;
+    Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[upload_request->semaphore.index];
 
-    if (upload_request)
-    {
-        upload_request->target_value++;
-        Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[upload_request->semaphore.index];
+    semaphore_submit_info.semaphore = vulkan_semaphore->handle;
+    semaphore_submit_info.value = upload_request->target_value;
+    semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
 
-        semaphore_submit_info.semaphore = vulkan_semaphore->handle;
-        semaphore_submit_info.value = upload_request->target_value;
-        semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
-
-        submit_info.signalSemaphoreInfoCount = 1;
-        submit_info.pSignalSemaphoreInfos = &semaphore_submit_info;
-    }
+    submit_info.signalSemaphoreInfoCount = 1;
+    submit_info.pSignalSemaphoreInfos = &semaphore_submit_info;
 
     context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+}
+
+Vulkan_Thread_State *get_thread_state(Vulkan_Context *context)
+{
+    U32 thread_id = platform_get_current_thread_id();
+    auto it = find(&context->thread_states, thread_id);
+    if (is_valid(it))
+    {
+        return it.value;
+    }
+
+    S32 slot_index = insert(&context->thread_states, thread_id);
+    HE_ASSERT(slot_index != -1);
+
+    Vulkan_Thread_State *thread_state = &context->thread_states.values[slot_index];
+
+    VkCommandPoolCreateInfo graphics_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    graphics_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    graphics_command_pool_create_info.queueFamilyIndex = context->graphics_queue_family_index;
+    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &graphics_command_pool_create_info, &context->allocation_callbacks, &thread_state->graphics_command_pool));
+
+    VkCommandPoolCreateInfo transfer_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    transfer_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    transfer_command_pool_create_info.queueFamilyIndex = context->transfer_queue_family_index;
+    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &transfer_command_pool_create_info, &context->allocation_callbacks, &thread_state->transfer_command_pool));
+
+    return thread_state;
 }

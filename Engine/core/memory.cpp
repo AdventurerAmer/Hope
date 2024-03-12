@@ -23,6 +23,8 @@ void copy_memory(void *dst, const void *src, U64 size)
 
 struct Memory_System
 {
+    U64 thread_transient_arena_capacity;
+
     Memory_Arena permenent_arena;
     Memory_Arena debug_arena;
     Free_List_Allocator general_purpose_allocator;
@@ -34,6 +36,7 @@ static Memory_System memory_system_state;
 
 bool init_memory_system()
 {
+    memory_system_state.thread_transient_arena_capacity = HE_MEGA_BYTES(64);
     U64 capacity = platform_get_total_memory_size();
 
     if (!init_memory_arena(&memory_system_state.permenent_arena, capacity, HE_MEGA_BYTES(64)))
@@ -51,13 +54,13 @@ bool init_memory_system()
         return false;
     }
 
-    init(&memory_system_state.thread_id_to_memory_state, get_effective_thread_count() + 1, to_allocator(&memory_system_state.permenent_arena)); // +1 for the main thread
+    init(&memory_system_state.thread_id_to_memory_state, get_effective_thread_count(), to_allocator(&memory_system_state.permenent_arena));
 
     S32 slot_index = insert(&memory_system_state.thread_id_to_memory_state, platform_get_current_thread_id());
     HE_ASSERT(slot_index != -1);
 
     Thread_Memory_State *main_thread_memory_state = &memory_system_state.thread_id_to_memory_state.values[slot_index];
-    if (!init_memory_arena(&main_thread_memory_state->transient_arena, capacity, HE_MEGA_BYTES(64)))
+    if (!init_memory_arena(&main_thread_memory_state->transient_arena, capacity, memory_system_state.thread_transient_arena_capacity))
     {
         return false;
     }
@@ -81,7 +84,13 @@ Thread_Memory_State *get_thread_memory_state(U32 thread_id)
     }
 
     S32 slot_index = insert(&memory_system_state.thread_id_to_memory_state, thread_id);
-    return &memory_system_state.thread_id_to_memory_state.values[slot_index];
+    Thread_Memory_State *thread_memory_state = &memory_system_state.thread_id_to_memory_state.values[slot_index];
+    if (!init_memory_arena(&thread_memory_state->transient_arena, memory_system_state.thread_transient_arena_capacity, memory_system_state.thread_transient_arena_capacity))
+    {
+        return nullptr;
+    }
+    
+    return thread_memory_state;
 }
 
 void imgui_draw_arena(Memory_Arena *arena, const char *name)

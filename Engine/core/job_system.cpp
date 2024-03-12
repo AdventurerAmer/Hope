@@ -187,7 +187,7 @@ bool init_job_system()
     bool inited = init_free_list_allocator(&job_system_state.job_data_allocator, nullptr, HE_MEGA_BYTES(32), HE_MEGA_BYTES(32));
     HE_ASSERT(inited);
 
-    U32 thread_count = platform_get_thread_count();
+    U32 thread_count = get_job_thread_count();
     HE_ASSERT(thread_count);
 
     job_system_state.running.store(true);
@@ -218,11 +218,6 @@ bool init_job_system()
 
         U32 thread_id = platform_get_thread_id(&thread_state->thread);
         Thread_Memory_State *memory_state = get_thread_memory_state(thread_id);
-
-        // todo(amer): temprary HE_MEGA_BYTES(32)
-        bool memory_arena_inited = init_memory_arena(&memory_state->transient_arena, HE_MEGA_BYTES(32), HE_MEGA_BYTES(32));
-        HE_ASSERT(memory_arena_inited);
-
         thread_state->transient_arena = &memory_state->transient_arena;
     }
 
@@ -361,7 +356,8 @@ void wait_for_all_jobs_to_finish()
     }
 }
 
-U32 get_effective_thread_count()
+
+U32 get_job_thread_count()
 {
     U32 thread_count = platform_get_thread_count();
     if (thread_count > 2)
@@ -369,4 +365,9 @@ U32 get_effective_thread_count()
         thread_count -= 2;
     }
     return thread_count;
+}
+
+U32 get_effective_thread_count()
+{
+    return get_job_thread_count() + 1; // +1 for main thread since it can execute jobs while waiting for jobs to finish.
 }

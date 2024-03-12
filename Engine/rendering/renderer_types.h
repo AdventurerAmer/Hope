@@ -61,6 +61,12 @@ using Semaphore_Handle = Resource_Handle< Renderer_Semaphore >;
 
 #define HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT 8
 
+struct Upload_Request_Descriptor
+{
+    String name;
+    bool *is_uploaded;
+};
+
 struct Upload_Request
 {
     String name;
@@ -69,6 +75,8 @@ struct Upload_Request
     Array< void*, HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT > allocations_in_transfer_buffer;
     bool *uploaded;
 };
+
+using Upload_Request_Handle = Resource_Handle< Upload_Request >;
 
 //
 // Buffer
@@ -140,14 +148,14 @@ struct Texture_Descriptor
 {
     U32 width = 1;
     U32 height = 1;
-    Texture_Format format = Texture_Format::B8G8R8A8_SRGB;
+    Texture_Format format = Texture_Format::R8G8B8A8_UNORM;
     int layer_count = 1;
     Array_View< void * > data;
     bool mipmapping = false;
     U32 sample_count = 1;
     bool is_attachment = false;
     bool is_cubemap = false;
-    Texture_Handle alias = Resource_Pool< Texture >::invalid_handle;
+    Texture_Handle alias = Resource_Pool< Texture >::invalid_handle; 
 };
 
 //

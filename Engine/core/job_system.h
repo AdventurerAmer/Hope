@@ -56,4 +56,5 @@ Job_Handle execute_job(Job_Data job_data, Array_View< Job_Handle > wait_for_jobs
 
 void wait_for_all_jobs_to_finish();
 
+U32 get_job_thread_count();
 U32 get_effective_thread_count();
