@@ -126,6 +126,21 @@ struct Vulkan_Thread_State
     VkCommandPool transfer_command_pool;
 };
 
+#define HE_MAX_VULKAN_DESCRIPTOR_POOL_SIZE_RATIO_COUNT 8
+
+struct Vulkan_Descriptor_Pool_Size_Ratio
+{
+    VkDescriptorType type;
+    float ratio;
+};
+
+struct Vulkan_Descriptor_Pool_Allocator
+{
+    U32 set_count_per_pool;
+    Dynamic_Array< VkDescriptorPool > full_pools;
+    Dynamic_Array< VkDescriptorPool > ready_pools;
+};
+
 struct Vulkan_Context
 {
     struct Renderer_State *renderer_state;
@@ -158,9 +173,14 @@ struct Vulkan_Context
     VkSemaphore timeline_semaphore;
     U64 timeline_value;
     
+#if 0
     VkDescriptorPool descriptor_pool;
-    VkDescriptorPool imgui_descriptor_pool;
-
+    
+#else
+    Dynamic_Array< Vulkan_Descriptor_Pool_Size_Ratio > descriptor_pool_ratios;
+    Vulkan_Descriptor_Pool_Allocator descriptor_pool_allocators[HE_MAX_FRAMES_IN_FLIGHT];
+#endif
+    
     Hash_Map< U32, Vulkan_Thread_State > thread_states;
 
     VkCommandBuffer graphics_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
@@ -177,10 +197,13 @@ struct Vulkan_Context
     Vulkan_Shader *shaders;
     Vulkan_Pipeline_State *pipeline_states;
     Vulkan_Bind_Group *bind_groups;
+    
     Vulkan_Render_Pass *render_passes;
     Vulkan_Frame_Buffer *frame_buffers;
     Vulkan_Semaphore *semaphores;
     Vulkan_Upload_Request *upload_requests;
+    
+    VkDescriptorPool imgui_descriptor_pool;
 
 #if HE_GRAPHICS_DEBUGGING
     VkDebugUtilsMessengerEXT debug_messenger;

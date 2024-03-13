@@ -68,10 +68,8 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->destroy_shader = &vulkan_renderer_destroy_shader;
             renderer->create_pipeline_state = &vulkan_renderer_create_pipeline_state;
             renderer->destroy_pipeline_state = &vulkan_renderer_destroy_pipeline_state;
-            renderer->create_bind_group = &vulkan_renderer_create_bind_group;
             renderer->set_bind_groups = &vulkan_renderer_set_bind_groups;
             renderer->update_bind_group = &vulkan_renderer_update_bind_group;
-            renderer->destroy_bind_group = &vulkan_renderer_destroy_bind_group;
             renderer->create_render_pass = &vulkan_renderer_create_render_pass;
             renderer->begin_render_pass = &vulkan_renderer_begin_render_pass;
             renderer->end_render_pass = &vulkan_renderer_end_render_pass;
@@ -564,6 +562,9 @@ bool init_renderer_state(Engine *engine)
 
         Shader *default_shader = get(&renderer_state->shaders, renderer_state->default_shader);
 
+        Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_shader, HE_STRING_LITERAL("Globals"));
+        HE_ASSERT(globals_struct);
+
         Bind_Group_Descriptor per_frame_bind_group_descriptor =
         {
             .shader = renderer_state->default_shader,
@@ -575,9 +576,6 @@ bool init_renderer_state(Engine *engine)
             .shader = renderer_state->default_shader,
             .group_index = HE_PER_PASS_BIND_GROUP_INDEX
         };
-
-        Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_shader, HE_STRING_LITERAL("Globals"));
-        HE_ASSERT(globals_struct);
 
         for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
         {
@@ -597,29 +595,6 @@ bool init_renderer_state(Engine *engine)
 
             renderer_state->per_frame_bind_groups[frame_index] = renderer_create_bind_group(per_frame_bind_group_descriptor);
             renderer_state->per_render_pass_bind_groups[frame_index] = renderer_create_bind_group(per_render_pass_bind_group_descriptor);
-
-            Update_Binding_Descriptor globals_uniform_buffer_binding =
-            {
-                .binding_number = 0,
-                .element_index = 0,
-                .count = 1,
-                .buffers = &renderer_state->globals_uniform_buffers[frame_index]
-            };
-            
-            Update_Binding_Descriptor object_data_storage_buffer_binding =
-            {
-                .binding_number = 1,
-                .element_index = 0,
-                .count = 1,
-                .buffers = &renderer_state->object_data_storage_buffers[frame_index]
-            };
-
-            Update_Binding_Descriptor update_binding_descriptors[] =
-            {
-                globals_uniform_buffer_binding,
-                object_data_storage_buffer_binding
-            };
-            renderer_update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
         }
     }
 
@@ -1092,12 +1067,9 @@ void renderer_destroy_shader(Shader_Handle &shader_handle)
 Bind_Group_Handle renderer_create_bind_group(const Bind_Group_Descriptor &descriptor)
 {
     Bind_Group_Handle bind_group_handle = aquire_handle(&renderer_state->bind_groups);
-    platform_lock_mutex(&renderer_state->render_commands_mutex);
-    renderer->create_bind_group(bind_group_handle, descriptor);
-    platform_unlock_mutex(&renderer_state->render_commands_mutex);
-
     Bind_Group *bind_group = &renderer_state->bind_groups.data[bind_group_handle.index];
-    bind_group->descriptor = descriptor;
+    bind_group->shader = descriptor.shader;
+    bind_group->group_index = descriptor.group_index;
     return bind_group_handle;
 }
 
@@ -1115,10 +1087,7 @@ void renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Array
 
 void renderer_destroy_bind_group(Bind_Group_Handle &bind_group_handle)
 {
-    renderer->destroy_bind_group(bind_group_handle);
-    platform_lock_mutex(&renderer_state->render_commands_mutex);
     release_handle(&renderer_state->bind_groups, bind_group_handle);
-    platform_unlock_mutex(&renderer_state->render_commands_mutex);
     bind_group_handle = Resource_Pool< Bind_Group >::invalid_handle;
 }
 
@@ -1354,26 +1323,14 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         
         Buffer_Handle buffer_handle = renderer_create_buffer(material_buffer_descriptor);
         append(&material->buffers, buffer_handle);
-    }
 
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
         Bind_Group_Descriptor bind_group_descriptor =
         {
             .shader = pipeline_state->descriptor.shader,
             .group_index = HE_PER_OBJECT_BIND_GROUP_INDEX
         };
-        append(&material->bind_groups, renderer_create_bind_group(bind_group_descriptor));
 
-        Update_Binding_Descriptor update_binding_descriptor =
-        {
-            .binding_number = 0,
-            .element_index = 0,
-            .count = 1,
-            .buffers = &material->buffers[frame_index],
-        };
-
-        renderer_update_bind_group(material->bind_groups[frame_index], { .count = 1, .data = &update_binding_descriptor });
+        material->bind_groups[frame_index] = renderer_create_bind_group(bind_group_descriptor);
     }
 
     init(&material->properties, properties->member_count);
@@ -1531,6 +1488,17 @@ void renderer_use_material(Material_Handle material_handle)
         Buffer *material_buffer = get(&renderer_state->buffers, material->buffers[renderer_state->current_frame_in_flight_index]);
         copy_memory(material_buffer->data, material->data, material->size);
     }
+
+    Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
+    
+    Update_Binding_Descriptor update_binding_descriptor =
+    {
+        .binding_number = 0,
+        .element_index = 0,
+        .count = 1,
+        .buffers = &material->buffers[renderer_state->current_frame_in_flight_index],
+    };
+    renderer_update_bind_group(material->bind_groups[renderer_state->current_frame_in_flight_index], { .count = 1, .data = &update_binding_descriptor });    
 
     Bind_Group_Handle material_bind_groups[] =
     {

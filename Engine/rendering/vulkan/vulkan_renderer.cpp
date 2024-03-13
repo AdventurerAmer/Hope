@@ -539,23 +539,43 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     graphics_command_buffer_allocate_info.commandBufferCount = HE_MAX_FRAMES_IN_FLIGHT;
     HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &graphics_command_buffer_allocate_info, context->graphics_command_buffers));
 
-    VkDescriptorPoolSize descriptor_pool_sizes[] =
+    init(&context->descriptor_pool_ratios);
+    append(&context->descriptor_pool_ratios, { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .ratio = 3.0f });
+    append(&context->descriptor_pool_ratios, { .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .ratio = 1.0f });
+    append(&context->descriptor_pool_ratios, { .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .ratio = 4.0f });
+
+    U32 initial_set_count_per_descriptor_pool = 1024;
+
+    VkDescriptorPoolSize *descriptor_pool_sizes = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorPoolSize, context->descriptor_pool_ratios.count);
+    for (U32 i = 0; i < context->descriptor_pool_ratios.count; i++)
     {
-        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT },
-        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT }
-    };
+        VkDescriptorPoolSize *pool_size = &descriptor_pool_sizes[i];
+        pool_size->type = context->descriptor_pool_ratios[i].type;
+        pool_size->descriptorCount = (U32)(initial_set_count_per_descriptor_pool * context->descriptor_pool_ratios[i].ratio);
+    }
 
-    VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-    descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT|VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-    descriptor_pool_create_info.poolSizeCount = HE_ARRAYCOUNT(descriptor_pool_sizes);
-    descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
-    descriptor_pool_create_info.maxSets = HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT * HE_ARRAYCOUNT(descriptor_pool_sizes);
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        Vulkan_Descriptor_Pool_Allocator *descriptor_pool_allocator = &context->descriptor_pool_allocators[frame_index];
+        descriptor_pool_allocator->set_count_per_pool = (U32)(initial_set_count_per_descriptor_pool * 1.5f);
+        
+        init(&descriptor_pool_allocator->ready_pools);
+        init(&descriptor_pool_allocator->full_pools);
 
-    HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, &context->allocation_callbacks, &context->descriptor_pool));
-    
+        VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        descriptor_pool_create_info.flags = 0;
+        descriptor_pool_create_info.maxSets = initial_set_count_per_descriptor_pool;
+        descriptor_pool_create_info.poolSizeCount = context->descriptor_pool_ratios.count;
+        descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
+
+        VkDescriptorPool descriptor_pool;
+        HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, &context->allocation_callbacks, &descriptor_pool));        
+
+        append(&descriptor_pool_allocator->ready_pools, descriptor_pool);
+    }
+
     context->timeline_value = HE_MAX_FRAMES_IN_FLIGHT;
-    
+
     VkSemaphoreTypeCreateInfo timeline_semaphore_type_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
     timeline_semaphore_type_create_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
     timeline_semaphore_type_create_info.initialValue = context->timeline_value;
@@ -587,8 +607,22 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
 void deinit_vulkan(Vulkan_Context *context)
 {
     vkDeviceWaitIdle(context->logical_device);
+    
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        Vulkan_Descriptor_Pool_Allocator *descriptor_pool_allocator = &context->descriptor_pool_allocators[frame_index];
+        
+        for (U32 i = 0; i < descriptor_pool_allocator->ready_pools.count; i++)
+        {
+            vkDestroyDescriptorPool(context->logical_device, descriptor_pool_allocator->ready_pools[i], &context->allocation_callbacks);
+        }
 
-    vkDestroyDescriptorPool(context->logical_device, context->descriptor_pool, &context->allocation_callbacks);
+        for (U32 i = 0; i < descriptor_pool_allocator->full_pools.count; i++)
+        {
+            vkDestroyDescriptorPool(context->logical_device, descriptor_pool_allocator->full_pools[i], &context->allocation_callbacks);
+        }
+    }
+
     vkDestroyDescriptorPool(context->logical_device, context->imgui_descriptor_pool, &context->allocation_callbacks);
 
     ImGui_ImplVulkan_Shutdown();
@@ -683,6 +717,21 @@ void vulkan_renderer_begin_frame()
     wait_info.pSemaphores = &context->timeline_semaphore;
     wait_info.pValues = &wait_value;
     vkWaitSemaphores(context->logical_device, &wait_info, UINT64_MAX);
+
+    Vulkan_Descriptor_Pool_Allocator *descriptor_pool_allocator = &context->descriptor_pool_allocators[current_frame_in_flight_index];
+
+    for (U32 i = 0; i < descriptor_pool_allocator->ready_pools.count; i++)
+    {
+        vkResetDescriptorPool(context->logical_device, descriptor_pool_allocator->ready_pools[i], 0);
+    }
+
+    for (U32 i = 0; i < descriptor_pool_allocator->full_pools.count; i++)
+    {
+        vkResetDescriptorPool(context->logical_device, descriptor_pool_allocator->full_pools[i], 0);
+        append(&descriptor_pool_allocator->ready_pools, descriptor_pool_allocator->full_pools[i]);
+    }
+    
+    reset(&descriptor_pool_allocator->full_pools);
 
     VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[current_frame_in_flight_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);
 
@@ -1124,33 +1173,85 @@ static VkDescriptorType get_descriptor_type(Buffer_Usage usage)
     return VK_DESCRIPTOR_TYPE_MAX_ENUM;
 }
 
-bool vulkan_renderer_create_bind_group(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor)
+static VkDescriptorPool get_descriptor_pool(Vulkan_Descriptor_Pool_Allocator *allocator)
 {
     Vulkan_Context *context = &vulkan_context;
+    VkDescriptorPool descriptor_pool;
 
-    Bind_Group *bind_group = get(&context->renderer_state->bind_groups, bind_group_handle);
-    Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[bind_group_handle.index];
-    Vulkan_Shader *vulkan_shader = &context->shaders[descriptor.shader.index];
+    if (allocator->ready_pools.count)
+    {
+        descriptor_pool = back(&allocator->ready_pools);
+        remove_back(&allocator->ready_pools);
+    }
+    else
+    {
+        Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+        VkDescriptorPoolSize *descriptor_pool_sizes = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkDescriptorPoolSize, context->descriptor_pool_ratios.count);
+        for (U32 i = 0; i < context->descriptor_pool_ratios.count; i++)
+        {
+            VkDescriptorPoolSize *pool_size = &descriptor_pool_sizes[i];
+            pool_size->type = context->descriptor_pool_ratios[i].type;
+            pool_size->descriptorCount = (U32)(allocator->set_count_per_pool * context->descriptor_pool_ratios[i].ratio);
+        }
+
+        VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        descriptor_pool_create_info.flags = 0;
+        descriptor_pool_create_info.maxSets = allocator->set_count_per_pool;
+        descriptor_pool_create_info.poolSizeCount = context->descriptor_pool_ratios.count;
+        descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
+        
+        HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, &context->allocation_callbacks, &descriptor_pool));
+        
+        allocator->set_count_per_pool = (U32)(allocator->set_count_per_pool * 1.5f);
+        if (allocator->set_count_per_pool > HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT)
+        {
+            allocator->set_count_per_pool = HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
+        }
+    }
+
+    return descriptor_pool;
+}
+
+static VkDescriptorSet allocate_descriptor_set(Vulkan_Descriptor_Pool_Allocator *allocator, VkDescriptorSetLayout layout)
+{
+    Vulkan_Context *context = &vulkan_context;
+    U32 frame_index = context->renderer_state->current_frame_in_flight_index;
+    Vulkan_Descriptor_Pool_Allocator *descriptor_pool_allocator = &context->descriptor_pool_allocators[frame_index];
+    VkDescriptorPool descriptor_pool = get_descriptor_pool(descriptor_pool_allocator);
 
     VkDescriptorSetAllocateInfo descriptor_set_allocation_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-    descriptor_set_allocation_info.descriptorPool = context->descriptor_pool;
+    descriptor_set_allocation_info.descriptorPool = descriptor_pool;
     descriptor_set_allocation_info.descriptorSetCount = 1;
-    descriptor_set_allocation_info.pSetLayouts = &vulkan_shader->descriptor_set_layouts[descriptor.group_index];
+    descriptor_set_allocation_info.pSetLayouts = &layout;
 
-    HE_CHECK_VKRESULT(vkAllocateDescriptorSets(context->logical_device, &descriptor_set_allocation_info, &vulkan_bind_group->handle));
-    return true;
+    VkDescriptorSet descriptor_set;
+    VkResult result = vkAllocateDescriptorSets(context->logical_device, &descriptor_set_allocation_info, &descriptor_set);
+    if (result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL)
+    {
+        append(&descriptor_pool_allocator->full_pools, descriptor_pool);
+        descriptor_pool = get_descriptor_pool(descriptor_pool_allocator);
+        descriptor_set_allocation_info.descriptorPool = descriptor_pool;
+        HE_CHECK_VKRESULT(vkAllocateDescriptorSets(context->logical_device, &descriptor_set_allocation_info, &descriptor_set));
+    }
+
+    append(&descriptor_pool_allocator->ready_pools, descriptor_pool);
+    return descriptor_set;
 }
 
 void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors)
 {
     Vulkan_Context *context = &vulkan_context;
 
-    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
-    HE_DEFER { end_temprary_memory(&temprary_memory); };
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    
+    Bind_Group *bind_group = renderer_get_bind_group(bind_group_handle);
+    Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[bind_group_handle.index];
+    Vulkan_Shader *vulkan_shader = &context->shaders[bind_group->shader.index];
 
-    Vulkan_Bind_Group *bind_group = &context->bind_groups[bind_group_handle.index];
-
-    VkWriteDescriptorSet *write_descriptor_sets = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkWriteDescriptorSet, update_binding_descriptors.count);
+    U32 frame_index = context->renderer_state->current_frame_in_flight_index;
+    vulkan_bind_group->handle = allocate_descriptor_set(&context->descriptor_pool_allocators[frame_index], vulkan_shader->descriptor_set_layouts[bind_group->group_index]);
+    
+    VkWriteDescriptorSet *write_descriptor_sets = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkWriteDescriptorSet, update_binding_descriptors.count);
 
     for (U32 binding_index = 0; binding_index < update_binding_descriptors.count; binding_index++)
     {
@@ -1159,7 +1260,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
         VkWriteDescriptorSet *write_descriptor_set = &write_descriptor_sets[binding_index];
         *write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
 
-        write_descriptor_set->dstSet = bind_group->handle;
+        write_descriptor_set->dstSet = vulkan_bind_group->handle;
         write_descriptor_set->dstBinding = binding->binding_number;
         write_descriptor_set->dstArrayElement = binding->element_index;
         write_descriptor_set->descriptorCount = binding->count;
@@ -1171,7 +1272,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
                 write_descriptor_set->descriptorType = get_descriptor_type(buffer->usage);
             }
 
-            VkDescriptorBufferInfo *buffer_infos = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorBufferInfo, binding->count);
+            VkDescriptorBufferInfo *buffer_infos = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkDescriptorBufferInfo, binding->count);
 
             for (U32 buffer_index = 0; buffer_index < binding->count; buffer_index++)
             {
@@ -1190,7 +1291,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
         if (binding->textures && binding->samplers)
         {
             write_descriptor_set->descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            VkDescriptorImageInfo *image_infos = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorImageInfo, binding->count);
+            VkDescriptorImageInfo *image_infos = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkDescriptorImageInfo, binding->count);
 
             for (U32 image_index = 0; image_index < binding->count; image_index++)
             {
@@ -1216,7 +1317,7 @@ void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bin
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
     Bind_Group *bind_group = get(&context->renderer_state->bind_groups, bind_group_handles[0]);
-    Vulkan_Shader *vulkan_shader = &context->shaders[bind_group->descriptor.shader.index];
+    Vulkan_Shader *vulkan_shader = &context->shaders[bind_group->shader.index];
     
     VkDescriptorSet *descriptor_sets = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkDescriptorSet, bind_group_handles.count);
     
@@ -1227,13 +1328,6 @@ void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bin
     }
       
     vkCmdBindDescriptorSets(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_shader->pipeline_layout, first_bind_group, bind_group_handles.count, descriptor_sets, 0, nullptr);
-}
-
-void vulkan_renderer_destroy_bind_group(Bind_Group_Handle bind_group_handle)
-{
-    Vulkan_Context *context = &vulkan_context;
-    Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[bind_group_handle.index];
-    vkFreeDescriptorSets(context->logical_device, context->descriptor_pool, 1, &vulkan_bind_group->handle);
 }
 
 bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor)
@@ -1944,6 +2038,7 @@ void vulkan_renderer_imgui_render()
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), context->command_buffer);
     }
 }
+
 // todo(amer): make this a utility function and use it in vulkan_renderer_create_texture...
 Memory_Requirements vulkan_renderer_get_texture_memory_requirements(const Texture_Descriptor &descriptor)
 {

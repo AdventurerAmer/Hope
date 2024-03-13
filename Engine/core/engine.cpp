@@ -933,6 +933,29 @@ void game_loop(Engine *engine, F32 delta_time)
 
             samplers[it.index] = texture->is_cubemap ? renderer_state->default_cubemap_sampler : renderer_state->default_texture_sampler;
         }
+        
+        Update_Binding_Descriptor globals_uniform_buffer_binding =
+        {
+            .binding_number = 0,
+            .element_index = 0,
+            .count = 1,
+            .buffers = &renderer_state->globals_uniform_buffers[frame_index]
+        };
+        
+        Update_Binding_Descriptor object_data_storage_buffer_binding =
+        {
+            .binding_number = 1,
+            .element_index = 0,
+            .count = 1,
+            .buffers = &renderer_state->object_data_storage_buffers[frame_index]
+        };
+
+        Update_Binding_Descriptor update_binding_descriptors[] =
+        {
+            globals_uniform_buffer_binding,
+            object_data_storage_buffer_binding
+        };
+        renderer_update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
 
         Update_Binding_Descriptor update_textures_binding_descriptors[] =
         {
@@ -944,14 +967,14 @@ void game_loop(Engine *engine, F32 delta_time)
                 .samplers = samplers
             },
         };
-
-        renderer_update_bind_group(renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index], to_array_view(update_textures_binding_descriptors));
+        renderer_update_bind_group(renderer_state->per_render_pass_bind_groups[frame_index], to_array_view(update_textures_binding_descriptors));
 
         Bind_Group_Handle bind_groups[] =
         {
-            renderer_state->per_frame_bind_groups[renderer_state->current_frame_in_flight_index],
-            renderer_state->per_render_pass_bind_groups[renderer_state->current_frame_in_flight_index]
+            renderer_state->per_frame_bind_groups[frame_index],
+            renderer_state->per_render_pass_bind_groups[frame_index]
         };
+
         renderer->set_bind_groups(0, to_array_view(bind_groups));
 
         render(&renderer_state->render_graph, renderer, renderer_state);

@@ -271,6 +271,8 @@ using Frame_Buffer_Handle = Resource_Handle< Frame_Buffer >;
 
 enum class Shader_Data_Type
 {
+    NONE,
+
     S8,
     S16,
     S32,
@@ -366,7 +368,8 @@ struct Bind_Group_Descriptor
 
 struct Bind_Group
 {
-    Bind_Group_Descriptor descriptor;
+    Shader_Handle shader;
+    U32 group_index;
 };
 
 using Bind_Group_Handle = Resource_Handle< Bind_Group >;

@@ -126,6 +126,8 @@ static Shader_Data_Type spirv_type_to_shader_data_type(spirv_cross::SPIRType typ
             HE_ASSERT(!"unsupported type");
         } break;
     }
+
+    return Shader_Data_Type::NONE;
 }
 
 static U32 get_size_of_spirv_type(spirv_cross::SPIRType type)
@@ -399,7 +401,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
         VkDescriptorBindingFlags *bindings_flags = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkDescriptorBindingFlags, set.count);
         for (U32 i = 0; i < set.count; i++)
         {
-            bindings_flags[i] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT|VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT;
+            bindings_flags[i] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT;
         }
 
         VkDescriptorSetLayoutBindingFlagsCreateInfoEXT extended_descriptor_set_layout_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT };
@@ -409,7 +411,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
         VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
         descriptor_set_layout_create_info.bindingCount = set.count;
         descriptor_set_layout_create_info.pBindings = set.data;
-        descriptor_set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        descriptor_set_layout_create_info.flags = 0;
         descriptor_set_layout_create_info.pNext = &extended_descriptor_set_layout_create_info;
 
         vkCreateDescriptorSetLayout(context->logical_device, &descriptor_set_layout_create_info, &context->allocation_callbacks, &vulkan_shader->descriptor_set_layouts[set_index]);

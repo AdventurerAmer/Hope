@@ -105,10 +105,8 @@ struct Renderer
 
     bool (*create_pipeline_state)(Pipeline_State_Handle pipeline_state_handle, const Pipeline_State_Descriptor &descriptor);
     void (*destroy_pipeline_state)(Pipeline_State_Handle pipeline_state_handle);
-
-    bool (*create_bind_group)(Bind_Group_Handle bind_group_handle, const Bind_Group_Descriptor &descriptor);
+    
     void (*update_bind_group)(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors);
-    void (*destroy_bind_group)(Bind_Group_Handle bind_group_handle);
 
     bool (*create_render_pass)(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor);
     void (*begin_render_pass)(Render_Pass_Handle render_pass_handle, Frame_Buffer_Handle frame_buffer_handle, const Array_View< Clear_Value > &clear_views);
@@ -186,7 +184,7 @@ struct Renderer_State
     bool vsync;
     MSAA_Setting msaa_setting;
     Anisotropic_Filtering_Setting anisotropic_filtering_setting;
-
+    
     Bind_Group_Handle per_frame_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
     Bind_Group_Handle per_render_pass_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
 
@@ -275,7 +273,7 @@ void renderer_destroy_shader(Shader_Handle &shader_handle);
 // Bind Groups
 //
 Bind_Group_Handle renderer_create_bind_group(const Bind_Group_Descriptor &descriptor);
-Bind_Group* renderer_get_bind_Group(Bind_Group_Handle bind_group_handle);
+Bind_Group* renderer_get_bind_group(Bind_Group_Handle bind_group_handle);
 void renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors);
 void renderer_destroy_bind_group(Bind_Group_Handle &bind_group_handle);
 
