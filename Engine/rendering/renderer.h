@@ -371,6 +371,7 @@ Render_Context get_render_context();
 void renderer_set_anisotropic_filtering(Anisotropic_Filtering_Setting anisotropic_filtering_setting);
 void renderer_set_msaa(MSAA_Setting msaa_setting);
 void renderer_set_vsync(bool enabled);
+void renderer_set_triple_buffering(bool enabled);
 
 //
 // ImGui

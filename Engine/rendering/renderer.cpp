@@ -1824,6 +1824,27 @@ void renderer_set_vsync(bool enabled)
     renderer->set_vsync(enabled);
 }
 
+void renderer_set_triple_buffering(bool enabled)
+{
+    if (renderer_state->triple_buffering == enabled)
+    {
+        return;
+    }
+
+    renderer->wait_for_gpu_to_finish_all_work();
+    renderer_state->triple_buffering = enabled;
+    if (enabled)
+    {
+        renderer_state->frames_in_flight = HE_MAX_FRAMES_IN_FLIGHT;
+    }
+    else
+    {
+        renderer_state->frames_in_flight = HE_MAX_FRAMES_IN_FLIGHT - 1;
+    }
+    
+    renderer_state->current_frame_in_flight_index = 0;
+}
+
 //
 // ImGui
 //

@@ -672,16 +672,10 @@ static void imgui_draw_graphics_window()
             ImGui::Text("Triple Buffering");
             ImGui::SameLine();
 
-            if (ImGui::Checkbox("##Triple Buffering", &renderer_state->triple_buffering))
+            static bool triple_buffering = renderer_state->triple_buffering;
+            if (ImGui::Checkbox("##Triple Buffering", &triple_buffering))
             {
-                if (renderer_state->triple_buffering)
-                {
-                    renderer_state->frames_in_flight = 3;
-                }
-                else
-                {
-                    renderer_state->frames_in_flight = 2;
-                }
+                renderer_set_triple_buffering(triple_buffering);
             }
         }
 

@@ -9,6 +9,6 @@
 :back_buffer_height 720
 :triple_buffering 1
 :gamma 2.200000
-:msaa_setting 2
+:msaa_setting 1
 :anisotropic_filtering_setting 4
-:vsync 0
+:vsync 1
