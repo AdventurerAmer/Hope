@@ -6,11 +6,11 @@
 #include "platform/win32_input_codes.h"
 #endif
 
-enum Input_State : U8
+enum class Input_State : U8
 {
-    InputState_Released = 0,
-    InputState_Pressed = 1,
-    InputState_Held = 2,
+    RELEASED,
+    PRESSED,
+    HELD,
 };
 
 #define HE_MAX_KEY_STATES 1024

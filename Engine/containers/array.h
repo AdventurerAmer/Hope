@@ -1,17 +1,11 @@
 #pragma once
 
 #include "core/defines.h"
-#include "core/memory.h"
 #include "containers/array_view.h"
 
-#include <initializer_list>
-
-template< typename T, const U32 N >
+template< typename T, U32 N >
 struct Array
 {
-    static constexpr U32 capacity = N;
-
-    U32 count = 0;
     T data[N];
 
     HE_FORCE_INLINE T& operator[](U32 index)
@@ -26,26 +20,6 @@ struct Array
         return data[index];
     }
 
-    Array< T, N >& operator=(const Array< T, N >& other)
-    {
-        count = other.count;
-        copy_memory(data, other.data, sizeof(T) * other.count);
-        return *this;
-    }
-
-    Array< T, N >& operator=(const std::initializer_list< T > &&items)
-    {
-        HE_ASSERT(items.size() <= N);
-        count = 0;
-        
-        for (const T &item : items)
-        {
-            data[count++] = item;
-        }
-
-        return *this;
-    }
-
     HE_FORCE_INLINE T* begin()
     {
         return &data[0];
@@ -53,7 +27,7 @@ struct Array
 
     HE_FORCE_INLINE T* end()
     {
-        return &data[count];
+        return &data[N];
     }
 
     HE_FORCE_INLINE const T* begin() const
@@ -63,18 +37,11 @@ struct Array
 
     HE_FORCE_INLINE const T* end() const
     {
-        return &data[count];
+        return &data[N];
     }
 };
 
-template< typename T, const U32 N >
-void reset(Array< T, N > *array)
-{
-    HE_ASSERT(array);
-    array->count = 0;
-}
-
-template< typename T, const U32 N >
+template< typename T, U32 N >
 HE_FORCE_INLINE T& front(Array< T, N > *array)
 {
     HE_ASSERT(array);
@@ -82,111 +49,44 @@ HE_FORCE_INLINE T& front(Array< T, N > *array)
     return array->data[0];
 }
 
-template< typename T, const U32 N >
+template< typename T, U32 N >
 HE_FORCE_INLINE T& back(Array< T, N > *array)
 {
     HE_ASSERT(array);
     HE_ASSERT(array->count);
-    return array->data[array->count - 1];
+    return array->data[N - 1];
 }
 
-template< typename T, const U32 N >
-T& append(Array< T, N > *array, const T &datum)
-{
-    HE_ASSERT(array);
-    HE_ASSERT(array->count < N);
-    copy_memory(array->data + array->count, &datum, sizeof(T));
-    array->count++;
-    return array->data[array->count - 1];
-}
-
-template< typename T, const U32 N >
-T& append(Array< T, N > *array)
-{
-    HE_ASSERT(array);
-    HE_ASSERT(array->count < N);
-    return array->data[array->count++];
-}
-
-template< typename T, const U32 N >
-void remove_back(Array< T, N > *array)
-{
-    HE_ASSERT(array);
-    HE_ASSERT(array->count);
-    array->count--;
-}
-
-template< typename T, const U32 N >
-void remove_and_swap_back(Array< T, N > *array, U32 index)
-{
-    HE_ASSERT(array);
-    HE_ASSERT(index < array->count);
-    copy_memory(&array->data[index], &array->data[array->count - 1], sizeof(T));
-    array->count--;
-}
-
-template< typename T, const U32 N >
-void remove_ordered(Array< T, N > *array, U32 index)
-{
-    HE_ASSERT(array);
-    HE_ASSERT(index < array->count);
-    for (U32 i = index; i < array->count - 1; i++)
-    {
-        copy_memory(&array->data[i], &array->data[i + 1], sizeof(T));
-    }
-    array->count--;
-}
-
-template< typename T, const U32 N >
+template< typename T, U32 N >
 S32 find(const Array< T, N > *array, const T &target)
 {
     HE_ASSERT(array);
 
-    for (S32 index = 0; index < array->count; index++)
+    for (U32 index = 0; index < N; index++)
     {
         if (array->data[index] == target)
         {
-            return index;
+            return (S32)index;
         }
     }
 
     return -1;
 }
 
-template< typename T, const U32 N >
-HE_FORCE_INLINE U64 size_in_bytes(const Array< T, N > *array)
+template< typename T, U32 N >
+HE_FORCE_INLINE constexpr U32 count(Array< T, N > *array)
 {
     HE_ASSERT(array);
-    return sizeof(T) * array->count;
+    return N;
 }
 
-template< typename T, const U32 N >
-HE_FORCE_INLINE U64 capacity_in_bytes(Array< T, N > *array)
-{
-    HE_ASSERT(array);
-    return sizeof(T) * N;
-}
-
-template< typename T, const U32 N >
+template< typename T, U32 N >
 void copy(Array< T, N > *dst, const Array< T, N > *src)
 {
-    dst->count = src->count;
-    copy_memory(dst->data, src->data, size_in_bytes(src));
+    copy_memory(dst->data, src->data, sizeof(T) * N);
 }
 
-template< typename T, const U32 N >
-HE_FORCE_INLINE bool empty(const Array< T, N > *array)
-{
-    return array->count == 0;
-}
-
-template< typename T, const U32 N >
-HE_FORCE_INLINE bool full(const Array< T, N > *array)
-{
-    return array->count == N;
-}
-
-template< typename T, const U32 N >
+template< typename T, U32 N >
 HE_FORCE_INLINE Array_View< T > to_array_view(const Array< T, N > &array)
 {
     return { array.count, array.data };

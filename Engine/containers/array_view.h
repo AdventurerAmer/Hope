@@ -23,7 +23,7 @@ struct Array_View
     }
 };
 
-template< typename T, const U32 N >
+template< typename T, U32 N >
 HE_FORCE_INLINE Array_View< T > to_array_view(const T (&array)[N])
 {
     return { N, array };

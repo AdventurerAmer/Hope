@@ -246,14 +246,14 @@ static bool load_texture_resource(Open_File_Result *open_file_result, Resource *
     U32 *data = HE_ALLOCATE_ARRAY(resource_system_state->resource_allocator, U32, info.width * info.height);
     bool success = platform_read_data_from_file(open_file_result, info.data_offset, data, data_size);
 
-    void *datas[] = { data };
-    
+    void *data_array[] = { data };
+
     Texture_Descriptor texture_descriptor =
     {
         .width = info.width,
         .height = info.height,
         .format = info.format,
-        .data = to_array_view(datas),
+        .data_array = to_array_view(data_array),
         .mipmapping = info.mipmapping,
         .sample_count = 1
     };

@@ -1,6 +1,6 @@
 workspace "Hope"
 
-    startproject "Engine"
+    startproject "Editor"
     architecture "x86_64"
     systemversion "latest"
 
@@ -34,13 +34,15 @@ workspace "Hope"
 
     filter {}
 
-include "ThirdParty/ImGui"
+group "Dependencies"
+    include "ThirdParty/ImGui"
+group ""
 
 project "Engine"
 
     dependson { "ImGui" }
-
-    kind "WindowedApp"
+    
+    kind "StaticLib"
     location "Engine"
     language "C++"
     cppdialect "C++20"
@@ -89,22 +91,29 @@ project "Engine"
     debugdir "data"
     targetdir "bin/%{prj.name}"
     objdir "bin/intermediates/%{prj.name}"
+    targetname "Hope"
 
-project "Game"
-
-    dependson { "Engine" }
-
-    kind "SharedLib"
-    location "Game"
+project "Editor"
+    
+    dependson { "Engine", "ImGui" }
+    
+    kind "WindowedApp"
+    location "Editor"
     language "C++"
     cppdialect "C++20"
     staticruntime "off"
 
     defines { "HE_EXPORT" }
-    files { "Game/**.h", "Game/**.hpp", "Game/**.cpp" }
+    files { "Editor/**.h", "Editor/**.hpp", "Editor/**.cpp" }
+    
+    links
+    {
+        "Engine"
+    }
 
-    includedirs { "Engine", "ThirdParty/include", }
+    includedirs { "Engine", "ThirdParty", "ThirdParty/ImGui", "ThirdParty/include" }
 
     debugdir "Data"
-    targetdir "bin"
+    targetdir "bin/%{prj.name}"
     objdir "bin/intermediates/%{prj.name}"
+    targetname "Elpis"

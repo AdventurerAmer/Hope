@@ -141,6 +141,8 @@ struct Vulkan_Descriptor_Pool_Allocator
     Dynamic_Array< VkDescriptorPool > ready_pools;
 };
 
+#define HE_MAX_DESCRIPTOR_POOL_SIZE_RATIO_COUNT 16
+
 struct Vulkan_Context
 {
     struct Renderer_State *renderer_state;
@@ -171,15 +173,10 @@ struct Vulkan_Context
     VkSemaphore rendering_finished_semaphores[HE_MAX_FRAMES_IN_FLIGHT];
     
     VkSemaphore timeline_semaphore;
-    U64 timeline_value;
-    
-#if 0
-    VkDescriptorPool descriptor_pool;
-    
-#else
-    Dynamic_Array< Vulkan_Descriptor_Pool_Size_Ratio > descriptor_pool_ratios;
+    U64 timeline_value;    
+
+    Counted_Array< Vulkan_Descriptor_Pool_Size_Ratio, HE_MAX_DESCRIPTOR_POOL_SIZE_RATIO_COUNT > descriptor_pool_ratios;
     Vulkan_Descriptor_Pool_Allocator descriptor_pool_allocators[HE_MAX_FRAMES_IN_FLIGHT];
-#endif
     
     Hash_Map< U32, Vulkan_Thread_State > thread_states;
 

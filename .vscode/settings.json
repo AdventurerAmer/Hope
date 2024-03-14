@@ -75,6 +75,11 @@
         "span": "cpp",
         "map": "cpp",
         "set": "cpp",
-        "filesystem": "cpp"
+        "filesystem": "cpp",
+        "cinttypes": "cpp",
+        "codecvt": "cpp",
+        "condition_variable": "cpp",
+        "unordered_set": "cpp",
+        "shared_mutex": "cpp"
     }
 }

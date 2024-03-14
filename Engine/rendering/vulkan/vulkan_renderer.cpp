@@ -539,14 +539,16 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     graphics_command_buffer_allocate_info.commandBufferCount = HE_MAX_FRAMES_IN_FLIGHT;
     HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &graphics_command_buffer_allocate_info, context->graphics_command_buffers));
 
-    init(&context->descriptor_pool_ratios);
-    append(&context->descriptor_pool_ratios, { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .ratio = 3.0f });
-    append(&context->descriptor_pool_ratios, { .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .ratio = 1.0f });
-    append(&context->descriptor_pool_ratios, { .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .ratio = 4.0f });
+    context->descriptor_pool_ratios = {{ 
+        { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .ratio = 3.0f },
+        { .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .ratio = 1.0f },
+        { .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .ratio = 4.0f }, 
+    }};
+
+    Array< VkDescriptorPoolSize, HE_MAX_VULKAN_DESCRIPTOR_POOL_SIZE_RATIO_COUNT > descriptor_pool_sizes;
 
     U32 initial_set_count_per_descriptor_pool = 1024;
 
-    VkDescriptorPoolSize *descriptor_pool_sizes = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkDescriptorPoolSize, context->descriptor_pool_ratios.count);
     for (U32 i = 0; i < context->descriptor_pool_ratios.count; i++)
     {
         VkDescriptorPoolSize *pool_size = &descriptor_pool_sizes[i];
@@ -566,7 +568,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
         descriptor_pool_create_info.flags = 0;
         descriptor_pool_create_info.maxSets = initial_set_count_per_descriptor_pool;
         descriptor_pool_create_info.poolSizeCount = context->descriptor_pool_ratios.count;
-        descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
+        descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes.data;
 
         VkDescriptorPool descriptor_pool;
         HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, &context->allocation_callbacks, &descriptor_pool));        
@@ -829,7 +831,6 @@ void vulkan_renderer_end_frame()
     VkImage swapchain_image = context->swapchain.images[context->current_swapchain_image_index];
 
     VkImageCopy region = {};
-
     region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.srcSubresource.baseArrayLayer = 0;
     region.srcSubresource.layerCount = 1;
@@ -843,7 +844,7 @@ void vulkan_renderer_end_frame()
     region.dstOffset = { 0, 0, 0 };
 
     region.extent = { context->swapchain.width, context->swapchain.height, 1 };
-
+    
     transtion_image_to_layout(context->command_buffer, swapchain_image, 1, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     Texture_Handle presentable_attachment = get_presentable_attachment(&renderer_state->render_graph, renderer_state);
@@ -1018,10 +1019,11 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     image_view_create_info.subresourceRange.layerCount = descriptor.layer_count;
     HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, &context->allocation_callbacks, &image->view));
 
-    if (descriptor.data.count > 0 && is_valid_handle(&renderer_state->upload_requests, upload_request_handle))
+    if (descriptor.data_array.count > 0 && is_valid_handle(&renderer_state->upload_requests, upload_request_handle))
     {
         Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
-        copy_data_to_image(context, image, descriptor.width, descriptor.height, mip_levels, descriptor.layer_count, get_texture_format(descriptor.format), descriptor.data, upload_request_handle);
+        VkFormat format = get_texture_format(descriptor.format);
+        copy_data_to_image(context, image, descriptor.width, descriptor.height, mip_levels, descriptor.layer_count, format, descriptor.data_array, upload_request_handle);
     }
     
     texture->size = image->allocation_info.size;
@@ -1185,8 +1187,8 @@ static VkDescriptorPool get_descriptor_pool(Vulkan_Descriptor_Pool_Allocator *al
     }
     else
     {
-        Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-        VkDescriptorPoolSize *descriptor_pool_sizes = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkDescriptorPoolSize, context->descriptor_pool_ratios.count);
+        Array< VkDescriptorPoolSize, HE_MAX_DESCRIPTOR_POOL_SIZE_RATIO_COUNT > descriptor_pool_sizes;
+
         for (U32 i = 0; i < context->descriptor_pool_ratios.count; i++)
         {
             VkDescriptorPoolSize *pool_size = &descriptor_pool_sizes[i];
@@ -1198,7 +1200,7 @@ static VkDescriptorPool get_descriptor_pool(Vulkan_Descriptor_Pool_Allocator *al
         descriptor_pool_create_info.flags = 0;
         descriptor_pool_create_info.maxSets = allocator->set_count_per_pool;
         descriptor_pool_create_info.poolSizeCount = context->descriptor_pool_ratios.count;
-        descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
+        descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes.data;
         
         HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, &context->allocation_callbacks, &descriptor_pool));
         

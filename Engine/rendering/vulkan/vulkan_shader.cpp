@@ -181,7 +181,7 @@ static U32 get_size_of_spirv_type(spirv_cross::SPIRType type)
 
 #define HE_MAX_BINDING_COUNT_PER_DESCRIPTOR_SET 64
 
-static VkDescriptorSetLayoutBinding& find_or_add_binding(Array< VkDescriptorSetLayoutBinding, HE_MAX_BINDING_COUNT_PER_DESCRIPTOR_SET > &set, U32 binding_number)
+static VkDescriptorSetLayoutBinding& find_or_add_binding(Counted_Array< VkDescriptorSetLayoutBinding, HE_MAX_BINDING_COUNT_PER_DESCRIPTOR_SET > &set, U32 binding_number)
 {
     for (U32 i = 0; i < set.count; i++)
     {
@@ -203,7 +203,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
     Shader *shader = get(&context->renderer_state->shaders, shader_handle);
     Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
 
-    Array< VkDescriptorSetLayoutBinding, HE_MAX_BINDING_COUNT_PER_DESCRIPTOR_SET > sets[HE_MAX_BIND_GROUP_INDEX_COUNT] = {};
+    Counted_Array< VkDescriptorSetLayoutBinding, HE_MAX_BINDING_COUNT_PER_DESCRIPTOR_SET > sets[HE_MAX_BIND_GROUP_INDEX_COUNT] = {};
     
     U32 vertex_shader_input_count = 0;
     VkVertexInputBindingDescription *vertex_input_binding_descriptions = nullptr;
@@ -514,7 +514,7 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     Render_Pass *render_pass = get(&renderer_state->render_passes, descriptor.render_pass);
     Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[pipeline_state_handle.index];
 
-    Array< VkPipelineShaderStageCreateInfo, HE_MAX_SHADER_COUNT_PER_PIPELINE > shader_stage_create_infos = {};
+    Counted_Array< VkPipelineShaderStageCreateInfo, HE_MAX_SHADER_COUNT_PER_PIPELINE > shader_stage_create_infos = {};
 
     for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
     {

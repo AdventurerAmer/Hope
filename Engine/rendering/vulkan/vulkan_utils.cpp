@@ -193,7 +193,7 @@ void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U3
     vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
-void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width, U32 height, U32 mip_levels, U32 layer_count, VkFormat format, Array_View< void * > data, Upload_Request_Handle upload_request_handle)
+void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width, U32 height, U32 mip_levels, U32 layer_count, VkFormat format, Array_View< void * > data_array, Upload_Request_Handle upload_request_handle)
 {
     HE_ASSERT(context);
     HE_ASSERT(image);
@@ -232,7 +232,7 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
 
     for (U32 layer_index = 0; layer_index < layer_count; layer_index++)
     {
-        U64 offset = (U8 *)data[layer_index] - renderer_state->transfer_allocator.base;
+        U64 offset = (U8 *)data_array[layer_index] - renderer_state->transfer_allocator.base;
 
         VkBufferImageCopy region = {};
         region.bufferOffset = offset;

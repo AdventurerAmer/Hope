@@ -2,6 +2,7 @@
 
 #include "core/defines.h"
 #include "containers/array.h"
+#include "containers/counted_array.h"
 #include "containers/dynamic_array.h"
 #include "containers/string.h"
 #include "containers/resource_pool.h"
@@ -72,7 +73,7 @@ struct Upload_Request
     String name;
     Semaphore_Handle semaphore;
     U64 target_value;
-    Array< void*, HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT > allocations_in_transfer_buffer;
+    Counted_Array< void*, HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT > allocations_in_transfer_buffer;
     bool *uploaded;
 };
 
@@ -150,7 +151,7 @@ struct Texture_Descriptor
     U32 height = 1;
     Texture_Format format = Texture_Format::R8G8B8A8_UNORM;
     int layer_count = 1;
-    Array_View< void * > data;
+    Array_View< void * > data_array;
     bool mipmapping = false;
     U32 sample_count = 1;
     bool is_attachment = false;
@@ -224,9 +225,9 @@ struct Render_Pass_Descriptor
 {
     String name;
     
-    Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > color_attachments;
-    Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > depth_stencil_attachments;
-    Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > resolve_attachments;
+    Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > color_attachments;
+    Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > depth_stencil_attachments;
+    Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > resolve_attachments;
     Attachment_Operation stencil_operation = Attachment_Operation::DONT_CARE;
 };
 
@@ -234,9 +235,9 @@ struct Render_Pass
 {
     String name;
 
-    Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > color_attachments;
-    Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > depth_stencil_attachments;
-    Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > resolve_attachments;
+    Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > color_attachments;
+    Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > depth_stencil_attachments;
+    Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > resolve_attachments;
 };
 
 using Render_Pass_Handle = Resource_Handle< Render_Pass >;
@@ -248,7 +249,7 @@ struct Frame_Buffer_Descriptor
     U32 width;
     U32 height;
 
-    Array< Texture_Handle, HE_MAX_ATTACHMENT_COUNT > attachments;
+    Counted_Array< Texture_Handle, HE_MAX_ATTACHMENT_COUNT > attachments;
 
     Render_Pass_Handle render_pass;
 };
@@ -258,7 +259,7 @@ struct Frame_Buffer
     U32 width;
     U32 height;
 
-    Array< Texture_Handle, HE_MAX_ATTACHMENT_COUNT > attachments;
+    Counted_Array< Texture_Handle, HE_MAX_ATTACHMENT_COUNT > attachments;
 
     Render_Pass_Handle render_pass;
 };

@@ -26,7 +26,6 @@
 #include "rendering/vulkan/vulkan_renderer.h"
 #endif
 
-
 #pragma warning(push, 0)
 
 #define CGLTF_IMPLEMENTATION
@@ -37,9 +36,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
-#include "renderer.h"
-
 #pragma warning(pop)
+
+#include "renderer.h"
 
 static Renderer_State *renderer_state;
 static Renderer *renderer;
@@ -220,14 +219,18 @@ bool init_renderer_state(Engine *engine)
     {
         U32* white_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
         *white_pixel_data = 0xFFFFFFFF;
-        void* while_pixel_datas[] = { white_pixel_data };
         
+        void *data_array[] =
+        {
+            white_pixel_data 
+        };
+
         Texture_Descriptor white_pixel_descriptor =
         {
             .width = 1,
             .height = 1,
             .format = Texture_Format::R8G8B8A8_UNORM,
-            .data = to_array_view(while_pixel_datas),
+            .data_array = to_array_view(data_array),
             .mipmapping = false
         };
 
@@ -239,14 +242,17 @@ bool init_renderer_state(Engine *engine)
         *normal_pixel_data = 0xFFFF8080; // todo(amer): endianness
         HE_ASSERT(HE_ARCH_X64);
 
-        void* normal_pixel_datas[] = { normal_pixel_data };
+        void *data_array[] =
+        {
+            normal_pixel_data
+        };
         
         Texture_Descriptor normal_pixel_descriptor =
         {
             .width = 1,
             .height = 1,
             .format = Texture_Format::R8G8B8A8_UNORM,
-            .data = to_array_view(normal_pixel_datas),
+            .data_array = to_array_view(data_array),
             .mipmapping = false,
         };
 
@@ -478,7 +484,7 @@ bool init_renderer_state(Engine *engine)
     }
 
     set_presentable_attachment(&renderer_state->render_graph, "main");
-
+    
     bool compiled = compile(&renderer_state->render_graph, renderer, renderer_state);
     if (!compiled)
     {
@@ -716,7 +722,7 @@ void renderer_destroy_buffer(Buffer_Handle &buffer_handle)
 //
 Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
 {
-    HE_ASSERT(descriptor.data.count <= HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT);
+    HE_ASSERT(descriptor.data_array.count <= HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT);
 
     Texture_Handle texture_handle = aquire_handle(&renderer_state->textures);
     Texture *texture = renderer_get_texture(texture_handle);
@@ -724,28 +730,26 @@ Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
     Upload_Request_Handle upload_request_handle = Resource_Pool< Upload_Request >::invalid_handle;
     texture->is_uploaded_to_gpu = true;
 
-    if (descriptor.data.count)
+    if (descriptor.data_array.count)
     {
         texture->is_uploaded_to_gpu = false;
 
-        Upload_Request_Descriptor upload_request_descriptor = {
+        Upload_Request_Descriptor upload_request_descriptor =
+        {
             .name = texture->name,
             .is_uploaded = &texture->is_uploaded_to_gpu
         };
+
         upload_request_handle = renderer_create_upload_request(upload_request_descriptor);
         Upload_Request *upload_request = renderer_get_upload_request(upload_request_handle);
-
-        for (U32 i = 0; i < descriptor.data.count; i++)
-        {
-            append(&upload_request->allocations_in_transfer_buffer, (void *)descriptor.data[i]);
-        }
+        copy(&upload_request->allocations_in_transfer_buffer, descriptor.data_array);
     }
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_texture(texture_handle, descriptor, upload_request_handle);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
-    if (descriptor.data.count)
+    if (descriptor.data_array.count)
     {
         renderer_add_pending_upload_request(upload_request_handle);
     }
@@ -1322,7 +1326,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         };
         
         Buffer_Handle buffer_handle = renderer_create_buffer(material_buffer_descriptor);
-        append(&material->buffers, buffer_handle);
+        material->buffers[frame_index] = buffer_handle;
 
         Bind_Group_Descriptor bind_group_descriptor =
         {
@@ -1373,9 +1377,6 @@ void renderer_destroy_material(Material_Handle &material_handle)
         renderer_destroy_buffer(material->buffers[frame_index]);
         renderer_destroy_bind_group(material->bind_groups[frame_index]);
     }
-
-    reset(&material->buffers);
-    reset(&material->bind_groups);
 
     deallocate(get_general_purpose_allocator(), material->data);
     release_handle(&renderer_state->materials, material_handle);

@@ -7,6 +7,7 @@
 
 #include "containers/string.h"
 #include "containers/array.h"
+#include "containers/counted_array.h"
 #include "containers/dynamic_array.h"
 #include "containers/hash_map.h"
 
@@ -67,16 +68,16 @@ struct Render_Graph_Node
 
     bool enabled;
 
-    Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT > clear_values;
+    Counted_Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT > clear_values;
 
     Render_Pass_Handle render_pass;
     Frame_Buffer_Handle frame_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
-    Array< Render_Graph_Resource_Handle, HE_MAX_ATTACHMENT_COUNT > original_render_targets;
-    Array< Render_Graph_Resource_Handle, HE_MAX_ATTACHMENT_COUNT > render_targets;
-    Array< Attachment_Operation, HE_MAX_ATTACHMENT_COUNT > render_target_operations;
+    Counted_Array< Render_Graph_Resource_Handle, HE_MAX_ATTACHMENT_COUNT > original_render_targets;
+    Counted_Array< Render_Graph_Resource_Handle, HE_MAX_ATTACHMENT_COUNT > render_targets;
+    Counted_Array< Attachment_Operation, HE_MAX_ATTACHMENT_COUNT > render_target_operations;
 
-    Array< Render_Graph_Resource_Handle, HE_MAX_ATTACHMENT_COUNT > resolve_render_targets;
+    Counted_Array< Render_Graph_Resource_Handle, HE_MAX_ATTACHMENT_COUNT > resolve_render_targets;
 
     Dynamic_Array< Render_Graph_Node_Handle > edges;
 
@@ -86,16 +87,16 @@ struct Render_Graph_Node
 struct Render_Graph
 {
     Hash_Map< String, Render_Graph_Node_Handle > node_cache;
-    Array< Render_Graph_Node, HE_MAX_RENDER_GRAPH_NODE_COUNT > nodes;
+    Counted_Array< Render_Graph_Node, HE_MAX_RENDER_GRAPH_NODE_COUNT > nodes;
 
     Hash_Map< String, Render_Graph_Resource_Handle > resource_cache;
-    Array< Render_Graph_Resource, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT > resources;
+    Counted_Array< Render_Graph_Resource, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT > resources;
 
-    Array< U8, HE_MAX_RENDER_GRAPH_NODE_COUNT > visited;
-    Array< Render_Graph_Node_Handle, HE_MAX_RENDER_GRAPH_NODE_COUNT > node_stack;
-    Array< Render_Graph_Node_Handle, HE_MAX_RENDER_GRAPH_NODE_COUNT > topologically_sorted_nodes;
+    Counted_Array< U8, HE_MAX_RENDER_GRAPH_NODE_COUNT > visited;
+    Counted_Array< Render_Graph_Node_Handle, HE_MAX_RENDER_GRAPH_NODE_COUNT > node_stack;
+    Counted_Array< Render_Graph_Node_Handle, HE_MAX_RENDER_GRAPH_NODE_COUNT > topologically_sorted_nodes;
     
-    Array< Texture_Handle, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT > texture_free_list;
+    Counted_Array< Texture_Handle, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT > texture_free_list;
 
     Render_Graph_Resource *presentable_resource;
 };

@@ -169,7 +169,7 @@ struct Renderer_State
     Resource_Pool< Upload_Request > upload_requests;
 
     Mutex pending_upload_requests_mutex;
-    Array< Upload_Request_Handle, HE_MAX_UPLOAD_REQUEST_COUNT > pending_upload_requests;
+    Counted_Array< Upload_Request_Handle, HE_MAX_UPLOAD_REQUEST_COUNT > pending_upload_requests;
 
     Mutex root_scene_node_mutex;
     Scene_Node root_scene_node;

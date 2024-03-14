@@ -379,7 +379,7 @@ void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Re
     {
         Render_Graph_Node &node = render_graph->nodes[node_handle];
 
-        Array< Texture_Handle, HE_MAX_ATTACHMENT_COUNT > node_free_textures = {};
+        Counted_Array< Texture_Handle, HE_MAX_ATTACHMENT_COUNT > node_free_textures = {};
 
         for (Render_Graph_Resource_Handle resource_handle : node.render_targets)
         {

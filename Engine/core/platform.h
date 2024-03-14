@@ -2,13 +2,12 @@
 
 #include "defines.h"
 
-enum Event_Type : U8
+enum class Event_Type : U8
 {
-    EventType_Unknown,
-    EventType_Key,
-    EventType_Mouse,
-    EventType_Resize,
-    EventType_Close
+    KEY,
+    MOUSE,
+    RESIZE,
+    CLOSE
 };
 
 struct Event
@@ -27,6 +26,7 @@ struct Event
     bool is_shift_down;
     bool is_control_down;
     bool double_click;
+    
     U16 mouse_x;
     U16 mouse_y;
 
@@ -37,8 +37,11 @@ struct Event
     bool maximized;
     bool restored;
 
-    U16 width;
-    U16 height;
+    U16 client_width;
+    U16 client_height;
+
+    U16 window_width;
+    U16 window_height;
 };
 
 //
@@ -67,7 +70,6 @@ struct Window
     U32 height;
     const char *title;
     Window_Mode mode;
-
     void *platform_window_state;
 };
 
