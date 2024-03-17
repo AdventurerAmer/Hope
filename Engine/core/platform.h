@@ -75,6 +75,7 @@ struct Window
 
 bool platform_create_window(Window *window, const char *title, U32 width, U32 height, Window_Mode window_mode = Window_Mode::WINDOWED);
 void platform_set_window_mode(Window *window, Window_Mode window_mode);
+bool platform_open_file_dialog(char *buffer, U64 count, const char *title, U64 title_count);
 
 //
 // files

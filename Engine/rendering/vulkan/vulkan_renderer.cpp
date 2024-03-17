@@ -298,13 +298,18 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     features.descriptorBindingPartiallyBound = VK_TRUE;
     features.timelineSemaphore = VK_TRUE;
 
+    VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT };
+    robustness2_features.robustBufferAccess2 = VK_TRUE;
+    robustness2_features.pNext = &features;
+
     VkPhysicalDeviceSynchronization2FeaturesKHR physical_device_sync2_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES };
     physical_device_sync2_features.synchronization2 = VK_TRUE;
-    physical_device_sync2_features.pNext = &features;
+    physical_device_sync2_features.pNext = &robustness2_features;
 
     VkPhysicalDeviceFeatures2 physical_device_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
     physical_device_features2.features.samplerAnisotropy = VK_TRUE;
     physical_device_features2.features.sampleRateShading = VK_TRUE;
+    physical_device_features2.features.robustBufferAccess = VK_TRUE;
     physical_device_features2.pNext = &physical_device_sync2_features;
 
     context->physical_device = pick_physical_device(context->instance, context->surface);
@@ -416,7 +421,8 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
         "VK_KHR_push_descriptor",
         "VK_EXT_descriptor_indexing",
         "VK_KHR_timeline_semaphore",
-        "VK_KHR_synchronization2"
+        "VK_KHR_synchronization2",
+        "VK_EXT_robustness2"
     };
 
     U32 extension_property_count = 0;
@@ -1252,6 +1258,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
 
     U32 frame_index = context->renderer_state->current_frame_in_flight_index;
     vulkan_bind_group->handle = allocate_descriptor_set(&context->descriptor_pool_allocators[frame_index], vulkan_shader->descriptor_set_layouts[bind_group->group_index]);
+    HE_ASSERT(vulkan_bind_group->handle != VK_NULL_HANDLE);
     
     VkWriteDescriptorSet *write_descriptor_sets = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkWriteDescriptorSet, update_binding_descriptors.count);
 
@@ -1978,14 +1985,16 @@ bool vulkan_renderer_init_imgui()
     imgui_impl_vulkan_init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     imgui_impl_vulkan_init_info.PipelineCache = context->pipeline_cache;
     
-    Render_Pass_Descriptor render_pass_descriptor = {};
-    render_pass_descriptor.color_attachments =
+    Render_Pass_Descriptor render_pass_descriptor =
     {
-        {
-            Texture_Format::R8G8B8A8_UNORM,
-            1,
-            Attachment_Operation::CLEAR        
-        }
+        .color_attachments =
+        {{
+            {
+                .format = Texture_Format::R8G8B8A8_UNORM,
+                .sample_count = 1,
+                .operation = Attachment_Operation::CLEAR
+            }
+        }}
     };
 
     Render_Pass_Handle imgui_render_pass = renderer_create_render_pass(render_pass_descriptor);

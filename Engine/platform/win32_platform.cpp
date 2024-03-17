@@ -2,10 +2,6 @@
 #define VC_EXTRALEAN 1
 #endif
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN 1
-#endif
-
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -124,7 +120,7 @@ HE_FORCE_INLINE static void win32_handle_mouse_input(Event *event, UINT message,
 static LRESULT CALLBACK win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
 {
     static Engine *engine = win32_platform_state.engine;
-    LRESULT result = 0;
+    LRESULT result = ImGui_ImplWin32_WndProcHandler(window, message, w_param, l_param);
 
     switch (message)
     {
@@ -383,8 +379,6 @@ INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command
         MSG message = {};
         while (PeekMessageA(&message, window_handle, 0, 0, PM_REMOVE))
         {
-            // todo(amer): handle imgui input outside platform win32.
-            ImGui_ImplWin32_WndProcHandler(window_handle, message.message, message.wParam, message.lParam);
             TranslateMessage(&message);
             DispatchMessageA(&message);        
         }
@@ -538,6 +532,30 @@ void platform_set_window_mode(Window *window, Window_Mode window_mode)
         SetWindowPlacement(window_handle, window_placement_before_fullscreen);
         SetWindowPos(window_handle, NULL, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
     }
+}
+
+bool platform_open_file_dialog(char *buffer, U64 count, const char *title, U64 title_count)
+{
+    OPENFILENAMEA ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = nullptr;
+    ofn.lpstrFile = buffer;
+    // Set lpstrFile[0] to '\0' so that GetOpenFileName does not
+    // use the contents of szFile to initialize itself.
+    ofn.lpstrFile[0] = '\0';
+    ofn.nMaxFile = u64_to_u32(count);
+    ofn.lpstrFilter = "All\0*.*;\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    ofn.lpstrTitle = title;
+    ofn.Flags = OFN_PATHMUSTEXIST|OFN_FILEMUSTEXIST;
+    if (GetOpenFileNameA(&ofn) != TRUE)
+    {
+        return false;
+    }
+    return true;
 }
 
 //

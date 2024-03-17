@@ -48,6 +48,34 @@ struct Asset
     Job_Handle job_handle;
 };
 
+typedef bool(*condition_asset_proc)(Read_Entire_File_Result *asset_file_result, Asset *asset, struct Resource *resource, Memory_Arena *arena);
+
+struct Asset_Conditioner
+{
+    U32 extension_count;
+    String *extensions;
+    condition_asset_proc condition_asset;
+};
+
+typedef bool(*load_resource_proc)(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena);
+typedef void(*unload_resource_proc)(Resource *resource);
+
+struct Resource_Loader
+{
+    load_resource_proc load;
+    unload_resource_proc unload;
+    S32 index;
+    U32 generation;
+};
+
+struct Resource_Type_Info
+{
+    String name;
+    U32 version;
+    Asset_Conditioner conditioner;
+    Resource_Loader loader;
+};
+
 enum class Resource_State : U8
 {
     UNLOADED,
@@ -93,26 +121,6 @@ struct Resource_Ref
     {
         return uuid != other.uuid;
     }
-};
-
-typedef bool(*condition_asset_proc)(Read_Entire_File_Result *asset_file_result, Asset *asset, Resource *resource, Memory_Arena *arena);
-
-struct Asset_Conditioner
-{
-    U32 extension_count;
-    String *extensions;
-    condition_asset_proc condition_asset;
-};
-
-typedef bool(*load_resource_proc)(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena);
-typedef void(*unload_resource_proc)(Resource *resource);
-
-struct Resource_Loader
-{
-    load_resource_proc load;
-    unload_resource_proc unload;
-    S32 index;
-    U32 generation;
 };
 
 #pragma pack(push, 1)
@@ -216,6 +224,10 @@ bool register_asset(Asset_Type type, const char *name, U32 version, Asset_Condit
 
 bool is_valid(Resource_Ref ref);
 
+Asset *find_asset(const String &relative_path);
+
+Asset *get_asset(U64 asset_uuid);
+
 Resource_Ref find_resource(const String &relative_path);
 Resource_Ref find_resource(const char *relative_path);
 
@@ -224,6 +236,9 @@ Resource_Ref aquire_resource(const char *relative_path);
 
 bool aquire_resource(Resource_Ref ref);
 void release_resource(Resource_Ref ref);
+
+const Resource_Type_Info& get_info(const Asset &asset);
+const Resource_Type_Info& get_info(const Resource &resource);
 
 Resource *get_resource(Resource_Ref ref);
 Resource *get_resource(U32 index);
@@ -243,7 +258,8 @@ Resource_Handle<T> get_resource_handle_as(Resource_Ref ref)
 
 String get_resource_path();
 
+const Dynamic_Array< Asset >& get_assets();
 const Dynamic_Array< Resource >& get_resources();
 
+
 void reload_resources();
-void imgui_draw_resource_system();

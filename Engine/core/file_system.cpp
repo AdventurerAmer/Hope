@@ -29,6 +29,30 @@ bool directory_exists(const String &path)
     return !is_file;
 }
 
+String open_file_dialog(String title, String filter, Array_View< String > patterns, Memory_Arena *arena)
+{
+    char *buffer = (char *)&arena->base[arena->offset];
+    U64 count = arena->size - arena->offset;
+    bool success = platform_open_file_dialog(buffer, count, title.data, title.count);
+    if (!success)
+    {
+        return HE_STRING_LITERAL("");
+    }
+    String result = HE_STRING(buffer);
+    sanitize_path(result);
+    arena->offset += result.count + 1;
+    return result;
+}
+
+String get_current_working_directory(Allocator allocator)
+{
+    U64 size = 0;
+    platform_get_current_working_directory(nullptr, &size);
+    char *data = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, char, size);
+    platform_get_current_working_directory(data, &size);
+    return { data, size - 1 };
+}
+
 String get_parent_path(const String &path)
 {
     S64 slash_index = find_first_char_from_right(path, HE_STRING_LITERAL("\\/"));

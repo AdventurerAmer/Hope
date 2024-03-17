@@ -18,14 +18,6 @@
 #include <stb/stb_image.h>
 #include <imgui.h>
 
-struct Resource_Type_Info
-{
-    String name;
-    U32 version;
-    Asset_Conditioner conditioner;
-    Resource_Loader loader;
-};
-
 struct Resource_System_State
 {
     Free_List_Allocator *resource_allocator;
@@ -1603,7 +1595,7 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
     init(&resource_system_state->assets, 0, HE_MAX_U16);
     init(&resource_system_state->resources, 0, HE_MAX_U16);
 
-    String working_directory = get_current_working_directory(memory_context.permenent);
+    String working_directory = get_current_working_directory(to_allocator(memory_context.permenent));
     sanitize_path(working_directory);
 
     String resource_path = format_string(memory_context.permenent, "%.*s/%.*s", HE_EXPAND_STRING(working_directory), HE_EXPAND_STRING(resource_directory_name));
@@ -1824,6 +1816,26 @@ bool is_valid(Resource_Ref ref)
     return ref.uuid != HE_MAX_U64 && uuid_to_resource_index.find(ref.uuid) != uuid_to_resource_index.end();
 }
 
+Asset *find_asset(const String &relative_path)
+{
+    auto it = path_to_asset_index.find(relative_path);
+    if (it == path_to_asset_index.end())
+    {
+        return nullptr;
+    }
+    return &resource_system_state->assets[it->second];
+}
+
+Asset *get_asset(U64 asset_uuid)
+{
+    auto it = uuid_to_asset_index.find(asset_uuid);
+    if (it == uuid_to_asset_index.end())
+    {
+        return nullptr;
+    }
+    return &resource_system_state->assets[it->second];
+}
+
 Resource_Ref find_resource(const String &relative_path)
 {
     auto it = path_to_resource_index.find(relative_path);
@@ -1939,6 +1951,16 @@ void release_resource(Resource_Ref ref)
     platform_unlock_mutex(&resource->mutex);
 }
 
+const Resource_Type_Info& get_info(const Asset &asset)
+{
+    return resource_system_state->resource_type_infos[(U32)asset.type];
+}
+
+const Resource_Type_Info& get_info(const Resource &resource)
+{
+    return resource_system_state->resource_type_infos[(U32)resource.type];
+}
+
 Resource *get_resource(Resource_Ref ref)
 {
     auto it = uuid_to_resource_index.find(ref.uuid);
@@ -1953,6 +1975,11 @@ Resource *get_resource(U32 index)
 {
     HE_ASSERT(index >= 0 && index < resource_system_state->resources.count);
     return &resource_system_state->resources[index];
+}
+
+const Dynamic_Array< Asset >& get_assets()
+{
+    return resource_system_state->assets;
 }
 
 const Dynamic_Array< Resource >& get_resources()
@@ -2127,181 +2154,5 @@ void reload_resources()
                 reload_child_resources(r);
             }
         }
-    }
-}
-
-// =============================== Editor ==========================================
-
-static String get_resource_state_string(Resource_State resource_state)
-{
-    switch (resource_state)
-    {
-        case Resource_State::UNLOADED:
-            return HE_STRING_LITERAL("Unloaded");
-
-        case Resource_State::PENDING:
-            return HE_STRING_LITERAL("Pending");
-
-        case Resource_State::LOADED:
-            return HE_STRING_LITERAL("Loaded");
-
-        default:
-            HE_ASSERT("unsupported resource state");
-            break;
-    }
-
-    return HE_STRING_LITERAL("");
-}
-
-void imgui_draw_resource_system()
-{
-    {
-        ImGui::Begin("Assets");
-
-        const char* coloum_names[] =
-        {
-            "No.",
-            "UUID",
-            "Type",
-            "Asset",
-            "Resource Refs"
-        };
-
-        ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable;
-
-        if (ImGui::BeginTable("Table", HE_ARRAYCOUNT(coloum_names), flags))
-        {
-            for (U32 col = 0; col < HE_ARRAYCOUNT(coloum_names); col++)
-            {
-                ImGui::TableSetupColumn(coloum_names[col], ImGuiTableColumnFlags_WidthStretch);
-            }
-
-            ImGui::TableHeadersRow();
-
-            for (U32 row = 0; row < resource_system_state->assets.count; row++)
-            {
-                Asset& asset = resource_system_state->assets[row];
-                Resource_Type_Info& info = resource_system_state->resource_type_infos[(U32)asset.type];
-
-                ImGui::TableNextRow();
-
-                ImGui::TableNextColumn();
-                ImGui::Text("%d", row + 1);
-
-                ImGui::TableNextColumn();
-                ImGui::Text("%#x", asset.uuid);
-
-                ImGui::TableNextColumn();
-                ImGui::Text("%.*s", HE_EXPAND_STRING(info.name));
-
-                ImGui::TableNextColumn();
-                ImGui::Text("%.*s", HE_EXPAND_STRING(asset.relative_path));
-
-                ImGui::TableNextColumn();
-                if (asset.resource_refs.count)
-                {
-                    for (U64 uuid : asset.resource_refs)
-                    {
-                        ImGui::Text("%#x", uuid);
-                    }
-                }
-                else
-                {
-                    ImGui::Text("None");
-                }
-            }
-
-            ImGui::EndTable();
-        }
-
-        ImGui::End();
-    }
-
-    {
-        ImGui::Begin("Resources");
-
-        const char* coloum_names[] =
-        {
-            "No.",
-            "UUID",
-            "Asset UUID",
-            "Type",
-            "Resource",
-            "State",
-            "Ref Count",
-            "Refs",
-            "Children"
-        };
-
-        ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable;
-
-        if (ImGui::BeginTable("Table", HE_ARRAYCOUNT(coloum_names), flags))
-        {
-            for (U32 col = 0; col < HE_ARRAYCOUNT(coloum_names); col++)
-            {
-                ImGui::TableSetupColumn(coloum_names[col], ImGuiTableColumnFlags_WidthStretch);
-            }
-
-            ImGui::TableHeadersRow();
-
-            for (U32 row = 0; row < resource_system_state->resources.count; row++)
-            {
-                Resource& resource = resource_system_state->resources[row];
-                Resource_Type_Info& info = resource_system_state->resource_type_infos[(U32)resource.type];
-
-                ImGui::TableNextRow();
-
-                ImGui::TableNextColumn();
-                ImGui::Text("%d", row + 1);
-
-                ImGui::TableNextColumn();
-                ImGui::Text("%#x", resource.uuid);
-
-                ImGui::TableNextColumn();
-                ImGui::Text("%#x", resource.asset_uuid);
-
-                ImGui::TableNextColumn();
-                ImGui::Text("%.*s", HE_EXPAND_STRING(info.name));
-
-                ImGui::TableNextColumn();
-                ImGui::Text("%.*s", HE_EXPAND_STRING(resource.relative_path));
-
-                ImGui::TableNextColumn();
-                ImGui::Text("%.*s", HE_EXPAND_STRING(get_resource_state_string(resource.state)));
-
-                ImGui::TableNextColumn();
-                ImGui::Text("%u", resource.ref_count);
-
-                ImGui::TableNextColumn();
-                if (resource.resource_refs.count)
-                {
-                    for (U64 uuid : resource.resource_refs)
-                    {
-                        ImGui::Text("%#x", uuid);
-                    }
-                }
-                else
-                {
-                    ImGui::Text("None");
-                }
-
-                ImGui::TableNextColumn();
-                if (resource.children.count)
-                {
-                    for (U64 uuid : resource.children)
-                    {
-                        ImGui::Text("%#x", uuid);
-                    }
-                }
-                else
-                {
-                    ImGui::Text("None");
-                }
-            }
-
-            ImGui::EndTable();
-        }
-
-        ImGui::End();
     }
 }

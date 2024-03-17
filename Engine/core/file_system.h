@@ -3,22 +3,15 @@
 #include "defines.h"
 #include "memory.h"
 #include "containers/string.h"
-#include "containers/dynamic_array.h"
+#include "containers/array_view.h"
 #include "platform.h"
 
 void sanitize_path(String &path);
 bool file_exists(const String &path);
 bool directory_exists(const String &path);
+String open_file_dialog(String title, String filter, Array_View<String> patterns, Memory_Arena *arena);
 
-String get_current_working_directory(auto allocator)
-{
-    U64 size = 0;
-    platform_get_current_working_directory(nullptr, &size);
-    char *data = HE_ALLOCATE_ARRAY(allocator, char, size);
-    platform_get_current_working_directory(data, &size);
-    return { data, size - 1 };
-}
-
+String get_current_working_directory(Allocator allocator);
 String get_parent_path(const String &path);
 String get_extension(const String &path);
 String get_name(const String &path);

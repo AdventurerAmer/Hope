@@ -5,44 +5,79 @@
 
 #include <imgui/imgui.h>
 
-struct Editor_State
+#ifndef VC_EXTRALEAN
+#define VC_EXTRALEAN 1
+#endif
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
+#include <windows.h> // todo(amer): temprary
+
+enum class Selection_Kind
 {
-	Camera camera;
-	FPS_Camera_Controller camera_controller;
+    NONE,
+    SCENE_NODE,
+    ASSET,
 };
 
-static Editor_State game_state;
+struct Selection_Context
+{
+    Selection_Kind kind;
+
+    union
+    {
+        Scene_Node *node;
+        U64 asset_uuid;
+    };
+};
+
+struct Editor_State
+{
+    Engine *engine;
+	Camera camera;
+	FPS_Camera_Controller camera_controller;
+    Selection_Context selection;
+};
+
+static Editor_State editor_state;
 
 Job_Result create_skybox_material_job(const Job_Parameters &params);
-
-static Scene_Node *selected_node = nullptr;
+void draw_graphics_window();
 void draw_node(Scene_Node *node);
 void draw_tree(Scene_Node *node);
-void imgui_draw_graphics_window();
+void draw_resource_system();
+void draw_asset(Asset *asset);
 
 bool hope_app_init(Engine *engine)
 {
+    Editor_State *state = &editor_state;
+    state->engine = engine;
+    Selection_Context *selection_context = &state->selection;
+    selection_context->kind = Selection_Kind::NONE;
+
     Render_Context render_context = get_render_context();
     Renderer_State *renderer_state = render_context.renderer_state;
     glm::vec2 viewport = { render_context.renderer_state->back_buffer_width, render_context.renderer_state->back_buffer_height };
-    
+
     F32 aspect_ratio = viewport.x / viewport.y;
     glm::quat camera_rotation = glm::quat();
-    Camera *camera = &game_state.camera;
+    Camera *camera = &editor_state.camera;
 	F32 fov = 45.0f;
-	F32 near = 0.1f;
-	F32 far = 1000.0f;
-	init_camera(camera, { 0.0f, 0.3f, 1.0f }, camera_rotation, aspect_ratio, fov, near, far);
-    
-    FPS_Camera_Controller *camera_controller = &game_state.camera_controller;
+	F32 _near = 0.1f;
+	F32 _far = 1000.0f;
+	init_camera(camera, { 0.0f, 0.3f, 1.0f }, camera_rotation, aspect_ratio, fov, _near, _far);
+
+    FPS_Camera_Controller *camera_controller = &editor_state.camera_controller;
     F32 rotation_speed = 45.0f;
     F32 base_movement_speed = 3.0f;
     F32 max_movement_speed = 5.0f;
 	F32 sensitivity_x = 1.0f;
 	F32 sensitivity_y = 1.0f;
-    
+
 	init_fps_camera_controller(camera_controller, /*pitch=*/0.0f, /*yaw=*/0.0f, rotation_speed, base_movement_speed, max_movement_speed, sensitivity_x, sensitivity_y);
-    
+
     aquire_resource("Sponza/Sponza.hres");
     // aquire_resource("FlightHelmet/FlightHelmet.hres");
     // aquire_resource("Corset/Corset.hres");
@@ -57,14 +92,14 @@ bool hope_app_init(Engine *engine)
         {
             .proc = &create_skybox_material_job
         };
-        
+
         Resource *right = get_resource(find_resource("skybox/right.hres"));
         Resource *left = get_resource(find_resource("skybox/left.hres"));
         Resource *top = get_resource(find_resource("skybox/top.hres"));
         Resource *bottom = get_resource(find_resource("skybox/bottom.hres"));
         Resource *front = get_resource(find_resource("skybox/front.hres"));
         Resource *back = get_resource(find_resource("skybox/back.hres"));
-        
+
         Job_Handle wait_for_jobs[] =
         {
             skybox_shader->job_handle,
@@ -117,8 +152,8 @@ void hope_app_on_event(Engine *engine, Event event)
         {
             if (event.client_width != 0 && event.client_height != 0)
             {
-                game_state.camera.aspect_ratio = (F32)event.client_width / (F32)event.client_height;
-                update_camera(&game_state.camera);
+                editor_state.camera.aspect_ratio = (F32)event.client_width / (F32)event.client_height;
+                update_camera(&editor_state.camera);
             }
         } break;
 	}
@@ -127,9 +162,9 @@ void hope_app_on_event(Engine *engine, Event event)
 void hope_app_on_update(Engine *engine, F32 delta_time)
 {
 	Input *input = &engine->input;
-    
-    Camera *camera = &game_state.camera;
-    FPS_Camera_Controller *camera_controller = &game_state.camera_controller;
+
+    Camera *camera = &editor_state.camera;
+    FPS_Camera_Controller *camera_controller = &editor_state.camera_controller;
 
     FPS_Camera_Controller_Input camera_controller_input = {};
     camera_controller_input.can_control = input->button_states[HE_BUTTON_RIGHT] != Input_State::RELEASED && !engine->show_imgui;
@@ -154,7 +189,7 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
     }
 
     Render_Context render_context = get_render_context();
-    Renderer_State *renderer_state = render_context.renderer_state; 
+    Renderer_State *renderer_state = render_context.renderer_state;
 
     if (!engine->is_minimized)
     {
@@ -163,8 +198,11 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
         scene_data->view = camera->view;
         scene_data->projection = camera->projection;
         scene_data->eye = camera->position;
-        
-        imgui_draw_graphics_window();
+
+        static bool show_imgui_window = false;
+        ImGui::ShowDemoWindow(&show_imgui_window);
+
+        draw_graphics_window();
 
         // Scene
         {
@@ -182,9 +220,24 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
         {
             ImGui::Begin("Inspector");
 
-            if (selected_node)
+            switch (editor_state.selection.kind)
             {
-                draw_node(selected_node);
+                case Selection_Kind::SCENE_NODE:
+                {
+                    if (editor_state.selection.node)
+                    {
+                        draw_node(editor_state.selection.node);
+                    }
+                } break;
+
+                case Selection_Kind::ASSET:
+                {
+                    Asset *asset = get_asset(editor_state.selection.asset_uuid);
+                    if (asset)
+                    {
+                        draw_asset(asset);
+                    }
+                } break;
             }
 
             ImGui::End();
@@ -192,7 +245,7 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
 
         // Resource System
         {
-            imgui_draw_resource_system();
+            draw_resource_system();
         }
 
         // Memory System
@@ -214,7 +267,7 @@ static Job_Result create_skybox_material_job(const Job_Parameters &params)
     if (resource->state != Resource_State::LOADED)
     {
         HE_LOG(Rendering, Fetal, "failed to create skybox material shader failed to load...\n");
-        return Job_Result::FAILED; 
+        return Job_Result::FAILED;
     }
 
     Render_Context render_context = get_render_context();
@@ -250,11 +303,11 @@ static Job_Result create_skybox_material_job(const Job_Parameters &params)
         {
             platform_close_file(&open_file_result);
         };
-        
+
         Texture_Resource_Info info;
         platform_read_data_from_file(&open_file_result, sizeof(Resource_Header), &info, sizeof(Texture_Resource_Info));
-        
-        
+
+
         width = info.width;
         height = info.height;
         format = info.format;
@@ -262,7 +315,7 @@ static Job_Result create_skybox_material_job(const Job_Parameters &params)
         U64 data_size = sizeof(U32) * info.width * info.height;
         U32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U32, info.width * info.height);
         bool success = platform_read_data_from_file(&open_file_result, info.data_offset, data, data_size);
-        
+
         data_array[i] = data;
     }
 
@@ -277,7 +330,7 @@ static Job_Result create_skybox_material_job(const Job_Parameters &params)
         .is_cubemap = true
     };
     renderer_state->scene_data.skybox = renderer_create_texture(cubmap_texture_descriptor);
-       
+
     Pipeline_State_Descriptor skybox_pipeline_state_descriptor =
     {
         .settings =
@@ -301,7 +354,7 @@ static Job_Result create_skybox_material_job(const Job_Parameters &params)
     renderer_state->scene_data.skybox_material_handle = renderer_create_material(skybox_material_descriptor);
     set_property(renderer_state->scene_data.skybox_material_handle, "skybox_texture_index", { .u32 = (U32)renderer_state->scene_data.skybox.index });
     set_property(renderer_state->scene_data.skybox_material_handle, "sky_color", { .v3 = { 1.0f, 1.0f, 1.0f } });
-    
+
     return Job_Result::SUCCEEDED;
 }
 
@@ -322,7 +375,7 @@ static void draw_node(Scene_Node *node)
 
     ImGui::Text("Rotation");
     ImGui::SameLine();
-    
+
     auto mod_angle = [](F32 angle, F32 range) -> F32
     {
         if (angle < 0.0f)
@@ -330,10 +383,10 @@ static void draw_node(Scene_Node *node)
             F32 result = glm::mod(angle, -range);
             return result + 360.0f;
         }
-        
+
         return glm::mod(angle, range);
     };
-    
+
     if (ImGui::DragFloat3("##Rotation", &transform.euler_angles.x, 0.5f, -360.0f, 360.0f))
     {
         transform.euler_angles.x = mod_angle(transform.euler_angles.x, 360.0f);
@@ -534,7 +587,7 @@ static void draw_tree(Scene_Node *node)
 
     ImGuiTreeNodeFlags flags = 0;
 
-    if (node == selected_node)
+    if (editor_state.selection.kind == Selection_Kind::SCENE_NODE && node == editor_state.selection.node)
     {
         flags = ImGuiTreeNodeFlags_Selected;
     }
@@ -548,7 +601,8 @@ static void draw_tree(Scene_Node *node)
 
     if (ImGui::IsItemClicked())
     {
-        selected_node = node;
+        editor_state.selection.kind = Selection_Kind::SCENE_NODE;
+        editor_state.selection.node = node;
     }
 
     if (is_open)
@@ -557,19 +611,19 @@ static void draw_tree(Scene_Node *node)
         {
             draw_tree(child);
         }
-        
+
         ImGui::TreePop();
     }
 
     ImGui::PopID();
 }
 
-static void imgui_draw_graphics_window()
+static void draw_graphics_window()
 {
     Render_Context render_context = get_render_context();
     Renderer *renderer = render_context.renderer;
     Renderer_State *renderer_state = render_context.renderer_state;
-    
+
     Scene_Data *scene_data = &render_context.renderer_state->scene_data;
     Directional_Light *directional_light = &scene_data->directional_light;
     Point_Light *point_light = &scene_data->point_light;
@@ -605,7 +659,7 @@ static void imgui_draw_graphics_window()
         ImGui::SameLine();
 
         ImGui::DragFloat3("##Point Light Position", &point_light->position.x, 0.1f);
-        
+
         ImGui::Text("Point Light Radius");
         ImGui::SameLine();
 
@@ -618,7 +672,7 @@ static void imgui_draw_graphics_window()
 
         ImGui::Text("Point Light Intensity");
         ImGui::SameLine();
-        
+
         ImGui::DragFloat("##Point Light Intensity", &point_light->intensity);
 
         ImGui::Text("Spot Light");
@@ -627,16 +681,16 @@ static void imgui_draw_graphics_window()
         ImGui::Text("Spot Light Position");
         ImGui::SameLine();
 
-        ImGui::DragFloat3("##Spot Light Position", &spot_light->position.x, 0.1f);                    
-        
+        ImGui::DragFloat3("##Spot Light Position", &spot_light->position.x, 0.1f);
+
         ImGui::Text("Spot Light Radius");
         ImGui::SameLine();
-        
+
         ImGui::DragFloat("##Spot Light Radius", &spot_light->radius);
-        
+
         ImGui::Text("Spot Light Direction");
         ImGui::SameLine();
-        
+
         ImGui::DragFloat3("##Spot Light Direction", &spot_light->direction.x, 0.1f, -1.0f, 1.0f);
 
         if (glm::length2(spot_light->direction) > 0.0f)
@@ -796,5 +850,310 @@ static void imgui_draw_graphics_window()
 
         ImGui::End();
     }
+}
 
+// =============================== Editor ==========================================
+
+static String get_resource_state_string(Resource_State resource_state)
+{
+    switch (resource_state)
+    {
+        case Resource_State::UNLOADED:
+            return HE_STRING_LITERAL("Unloaded");
+
+        case Resource_State::PENDING:
+            return HE_STRING_LITERAL("Pending");
+
+        case Resource_State::LOADED:
+            return HE_STRING_LITERAL("Loaded");
+
+        default:
+            HE_ASSERT("unsupported resource state");
+            break;
+    }
+
+    return HE_STRING_LITERAL("");
+}
+
+static String get_asset_state_string(Asset_State state)
+{
+    switch (state)
+    {
+        case Asset_State::UNCONDITIONED:
+            return HE_STRING_LITERAL("Unconditioned");
+
+        case Asset_State::PENDING:
+            return HE_STRING_LITERAL("Pending");
+
+        case Asset_State::CONDITIONED:
+            return HE_STRING_LITERAL("Conditioned");
+
+        default:
+            HE_ASSERT("unsupported asset state");
+            break;
+    }
+
+    return HE_STRING_LITERAL("");
+}
+
+void draw_resource_system()
+{
+    const Dynamic_Array< Resource > &resources = get_resources();
+    const Dynamic_Array< Asset > &assets = get_assets();
+
+    // Assets
+    {
+        ImGui::Begin("Assets");
+
+        if (ImGui::Button("Create Skybox"))
+        {
+            ImGui::OpenPopup("Create Skybox");
+        }
+
+        if (ImGui::BeginPopupModal("Create Skybox", NULL, ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoCollapse))
+        {
+            ImGui::Text("Name");
+            ImGui::SameLine();
+
+            static char buf[512] = {};
+            ImGui::InputText("##Name", buf, 512);
+
+            ImGui::Text("Tint Color");
+            ImGui::SameLine();
+
+            static glm::vec3 tint_color = { 1.0f, 1.0f, 1.0f };
+            ImGui::ColorEdit3("##Tint Color", &tint_color.r);
+
+            static U64 right_texture = HE_MAX_U64;
+
+            if (ImGui::Button("Right Texture"))
+            {
+                String texture_extensions[] =
+                {
+                    HE_STRING_LITERAL("png"),
+                    HE_STRING_LITERAL("jpeg"),
+                    HE_STRING_LITERAL("jpg")
+                };
+
+                Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+                String path = open_file_dialog(HE_STRING_LITERAL("Choose Texture"), HE_STRING_LITERAL("Texture"), to_array_view(texture_extensions), scratch_memory.arena);
+                if (path.count)
+                {
+                    String resoruce_path = get_resource_path();
+                    String absolute_path = path;
+                    String relative_path = sub_string(absolute_path, resoruce_path.count + 1);
+                    Asset *asset = find_asset(relative_path);
+                    if (asset)
+                    {
+                        right_texture = asset->uuid;
+                    }
+                }
+            }
+
+            ImGui::SameLine();
+
+            if (right_texture == HE_MAX_U64)
+            {
+                ImGui::Text("None");
+            }
+            else
+            {
+                Asset *asset = get_asset(right_texture);
+                ImGui::Text("%.*s", HE_EXPAND_STRING(asset->relative_path));
+            }
+
+            if (ImGui::Button("OK", ImVec2(120, 0)))
+            {
+                zero_memory(buf, sizeof(buf));
+                tint_color = { 1.0f, 1.0f, 1.0f };
+                right_texture = HE_MAX_U64;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SetItemDefaultFocus();
+            ImGui::SameLine();
+
+            if (ImGui::Button("Cancel", ImVec2(120, 0)))
+            {
+                zero_memory(buf, sizeof(buf));
+                tint_color = { 1.0f, 1.0f, 1.0f };
+                right_texture = HE_MAX_U64;
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+
+        const char* coloum_names[] =
+        {
+            "No.",
+            "UUID",
+            "Type",
+            "Asset",
+            "State",
+            "Resource Refs"
+        };
+
+        ImGuiTableFlags flags = ImGuiTableFlags_Borders|ImGuiTableFlags_Resizable;
+
+        if (ImGui::BeginTable("Table", HE_ARRAYCOUNT(coloum_names), flags))
+        {
+            for (U32 col = 0; col < HE_ARRAYCOUNT(coloum_names); col++)
+            {
+                ImGui::TableSetupColumn(coloum_names[col], ImGuiTableColumnFlags_WidthStretch);
+            }
+
+            ImGui::TableHeadersRow();
+
+            for (U32 row = 0; row < assets.count; row++)
+            {
+                const Asset &asset = assets[row];
+                const Resource_Type_Info &info = get_info(asset);
+
+                ImGui::PushID(row + 1);
+
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+
+                char label[32];
+                sprintf(label, "%04d", row + 1);
+
+                bool selected = editor_state.selection.kind == Selection_Kind::ASSET && editor_state.selection.asset_uuid == asset.uuid;
+                if (ImGui::Selectable(label, selected, ImGuiSelectableFlags_SpanAllColumns|ImGuiSelectableFlags_AllowOverlap))
+                {
+                    editor_state.selection.kind = Selection_Kind::ASSET;
+                    editor_state.selection.asset_uuid = asset.uuid;
+                }
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%#x", asset.uuid);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.*s", HE_EXPAND_STRING(info.name));
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.*s", HE_EXPAND_STRING(asset.relative_path));
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.*s", HE_EXPAND_STRING(get_asset_state_string(asset.state)));
+
+                ImGui::TableNextColumn();
+                if (asset.resource_refs.count)
+                {
+                    for (U64 uuid : asset.resource_refs)
+                    {
+                        ImGui::Text("%#x", uuid);
+                    }
+                }
+                else
+                {
+                    ImGui::Text("None");
+                }
+
+                ImGui::PopID();
+            }
+
+            ImGui::EndTable();
+        }
+
+        ImGui::End();
+    }
+
+    // Resources
+    {
+        ImGui::Begin("Resources");
+
+        const char* coloum_names[] =
+        {
+            "No.",
+            "UUID",
+            "Asset UUID",
+            "Type",
+            "Resource",
+            "State",
+            "Ref Count",
+            "Refs",
+            "Children"
+        };
+
+        ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable;
+
+        if (ImGui::BeginTable("Table", HE_ARRAYCOUNT(coloum_names), flags))
+        {
+            for (U32 col = 0; col < HE_ARRAYCOUNT(coloum_names); col++)
+            {
+                ImGui::TableSetupColumn(coloum_names[col], ImGuiTableColumnFlags_WidthStretch);
+            }
+
+            ImGui::TableHeadersRow();
+
+            for (U32 row = 0; row < resources.count; row++)
+            {
+                const Resource &resource = resources[row];
+                const Resource_Type_Info &info = get_info(resource);
+
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", row + 1);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%#x", resource.uuid);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%#x", resource.asset_uuid);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.*s", HE_EXPAND_STRING(info.name));
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.*s", HE_EXPAND_STRING(resource.relative_path));
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.*s", HE_EXPAND_STRING(get_resource_state_string(resource.state)));
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", resource.ref_count);
+
+                ImGui::TableNextColumn();
+                if (resource.resource_refs.count)
+                {
+                    for (U64 uuid : resource.resource_refs)
+                    {
+                        ImGui::Text("%#x", uuid);
+                    }
+                }
+                else
+                {
+                    ImGui::Text("None");
+                }
+
+                ImGui::TableNextColumn();
+                if (resource.children.count)
+                {
+                    for (U64 uuid : resource.children)
+                    {
+                        ImGui::Text("%#x", uuid);
+                    }
+                }
+                else
+                {
+                    ImGui::Text("None");
+                }
+            }
+
+            ImGui::EndTable();
+        }
+
+        ImGui::End();
+    }
+}
+
+void draw_asset(Asset *asset)
+{
+    const Resource_Type_Info &info = get_info(*asset);
+    ImGui::Text("Path: %.*s", HE_EXPAND_STRING(asset->relative_path));
+    ImGui::Text("Type: %.*s", HE_EXPAND_STRING(info.name));
+    ImGui::Text("UUID: %llu", asset->uuid);
+    ImGui::Text("State: %.*s", HE_EXPAND_STRING(get_asset_state_string(asset->state)));
 }

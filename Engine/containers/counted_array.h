@@ -11,6 +11,18 @@ struct Counted_Array
     T data[N];
     U32 count = 0;
 
+    Counted_Array() = default;
+
+    Counted_Array(const std::initializer_list< T >& items)
+    {
+        count = 0;
+        
+        for (const T &item : items)
+        {
+            data[count++] = item;
+        }
+    }
+
     Counted_Array< T, N >& operator=(const std::initializer_list< T > &items)
     {
         count = 0;
