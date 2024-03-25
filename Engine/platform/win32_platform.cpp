@@ -534,8 +534,28 @@ void platform_set_window_mode(Window *window, Window_Mode window_mode)
     }
 }
 
-bool platform_open_file_dialog(char *buffer, U64 count, const char *title, U64 title_count)
+static void convert_filer_and_extensions_to_win32_format(char *buffer, const char *filter, U64 filter_count, const char **extensions, U32 extension_count)
 {
+    char *current = buffer;
+
+    if (filter_count && extension_count)
+    {
+        current += sprintf(current, "%.*s", u64_to_u32(filter_count), filter) + 1;
+
+        for (U32 i = 0; i < extension_count - 1; i++)
+        {
+            current += sprintf(current, "*.%s;", extensions[i]);
+        }
+
+        current += sprintf(current, "*.%s\0\0", extensions[extension_count - 1]);
+    }
+}
+
+bool platform_open_file_dialog(char *buffer, U64 count, const char *title, U64 title_count, const char *filter, U64 filter_count, const char **extensions, U32 extension_count)
+{
+    char filter_buffer[4096] = {};
+    convert_filer_and_extensions_to_win32_format(filter_buffer, filter, filter_count, extensions, extension_count);
+
     OPENFILENAMEA ofn = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = nullptr;
@@ -544,14 +564,41 @@ bool platform_open_file_dialog(char *buffer, U64 count, const char *title, U64 t
     // use the contents of szFile to initialize itself.
     ofn.lpstrFile[0] = '\0';
     ofn.nMaxFile = u64_to_u32(count);
-    ofn.lpstrFilter = "All\0*.*;\0";
+    ofn.lpstrFilter = filter_buffer;
     ofn.nFilterIndex = 1;
     ofn.lpstrFileTitle = NULL;
     ofn.nMaxFileTitle = 0;
     ofn.lpstrInitialDir = NULL;
     ofn.lpstrTitle = title;
-    ofn.Flags = OFN_PATHMUSTEXIST|OFN_FILEMUSTEXIST;
+    ofn.Flags = OFN_PATHMUSTEXIST|OFN_FILEMUSTEXIST|OFN_NOCHANGEDIR;
     if (GetOpenFileNameA(&ofn) != TRUE)
+    {
+        return false;
+    }
+    return true;
+}
+
+bool platform_save_file_dialog(char *buffer, U64 count, const char *title, U64 title_count, const char *filter, U64 filter_count, const char **extensions, U32 extension_count)
+{
+    char filter_buffer[4096] = {};
+    convert_filer_and_extensions_to_win32_format(filter_buffer, filter, filter_count, extensions, extension_count);
+
+    OPENFILENAMEA ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = nullptr;
+    ofn.lpstrFile = buffer;
+    // Set lpstrFile[0] to '\0' so that GetOpenFileName does not
+    // use the contents of szFile to initialize itself.
+    ofn.lpstrFile[0] = '\0';
+    ofn.nMaxFile = u64_to_u32(count);
+    ofn.lpstrFilter = filter_buffer;
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    ofn.lpstrTitle = title;
+    ofn.Flags = OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
+    if (GetSaveFileNameA(&ofn) != TRUE)
     {
         return false;
     }
@@ -622,7 +669,7 @@ void platform_walk_directory(const char *path, bool recursive, on_walk_directory
         }
         
         S32 count = sprintf(path_buffer, "%s/%s", path, find_data.cFileName);
-        String path = { path_buffer, (U64)count };
+        String path = { (U64)count, path_buffer };
         
         bool is_directory = (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
         on_walk_directory(&path, is_directory);

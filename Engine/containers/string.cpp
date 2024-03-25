@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdlib.h>
 
 U64 string_length(const char *str)
 {
@@ -36,7 +37,7 @@ String copy_string(const char *str, U64 count, Allocator allocator)
     char *data = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, char, count + 1);
     copy_memory(data, str, count);
     data[count] = 0;
-    return { data, count };
+    return { count, data };
 }
 
 // todo(amer): SIMD Version
@@ -115,14 +116,14 @@ bool ends_with(String str, String end)
 String sub_string(String str, U64 index)
 {
     HE_ASSERT(index < str.count);
-    return { str.data + index, str.count - index };
+    return { str.count - index, str.data + index };
 }
 
 String sub_string(String str, U64 index, U64 count)
 {
     HE_ASSERT(index < str.count);
     HE_ASSERT(str.count - index >= count);
-    return { str.data + index, count };
+    return { count, str.data + index };
 }
 
 String format_string(Memory_Arena *arena, const char *format, va_list args)
@@ -132,13 +133,13 @@ String format_string(Memory_Arena *arena, const char *format, va_list args)
     HE_ASSERT(count >= 0);
     HE_ASSERT(arena->offset + count + 1 <= arena->size);
     arena->offset += count + 1;
-    return { (const char *)buffer, (U64)count };
+    return { (U64)count, (const char *)buffer };
 }
 
 String advance(String str, U64 count)
 {
     HE_ASSERT(count <= str.count);
-    return { .data = str.data + count, .count = str.count - count }; 
+    return { .count = str.count - count, .data = str.data + count };
 }
 
 String eat_chars(String str, String chars)
@@ -202,5 +203,50 @@ String end_string_builder(String_Builder *string_builder)
     Memory_Arena *arena = string_builder->arena;
     arena->offset += string_builder->count + 1;
     string_builder->data[string_builder->count] = 0;
-    return { string_builder->data, string_builder->count };
+    return { string_builder->count, string_builder->data };
+}
+
+Parse_Name_Value_Result parse_name_value(String *str, String name)
+{
+    String white_space = HE_STRING_LITERAL(" \n\t\r\v\f");
+    *str = eat_chars(*str, white_space);
+    if (!starts_with(*str, name))
+    {
+        return {};
+    }
+
+    *str = advance(*str, name.count);
+    *str = eat_chars(*str, white_space);
+
+    S64 index = find_first_char_from_left(*str, white_space);
+    if (index == -1)
+    {
+        return {};
+    }
+
+    String value = sub_string(*str, 0, index);
+    *str = advance(*str, value.count);
+    *str = eat_chars(*str, white_space);
+
+    return { .success = true, .value = value };
+}
+
+U64 str_to_u64(String str)
+{
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Memory_Arena *arena = scratch_memory.arena;
+    char *data = (char *)(&arena->base[arena->offset]);
+    copy_memory((void *)data, str.data, str.count);
+    data[str.count] = '\0';
+    return strtoull(data, nullptr, 10);
+}
+
+F32 str_to_f32(String str)
+{
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Memory_Arena *arena = scratch_memory.arena;
+    char *data = (char *)(&arena->base[arena->offset]);
+    copy_memory((void *)data, str.data, str.count);
+    data[str.count] = '\0';
+    return (F32)atof(data);
 }

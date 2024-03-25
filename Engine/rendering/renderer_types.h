@@ -40,6 +40,14 @@ struct Memory_Requirements
     U64 alignment;
 };
 
+struct Transform
+{
+    glm::vec3 position;
+    glm::quat rotation;
+    glm::vec3 euler_angles;
+    glm::vec3 scale;
+};
+
 //
 // Semaphore
 //
@@ -55,29 +63,6 @@ struct Renderer_Semaphore
 };
 
 using Semaphore_Handle = Resource_Handle< Renderer_Semaphore >;
-
-//
-// Uploads
-//
-
-#define HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT 8
-
-struct Upload_Request_Descriptor
-{
-    String name;
-    bool *is_uploaded;
-};
-
-struct Upload_Request
-{
-    String name;
-    Semaphore_Handle semaphore;
-    U64 target_value;
-    Counted_Array< void*, HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT > allocations_in_transfer_buffer;
-    bool *uploaded;
-};
-
-using Upload_Request_Handle = Resource_Handle< Upload_Request >;
 
 //
 // Buffer
@@ -116,8 +101,8 @@ using Buffer_Handle = Resource_Handle< Buffer >;
 enum class Texture_Format
 {
     R8G8B8A8_UNORM,
+    R8G8B8_UNORM,
     R8G8B8A8_SRGB,
-
     B8G8R8A8_SRGB,
     B8G8R8A8_UNORM,
     DEPTH_F32_STENCIL_U8,
@@ -147,10 +132,11 @@ using Texture_Handle = Resource_Handle< Texture >;
 
 struct Texture_Descriptor
 {
+    String name;
     U32 width = 1;
     U32 height = 1;
     Texture_Format format = Texture_Format::R8G8B8A8_UNORM;
-    int layer_count = 1;
+    U32 layer_count = 1;
     Array_View< void * > data_array;
     bool mipmapping = false;
     U32 sample_count = 1;
@@ -418,7 +404,6 @@ struct Pipeline_State_Descriptor
 struct Pipeline_State
 {
     String name;
-
     Pipeline_State_Descriptor descriptor;
 };
 
@@ -430,6 +415,7 @@ using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
 
 struct Material_Descriptor
 {
+    String name;
     Pipeline_State_Handle pipeline_state_handle;
 };
 
@@ -461,7 +447,7 @@ struct Material_Property
     Material_Property_Data data;
 
     U64 offset_in_buffer;
-    bool is_texture_resource;
+    bool is_texture_asset;
     bool is_color;
 };
 
@@ -496,7 +482,25 @@ struct Sub_Mesh
     U32 vertex_offset;
     U32 index_offset;
 
-    U64 material_uuid;
+    Material_Handle material;
+};
+
+struct Static_Mesh_Descriptor
+{
+    String name;
+
+    Array_View< void * > data_array;
+
+    U16 *indices;
+    U32 index_count;
+
+    U32 vertex_count;
+    glm::vec3 *positions;
+    glm::vec3 *normals;
+    glm::vec2 *uvs;
+    glm::vec4 *tangents;
+
+    Dynamic_Array< Sub_Mesh > sub_meshes;
 };
 
 struct Static_Mesh
@@ -517,34 +521,46 @@ struct Static_Mesh
     Dynamic_Array< Sub_Mesh > sub_meshes;
 };
 
-struct Static_Mesh_Descriptor
-{
-    void *data;
-    
-    U16 *indices;
-    U32 index_count;
-    
-    U32 vertex_count;
-    glm::vec3 *positions;
-    glm::vec3 *normals;
-    glm::vec2 *uvs;
-    glm::vec4 *tangents;
+using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;
 
-    Dynamic_Array< Sub_Mesh > sub_meshes;
+struct Model_Node
+{
+    String name;
+
+    S32 parent_index;
+
+    Transform transform;
+
+    Static_Mesh_Handle static_mesh;
 };
 
-using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;
+struct Model
+{
+    String name;
+
+    U32 material_count;
+    Material_Handle *materials;
+
+    U32 static_mesh_count;
+    Static_Mesh_Handle *static_meshes;
+
+    U32 node_count;
+    Model_Node *nodes;
+};
 
 //
 // Scene
 //
 
-struct Transform
+enum class Skybox_Face : U8
 {
-    glm::vec3 position;
-    glm::quat rotation;
-    glm::vec3 euler_angles;
-    glm::vec3 scale;
+    RIGHT,
+    LEFT,
+    TOP,
+    BOTTOM,
+    FRONT,
+    BACK,
+    COUNT
 };
 
 struct Scene_Node
@@ -557,7 +573,7 @@ struct Scene_Node
     Scene_Node *next_sibling;
     Scene_Node *prev_sibling;
 
-    U64 static_mesh_uuid;
+    U64 model_asset;
 
     Transform local_transform;
     Transform global_transform;
@@ -579,6 +595,30 @@ struct Render_Packet
     U16 sub_mesh_index;
     U32 transform_index;
 };
+
+//
+// Uploads
+//
+
+#define HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT 8
+
+struct Upload_Request_Descriptor
+{
+    String name;
+    bool *is_uploaded;
+};
+
+struct Upload_Request
+{
+    String name;
+    Semaphore_Handle semaphore;
+    U64 target_value;
+    Counted_Array< void*, HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT > allocations_in_transfer_buffer;
+    bool *uploaded;
+    Texture_Handle texture;
+};
+
+using Upload_Request_Handle = Resource_Handle< Upload_Request >;
 
 //
 // Shader Structs

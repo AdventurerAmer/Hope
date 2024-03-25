@@ -33,6 +33,8 @@ struct Vulkan_Image
     VkImageView view;
     VmaAllocation allocation;
     VmaAllocationInfo allocation_info;
+
+    VkDescriptorSet imgui_handle;
 };
 
 struct Vulkan_Sampler

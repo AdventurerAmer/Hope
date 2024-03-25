@@ -27,7 +27,7 @@ struct CVar_Category
 
 struct CVars_State
 {
-    const char *filepath;
+    String filepath;
     Dynamic_Array< CVar_Category > categories;
 };
 
@@ -81,7 +81,7 @@ static CVar* find_or_append_cvar(CVar_Category *category, const String &name, bo
     return nullptr;
 }
 
-bool init_cvars(const char *filepath)
+bool init_cvars(String filepath)
 {
     cvars_state.filepath = filepath;
 
@@ -91,13 +91,12 @@ bool init_cvars(const char *filepath)
     Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
-    Allocator allocator = to_allocator(temprary_memory.arena);
-    Read_Entire_File_Result result = read_entire_file(filepath, &allocator);
+    Read_Entire_File_Result result = read_entire_file(filepath, to_allocator(temprary_memory.arena));
     CVar_Category *category = nullptr;
 
     if (result.success)
     {
-        String str = { (char *)result.data, result.size };
+        String str = { result.size, (char *)result.data };
 
         while (true)
         {

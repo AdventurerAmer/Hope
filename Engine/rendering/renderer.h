@@ -68,8 +68,8 @@ struct Scene_Data
     Point_Light point_light;
     Spot_Light spot_light;
 
-    Texture_Handle skybox;
-    Material_Handle skybox_material_handle;
+    U64 skybox_material_asset;
+    U64 model_asset;
 };
 
 struct Renderer
@@ -131,6 +131,8 @@ struct Renderer
 
     bool (*init_imgui)();
     void (*imgui_new_frame)();
+    void (*imgui_add_texture)(Texture_Handle texture);
+    void* (*imgui_get_texture_id)(Texture_Handle texture);
     void (*imgui_render)();
 };
 
@@ -328,8 +330,8 @@ void renderer_use_material(Material_Handle material_handle);
 Material* renderer_get_material(Material_Handle material_handle);
 void renderer_destroy_material(Material_Handle &material_handle);
 
-S32 find_property(Material_Handle material_handle, const char *name);
-bool set_property(Material_Handle material_handle, const char *name, Material_Property_Data data);
+S32 find_property(Material_Handle material_handle, String name);
+bool set_property(Material_Handle material_handle, String name, Material_Property_Data data);
 bool set_property(Material_Handle material_handle, S32 property_id, Material_Property_Data data);
 
 //

@@ -11,7 +11,7 @@
 
 #include "containers/queue.h"
 
-#include "resources/resource_system.h"
+#include "assets/asset_manager.h"
 
 #include <algorithm> // todo(amer): to be removed
 
@@ -28,13 +28,7 @@
 
 #pragma warning(push, 0)
 
-#define CGLTF_IMPLEMENTATION
-#include <cgltf.h>
-
 #include <imgui.h>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb/stb_image.h>
 
 #pragma warning(pop)
 
@@ -42,6 +36,8 @@
 
 static Renderer_State *renderer_state;
 static Renderer *renderer;
+
+Free_List_Allocator *stbi_image_allocator;
 
 bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
 {
@@ -90,6 +86,8 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->get_texture_memory_requirements = &vulkan_renderer_get_texture_memory_requirements;
             renderer->init_imgui = &vulkan_renderer_init_imgui;
             renderer->imgui_new_frame = &vulkan_renderer_imgui_new_frame;
+            renderer->imgui_add_texture = &vulkan_renderer_imgui_add_texture;
+            renderer->imgui_get_texture_id = &vulkan_renderer_imgui_get_texture_id;
             renderer->imgui_render = &vulkan_renderer_imgui_render;
         } break;
 #endif
@@ -152,7 +150,7 @@ bool init_renderer_state(Engine *engine)
     root_scene_node->last_child = nullptr;
     root_scene_node->first_child = nullptr;
     root_scene_node->next_sibling = nullptr;
-    root_scene_node->static_mesh_uuid = HE_MAX_U64;
+    root_scene_node->model_asset = 0;
 
     platform_create_mutex(&renderer_state->root_scene_node_mutex);
 
@@ -200,6 +198,21 @@ bool init_renderer_state(Engine *engine)
         return false;
     }
 
+    Sampler_Descriptor default_texture_sampler_descriptor =
+    {
+        .address_mode_u = Address_Mode::REPEAT,
+        .address_mode_v = Address_Mode::REPEAT,
+        .address_mode_w = Address_Mode::REPEAT,
+        .min_filter = Filter::LINEAR,
+        .mag_filter = Filter::NEAREST,
+        .mip_filter = Filter::LINEAR,
+        .anisotropy = get_anisotropic_filtering_value(renderer_state->anisotropic_filtering_setting)
+    };
+    renderer_state->default_texture_sampler = renderer_create_sampler(default_texture_sampler_descriptor);
+
+    bool imgui_inited = init_imgui(engine);
+    HE_ASSERT(imgui_inited);
+
     Buffer_Descriptor transfer_buffer_descriptor =
     {
         .size = HE_MEGA_BYTES(512),
@@ -209,6 +222,7 @@ bool init_renderer_state(Engine *engine)
 
     Buffer *transfer_buffer = get(&renderer_state->buffers, renderer_state->transfer_buffer);
     init_free_list_allocator(&renderer_state->transfer_allocator, transfer_buffer->data, transfer_buffer->size, transfer_buffer->size);
+    stbi_image_allocator = &renderer_state->transfer_allocator;
 
     // default resources
     Renderer_Semaphore_Descriptor semaphore_descriptor =
@@ -227,6 +241,7 @@ bool init_renderer_state(Engine *engine)
 
         Texture_Descriptor white_pixel_descriptor =
         {
+            .name = HE_STRING_LITERAL("white pixel"),
             .width = 1,
             .height = 1,
             .format = Texture_Format::R8G8B8A8_UNORM,
@@ -249,6 +264,7 @@ bool init_renderer_state(Engine *engine)
         
         Texture_Descriptor normal_pixel_descriptor =
         {
+            .name = HE_STRING_LITERAL("normal pixel"),
             .width = 1,
             .height = 1,
             .format = Texture_Format::R8G8B8A8_UNORM,
@@ -304,11 +320,14 @@ bool init_renderer_state(Engine *engine)
         sub_mesh.index_count = index_count;
         sub_mesh.vertex_count = vertex_count;
 
-        sub_mesh.material_uuid = HE_MAX_U64; // todo(amer): should we use handles here...
+        sub_mesh.material = renderer_state->default_material;
+
+        void *data_array[] = { data };
 
         Static_Mesh_Descriptor cube_static_mesh =
         {
-            .data = data,
+            .name = HE_STRING_LITERAL("cube"),
+            .data_array = to_array_view(data_array),
 
             .indices = indices,
             .index_count = index_count,
@@ -337,7 +356,7 @@ bool init_renderer_state(Engine *engine)
         root->prev_sibling = nullptr;
         root->local_transform = get_identity_transform();
         root->global_transform = get_identity_transform();
-        root->static_mesh_uuid = HE_MAX_U64; // todo(amer): should we use handles here...
+        root->model_asset = 0; // todo(amer): should we use handles here...
     }
 
     init(&renderer_state->render_graph);
@@ -345,9 +364,13 @@ bool init_renderer_state(Engine *engine)
     {
         auto render = [](Renderer *renderer, Renderer_State *renderer_state)
         {
-            renderer_use_material(renderer_state->scene_data.skybox_material_handle);
+            Asset_Handle skybox_material_asset = { .uuid = renderer_state->scene_data.skybox_material_asset };
 
+            if (is_asset_handle_valid(skybox_material_asset) && is_asset_loaded(skybox_material_asset))
             {
+                Material_Handle skybox_material = get_asset_handle_as<Material>(skybox_material_asset);
+                renderer_use_material(skybox_material);
+
                 Static_Mesh_Handle static_mesh_handle = renderer_state->default_static_mesh;
                 Static_Mesh* static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
@@ -494,18 +517,6 @@ bool init_renderer_state(Engine *engine)
 
     invalidate(&renderer_state->render_graph, renderer, renderer_state);
 
-    Sampler_Descriptor default_texture_sampler_descriptor =
-    {
-        .address_mode_u = Address_Mode::REPEAT,
-        .address_mode_v = Address_Mode::REPEAT,
-        .address_mode_w = Address_Mode::REPEAT,
-        .min_filter = Filter::LINEAR,
-        .mag_filter = Filter::NEAREST,
-        .mip_filter = Filter::LINEAR,
-        .anisotropy = get_anisotropic_filtering_value(renderer_state->anisotropic_filtering_setting)
-    };
-    renderer_state->default_texture_sampler = renderer_create_sampler(default_texture_sampler_descriptor);
-
     Sampler_Descriptor default_cubemap_sampler_descriptor =
     {
         .address_mode_u = Address_Mode::CLAMP,
@@ -523,8 +534,8 @@ bool init_renderer_state(Engine *engine)
 
     {
         Allocator allocator = to_allocator(scratch_memory.arena);
-        Read_Entire_File_Result result = read_entire_file("shaders/default.glsl", &allocator);
-        String default_shader_source = { .data = (const char *)result.data, .count = result.size };
+        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/default.glsl"), allocator);
+        String default_shader_source = { .count = result.size, .data = (const char *)result.data };
         
         Shader_Compilation_Result default_shader_compilation_result = renderer_compile_shader(default_shader_source, HE_STRING_LITERAL("shaders")); // todo(amer): @Leak
         HE_ASSERT(default_shader_compilation_result.success);
@@ -549,7 +560,7 @@ bool init_renderer_state(Engine *engine)
                 .sample_shading = true,
             },
             .shader = renderer_state->default_shader,
-            .render_pass = get_render_pass(&renderer_state->render_graph, "opaque"), // todo(amer): we should not depend on the render graph here...
+            .render_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("opaque")), // todo(amer): we should not depend on the render graph here...
         };
 
         renderer_state->default_pipeline = renderer_create_pipeline_state(default_pipeline_state_descriptor);
@@ -563,8 +574,8 @@ bool init_renderer_state(Engine *engine)
         renderer_state->default_material = renderer_create_material(default_material_descriptor);
         HE_ASSERT(is_valid_handle(&renderer_state->materials, renderer_state->default_material));
         
-        set_property(renderer_state->default_material, "debug_texture_index", { .u32 = (U32)renderer_state->white_pixel_texture.index });
-        set_property(renderer_state->default_material, "debug_color", { .v3 = { 1.0f, 0.0f, 1.0f }});
+        set_property(renderer_state->default_material, HE_STRING_LITERAL("debug_texture_index"), { .u32 = (U32)renderer_state->white_pixel_texture.index });
+        set_property(renderer_state->default_material, HE_STRING_LITERAL("debug_color"), { .v3 = { 1.0f, 0.0f, 1.0f }});
 
         Shader *default_shader = get(&renderer_state->shaders, renderer_state->default_shader);
 
@@ -604,8 +615,6 @@ bool init_renderer_state(Engine *engine)
         }
     }
 
-    bool imgui_inited = init_imgui(engine);
-    HE_ASSERT(imgui_inited);
     return true;
 }
 
@@ -727,6 +736,11 @@ Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
     Texture_Handle texture_handle = aquire_handle(&renderer_state->textures);
     Texture *texture = renderer_get_texture(texture_handle);
 
+    if (descriptor.name.data)
+    {
+        texture->name = copy_string(descriptor.name, to_allocator(get_general_purpose_allocator()));
+    }
+
     Upload_Request_Handle upload_request_handle = Resource_Pool< Upload_Request >::invalid_handle;
     texture->is_uploaded_to_gpu = true;
 
@@ -742,6 +756,7 @@ Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
 
         upload_request_handle = renderer_create_upload_request(upload_request_descriptor);
         Upload_Request *upload_request = renderer_get_upload_request(upload_request_handle);
+        upload_request->texture = texture_handle;
         copy(&upload_request->allocations_in_transfer_buffer, descriptor.data_array);
     }
 
@@ -775,6 +790,11 @@ void renderer_destroy_texture(Texture_Handle &texture_handle)
     HE_ASSERT(texture_handle != renderer_state->normal_pixel_texture);
 
     Texture *texture = renderer_get_texture(texture_handle);
+
+    if (texture->name.data)
+    {
+        deallocate(get_general_purpose_allocator(), (void *)texture->name.data);
+    }
 
     texture->name = HE_STRING_LITERAL("");
     texture->width = 0;
@@ -855,7 +875,7 @@ shaderc_include_result *shaderc_include_resolve(void *user_data, const char *req
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
     String source = HE_STRING(requested_source);
     String path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(ud->include_path), HE_EXPAND_STRING(source));
-    Read_Entire_File_Result file_result = read_entire_file(path.data, &ud->allocator);
+    Read_Entire_File_Result file_result = read_entire_file(path, ud->allocator);
     HE_ASSERT(file_result.success);
     shaderc_include_result *result = HE_ALLOCATOR_ALLOCATE(&ud->allocator, shaderc_include_result);
     result->source_name = requested_source;
@@ -987,7 +1007,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
 
         const char *data = shaderc_result_get_bytes(result);
         U64 size = shaderc_result_get_length(result);
-        String blob = { data, size };
+        String blob = { .count = size, .data = data };
         compilation_result.stages[stage_index] = copy_string(blob, to_allocator(allocator));
     }
 
@@ -1217,6 +1237,11 @@ Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &des
     Static_Mesh_Handle static_mesh_handle = aquire_handle(&renderer_state->static_meshes);
     Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
+    if (descriptor.name.data)
+    {
+        static_mesh->name = copy_string(descriptor.name, to_allocator(get_general_purpose_allocator()));
+    }
+
     Buffer_Descriptor position_buffer_descriptor =
     {
         .size = descriptor.vertex_count * sizeof(glm::vec3),
@@ -1270,8 +1295,12 @@ Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &des
 
     Upload_Request_Handle upload_request_handle = renderer_create_upload_request(upload_request_descriptor);
     Upload_Request *upload_request = renderer_get_upload_request(upload_request_handle);
-    append(&upload_request->allocations_in_transfer_buffer, descriptor.data);
-    
+
+    for (U32 i = 0; i < descriptor.data_array.count; i++)
+    {
+        append(&upload_request->allocations_in_transfer_buffer, descriptor.data_array[i]);
+    }
+
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_static_mesh(static_mesh_handle, descriptor, upload_request_handle);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
@@ -1288,6 +1317,11 @@ Static_Mesh *renderer_get_static_mesh(Static_Mesh_Handle static_mesh_handle)
 void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle)
 {
     Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+
+    if (static_mesh->name.data)
+    {
+        deallocate(get_general_purpose_allocator(), (void *)static_mesh->name.data);
+    }
 
     renderer_destroy_buffer(static_mesh->positions_buffer);
     renderer_destroy_buffer(static_mesh->normals_buffer);
@@ -1339,6 +1373,12 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 
     init(&material->properties, properties->member_count);
 
+    static constexpr const char* texture_postfixes[] =
+    {
+        "texture",
+        "cubemap"
+    };
+
     for (U32 property_index = 0; property_index < properties->member_count; property_index++)
     {
         Shader_Struct_Member *member = &properties->members[property_index];
@@ -1348,8 +1388,19 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         property->data_type = member->data_type;
         property->offset_in_buffer = member->offset;
 
-        property->is_texture_resource = ends_with(property->name, HE_STRING_LITERAL("_texture")) && member->data_type == Shader_Data_Type::U32;
-        property->is_color = ends_with(property->name, HE_STRING_LITERAL("_color")) && (member->data_type == Shader_Data_Type::VECTOR3F || member->data_type == Shader_Data_Type::VECTOR4F);
+        bool has_texture_postfix = false;
+
+        for (U32 i = 0; i < HE_ARRAYCOUNT(texture_postfixes); i++)
+        {
+            if (ends_with(property->name, HE_STRING(texture_postfixes[i])))
+            {
+                has_texture_postfix = true;
+                break;
+            }
+        }
+
+        property->is_texture_asset = has_texture_postfix && member->data_type == Shader_Data_Type::U32;
+        property->is_color = ends_with(property->name, HE_STRING_LITERAL("color")) && (member->data_type == Shader_Data_Type::VECTOR3F || member->data_type == Shader_Data_Type::VECTOR4F);
     }
 
     material->pipeline_state_handle = descriptor.pipeline_state_handle;
@@ -1368,6 +1419,12 @@ Material *renderer_get_material(Material_Handle material_handle)
 void renderer_destroy_material(Material_Handle &material_handle)
 {
     Material *material = get(&renderer_state->materials, material_handle);
+
+    if (material->name.data)
+    {
+        deallocate(get_general_purpose_allocator(), (void *)material->name.data);
+    }
+
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle); 
     
     renderer_destroy_pipeline_state(material->pipeline_state_handle);
@@ -1384,15 +1441,13 @@ void renderer_destroy_material(Material_Handle &material_handle)
     material_handle = Resource_Pool< Material >::invalid_handle;
 }
 
-S32 find_property(Material_Handle material_handle, const char *name)
+S32 find_property(Material_Handle material_handle, String name)
 {
-    String name_ = HE_STRING(name);
-
     Material *material = get(&renderer_state->materials, material_handle);
     for (U32 property_index = 0; property_index < material->properties.count; property_index++)
     {
         Material_Property *property = &material->properties[property_index];
-        if (property->name == name_)
+        if (property->name == name)
         {
             return (S32)property_index;
         }
@@ -1401,7 +1456,7 @@ S32 find_property(Material_Handle material_handle, const char *name)
     return -1;
 }
 
-bool set_property(Material_Handle material_handle, const char *name, Material_Property_Data data)
+bool set_property(Material_Handle material_handle, String name, Material_Property_Data data)
 {
     S32 property_id = find_property(material_handle, name);
     if (property_id == -1)
@@ -1424,23 +1479,15 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
     Material_Property *property = &material->properties[property_id];
     property->data = data;
 
-    if (property->is_texture_resource)
+    if (property->is_texture_asset)
     {
         U32 *texture_index = (U32 *)&material->data[property->offset_in_buffer];
 
-        if (data.u64 != HE_MAX_U64)
+        if (data.u64)
         {
-            Resource_Ref ref = { data.u64 };
-            Resource *resource = get_resource(ref);
-            if (resource->state == Resource_State::LOADED)
-            {
-                *texture_index = resource->index;
-            }
-            else if (resource->state == Resource_State::UNLOADED)
-            {
-                aquire_resource(ref);
-                *texture_index = (U32)renderer_state->white_pixel_texture.index;
-            }
+            Asset_Handle asset_handle = { .uuid = data.u64 };
+            Texture_Handle texture = get_asset_handle_as<Texture>(asset_handle);
+            *texture_index = texture.index;
         }
         else
         {
@@ -1467,20 +1514,22 @@ void renderer_use_material(Material_Handle material_handle)
         for (U32 property_index = 0; property_index < material->properties.count; property_index++)
         {
             Material_Property *property = &material->properties[property_index];
-            if (property->is_texture_resource)
+            if (property->is_texture_asset)
             {
                 U32 *texture_index = (U32 *)&material->data[property->offset_in_buffer];
-                if (property->data.u64 != HE_MAX_U64)
+                Asset_Handle texture_asset = { .uuid = property->data.u64 };
+                if (is_asset_handle_valid(texture_asset))
                 {
-                    Resource_Ref ref = { property->data.u64 };
-                    Resource *resource = get_resource(ref);
-                    if (resource->state == Resource_State::PENDING)
+                    if (is_asset_loaded(texture_asset))
                     {
-                        material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
+                        Texture_Handle texture = get_asset_handle_as<Texture>(texture_asset);
+                        *texture_index = texture.index;
                     }
-                    else if (resource->state == Resource_State::LOADED)
+                    else
                     {
-                        *texture_index = resource->index;
+                        *texture_index = renderer_state->white_pixel_texture.index;
+                        material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
+                        aquire_asset(texture_asset);
                     }
                 }
             }
@@ -1529,7 +1578,7 @@ Scene_Handle renderer_create_scene(U32 node_capacity, U32 node_count)
     root->last_child = nullptr;
     root->next_sibling = nullptr;
     root->prev_sibling = nullptr;
-    root->static_mesh_uuid = HE_MAX_U64;
+    root->model_asset = 0;
     root->local_transform = get_identity_transform();
     init(&scene->nodes, node_capacity, node_count);
     return scene_handle;
@@ -1629,8 +1678,9 @@ void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_t
     Transform transform = combine(parent_transform, scene_node->local_transform);
     scene_node->global_transform = transform;
 
-    Render_Pass_Handle opaque_pass = get_render_pass(&renderer_state->render_graph, "opaque");
+    Render_Pass_Handle opaque_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("opaque"));
 
+#if 0
     if (scene_node->static_mesh_uuid != HE_MAX_U64)
     {
         Resource_Ref static_mesh_ref = { scene_node->static_mesh_uuid };
@@ -1683,6 +1733,7 @@ void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_t
     {
         renderer_parse_scene_tree(node, transform);
     }
+#endif
 }
 
 //
@@ -1704,6 +1755,7 @@ Upload_Request_Handle renderer_create_upload_request(const Upload_Request_Descri
     upload_request->semaphore = semaphore;
     upload_request->target_value = 0;
     upload_request->uploaded = descriptor.is_uploaded;
+    upload_request->texture = Resource_Pool< Texture >::invalid_handle;
     reset(&upload_request->allocations_in_transfer_buffer);
 
     return upload_request_handle;
@@ -1749,13 +1801,16 @@ void renderer_handle_upload_requests()
     {
         Upload_Request_Handle upload_request_handle = renderer_state->pending_upload_requests[i];
         Upload_Request *upload_request = get(&renderer_state->upload_requests, upload_request_handle);
-
         U64 semaphore_value = renderer_get_semaphore_value(upload_request->semaphore);
         if (upload_request->target_value == semaphore_value)
         {
             HE_ASSERT(upload_request->uploaded);
             HE_ASSERT(*upload_request->uploaded == false);
             *upload_request->uploaded = true;
+            if (is_valid_handle(&renderer_state->textures, upload_request->texture))
+            {
+                renderer->imgui_add_texture(upload_request->texture);
+            }
             renderer_destroy_upload_request(upload_request_handle);
             remove_and_swap_back(&renderer_state->pending_upload_requests, i);
         }

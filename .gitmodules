@@ -1,3 +1,6 @@
 [submodule "ImGui"]
 	path = ThirdParty/ImGui
 	url = https://github.com/ProjectElon/imgui
+[submodule "ExcaliburHash"]
+	path = ThirdParty/ExcaliburHash
+	url = https://github.com/SergeyMakeev/ExcaliburHash

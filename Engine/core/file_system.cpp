@@ -15,33 +15,83 @@ void sanitize_path(String &path)
     }
 }
 
-bool file_exists(const String &path)
+bool file_exists(String path)
 {
     bool is_file = false;
     bool exists = platform_path_exists(path.data, &is_file);
     return is_file;
 }
 
-bool directory_exists(const String &path)
+bool directory_exists(String path)
 {
     bool is_file = false;
     bool exists = platform_path_exists(path.data, &is_file);
     return !is_file;
 }
 
-String open_file_dialog(String title, String filter, Array_View< String > patterns, Memory_Arena *arena)
+String open_file_dialog(String title, String filter, Array_View< String > extensions)
 {
-    char *buffer = (char *)&arena->base[arena->offset];
-    U64 count = arena->size - arena->offset;
-    bool success = platform_open_file_dialog(buffer, count, title.data, title.count);
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Memory_Arena *scratch_arena = scratch_memory.arena;
+
+    const char **_extensions = nullptr;
+
+    if (extensions.count)
+    {
+        _extensions = HE_ALLOCATE_ARRAY(scratch_arena, const char*, extensions.count);
+        for (U32 i = 0; i < extensions.count; i++)
+        {
+            _extensions[i] = extensions[i].data;
+        }
+    }
+
+    char *buffer = (char *)&scratch_arena->base[scratch_arena->offset];
+    U64 count = scratch_arena->size - scratch_arena->offset;
+    bool success = platform_open_file_dialog(buffer, count, title.data, title.count, filter.data, filter.count, _extensions, extensions.count);
     if (!success)
     {
         return HE_STRING_LITERAL("");
     }
     String result = HE_STRING(buffer);
     sanitize_path(result);
-    arena->offset += result.count + 1;
-    return result;
+
+    scratch_arena->offset += result.count + 1;
+    String working_path = get_current_working_directory(to_allocator(scratch_memory.arena));
+    String path = sub_string(result, working_path.count + 1);
+    return copy_string(path, to_allocator(get_general_purpose_allocator()));
+}
+
+String save_file_dialog(String title, String filter, Array_View< String > extensions)
+{
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Memory_Arena *scratch_arena = scratch_memory.arena;
+
+    const char **_extensions = nullptr;
+
+    if (extensions.count)
+    {
+        _extensions = HE_ALLOCATE_ARRAY(scratch_arena, const char*, extensions.count);
+        for (U32 i = 0; i < extensions.count; i++)
+        {
+            _extensions[i] = extensions[i].data;
+        }
+    }
+
+    char *buffer = (char *)&scratch_arena->base[scratch_arena->offset];
+    U64 count = scratch_arena->size - scratch_arena->offset;
+    bool success = platform_save_file_dialog(buffer, count, title.data, title.count, filter.data, filter.count, _extensions, extensions.count);
+    if (!success)
+    {
+        return HE_STRING_LITERAL("");
+    }
+
+    String result = HE_STRING(buffer);
+    scratch_arena->offset += result.count + 1;
+
+    sanitize_path(result);
+    String working_path = get_current_working_directory(to_allocator(scratch_memory.arena));
+    String path = sub_string(result, working_path.count + 1);
+    return copy_string(path, to_allocator(get_general_purpose_allocator()));
 }
 
 String get_current_working_directory(Allocator allocator)
@@ -50,10 +100,10 @@ String get_current_working_directory(Allocator allocator)
     platform_get_current_working_directory(nullptr, &size);
     char *data = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, char, size);
     platform_get_current_working_directory(data, &size);
-    return { data, size - 1 };
+    return { size - 1, data };
 }
 
-String get_parent_path(const String &path)
+String get_parent_path(String path)
 {
     S64 slash_index = find_first_char_from_right(path, HE_STRING_LITERAL("\\/"));
     if (slash_index != -1)
@@ -63,7 +113,7 @@ String get_parent_path(const String &path)
     return HE_STRING_LITERAL("");
 }
 
-String get_extension(const String &path)
+String get_extension(String path)
 {
     S64 dot_index = find_first_char_from_right(path, HE_STRING_LITERAL("."));
     if (dot_index != -1)
@@ -73,7 +123,7 @@ String get_extension(const String &path)
     return HE_STRING_LITERAL("");
 }
 
-String get_name(const String &path)
+String get_name(String path)
 {
     S64 start_index = find_first_char_from_right(path, HE_STRING_LITERAL("\\/"));
     if (start_index == -1)
@@ -98,9 +148,9 @@ String get_name(const String &path)
     return sub_string(path, start_index, end_index - start_index + 1);
 }
 
-Read_Entire_File_Result read_entire_file(const char *filepath, Allocator *allocator)
+Read_Entire_File_Result read_entire_file(String path, Allocator allocator)
 {
-    Open_File_Result open_file_result = platform_open_file(filepath, OpenFileFlag_Read);
+    Open_File_Result open_file_result = platform_open_file(path.data, OpenFileFlag_Read);
     
     if (!open_file_result.success)
     {
@@ -112,26 +162,25 @@ Read_Entire_File_Result read_entire_file(const char *filepath, Allocator *alloca
         return { .success = false, .data = nullptr, .size = 0 };
     }
 
-    U8 *data = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, U8, open_file_result.size);
+    U8 *data = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, U8, open_file_result.size);
     bool read = platform_read_data_from_file(&open_file_result, 0, data, open_file_result.size);
     if (!read)
     {
-        HE_ALLOCATOR_DEALLOCATE(allocator, data);
+        HE_ALLOCATOR_DEALLOCATE(&allocator, data);
         return { .success = false, .data = nullptr, .size = open_file_result.size };
     }
     platform_close_file(&open_file_result);
     return { .success = true, .data = data, .size = open_file_result.size };
 }
 
-bool write_entire_file(const char *filepath, void *data, U64 size)
+bool write_entire_file(String path, void *data, U64 size)
 {
-    Open_File_Result open_file_result = platform_open_file(filepath, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
+    Open_File_Result open_file_result = platform_open_file(path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
     if (!open_file_result.success)
     {
         return false;
     }
     bool success = platform_write_data_to_file(&open_file_result, 0, data, size);
-    HE_ASSERT(success);
     platform_close_file(&open_file_result);
     return success;
 }

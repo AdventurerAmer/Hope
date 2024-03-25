@@ -91,6 +91,11 @@ VkFormat get_texture_format(Texture_Format texture_format)
             return VK_FORMAT_R8G8B8A8_UNORM;
         } break;
 
+        case Texture_Format::R8G8B8_UNORM:
+        {
+            return VK_FORMAT_R8G8B8_UNORM;
+        } break;
+
         case Texture_Format::R8G8B8A8_SRGB:
         {
             return VK_FORMAT_R8G8B8A8_SRGB;

@@ -37,6 +37,7 @@ enum Verbosity : U8
 #define Channel_Table\
     X(Core, "core")\
     X(Resource, "resource")\
+    X(Assets, "assets")\
     X(Gameplay, "gameplay")\
     X(Physics, "physics")\
     X(Rendering, "rendering")\

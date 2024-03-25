@@ -20,6 +20,7 @@ enum class Asset_Type : U32
     MATERIAL,
     STATIC_MESH,
     SCENE,
+    SKYBOX,
     COUNT
 };
 
@@ -105,6 +106,9 @@ struct Resource
     volatile S32 index;
     volatile U32 generation;
 
+    void *data;
+    U64 count;
+
     Job_Handle job_handle;
 };
 
@@ -146,15 +150,6 @@ struct Resource_Header
     U64 uuid;
     U64 asset_uuid;
     U16 resource_ref_count;
-};
-
-struct Texture_Resource_Info
-{
-    uint32_t width;
-    uint32_t height;
-    Texture_Format format;
-    bool mipmapping;
-    U64 data_offset;
 };
 
 struct Shader_Stage_Info
@@ -225,7 +220,6 @@ bool register_asset(Asset_Type type, const char *name, U32 version, Asset_Condit
 bool is_valid(Resource_Ref ref);
 
 Asset *find_asset(const String &relative_path);
-
 Asset *get_asset(U64 asset_uuid);
 
 Resource_Ref find_resource(const String &relative_path);
@@ -242,6 +236,8 @@ const Resource_Type_Info& get_info(const Resource &resource);
 
 Resource *get_resource(Resource_Ref ref);
 Resource *get_resource(U32 index);
+
+Resource_Header make_resource_header(Asset_Type type, U64 asset_uuid, U64 uuid);
 
 template<typename T>
 Resource_Handle<T> get_resource_handle_as(Resource_Ref ref)

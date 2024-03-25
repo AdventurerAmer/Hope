@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vulkan_types.h"
+#include <imgui.h>
 
 bool vulkan_renderer_init(struct Engine *engine, struct Renderer_State *renderer_state);
 void vulkan_renderer_deinit();
@@ -59,6 +60,8 @@ void vulkan_renderer_end_frame();
 
 bool vulkan_renderer_init_imgui();
 void vulkan_renderer_imgui_new_frame();
+void vulkan_renderer_imgui_add_texture(Texture_Handle texture);
+ImTextureID vulkan_renderer_imgui_get_texture_id(Texture_Handle texture);
 void vulkan_renderer_imgui_render();
 
 Memory_Requirements vulkan_renderer_get_texture_memory_requirements(const Texture_Descriptor &descriptor);

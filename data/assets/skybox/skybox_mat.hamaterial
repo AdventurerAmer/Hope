@@ -1,0 +1,9 @@
+version 1
+shader 8165342927083170180
+render_pass opaque
+cull_mode none
+front_face counterclockwise
+depth_testing disabled
+property_count 2
+skybox_cubemap 7 1592366032695847528
+sky_color 13 1.000000 1.000000 1.000000

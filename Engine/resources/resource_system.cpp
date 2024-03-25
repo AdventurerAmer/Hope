@@ -11,11 +11,13 @@
 #include "rendering/renderer.h"
 #include "rendering/renderer_utils.h"
 
+#include "resources/texture_resource.h"
+#include "resources/skybox_resource.h"
+
 #include <unordered_map> // todo(amer): to be removed
 #include <mutex>
 
 #include <cgltf.h>
-#include <stb/stb_image.h>
 #include <imgui.h>
 
 struct Resource_System_State
@@ -51,7 +53,6 @@ struct std::hash<String>
 
 static std::unordered_map< String, U32 > path_to_resource_index;
 static std::unordered_map< String, U32 > path_to_asset_index;
-
 static Resource_System_State *resource_system_state;
 
 // helpers
@@ -188,96 +189,12 @@ static U32 create_resource(String absolute_path, Asset_Type type, U64 asset_uuid
 }
 
 // ========================== Resources ====================================
-static bool condition_texture_to_resource(Read_Entire_File_Result *asset_file_result, Asset *asset, Resource *resource, Memory_Arena *arena)
-{
-    S32 width;
-    S32 height;
-    S32 channels;
-
-    stbi_uc *pixels = stbi_load_from_memory(asset_file_result->data, u64_to_u32(asset_file_result->size), &width, &height, &channels, STBI_rgb_alpha);
-
-    if (!pixels)
-    {
-        return false;
-    }
-
-    HE_DEFER { stbi_image_free(pixels); };
-
-    U64 offset = 0;
-    U8 *buffer = &arena->base[arena->offset];
-
-    Resource_Header header = make_resource_header(Asset_Type::TEXTURE, resource->asset_uuid, resource->uuid);
-    copy_memory(&buffer[offset], &header, sizeof(header));
-    offset += sizeof(header);
-
-    Texture_Resource_Info texture_resource_info =
-    {
-        .width = (U32)width,
-        .height = (U32)height,
-        .format = Texture_Format::R8G8B8A8_UNORM,
-        .mipmapping = true,
-        .data_offset = sizeof(Resource_Header) + sizeof(Texture_Resource_Info)
-    };
-
-    copy_memory(&buffer[offset], &texture_resource_info, sizeof(Texture_Resource_Info));
-    offset += sizeof(Texture_Resource_Info);
-
-    copy_memory(&buffer[offset], pixels, width * height * sizeof(U32)); // todo(amer): @Hardcoding
-    offset += width * height * sizeof(U32);
-
-    bool result = write_entire_file(resource->absolute_path.data, buffer, offset);
-    return result;
-}
-
-static bool load_texture_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
-{
-    Texture_Resource_Info info;
-    platform_read_data_from_file(open_file_result, sizeof(Resource_Header), &info, sizeof(Texture_Resource_Info));
-
-    U64 data_size = sizeof(U32) * info.width * info.height;
-    U32 *data = HE_ALLOCATE_ARRAY(resource_system_state->resource_allocator, U32, info.width * info.height);
-    bool success = platform_read_data_from_file(open_file_result, info.data_offset, data, data_size);
-
-    void *data_array[] = { data };
-
-    Texture_Descriptor texture_descriptor =
-    {
-        .width = info.width,
-        .height = info.height,
-        .format = info.format,
-        .data_array = to_array_view(data_array),
-        .mipmapping = info.mipmapping,
-        .sample_count = 1
-    };
-
-    Texture_Handle texture_handle = renderer_create_texture(texture_descriptor);
-    resource->index = texture_handle.index;
-    resource->generation = texture_handle.generation;
-    return success;
-}
-
-static void unload_texture_resource(Resource *resource)
-{
-    HE_ASSERT(resource->state != Resource_State::UNLOADED);
-
-    Render_Context render_context = get_render_context();
-
-    Texture_Handle texture_handle = { resource->index, resource->generation };
-
-    if (is_valid_handle(&render_context.renderer_state->textures, texture_handle) &&
-        (texture_handle != render_context.renderer_state->white_pixel_texture || texture_handle != render_context.renderer_state->normal_pixel_texture))
-    {
-        renderer_destroy_texture(texture_handle);
-        resource->index = render_context.renderer_state->white_pixel_texture.index;
-        resource->generation = render_context.renderer_state->white_pixel_texture.generation;
-    }
-}
 
 static bool condition_shader_to_resource(Read_Entire_File_Result *asset_file_result, Asset *asset, Resource *resource, Memory_Arena *arena)
 {
     bool success = true;
     
-    String source = { .data = (const char *)asset_file_result->data, .count = asset_file_result->size };
+    String source = { .count = asset_file_result->size, .data = (const char *)asset_file_result->data };
     String include_path = get_parent_path(resource->absolute_path);
     Shader_Compilation_Result compilation_result = renderer_compile_shader(source, include_path);
     if (!compilation_result.success)
@@ -346,7 +263,7 @@ static bool condition_shader_to_resource(Read_Entire_File_Result *asset_file_res
         offset += stage.count;
     }
 
-    success &= write_entire_file(resource->absolute_path.data, buffer, offset);
+    success &= write_entire_file(resource->absolute_path, buffer, offset);
     return success;
 }
 
@@ -374,7 +291,7 @@ static bool load_shader_resource(Open_File_Result *open_file_result, Resource *r
         data[stage_info.size] = '\0';
         offset += stage_info.size;
 
-        result.stages[(U32)stage_info.stage] = { .data = (const char *)data, .count = stage_info.size };
+        result.stages[(U32)stage_info.stage] = { .count = stage_info.size, .data = (const char *)data };
     }
 
     Shader_Descriptor shader_descriptor =
@@ -423,7 +340,7 @@ static bool load_material_resource(Open_File_Result *open_file_result, Resource 
     HE_ASSERT(info.render_pass_name_count <= 1024);
     string_buffer[info.render_pass_name_count] = '\0';
 
-    String render_pass_name = { string_buffer, info.render_pass_name_count };
+    String render_pass_name = { info.render_pass_name_count, string_buffer };
     success &= platform_read_data_from_file(open_file_result, info.render_pass_name_offset, string_buffer, info.render_pass_name_count);
     
     Resource_Ref shader_resource = { .uuid = resource->resource_refs[0] };
@@ -660,7 +577,7 @@ static bool save_static_mesh_resource(Resource *resource, cgltf_mesh *mesh, cglt
     write_attribute_for_all_sub_meshes(buffer, &offset, mesh, cgltf_attribute_type_texcoord);
     write_attribute_for_all_sub_meshes(buffer, &offset, mesh, cgltf_attribute_type_tangent);
 
-    bool result = write_entire_file(resource->absolute_path.data, buffer, offset);
+    bool result = write_entire_file(resource->absolute_path, buffer, offset);
     return result;
 }
 
@@ -718,7 +635,7 @@ static bool save_material_resource(Resource *resource, String render_pass_name, 
         offset += sizeof(char) * property_name.count;
     }
 
-    bool result = write_entire_file(resource->absolute_path.data, buffer, offset);
+    bool result = write_entire_file(resource->absolute_path, buffer, offset);
     return result;
 }
 
@@ -927,6 +844,7 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
         set_property("occlusion_texture", { .u64 = occlusion_texture_uuid });
         
         save_material_resource(material_resource, render_pass_name, pipeline_state_settings, property_names, properties, property_count);
+
     }
 
     U64 *static_mesh_uuids = HE_ALLOCATE_ARRAY(arena, U64, data->meshes_count);
@@ -1077,8 +995,52 @@ static bool condition_scene_to_resource(Read_Entire_File_Result *asset_file_resu
         node_name_data_file_offset += node_name.count;
     }
     
-    bool result = write_entire_file(resource->absolute_path.data, buffer, offset);
+    bool result = write_entire_file(resource->absolute_path, buffer, offset);
     return result;
+}
+
+static bool load_texture_resource(Open_File_Result *open_file_result, Resource *resource, Memory_Arena *arena)
+{
+    Texture_Resource_Info info;
+    platform_read_data_from_file(open_file_result, sizeof(Resource_Header), &info, sizeof(Texture_Resource_Info));
+
+    U64 data_size = sizeof(U32) * info.width * info.height;
+    U32 *data = HE_ALLOCATE_ARRAY(resource_system_state->resource_allocator, U32, info.width * info.height);
+    bool success = platform_read_data_from_file(open_file_result, info.data_offset, data, data_size);
+
+    void *data_array[] = { data };
+
+    Texture_Descriptor texture_descriptor =
+    {
+        .width = info.width,
+        .height = info.height,
+        .format = info.format,
+        .data_array = to_array_view(data_array),
+        .mipmapping = info.mipmapping,
+        .sample_count = 1
+    };
+
+    Texture_Handle texture_handle = renderer_create_texture(texture_descriptor);
+    resource->index = texture_handle.index;
+    resource->generation = texture_handle.generation;
+    return success;
+}
+
+static void unload_texture_resource(Resource *resource)
+{
+    HE_ASSERT(resource->state != Resource_State::UNLOADED);
+
+    Render_Context render_context = get_render_context();
+
+    Texture_Handle texture_handle = { resource->index, resource->generation };
+
+    if (is_valid_handle(&render_context.renderer_state->textures, texture_handle) &&
+        (texture_handle != render_context.renderer_state->white_pixel_texture || texture_handle != render_context.renderer_state->normal_pixel_texture))
+    {
+        renderer_destroy_texture(texture_handle);
+        resource->index = render_context.renderer_state->white_pixel_texture.index;
+        resource->generation = render_context.renderer_state->white_pixel_texture.generation;
+    }
 }
 
 static Asset_Type find_asset_type_from_extension(const String &extension, Resource_Type_Info *info = nullptr)
@@ -1135,7 +1097,7 @@ static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resour
         sub_mesh->index_count = sub_mesh_info->index_count;
         sub_mesh->vertex_offset = u64_to_u32(vertex_count);
         sub_mesh->index_offset = u64_to_u32(index_count);
-        sub_mesh->material_uuid = sub_mesh_info->material_uuid;
+        // sub_mesh->material_uuid = sub_mesh_info->material_uuid;
 
         Resource_Ref material_ref = { sub_mesh_info->material_uuid };
         aquire_resource(material_ref);
@@ -1151,9 +1113,11 @@ static bool load_static_mesh_resource(Open_File_Result *open_file_result, Resour
     glm::vec2 *uvs = (glm::vec2 *)(vertex_data + (sizeof(glm::vec3) + sizeof(glm::vec3)) * vertex_count);
     glm::vec4 *tangents = (glm::vec4 *)(vertex_data + (sizeof(glm::vec3) + sizeof(glm::vec2) + sizeof(glm::vec3)) * vertex_count);
 
+    void* data_array[] = { data };
+
     Static_Mesh_Descriptor static_mesh_descriptor =
     {
-        .data = data,
+        .data_array = to_array_view(data_array),
 
         .indices = indices,
         .index_count = index_count,
@@ -1217,7 +1181,7 @@ static bool load_scene_resource(Open_File_Result *open_file_result, Resource *re
 
         success &= platform_read_data_from_file(open_file_result, node_info.name_offset, node_name_data, node_name_data_size);
 
-        String node_name = { node_name_data, node_info.name_count };
+        String node_name = { node_info.name_count, node_name_data };
         Scene_Node *node = &scene->nodes[node_index];
         node->parent = nullptr;
         node->first_child = nullptr;
@@ -1226,7 +1190,7 @@ static bool load_scene_resource(Open_File_Result *open_file_result, Resource *re
         node->prev_sibling = nullptr;
 
         node->name = node_name;
-        node->static_mesh_uuid = node_info.static_mesh_uuid;
+        // node->static_mesh_uuid = node_info.static_mesh_uuid;
         node->local_transform = node_info.transform;
 
         Resource_Ref static_mesh_ref = { node_info.static_mesh_uuid };
@@ -1296,8 +1260,7 @@ static Job_Result condition_asset_job(const Job_Parameters &params)
 
     Asset_Conditioner &conditioner = resource_system_state->resource_type_infos[(U32)resource->type].conditioner;
 
-    Allocator allocator = to_allocator(params.arena);
-    Read_Entire_File_Result asset_file_result = read_entire_file(asset_path.data, &allocator);
+    Read_Entire_File_Result asset_file_result = read_entire_file(asset_path, to_allocator(params.arena));
 
     if (!asset_file_result.success)
     {
@@ -1516,7 +1479,7 @@ static bool serialize_asset_database(const String &path)
         }
     }
 
-    bool success = write_entire_file(path.data, buffer, offset);
+    bool success = write_entire_file(path, buffer, offset);
     if (!success)
     {
         HE_LOG(Resource, Fetal, "failed to serialize asset database\n");
@@ -1529,8 +1492,7 @@ static bool deserialize_asset_database(const String &path)
     Memory_Arena *arena = get_permenent_arena();
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
-    Allocator allocator = to_allocator(scratch_memory.arena);
-    Read_Entire_File_Result result = read_entire_file(path.data, &allocator);
+    Read_Entire_File_Result result = read_entire_file(path, to_allocator(scratch_memory.arena));
     if (!result.success)
     {
         HE_LOG(Resource, Fetal, "failed to deserialize asset database\n");
@@ -1551,7 +1513,7 @@ static bool deserialize_asset_database(const String &path)
         char *relative_path_data = (char *)(&data[offset]);
         offset += sizeof(char) * info->relative_path_count;
 
-        String relative_path = { relative_path_data, info->relative_path_count };
+        String relative_path = { info->relative_path_count, relative_path_data };
         String absolute_path = format_string(arena, "%.*s/%.*s", HE_EXPAND_STRING(resource_system_state->resource_path), HE_EXPAND_STRING(relative_path));
 
         U64 *resource_refs = (U64 *)(&data[offset]);
@@ -1734,6 +1696,30 @@ bool init_resource_system(const String &resource_directory_name, Engine *engine)
         };
 
         register_asset(Asset_Type::SCENE, "scene", 1, conditioner, loader);
+    }
+
+    {
+        static String extensions[] =
+        {
+            HE_STRING_LITERAL("haskybox")
+        };
+
+        Asset_Conditioner conditioner =
+        {
+            .extension_count = HE_ARRAYCOUNT(extensions),
+            .extensions = extensions,
+            .condition_asset = &condition_skybox_to_resource
+        };
+
+        Resource_Loader loader =
+        {
+            .load = &load_scene_resource,
+            .unload = &unload_scene_resource,
+            .index = render_context.renderer_state->white_pixel_texture.index,
+            .generation = render_context.renderer_state->white_pixel_texture.generation
+        };
+
+        register_asset(Asset_Type::SKYBOX, "skybox", 1, conditioner, loader);
     }
 
     resource_system_state->save_asset_database_job = Resource_Pool< Job >::invalid_handle;

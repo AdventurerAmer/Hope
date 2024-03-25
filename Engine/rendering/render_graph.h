@@ -114,5 +114,5 @@ void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Re
 void render(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
 Texture_Handle get_presentable_attachment(Render_Graph *render_graph, struct Renderer_State *renderer_state);
 
-Render_Graph_Node_Handle get_node(Render_Graph *render_graph, const char *name);
-Render_Pass_Handle get_render_pass(Render_Graph *render_graph, const char *name);
+Render_Graph_Node_Handle get_node(Render_Graph *render_graph, String name);
+Render_Pass_Handle get_render_pass(Render_Graph *render_graph, String name);

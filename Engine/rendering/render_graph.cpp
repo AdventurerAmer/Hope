@@ -174,11 +174,11 @@ void set_presentable_attachment(Render_Graph *render_graph, const char *render_t
     render_graph->presentable_resource = &render_graph->resources[resource_handle];
 }
 
-Render_Graph_Node_Handle get_node(Render_Graph *render_graph, const char *name)
+Render_Graph_Node_Handle get_node(Render_Graph *render_graph, String name)
 {
     Render_Graph_Node_Handle node_handle = -1;
 
-    auto it = find(&render_graph->node_cache, HE_STRING(name));
+    auto it = find(&render_graph->node_cache, name);
     if (is_valid(it))
     {
         node_handle = *it.value;
@@ -187,7 +187,7 @@ Render_Graph_Node_Handle get_node(Render_Graph *render_graph, const char *name)
     return node_handle;
 }
 
-Render_Pass_Handle get_render_pass(Render_Graph *render_graph, const char *name)
+Render_Pass_Handle get_render_pass(Render_Graph *render_graph, String name)
 {
     Render_Graph_Node_Handle node_handle = get_node(render_graph, name);
     

@@ -43,7 +43,7 @@ layout(set = 1, binding = 0) uniform samplerCube u_cubemaps[];
 
 layout (std430, set = 2, binding = 0) uniform Material
 {
-    uint skybox_texture_index;
+    uint skybox_cubemap;
     vec3 sky_color;
 } material;
 
@@ -55,7 +55,7 @@ vec4 sample_cubemap(uint texture_index, vec3 uv)
 void main()
 {
     float gamma = globals.gamma;
-    vec3 color = srgb_to_linear(sample_cubemap(material.skybox_texture_index, in_cubemap_uv).rgb, gamma);
+    vec3 color = srgb_to_linear(sample_cubemap(material.skybox_cubemap, in_cubemap_uv).rgb, gamma);
     color *= srgb_to_linear(material.sky_color, gamma);
     out_color = vec4(linear_to_srgb(color, gamma), 1.0f);
 }

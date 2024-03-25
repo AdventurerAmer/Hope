@@ -30,7 +30,7 @@ enum CVar_Flags
     CVarFlag_None = 0 << 0,
 };
 
-bool init_cvars(const char *filepath);
+bool init_cvars(String path);
 void deinit_cvars();
 
 void declare_cvar(const char *category, const char *name, bool *memory, CVar_Flags flags);

@@ -5,12 +5,12 @@
 
 struct String
 {
-    const char *data;
     U64 count;
+    const char *data;
 };
 
-#define HE_STRING(string) { string, string_length(string) }
-#define HE_STRING_LITERAL(string_literal) { string_literal, comptime_string_length(string_literal) }
+#define HE_STRING(string) { string_length(string), string }
+#define HE_STRING_LITERAL(string_literal) { comptime_string_length(string_literal), string_literal }
 #define HE_EXPAND_STRING(string) (U32)((string).count), (string).data
 
 U64 string_length(const char *str);
@@ -108,3 +108,13 @@ struct String_Builder
 void begin_string_builder(String_Builder *string_builder, Memory_Arena *arena);
 void append(String_Builder *string_builder, const char *format, ...);
 String end_string_builder(String_Builder *string_builder);
+
+struct Parse_Name_Value_Result
+{
+    bool success;
+    String value;
+};
+
+Parse_Name_Value_Result parse_name_value(String *str, String name);
+U64 str_to_u64(String str);
+F32 str_to_f32(String str);

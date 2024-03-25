@@ -6,7 +6,9 @@
 #include "cvars.h"
 #include "job_system.h"
 #include "file_system.h"
-#include "resources/resource_system.h"
+
+// #include "resources/resource_system.h"
+#include "assets/asset_manager.h"
 
 #include <chrono>
 #include <imgui.h>
@@ -28,7 +30,7 @@ bool startup(Engine *engine)
 
     init_logging_system();
     
-    init_cvars("config.cvars");
+    init_cvars(HE_STRING_LITERAL("config.cvars"));
     
     engine->show_cursor = false;
     engine->lock_cursor = false;
@@ -82,13 +84,8 @@ bool startup(Engine *engine)
         return false;
     }
 
-    bool resource_system_inited = init_resource_system(HE_STRING_LITERAL("resources"), engine);
-    if (!resource_system_inited)
-    {
-        HE_LOG(Core, Fetal, "failed to initialize resource system\n");
-        return false;
-    }
-    
+    bool asset_manager_inited = init_asset_manager(HE_STRING_LITERAL("assets"));
+
     Render_Context render_context = get_render_context();
     Renderer_State *renderer_state = render_context.renderer_state;
     Renderer *renderer = render_context.renderer;
@@ -110,10 +107,6 @@ bool startup(Engine *engine)
     scene_data->spot_light.radius = 5.0f;
     scene_data->spot_light.color = { 1.0f, 1.0f, 1.0f };
     scene_data->spot_light.intensity = 1.0f;
-
-    wait_for_all_jobs_to_finish();
-    renderer_wait_for_gpu_to_finish_all_work();
-    renderer_handle_upload_requests();
 
     bool app_inited = hope_app_init(engine);
     return app_inited;
@@ -156,7 +149,6 @@ void game_loop(Engine *engine, F32 delta_time)
     Renderer_State *renderer_state = render_context.renderer_state;
     
     renderer_handle_upload_requests();
-    reload_resources();
 
     if (!engine->is_minimized)
     {
@@ -175,9 +167,66 @@ void game_loop(Engine *engine, F32 delta_time)
 
         renderer_state->opaque_packet_count = 0;
         renderer_state->opaque_packets = HE_ALLOCATE_ARRAY(scratch_memory.arena, Render_Packet, 4069); // todo(amer): @Hardcoding
-        renderer_state->current_pipeline_state_handle = Resource_Pool<Pipeline_State>::invalid_handle;
+        renderer_state->current_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
 
-        renderer_parse_scene_tree(&renderer_state->root_scene_node);
+        // renderer_parse_scene_tree(&renderer_state->root_scene_node);
+
+        Render_Pass_Handle opaque_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("opaque"));
+
+        Asset_Handle model_asset_handle = { .uuid = renderer_state->scene_data.model_asset };
+        if (is_asset_handle_valid(model_asset_handle) && is_asset_loaded(model_asset_handle))
+        {
+            Model *model = get_asset_as<Model>(model_asset_handle);
+            for (U32 node_index = 0; node_index < model->node_count; node_index++)
+            {
+                Model_Node *model_node = &model->nodes[node_index];
+                if (is_valid_handle(&renderer_state->static_meshes, model_node->static_mesh))
+                {
+                    Static_Mesh_Handle static_mesh_handle = model_node->static_mesh;
+                    Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+                    if (!static_mesh->is_uploaded_to_gpu)
+                    {
+                        static_mesh_handle = renderer_state->default_static_mesh;
+                        static_mesh = renderer_get_static_mesh(renderer_state->default_static_mesh);
+                    }
+
+                    HE_ASSERT(renderer_state->object_data_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
+                    U32 object_data_index = renderer_state->object_data_count++;
+                    Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
+                    object_data->model = get_world_matrix(model_node->transform);
+
+                    Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
+                    for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
+                    {
+                        Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
+
+                        Material_Handle material_handle = Resource_Pool<Material>::invalid_handle;
+
+                        if (is_valid_handle(&renderer_state->materials, sub_mesh->material))
+                        {
+                            material_handle = sub_mesh->material;
+                        }
+                        else
+                        {
+                            material_handle = renderer_state->default_material;
+                        }
+
+                        Material *material = renderer_get_material(material_handle);
+                        Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
+
+                        if (pipeline_state->descriptor.render_pass == opaque_pass)
+                        {
+                            Render_Packet *render_packet = &renderer_state->opaque_packets[renderer_state->opaque_packet_count++];
+                            render_packet->static_mesh = static_mesh_handle;
+                            render_packet->sub_mesh_index = sub_mesh_index;
+                            render_packet->transform_index = object_data_index;
+                            render_packet->material = material_handle;
+                        }
+                    }
+
+                }
+            }
+        }
 
         renderer->begin_frame();
 
@@ -307,7 +356,7 @@ void shutdown(Engine *engine)
 {
     hope_app_shutdown(engine);
 
-    deinit_resource_system();
+    deinit_asset_manager();
 
     deinit_renderer_state();
 

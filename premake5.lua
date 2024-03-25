@@ -50,7 +50,7 @@ project "Engine"
 
     files { "Engine/**.h", "Engine/**.hpp", "Engine/**.cpp" }
 
-    includedirs { "Engine", "ThirdParty", "ThirdParty/ImGui", "ThirdParty/include" }
+    includedirs { "Engine", "ThirdParty", "ThirdParty/ExcaliburHash", "ThirdParty/ExcaliburHash/ExcaliburHash", "ThirdParty/ImGui", "ThirdParty/include" }
     libdirs { "ThirdParty/lib" }
 
     links
@@ -111,7 +111,7 @@ project "Editor"
         "Engine"
     }
 
-    includedirs { "Engine", "ThirdParty", "ThirdParty/ImGui", "ThirdParty/include" }
+    includedirs { "Engine", "ThirdParty", "ThirdParty/ImGui", "ThirdParty/ExcaliburHash", "ThirdParty/ExcaliburHash/ExcaliburHash", "ThirdParty/include" }
 
     debugdir "Data"
     targetdir "bin/%{prj.name}"

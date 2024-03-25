@@ -507,7 +507,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     U8 *pipeline_cache_data = nullptr;
     
     Allocator allocator = to_allocator(temprary_memory.arena);
-    Read_Entire_File_Result result = read_entire_file(HE_VULKAN_PIPELINE_CACHE_FILE_PATH, &allocator);
+    Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL(HE_VULKAN_PIPELINE_CACHE_FILE_PATH), allocator);
     if (result.success)
     {
         VkPipelineCacheHeaderVersionOne *pipeline_cache_header = (VkPipelineCacheHeaderVersionOne *)result.data;
@@ -668,7 +668,7 @@ void deinit_vulkan(Vulkan_Context *context)
         std::filesystem::path pipeline_cache_file_path(HE_VULKAN_PIPELINE_CACHE_FILE_PATH);
         std::filesystem::create_directories(pipeline_cache_file_path.parent_path()); // todo(amer): to be removed
 
-        write_entire_file(HE_VULKAN_PIPELINE_CACHE_FILE_PATH, pipeline_cache_data, pipeline_cache_size);
+        write_entire_file(HE_STRING_LITERAL(HE_VULKAN_PIPELINE_CACHE_FILE_PATH), pipeline_cache_data, pipeline_cache_size);
         end_temprary_memory(&temprary_memory);
     }
 
@@ -947,6 +947,7 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
 
     Texture *texture = get(&renderer_state->textures, texture_handle);
     Vulkan_Image *image = &context->textures[texture_handle.index];
+    image->imgui_handle = VK_NULL_HANDLE;
 
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_NONE;
     VkImageUsageFlags usage = VK_IMAGE_USAGE_FLAG_BITS_MAX_ENUM;
@@ -1037,6 +1038,22 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     return true;
 }
 
+void vulkan_renderer_imgui_add_texture(Texture_Handle texture)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Image *image = &context->textures[texture.index];
+
+    Vulkan_Sampler *sampler = &context->samplers[context->renderer_state->default_texture_sampler.index];
+    image->imgui_handle = ImGui_ImplVulkan_AddTexture(sampler->handle, image->view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+ImTextureID vulkan_renderer_imgui_get_texture_id(Texture_Handle texture)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Image *image = &context->textures[texture.index];
+    return (ImTextureID)image->imgui_handle;
+}
+
 void vulkan_renderer_destroy_texture(Texture_Handle texture_handle)
 {
     Vulkan_Context *context = &vulkan_context;
@@ -1046,6 +1063,11 @@ void vulkan_renderer_destroy_texture(Texture_Handle texture_handle)
 
     vulkan_image->handle = VK_NULL_HANDLE;
     vulkan_image->view = VK_NULL_HANDLE;
+
+    if (vulkan_image->imgui_handle != VK_NULL_HANDLE)
+    {
+        ImGui_ImplVulkan_RemoveTexture(vulkan_image->imgui_handle);
+    }
 }
 
 static VkSamplerAddressMode get_address_mode(Address_Mode address_mode)
