@@ -563,38 +563,34 @@ enum class Skybox_Face : U8
     COUNT
 };
 
+struct Skybox
+{
+    U64 skybox_material_asset;
+};
+
 struct Scene_Node
 {
     String name;
 
-    Scene_Node *parent;
-    Scene_Node *first_child;
-    Scene_Node *last_child;
-    Scene_Node *next_sibling;
-    Scene_Node *prev_sibling;
+    S32 parent_index;
+    S32 first_child_index;
+    S32 last_child_index;
+    S32 next_sibling_index;
+    S32 prev_sibling_index;
+
+    Transform transform;
 
     U64 model_asset;
-
-    Transform local_transform;
-    Transform global_transform;
 };
 
 struct Scene
 {
+    Skybox skybox;
     Scene_Node root;
     Dynamic_Array< Scene_Node > nodes;
 };
 
 using Scene_Handle = Resource_Handle< Scene >;
-
-// todo(amer): Render_Packet term is not used currectly here...
-struct Render_Packet
-{
-    Material_Handle material;
-    Static_Mesh_Handle static_mesh;
-    U16 sub_mesh_index;
-    U32 transform_index;
-};
 
 //
 // Uploads

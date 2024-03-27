@@ -10,22 +10,30 @@
 
 #include <imgui/imgui.h>
 
+#include <filesystem>
+namespace fs = std::filesystem;
+
 struct Editor_State
 {
     Engine *engine;
 	Camera camera;
 	FPS_Camera_Controller camera_controller;
+    Scene_Handle scene_handle;
+    fs::path asset_path;
 };
 
 static Editor_State editor_state;
 
 void draw_graphics_window();
 void draw_assets_window();
+void draw_scene_hierarchy_window();
 
 bool hope_app_init(Engine *engine)
 {
     Editor_State *state = &editor_state;
     state->engine = engine;
+
+    editor_state.asset_path = fs::path(get_asset_path().data);
 
     Render_Context render_context = get_render_context();
     Renderer_State *renderer_state = render_context.renderer_state;
@@ -87,6 +95,7 @@ bool hope_app_init(Engine *engine)
         }
     }
 
+    editor_state.scene_handle = renderer_create_scene(1024);
     return true;
 }
 
@@ -173,11 +182,12 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
         scene_data->projection = camera->projection;
         scene_data->eye = camera->position;
 
-        //static bool show_imgui_window = false;
-        // ImGui::ShowDemoWindow(&show_imgui_window);
+        static bool show_imgui_window = false;
+        ImGui::ShowDemoWindow(&show_imgui_window);
 
         draw_graphics_window();
         draw_assets_window();
+        draw_scene_hierarchy_window();
     }
 }
 
@@ -478,14 +488,14 @@ static bool select_asset(String name, String type, Asset_Handle *asset_handle)
     return result;
 }
 
-static void create_skybox_asset()
+static void create_skybox_asset_modal(bool open)
 {
-    if (ImGui::Button("Create Skybox Asset"))
+    if (open)
     {
-        ImGui::OpenPopup("Create Skybox");
+        ImGui::OpenPopup("Create Skybox Popup Model");
     }
 
-    if (ImGui::BeginPopupModal("Create Skybox", NULL, ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoCollapse))
+    if (ImGui::BeginPopupModal("Create Skybox Popup Model", NULL, ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoCollapse))
     {
         struct Skybox_Texture_Face
         {
@@ -654,27 +664,27 @@ const char* front_face_to_string(Front_Face front_face)
     return "";
 }
 
-static void create_material_asset()
+struct Create_Material_Asset_Data
 {
-    struct Create_Material_Asset_Data
-    {
-        Asset_Handle shader_asset = {};
-        U32 property_count;
-        Material_Property *properties = nullptr;
-        U32 render_pass_index = 0;
-        Cull_Mode cull_mode = Cull_Mode::BACK;
-        Front_Face front_face = Front_Face::COUNTER_CLOCKWISE;
-        bool depth_testing = true;
-    };
+    Asset_Handle shader_asset = {};
+    U32 property_count;
+    Material_Property *properties = nullptr;
+    U32 render_pass_index = 0;
+    Cull_Mode cull_mode = Cull_Mode::BACK;
+    Front_Face front_face = Front_Face::COUNTER_CLOCKWISE;
+    bool depth_testing = true;
+};
 
+static void create_material_asset_modal(bool open)
+{
     static Create_Material_Asset_Data asset_data = {};
 
-    if (ImGui::Button("Create Material Asset"))
+    if (open)
     {
-        ImGui::OpenPopup("Create Material");
+        ImGui::OpenPopup("Create Material Popup Model");
     }
 
-    if (ImGui::BeginPopupModal("Create Material", NULL, ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoCollapse))
+    if (ImGui::BeginPopupModal("Create Material Popup Model", NULL, ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoCollapse))
     {
         auto reset_selection = [&]()
         {
@@ -1011,8 +1021,76 @@ static void create_material_asset()
 
 static void draw_assets_window()
 {
+    static fs::path current_path;
+    static fs::path selected_path;
+
+    if (current_path.empty())
+    {
+        current_path = editor_state.asset_path;
+    }
+
     ImGui::Begin("Assets");
-    create_skybox_asset();
-    create_material_asset();
+
+    ImGui::BeginDisabled(current_path == editor_state.asset_path);
+    if (ImGui::Button("Back"))
+    {
+        current_path = current_path.parent_path();
+    }
+    ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    ImGui::Text("Path %s", current_path.string().c_str());
+
+    if (ImGui::BeginListBox("##Path", ImGui::GetContentRegionAvail()))
+    {
+        for (const auto &it : fs::directory_iterator(current_path))
+        {
+            const fs::path &path = it.path();
+            const fs::path &relative = path.lexically_relative(current_path);
+            bool is_selected = selected_path == path;
+            if (ImGui::Selectable(relative.string().c_str(), &is_selected))
+            {
+                if (it.is_directory())
+                {
+                    current_path = path;
+                    break;
+                }
+                else
+                {
+                    selected_path = path;
+                }
+            }
+        }
+        
+        ImGui::EndListBox();
+    }
+    
+    bool open_material_asset_modal = false;
+    bool open_create_asset_modal = false;
+
+    if (ImGui::BeginPopupContextWindow())
+    {
+        if (ImGui::MenuItem("Create Material"))
+        {
+            open_material_asset_modal = true;
+        }
+
+        if (ImGui::MenuItem("Create Skybox"))
+        {
+            open_create_asset_modal = true;
+        }
+
+        ImGui::EndPopup();
+    }
+
+    create_material_asset_modal(open_material_asset_modal);
+    create_skybox_asset_modal(open_create_asset_modal);
+
+    ImGui::End();
+}
+
+static void draw_scene_hierarchy_window()
+{
+    ImGui::Begin("Scene Hierarchy");
     ImGui::End();
 }

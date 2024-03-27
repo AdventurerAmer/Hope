@@ -173,13 +173,7 @@ struct Renderer_State
     Mutex pending_upload_requests_mutex;
     Counted_Array< Upload_Request_Handle, HE_MAX_UPLOAD_REQUEST_COUNT > pending_upload_requests;
 
-    Mutex root_scene_node_mutex;
-    Scene_Node root_scene_node;
-
     Pipeline_State_Handle current_pipeline_state_handle;
-
-    U32 opaque_packet_count;
-    Render_Packet *opaque_packets;
 
     F32 gamma;
     bool triple_buffering;
@@ -213,8 +207,6 @@ struct Renderer_State
     Sampler_Handle default_cubemap_sampler;
     
     Static_Mesh_Handle default_static_mesh;
-
-    Scene_Handle default_scene;
 
     Scene_Data scene_data;
     Render_Graph render_graph;
@@ -346,10 +338,10 @@ Transform get_identity_transform();
 Transform combine(const Transform &a, const Transform &b);
 glm::mat4 get_world_matrix(const Transform &transform);
 
-void add_child(Scene_Node *parent, Scene_Node *node);
-void remove_child(Scene_Node *parent, Scene_Node *node);
-void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform = get_identity_transform());
+void add_child(Scene *scene, Scene_Node *parent, Scene_Node *node);
+void remove_child(Scene *scene, Scene_Node *parent, Scene_Node *node);
 
+void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform = get_identity_transform());
 
 //
 // Upload Request

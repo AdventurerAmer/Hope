@@ -142,18 +142,7 @@ bool init_renderer_state(Engine *engine)
 
     platform_create_mutex(&renderer_state->pending_upload_requests_mutex); 
     reset(&renderer_state->pending_upload_requests);
-
-    Scene_Node *root_scene_node = &renderer_state->root_scene_node;
-    root_scene_node->name = HE_STRING_LITERAL("Root");
-    root_scene_node->local_transform = root_scene_node->global_transform = get_identity_transform();
-    root_scene_node->parent = nullptr;
-    root_scene_node->last_child = nullptr;
-    root_scene_node->first_child = nullptr;
-    root_scene_node->next_sibling = nullptr;
-    root_scene_node->model_asset = 0;
-
-    platform_create_mutex(&renderer_state->root_scene_node_mutex);
-
+    
     U32 &back_buffer_width = renderer_state->back_buffer_width;
     U32 &back_buffer_height = renderer_state->back_buffer_height;
     bool &triple_buffering = renderer_state->triple_buffering;
@@ -344,21 +333,6 @@ bool init_renderer_state(Engine *engine)
         renderer_state->default_static_mesh = renderer_create_static_mesh(cube_static_mesh);
     }
 
-    {
-        renderer_state->default_scene = renderer_create_scene(1, 1);
-        Scene *scene = renderer_get_scene(renderer_state->default_scene);
-        Scene_Node *root = &scene->nodes[0];
-        root->name = HE_STRING_LITERAL("Empty");
-        root->parent = nullptr;
-        root->first_child = nullptr;
-        root->last_child = nullptr;
-        root->next_sibling = nullptr;
-        root->prev_sibling = nullptr;
-        root->local_transform = get_identity_transform();
-        root->global_transform = get_identity_transform();
-        root->model_asset = 0; // todo(amer): should we use handles here...
-    }
-
     init(&renderer_state->render_graph);
 
     {
@@ -372,7 +346,7 @@ bool init_renderer_state(Engine *engine)
                 renderer_use_material(skybox_material);
 
                 Static_Mesh_Handle static_mesh_handle = renderer_state->default_static_mesh;
-                Static_Mesh* static_mesh = renderer_get_static_mesh(static_mesh_handle);
+                Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
                 Buffer_Handle vertex_buffers[] =
                 {
@@ -393,65 +367,70 @@ bool init_renderer_state(Engine *engine)
                 renderer->draw_sub_mesh(static_mesh_handle, object_data_index, 0);
             }
 
-            auto comp = [](const Render_Packet &a, const Render_Packet &b) -> bool
+            Render_Pass_Handle opaque_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("opaque"));
+            Asset_Handle model_asset_handle = { .uuid = renderer_state->scene_data.model_asset };
+            if (is_asset_handle_valid(model_asset_handle) && is_asset_loaded(model_asset_handle))
             {
-                Material *a_mat = renderer_get_material(a.material);
-                Material *b_mat = renderer_get_material(b.material);
-
-                if (a.material.index != b.material.index)
+                Model *model = get_asset_as<Model>(model_asset_handle);
+                for (U32 node_index = 0; node_index < model->node_count; node_index++)
                 {
-                    if (a_mat->pipeline_state_handle.index != b_mat->pipeline_state_handle.index)
+                    Model_Node *model_node = &model->nodes[node_index];
+                    if (is_valid_handle(&renderer_state->static_meshes, model_node->static_mesh))
                     {
-                        return a_mat->pipeline_state_handle.index < b_mat->pipeline_state_handle.index;
+                        Static_Mesh_Handle static_mesh_handle = model_node->static_mesh;
+                        Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+                        if (!static_mesh->is_uploaded_to_gpu)
+                        {
+                            static_mesh_handle = renderer_state->default_static_mesh;
+                            static_mesh = renderer_get_static_mesh(renderer_state->default_static_mesh);
+                        }
+
+                        HE_ASSERT(renderer_state->object_data_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
+                        U32 object_data_index = renderer_state->object_data_count++;
+                        Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
+                        object_data->model = get_world_matrix(model_node->transform);
+
+                        Buffer_Handle vertex_buffers[] =
+                        {
+                            static_mesh->positions_buffer,
+                            static_mesh->normals_buffer,
+                            static_mesh->uvs_buffer,
+                            static_mesh->tangents_buffer
+                        };
+
+                        U64 offsets[] = { 0, 0, 0, 0 };
+
+                        renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
+                        renderer->set_index_buffer(static_mesh->indices_buffer, 0);
+
+                        Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
+                        for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
+                        {
+                            Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
+
+                            Material_Handle material_handle = Resource_Pool<Material>::invalid_handle;
+
+                            if (is_valid_handle(&renderer_state->materials, sub_mesh->material))
+                            {
+                                material_handle = sub_mesh->material;
+                            }
+                            else
+                            {
+                                material_handle = renderer_state->default_material;
+                            }
+
+                            Material *material = renderer_get_material(material_handle);
+                            Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
+
+                            if (pipeline_state->descriptor.render_pass == opaque_pass)
+                            {
+                                renderer_use_material(material_handle);
+                                renderer->draw_sub_mesh(static_mesh_handle, object_data_index, sub_mesh_index);
+                            }
+                        }
+
                     }
-
-                    return a.material.index < b.material.index;
                 }
-
-                if (a.static_mesh.index != b.static_mesh.index)
-                {
-                    return a.static_mesh.index < b.static_mesh.index;
-                }
-
-                return a.sub_mesh_index < b.sub_mesh_index;
-            };
-
-            // draw opaque objects
-            std::sort(renderer_state->opaque_packets, renderer_state->opaque_packets + renderer_state->opaque_packet_count, comp);
-
-            Material_Handle current_material_handle = Resource_Pool<Material>::invalid_handle;
-            Static_Mesh_Handle current_static_mesh_handle = Resource_Pool<Static_Mesh>::invalid_handle;
-
-            for (U32 packet_index = 0; packet_index < renderer_state->opaque_packet_count; packet_index++)
-            {
-                Render_Packet *packet = &renderer_state->opaque_packets[packet_index];
-
-                if (current_material_handle != packet->material)
-                {
-                    renderer_use_material(packet->material);
-                    current_material_handle = packet->material;
-                }
-
-                if (current_static_mesh_handle != packet->static_mesh)
-                {
-                    Static_Mesh *static_mesh = renderer_get_static_mesh(packet->static_mesh);
-
-                    Buffer_Handle vertex_buffers[] =
-                    {
-                        static_mesh->positions_buffer,
-                        static_mesh->normals_buffer,
-                        static_mesh->uvs_buffer,
-                        static_mesh->tangents_buffer
-                    };
-                    U64 offsets[] = { 0, 0, 0, 0 };
-
-                    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
-                    renderer->set_index_buffer(static_mesh->indices_buffer, 0);
-
-                    current_static_mesh_handle = packet->static_mesh;
-                }
-
-                renderer->draw_sub_mesh(packet->static_mesh, packet->transform_index, packet->sub_mesh_index);
             }
         };
 
@@ -1573,13 +1552,13 @@ Scene_Handle renderer_create_scene(U32 node_capacity, U32 node_count)
     Scene_Handle scene_handle = aquire_handle(&renderer_state->scenes);
     Scene *scene = get(&renderer_state->scenes, scene_handle);
     Scene_Node *root = &scene->root;
-    root->parent = nullptr;
-    root->first_child = nullptr;
-    root->last_child = nullptr;
-    root->next_sibling = nullptr;
-    root->prev_sibling = nullptr;
+    root->parent_index = -1;
+    root->first_child_index = -1;
+    root->last_child_index = -1;
+    root->next_sibling_index = -1;
+    root->prev_sibling_index = -1;
     root->model_asset = 0;
-    root->local_transform = get_identity_transform();
+    root->transform = get_identity_transform();
     init(&scene->nodes, node_capacity, node_count);
     return scene_handle;
 }
@@ -1627,57 +1606,55 @@ glm::mat4 get_world_matrix(const Transform &transform)
     return glm::translate(glm::mat4(1.0f), transform.position) * glm::toMat4(transform.rotation) * glm::scale(glm::mat4(1.0f), transform.scale);
 }
 
-void add_child(Scene_Node *parent, Scene_Node *node)
+void add_child(Scene *scene, Scene_Node *parent, Scene_Node *node)
 {
     HE_ASSERT(parent);
     HE_ASSERT(node);
 
-    node->parent = parent;
+    node->parent_index = parent ? index_of(&scene->nodes, parent) : -1;
 
-    if (parent->last_child)
+    if (parent->last_child_index != -1)
     {
-        node->prev_sibling = parent->last_child;
-        parent->last_child->next_sibling = node;
-        parent->last_child = node;
+        node->prev_sibling_index = parent->last_child_index;
+        scene->nodes[parent->last_child_index].next_sibling_index = index_of(&scene->nodes, node);
+        parent->last_child_index = index_of(&scene->nodes, node);
     }
     else
     {
-        parent->first_child = parent->last_child = node;
+        parent->first_child_index = parent->last_child_index = index_of(&scene->nodes, node);
     }
 }
 
-void remove_child(Scene_Node *parent, Scene_Node *node)
+void remove_child(Scene *scene, Scene_Node *parent, Scene_Node *node)
 {
     HE_ASSERT(parent);
     HE_ASSERT(node);
-    HE_ASSERT(node->parent == parent);
+    HE_ASSERT(node->parent_index == index_of(&scene->nodes, parent));
     
-    node->parent = nullptr;
+    node->parent_index = -1;
     
-    if (node->prev_sibling)
+    if (node->prev_sibling_index != -1)
     {
-        node->prev_sibling->next_sibling = node->next_sibling;
+        scene->nodes[node->prev_sibling_index].next_sibling_index = node->next_sibling_index;
     }
     else
     {
-        parent->first_child = node->next_sibling;
+        parent->first_child_index = node->next_sibling_index;
     }
 
-    if (node->next_sibling)
+    if (node->next_sibling_index != -1)
     {
-        node->next_sibling->prev_sibling = node->prev_sibling;
+        scene->nodes[node->next_sibling_index].prev_sibling_index = node->prev_sibling_index;
     }
     else
     {
-        parent->last_child = node->prev_sibling;
+        parent->last_child_index = node->prev_sibling_index;
     }
 }
 
 void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform)
 {
-    Transform transform = combine(parent_transform, scene_node->local_transform);
-    scene_node->global_transform = transform;
-
+    Transform transform = combine(parent_transform, scene_node->transform);
     Render_Pass_Handle opaque_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("opaque"));
 
 #if 0
