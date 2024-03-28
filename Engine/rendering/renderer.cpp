@@ -1547,36 +1547,6 @@ void renderer_use_material(Material_Handle material_handle)
 // Scenes
 //
 
-Scene_Handle renderer_create_scene(U32 node_capacity, U32 node_count)
-{
-    Scene_Handle scene_handle = aquire_handle(&renderer_state->scenes);
-    Scene *scene = get(&renderer_state->scenes, scene_handle);
-    Scene_Node *root = &scene->root;
-    root->parent_index = -1;
-    root->first_child_index = -1;
-    root->last_child_index = -1;
-    root->next_sibling_index = -1;
-    root->prev_sibling_index = -1;
-    root->model_asset = 0;
-    root->transform = get_identity_transform();
-    init(&scene->nodes, node_capacity, node_count);
-    return scene_handle;
-}
-
-Scene *renderer_get_scene(Scene_Handle scene_handle)
-{
-    Scene *scene = get(&renderer_state->scenes, scene_handle);
-    return scene;
-}
-
-void renderer_destroy_scene(Scene_Handle &scene_handle)
-{
-    Scene *scene = get(&renderer_state->scenes, scene_handle);
-    deinit(&scene->nodes);
-    release_handle(&renderer_state->scenes, scene_handle);
-    scene_handle = Resource_Pool< Scene >::invalid_handle;
-}
-
 Transform get_identity_transform()
 {
     Transform result =
@@ -1606,22 +1576,142 @@ glm::mat4 get_world_matrix(const Transform &transform)
     return glm::translate(glm::mat4(1.0f), transform.position) * glm::toMat4(transform.rotation) * glm::scale(glm::mat4(1.0f), transform.scale);
 }
 
-void add_child(Scene *scene, Scene_Node *parent, Scene_Node *node)
+Scene_Handle renderer_create_scene(U32 node_capacity)
 {
+    Scene_Handle scene_handle = aquire_handle(&renderer_state->scenes);
+    Scene *scene = get(&renderer_state->scenes, scene_handle);
+    init(&scene->nodes, 0, node_capacity);
+    scene->first_free_node_index = -1;
+    allocate_node(scene, HE_STRING_LITERAL("Root"));
+    return scene_handle;
+}
+
+Scene *renderer_get_scene(Scene_Handle scene_handle)
+{
+    Scene *scene = get(&renderer_state->scenes, scene_handle);
+    return scene;
+}
+
+void renderer_destroy_scene(Scene_Handle &scene_handle)
+{
+    Scene *scene = get(&renderer_state->scenes, scene_handle);
+    deinit(&scene->nodes);
+    release_handle(&renderer_state->scenes, scene_handle);
+    scene_handle = Resource_Pool< Scene >::invalid_handle;
+}
+
+Scene_Node *get_root_node(Scene *scene)
+{
+    HE_ASSERT(scene->nodes.count);
+    return &scene->nodes[0];
+}
+
+Scene_Node *get_node(Scene *scene, S32 node_index)
+{
+    HE_ASSERT(node_index >= 0 && node_index < (S32)scene->nodes.count);
+    return &scene->nodes[node_index];
+}
+
+U32 allocate_node(Scene *scene, String name)
+{
+    U32 node_index = 0;
+
+    if (scene->first_free_node_index == -1)
+    {
+        append(&scene->nodes);
+        node_index = scene->nodes.count - 1;
+    }
+    else
+    {
+        node_index = scene->first_free_node_index;
+        scene->first_free_node_index = get_node(scene, scene->first_free_node_index)->next_sibling_index;
+    }
+
+    Scene_Node *node = get_node(scene, node_index);
+    node->name = copy_string(name, to_allocator(get_general_purpose_allocator()));
+
+    node->parent_index = -1;
+    node->first_child_index = -1;
+    node->last_child_index = -1;
+    node->next_sibling_index = -1;
+    node->prev_sibling_index = -1;
+
+    node->transform = get_identity_transform();
+
+    node->model_asset = 0;
+
+    return node_index;
+}
+
+void add_child_last(Scene *scene, Scene_Node *parent, Scene_Node *node)
+{
+    HE_ASSERT(scene);
     HE_ASSERT(parent);
     HE_ASSERT(node);
 
-    node->parent_index = parent ? index_of(&scene->nodes, parent) : -1;
+    node->parent_index = index_of(&scene->nodes, parent);
+    U32 node_index = index_of(&scene->nodes, node);
 
     if (parent->last_child_index != -1)
     {
         node->prev_sibling_index = parent->last_child_index;
-        scene->nodes[parent->last_child_index].next_sibling_index = index_of(&scene->nodes, node);
-        parent->last_child_index = index_of(&scene->nodes, node);
+        scene->nodes[parent->last_child_index].next_sibling_index = node_index;
+        parent->last_child_index = node_index;
     }
     else
     {
-        parent->first_child_index = parent->last_child_index = index_of(&scene->nodes, node);
+        parent->first_child_index = parent->last_child_index = node_index;
+    }
+}
+
+void add_child_first(Scene *scene, Scene_Node *parent, Scene_Node *node)
+{
+    HE_ASSERT(scene);
+    HE_ASSERT(parent);
+    HE_ASSERT(node);
+
+    node->parent_index = index_of(&scene->nodes, parent);
+    U32 node_index = index_of(&scene->nodes, node);
+
+    if (parent->first_child_index != -1)
+    {
+        node->next_sibling_index = parent->first_child_index;
+        scene->nodes[parent->first_child_index].prev_sibling_index = node_index;
+        parent->first_child_index = node_index;
+    }
+    else
+    {
+        parent->first_child_index = parent->last_child_index = node_index;
+    }
+}
+
+void add_child_after(Scene *scene, Scene_Node *target, Scene_Node *node)
+{
+    HE_ASSERT(scene);
+    HE_ASSERT(target);
+    HE_ASSERT(node);
+
+    Scene_Node *parent = get_node(scene, target->parent_index);
+
+    U32 target_index = index_of(&scene->nodes, target);
+    U32 parent_index = index_of(&scene->nodes, parent);
+    U32 node_index = index_of(&scene->nodes, node);
+    
+    node->parent_index = parent_index;
+
+    if (parent->last_child_index == target_index)
+    {
+        node->prev_sibling_index = parent->last_child_index;
+        scene->nodes[parent->last_child_index].next_sibling_index = node_index;
+        parent->last_child_index = node_index;
+    }
+    else
+    {
+        node->next_sibling_index = target->next_sibling_index;
+        node->prev_sibling_index = target_index;
+
+        scene->nodes[target->next_sibling_index].prev_sibling_index = node_index;
+        target->next_sibling_index = node_index;
     }
 }
 
@@ -1630,8 +1720,6 @@ void remove_child(Scene *scene, Scene_Node *parent, Scene_Node *node)
     HE_ASSERT(parent);
     HE_ASSERT(node);
     HE_ASSERT(node->parent_index == index_of(&scene->nodes, parent));
-    
-    node->parent_index = -1;
     
     if (node->prev_sibling_index != -1)
     {
@@ -1650,6 +1738,39 @@ void remove_child(Scene *scene, Scene_Node *parent, Scene_Node *node)
     {
         parent->last_child_index = node->prev_sibling_index;
     }
+
+    node->parent_index = -1;
+    node->next_sibling_index = -1;
+    node->prev_sibling_index = -1;
+}
+
+void remove_node(Scene *scene, Scene_Node *node)
+{
+    for (S32 node_index = node->first_child_index; node_index != -1; node_index = get_node(scene, node_index)->next_sibling_index)
+    {
+        Scene_Node *child = get_node(scene, node_index);
+        remove_node(scene, child);
+    }
+
+    remove_child(scene, get_node(scene, node->parent_index), node);
+
+    U32 node_index = index_of(&scene->nodes, node);
+    if (node->name.data)
+    {
+        deallocate(get_general_purpose_allocator(), (void *)node->name.data);
+    }
+
+    if (scene->first_free_node_index == -1)
+    {
+        node->next_sibling_index = -1;
+    }
+    else
+    {
+        Scene_Node *first_free_node = get_node(scene, scene->first_free_node_index);
+        first_free_node->next_sibling_index = node_index;
+    }
+
+    scene->first_free_node_index = node_index;
 }
 
 void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform)

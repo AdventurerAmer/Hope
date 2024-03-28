@@ -9,6 +9,7 @@
 #include <resources/skybox_resource.h>
 
 #include <imgui/imgui.h>
+#include <ImGui/imgui_internal.h>
 
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -20,6 +21,9 @@ struct Editor_State
 	FPS_Camera_Controller camera_controller;
     Scene_Handle scene_handle;
     fs::path asset_path;
+    S32 node_index = -1;
+    S32 rename_node_index = -1;
+    S32 dragging_node_index = -1;
 };
 
 static Editor_State editor_state;
@@ -1047,6 +1051,10 @@ static void draw_assets_window()
         {
             const fs::path &path = it.path();
             const fs::path &relative = path.lexically_relative(current_path);
+            if (relative.extension() == ".haregistry")
+            {
+                continue;
+            }
             bool is_selected = selected_path == path;
             if (ImGui::Selectable(relative.string().c_str(), &is_selected))
             {
@@ -1089,8 +1097,189 @@ static void draw_assets_window()
     ImGui::End();
 }
 
+static char buffer[512];
+
+static void draw_scene_node(Scene *scene, Scene_Node *node)
+{
+    ImGui::PushID(node);
+    U32 node_index = (S32)index_of(&scene->nodes, node);
+
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth|ImGuiTreeNodeFlags_DefaultOpen|ImGuiTreeNodeFlags_FramePadding;
+
+    bool is_leaf = node->first_child_index == -1;
+    if (is_leaf)
+    {
+        flags |= ImGuiTreeNodeFlags_Leaf;
+    }
+
+    const char *label = node->name.data;
+
+    bool should_edit_node = node_index == editor_state.rename_node_index;
+    if (should_edit_node)
+    {
+        label = "##";
+        flags |= ImGuiTreeNodeFlags_AllowOverlap;
+    }
+
+    bool is_open = ImGui::TreeNodeEx(label, flags);
+
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+    {
+        editor_state.node_index = node_index;
+    }
+   
+
+    ImGuiDragDropFlags src_flags = 0;
+    src_flags |= ImGuiDragDropFlags_SourceNoDisableHover;
+    src_flags |= ImGuiDragDropFlags_SourceNoHoldToOpenOthers;
+
+    if (ImGui::BeginDragDropSource(src_flags))
+    {
+        editor_state.dragging_node_index = node_index;
+        ImGui::SetDragDropPayload("DND_SCENE_NODE", &node_index, sizeof(U32));
+        ImGui::EndDragDropSource();
+    }
+
+    if (ImGui::BeginDragDropTarget())
+    {
+        ImGuiDragDropFlags target_flags = 0;
+        // target_flags |= ImGuiDragDropFlags_AcceptBeforeDelivery;
+        // target_flags |= ImGuiDragDropFlags_AcceptNoDrawDefaultRect; // Don't display the yellow rectangle
+        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_SCENE_NODE", target_flags))
+        {
+            U32 child_node_index = *(const U32*)payload->Data;
+            Scene_Node *child = get_node(scene, child_node_index);
+            remove_child(scene, get_node(scene, child->parent_index), child);
+            add_child_last(scene, node, child);
+            HE_LOG(Assets, Trace, "Dragging Node: %.*s to node %.*s\n", HE_EXPAND_STRING(child->name), HE_EXPAND_STRING(node->name));
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    if (should_edit_node)
+    {
+        ImGui::SameLine();
+
+        ImGui::SetKeyboardFocusHere();
+        if (ImGui::InputText("###EditNodeTextInput", buffer, sizeof(buffer), ImGuiInputTextFlags_EnterReturnsTrue))
+        {
+            if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemDeactivated())
+            {
+                editor_state.rename_node_index = -1;
+                String new_name = HE_STRING(buffer);
+                if (node->name.data && new_name.count)
+                {
+                    deallocate(get_general_purpose_allocator(), (void *)node->name.data);
+                    node->name = copy_string(new_name, to_allocator(get_general_purpose_allocator()));
+                }
+            }
+        }
+    }
+
+    if (is_open)
+    {
+        if (ImGui::IsDragDropActive() && !is_leaf && editor_state.dragging_node_index != node_index && node->first_child_index != editor_state.dragging_node_index)
+        {
+            ImGui::Selectable("##DragFirstChild", true, ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing);
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_SCENE_NODE"))
+                {
+                    U32 child_node_index = *(const U32*)payload->Data;
+                    Scene_Node *child = get_node(scene, child_node_index);
+                    remove_child(scene, get_node(scene, child->parent_index), child);
+                    add_child_first(scene, node, child);
+                    HE_LOG(Assets, Trace, "Dragging Node: %.*s to node %.*s\n", HE_EXPAND_STRING(child->name), HE_EXPAND_STRING(node->name));
+                }
+                ImGui::EndDragDropTarget();
+            }   
+        }
+
+        for (S32 node_index = node->first_child_index; node_index != -1; node_index = scene->nodes[node_index].next_sibling_index)
+        {
+            Scene_Node *child = &scene->nodes[node_index];
+            draw_scene_node(scene, child);
+        }
+        ImGui::TreePop();
+    }
+
+    if (ImGui::IsDragDropActive() && node_index != 0 && editor_state.dragging_node_index != node_index && node->next_sibling_index != editor_state.dragging_node_index)
+    {
+        ImGui::Selectable("##DragAfterNode", true, ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing);
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_SCENE_NODE"))
+            {
+                U32 child_node_index = *(const U32*)payload->Data;
+                Scene_Node *child = get_node(scene, child_node_index);
+                remove_child(scene, get_node(scene, child->parent_index), child);
+                add_child_after(scene, node, child);
+                HE_LOG(Assets, Trace, "Dragging Node: %.*s to node %.*s\n", HE_EXPAND_STRING(child->name), HE_EXPAND_STRING(node->name));
+            }
+            ImGui::EndDragDropTarget();
+        }
+    }
+
+    ImGui::PopID();
+}
+
 static void draw_scene_hierarchy_window()
 {
     ImGui::Begin("Scene Hierarchy");
+
+    Scene *scene = renderer_get_scene(editor_state.scene_handle);
+
+    Scene_Node *root = get_root_node(scene);
+    draw_scene_node(scene, root);
+
+    static bool is_context_window_open = false;
+
+    if (ImGui::BeginPopupContextWindow())
+    {
+        is_context_window_open = true;
+
+        const char *label = "Create Child Node";
+        if (editor_state.node_index == -1)
+        {
+            label = "Create Node";
+        }
+
+        if (ImGui::MenuItem(label))
+        {
+            U32 node_index = allocate_node(scene, HE_STRING_LITERAL("Node"));
+            Scene_Node *parent = editor_state.node_index == -1 ? get_root_node(scene) : get_node(scene, editor_state.node_index);
+            Scene_Node *node = get_node(scene, node_index);
+            add_child_last(scene, parent, node);
+            memcpy(buffer, node->name.data, node->name.count);
+            editor_state.rename_node_index = node_index;
+        }
+
+        if (editor_state.node_index != -1)
+        {
+            Scene_Node *node = &scene->nodes[editor_state.node_index];
+
+            if (ImGui::MenuItem("Rename"))
+            {
+                memcpy(buffer, node->name.data, node->name.count);
+                editor_state.rename_node_index = editor_state.node_index;
+            }
+
+            if (ImGui::MenuItem("Delete"))
+            {
+                remove_node(scene, node);
+            }
+        }
+
+        ImGui::EndPopup();
+    }
+    else
+    {
+        if (is_context_window_open)
+        {
+            editor_state.node_index = -1;
+            is_context_window_open = false;
+        }
+    }
+
     ImGui::End();
 }

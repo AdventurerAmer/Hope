@@ -330,7 +330,7 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
 // Scenes
 //
 
-Scene_Handle renderer_create_scene(U32 node_capacity, U32 node_count = 0);
+Scene_Handle renderer_create_scene(U32 node_capacity);
 Scene *renderer_get_scene(Scene_Handle scene_handle);
 void renderer_destroy_scene(Scene_Handle &scene_handle);
 
@@ -338,8 +338,17 @@ Transform get_identity_transform();
 Transform combine(const Transform &a, const Transform &b);
 glm::mat4 get_world_matrix(const Transform &transform);
 
-void add_child(Scene *scene, Scene_Node *parent, Scene_Node *node);
+
+Scene_Node *get_root_node(Scene *scene);
+Scene_Node *get_node(Scene *scene, S32 node_index);
+U32 allocate_node(Scene *scene, String name);
+
+void add_child_last(Scene *scene, Scene_Node *parent, Scene_Node *node);
+void add_child_first(Scene *scene, Scene_Node *parent, Scene_Node *node);
+void add_child_after(Scene *scene, Scene_Node *target, Scene_Node *node);
+
 void remove_child(Scene *scene, Scene_Node *parent, Scene_Node *node);
+void remove_node(Scene *scene, Scene_Node *node);
 
 void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform = get_identity_transform());
 

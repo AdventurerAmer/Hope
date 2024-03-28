@@ -586,8 +586,8 @@ struct Scene_Node
 struct Scene
 {
     Skybox skybox;
-    Scene_Node root;
     Dynamic_Array< Scene_Node > nodes;
+    S32 first_free_node_index;
 };
 
 using Scene_Handle = Resource_Handle< Scene >;
