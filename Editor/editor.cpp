@@ -5,14 +5,14 @@
 
 #include <assets/asset_manager.h>
 
-#include <resources/texture_resource.h>
-#include <resources/skybox_resource.h>
-
 #include <imgui/imgui.h>
 #include <ImGui/imgui_internal.h>
 
 #include <filesystem>
 namespace fs = std::filesystem;
+
+#include "widgets/inspector_panel.h"
+#include "editor_utils.h"
 
 struct Editor_State
 {
@@ -24,6 +24,7 @@ struct Editor_State
     S32 node_index = -1;
     S32 rename_node_index = -1;
     S32 dragging_node_index = -1;
+    S32 selected_node_index = -1;
 };
 
 static Editor_State editor_state;
@@ -186,12 +187,13 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
         scene_data->projection = camera->projection;
         scene_data->eye = camera->position;
 
-        static bool show_imgui_window = false;
-        ImGui::ShowDemoWindow(&show_imgui_window);
+        // static bool show_imgui_window = false;
+        // ImGui::ShowDemoWindow(&show_imgui_window);
 
         draw_graphics_window();
         draw_assets_window();
         draw_scene_hierarchy_window();
+        Inspector_Panel::draw();
     }
 }
 
@@ -432,64 +434,6 @@ static void draw_graphics_window()
 
         ImGui::End();
     }
-}
-
-static bool select_asset(String name, String type, Asset_Handle *asset_handle)
-{
-    Render_Context render_context = get_render_context();
-    Renderer *renderer = render_context.renderer;
-    Renderer_State *renderer_state = render_context.renderer_state;
-
-    if (ImGui::Button(name.data))
-    {
-        const Asset_Info *info = get_asset_info(type);
-        HE_ASSERT(info);
-
-        Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-        String title = HE_STRING_LITERAL("Pick Asset");
-        String filter = name;
-        String absolute_path = open_file_dialog(title, filter, { .count = info->extension_count, .data = info->extensions });
-        if (absolute_path.count)
-        {
-            HE_DEFER { deallocate(get_general_purpose_allocator(), (void *)absolute_path.data); };
-
-            String asset_path = get_asset_path();
-            String path = sub_string(absolute_path, asset_path.count + 1);
-
-            if (path.count)
-            {
-                *asset_handle = import_asset(path);
-            }
-        }
-    }
-
-    bool result = false;
-
-    if (asset_handle->uuid == 0)
-    {
-        ImGui::SameLine();
-        ImGui::Text("None");
-    }
-    else if (is_asset_handle_valid(*asset_handle))
-    {
-        const Asset_Registry_Entry &entry = get_asset_registry_entry(*asset_handle);
-        ImGui::SameLine();
-        ImGui::Text(entry.path.data);
-
-        if (!is_asset_loaded(*asset_handle))
-        {
-            aquire_asset(*asset_handle);
-        }
-
-        result = true;
-    }
-    else
-    {
-        ImGui::SameLine();
-        ImGui::Text("Invalid");
-    }
-
-    return result;
 }
 
 static void create_skybox_asset_modal(bool open)
@@ -1068,6 +1012,27 @@ static void draw_assets_window()
                     selected_path = path;
                 }
             }
+
+            if (it.is_regular_file())
+            {
+                auto asset_path_string = path.lexically_relative(editor_state.asset_path).string();
+                String asset_path = HE_STRING(asset_path_string.c_str());
+                sanitize_path(asset_path);
+                String extension = get_extension(asset_path);
+                if (get_asset_info_from_extension(extension))
+                {
+                    ImGuiDragDropFlags src_flags = 0;
+                    src_flags |= ImGuiDragDropFlags_SourceNoDisableHover;
+                    src_flags |= ImGuiDragDropFlags_SourceNoHoldToOpenOthers;
+                    if (ImGui::BeginDragDropSource(src_flags))
+                    {
+                        Asset_Handle asset_handle = import_asset(asset_path);
+                        ImGui::SetDragDropPayload("DND_ASSET", &asset_handle, sizeof(Asset_Handle));
+                        ImGui::EndDragDropSource();
+
+                    }
+                }
+            }
         }
         
         ImGui::EndListBox();
@@ -1097,7 +1062,7 @@ static void draw_assets_window()
     ImGui::End();
 }
 
-static char buffer[512];
+static char buffer[128];
 
 static void draw_scene_node(Scene *scene, Scene_Node *node)
 {
@@ -1112,6 +1077,11 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
         flags |= ImGuiTreeNodeFlags_Leaf;
     }
 
+    if (node_index == editor_state.selected_node_index)
+    {
+        flags |= ImGuiTreeNodeFlags_Selected;
+    }
+
     const char *label = node->name.data;
 
     bool should_edit_node = node_index == editor_state.rename_node_index;
@@ -1123,11 +1093,16 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
 
     bool is_open = ImGui::TreeNodeEx(label, flags);
 
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+    {
+        editor_state.selected_node_index = node_index;
+        Inspector_Panel::inspect(get_node(scene, node_index));
+    }
+
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
     {
         editor_state.node_index = node_index;
     }
-   
 
     ImGuiDragDropFlags src_flags = 0;
     src_flags |= ImGuiDragDropFlags_SourceNoDisableHover;
@@ -1143,15 +1118,12 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
     if (ImGui::BeginDragDropTarget())
     {
         ImGuiDragDropFlags target_flags = 0;
-        // target_flags |= ImGuiDragDropFlags_AcceptBeforeDelivery;
-        // target_flags |= ImGuiDragDropFlags_AcceptNoDrawDefaultRect; // Don't display the yellow rectangle
         if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_SCENE_NODE", target_flags))
         {
             U32 child_node_index = *(const U32*)payload->Data;
             Scene_Node *child = get_node(scene, child_node_index);
             remove_child(scene, get_node(scene, child->parent_index), child);
             add_child_last(scene, node, child);
-            HE_LOG(Assets, Trace, "Dragging Node: %.*s to node %.*s\n", HE_EXPAND_STRING(child->name), HE_EXPAND_STRING(node->name));
         }
         ImGui::EndDragDropTarget();
     }
@@ -1178,7 +1150,7 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
 
     if (is_open)
     {
-        if (ImGui::IsDragDropActive() && !is_leaf && editor_state.dragging_node_index != node_index && node->first_child_index != editor_state.dragging_node_index)
+        if (ImGui::IsDragDropActive() && strcmp(ImGui::GetDragDropPayload()->DataType, "DND_SCENE_NODE") == 0 && !is_leaf && editor_state.dragging_node_index != node_index && node->first_child_index != editor_state.dragging_node_index)
         {
             ImGui::Selectable("##DragFirstChild", true, ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing);
             if (ImGui::BeginDragDropTarget())
@@ -1189,7 +1161,6 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
                     Scene_Node *child = get_node(scene, child_node_index);
                     remove_child(scene, get_node(scene, child->parent_index), child);
                     add_child_first(scene, node, child);
-                    HE_LOG(Assets, Trace, "Dragging Node: %.*s to node %.*s\n", HE_EXPAND_STRING(child->name), HE_EXPAND_STRING(node->name));
                 }
                 ImGui::EndDragDropTarget();
             }   
@@ -1203,7 +1174,7 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
         ImGui::TreePop();
     }
 
-    if (ImGui::IsDragDropActive() && node_index != 0 && editor_state.dragging_node_index != node_index && node->next_sibling_index != editor_state.dragging_node_index)
+    if (ImGui::IsDragDropActive() && strcmp(ImGui::GetDragDropPayload()->DataType, "DND_SCENE_NODE") == 0 && node_index != 0 && editor_state.dragging_node_index != node_index && node->next_sibling_index != editor_state.dragging_node_index)
     {
         ImGui::Selectable("##DragAfterNode", true, ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing);
         if (ImGui::BeginDragDropTarget())
@@ -1214,7 +1185,6 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
                 Scene_Node *child = get_node(scene, child_node_index);
                 remove_child(scene, get_node(scene, child->parent_index), child);
                 add_child_after(scene, node, child);
-                HE_LOG(Assets, Trace, "Dragging Node: %.*s to node %.*s\n", HE_EXPAND_STRING(child->name), HE_EXPAND_STRING(node->name));
             }
             ImGui::EndDragDropTarget();
         }
@@ -1225,7 +1195,7 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
 
 static void draw_scene_hierarchy_window()
 {
-    ImGui::Begin("Scene Hierarchy");
+    ImGui::Begin("Hierarchy");
 
     Scene *scene = renderer_get_scene(editor_state.scene_handle);
 

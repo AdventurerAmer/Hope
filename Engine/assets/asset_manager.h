@@ -90,8 +90,10 @@ Asset_Handle get_asset_handle(String path);
 Asset_Handle import_asset(String path);
 void set_parent(Asset_Handle asset, Asset_Handle parent);
 
-const Asset_Registry_Entry &get_asset_registry_entry(Asset_Handle asset_handle);
+const Asset_Registry_Entry& get_asset_registry_entry(Asset_Handle asset_handle);
 
+Asset_Info* get_asset_info_from_extension(String extension);
+const Asset_Info* get_asset_info(Asset_Handle asset_handle);
 const Asset_Info* get_asset_info(String name);
 
 template< typename T >

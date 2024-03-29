@@ -36,12 +36,6 @@ using Asset_Cache = Excalibur::HashMap< U64, Asset >;
 
 #define HE_ASSET_REGISTRY_FILE_NAME "asset_registry.haregistry"
 
-//
-// helpers
-//
-
-Asset_Info* get_asset_info_from_extension(String extension);
-
 struct Load_Asset_Job_Data
 {
     Asset_Handle asset_handle;
@@ -50,7 +44,6 @@ struct Load_Asset_Job_Data
 };
 
 Job_Result load_asset_job(const Job_Parameters &params);
-
 bool serialize_asset_registry();
 bool deserialize_asset_registry();
 
@@ -361,6 +354,10 @@ Asset_Handle import_asset(String path)
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
 
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    path = copy_string(path, to_allocator(scratch_memory.arena));
+    sanitize_path(path);
+
     auto &registry = asset_manager_state->asset_registry;
 
     Asset_Handle asset_handle = get_asset_handle_internal(path);
@@ -369,7 +366,6 @@ Asset_Handle import_asset(String path)
         return asset_handle;
     }
 
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
     String absolute_path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(path));
 
     if (!file_exists(absolute_path))
@@ -400,6 +396,8 @@ Asset_Handle import_asset(String path)
 
     asset_handle = { .uuid = generate_uuid() };
     registry.emplace(asset_handle.uuid, entry);
+
+    HE_LOG(Assets, Trace, "Imported Asset: %.*s\n", HE_EXPAND_STRING(entry.path));
     return asset_handle;
 }
 
@@ -423,7 +421,7 @@ void set_parent(Asset_Handle asset, Asset_Handle parent)
     }
 }
 
-const Asset_Registry_Entry &get_asset_registry_entry(Asset_Handle asset_handle)
+const Asset_Registry_Entry& get_asset_registry_entry(Asset_Handle asset_handle)
 {
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
@@ -431,6 +429,17 @@ const Asset_Registry_Entry &get_asset_registry_entry(Asset_Handle asset_handle)
     auto it = asset_manager_state->asset_registry.find(asset_handle.uuid);
     HE_ASSERT(it != asset_manager_state->asset_registry.iend());
     return it.value();
+}
+
+const Asset_Info* get_asset_info(Asset_Handle asset_handle)
+{
+    platform_lock_mutex(&asset_manager_state->asset_mutex);
+    HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+
+    auto it = asset_manager_state->asset_registry.find(asset_handle.uuid);
+    HE_ASSERT(it != asset_manager_state->asset_registry.iend());
+
+    return &asset_manager_state->asset_infos[it.value().type_info_index];
 }
 
 const Asset_Info *get_asset_info(String name)
@@ -451,7 +460,7 @@ const Asset_Info *get_asset_info(String name)
 // helpers
 //
 
-Asset_Info* get_asset_info_from_extension(String extension)
+Asset_Info *get_asset_info_from_extension(String extension)
 {
     for (U32 i = 0; i < asset_manager_state->asset_infos.count; i++)
     {
@@ -476,7 +485,7 @@ static Job_Result load_asset_job(const Job_Parameters &params)
     Load_Asset_Result load_result = job_data->load(path);
     if (!load_result.success)
     {
-        HE_LOG(Assets, Error, "aquire_asset -- failed to load asset: %.*s\n", HE_EXPAND_STRING(job_data->path));
+        HE_LOG(Assets, Error, "load_asset_job -- failed to load asset: %.*s\n", HE_EXPAND_STRING(job_data->path));
 
         platform_lock_mutex(&asset_manager_state->asset_mutex);
         auto entryIt = asset_manager_state->asset_registry.find(job_data->asset_handle.uuid);
@@ -502,20 +511,34 @@ static Job_Result load_asset_job(const Job_Parameters &params)
 
 static bool serialize_asset_registry()
 {
+    platform_lock_mutex(&asset_manager_state->asset_mutex);
+    HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
     
     Asset_Registry &registry = asset_manager_state->asset_registry;
-
+    
+    Asset_Handle *handles = HE_ALLOCATE_ARRAY(scratch_memory.arena, Asset_Handle, registry.size());
+    U32 i = 0;
+    for (auto it = registry.ibegin(); it != registry.iend(); ++it)
+    {
+        handles[i++] = { .uuid = it.key() };
+    }
+    std::sort(handles, handles + registry.size(), [](Asset_Handle a, Asset_Handle b)
+    {
+        return a.uuid < b.uuid;
+    });
+    
     String_Builder builder = {};
     begin_string_builder(&builder, scratch_memory.arena);
     
     append(&builder, "version 1\n");
     append(&builder, "entry_count %u\n", registry.size());
 
-    for (auto it = registry.ibegin(); it != registry.iend(); ++it)
+    for (i = 0; i < registry.size(); i++)
     {
-        const Asset_Registry_Entry &entry = it.value();
-        append(&builder, "asset %llu\n", it.key());
+        const Asset_Registry_Entry &entry = registry[handles[i].uuid];
+        append(&builder, "\nasset %llu\n", handles[i].uuid);
         append(&builder, "parent %llu\n", entry.parent.uuid);
         append(&builder, "path %llu %.*s\n", entry.path.count, HE_EXPAND_STRING(entry.path));
     }
@@ -533,6 +556,9 @@ static bool serialize_asset_registry()
 
 static bool deserialize_asset_registry()
 {
+    platform_lock_mutex(&asset_manager_state->asset_mutex);
+    HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
     Read_Entire_File_Result file_result = read_entire_file(asset_manager_state->asset_registry_path, to_allocator(scratch_memory.arena));
