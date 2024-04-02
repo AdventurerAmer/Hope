@@ -999,6 +999,23 @@ static void draw_assets_window()
             {
                 continue;
             }
+
+            Asset_Handle asset_handle = {};
+            bool is_asset_file = false;
+
+            auto asset_path_string = path.lexically_relative(editor_state.asset_path).string();
+            String asset_path = HE_STRING(asset_path_string.c_str());
+
+            if (it.is_regular_file())
+            {
+                sanitize_path(asset_path);
+                String extension = get_extension(asset_path);
+                if (get_asset_info_from_extension(extension))
+                {
+                    is_asset_file = true;
+                }
+            }
+
             bool is_selected = selected_path == path;
             if (ImGui::Selectable(relative.string().c_str(), &is_selected))
             {
@@ -1010,27 +1027,33 @@ static void draw_assets_window()
                 else
                 {
                     selected_path = path;
+                    if (is_asset_file)
+                    {
+                        if (asset_handle.uuid == 0)
+                        {
+                            asset_handle = import_asset(asset_path);
+                        }
+                        Inspector_Panel::inspect(asset_handle);
+                    }
                 }
             }
 
-            if (it.is_regular_file())
+            if (is_asset_file)
             {
-                auto asset_path_string = path.lexically_relative(editor_state.asset_path).string();
-                String asset_path = HE_STRING(asset_path_string.c_str());
-                sanitize_path(asset_path);
-                String extension = get_extension(asset_path);
-                if (get_asset_info_from_extension(extension))
+                if (asset_handle.uuid == 0)
                 {
-                    ImGuiDragDropFlags src_flags = 0;
-                    src_flags |= ImGuiDragDropFlags_SourceNoDisableHover;
-                    src_flags |= ImGuiDragDropFlags_SourceNoHoldToOpenOthers;
-                    if (ImGui::BeginDragDropSource(src_flags))
-                    {
-                        Asset_Handle asset_handle = import_asset(asset_path);
-                        ImGui::SetDragDropPayload("DND_ASSET", &asset_handle, sizeof(Asset_Handle));
-                        ImGui::EndDragDropSource();
+                    asset_handle = import_asset(asset_path);
+                }
 
-                    }
+                ImGuiDragDropFlags src_flags = 0;
+                src_flags |= ImGuiDragDropFlags_SourceNoDisableHover;
+                src_flags |= ImGuiDragDropFlags_SourceNoHoldToOpenOthers;
+                if (ImGui::BeginDragDropSource(src_flags))
+                {
+                    editor_state.dragging_node_index = -1;
+
+                    ImGui::SetDragDropPayload("DND_ASSET", &asset_handle, sizeof(Asset_Handle));
+                    ImGui::EndDragDropSource();
                 }
             }
         }
@@ -1062,6 +1085,105 @@ static void draw_assets_window()
     ImGui::End();
 }
 
+enum class Add_Scene_Node_Operation
+{
+    FIRST,
+    LAST,
+    AFTER,
+};
+
+static void add_model_to_scene(Scene *scene, Scene_Node *node, Asset_Handle asset_handle, Add_Scene_Node_Operation op)
+{
+    const Asset_Info *info = get_asset_info(asset_handle);
+    if (info && info->name == HE_STRING_LITERAL("model"))
+    {
+        if (!is_asset_loaded(asset_handle))
+        {
+            Job_Handle job_handle = aquire_asset(asset_handle);
+            // todo(amer): should we make a progress bar here ?
+            wait_for_job_to_finish(job_handle);
+        }
+
+        Model *model = get_asset_as<Model>(asset_handle);
+        Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+
+        Scene_Node *sub_scene_parent = node;
+
+        if (model->node_count != 1)
+        {
+            U32 sub_scene_parent_index = allocate_node(scene, model->name);
+            sub_scene_parent = get_node(scene, sub_scene_parent_index);
+            switch (op)
+            {
+                case Add_Scene_Node_Operation::FIRST:
+                {
+                    add_child_first(scene, node, sub_scene_parent);
+                } break;
+
+                case Add_Scene_Node_Operation::LAST:
+                {
+                    add_child_last(scene, node, sub_scene_parent);
+                } break;
+
+                case Add_Scene_Node_Operation::AFTER:
+                {
+                    add_child_after(scene, node, sub_scene_parent);
+                } break;
+            }
+        }
+
+        U32 *node_indices = HE_ALLOCATE_ARRAY(scratch_memory.arena, U32, model->node_count);
+
+        for (U32 i = 0; i < model->node_count; i++)
+        {
+            Model_Node *model_node = &model->nodes[i];
+
+            node_indices[i] = allocate_node(scene, model_node->name);
+            Scene_Node *current_scene_node = get_node(scene, node_indices[i]);
+
+            current_scene_node->transform = model_node->transform;
+            current_scene_node->mesh.static_mesh = model_node->static_mesh;
+
+            Render_Context render_context = get_render_context();
+            Renderer_State *renderer_state = render_context.renderer_state;
+
+            current_scene_node->has_mesh = is_valid_handle(&renderer_state->static_meshes, model_node->static_mesh);
+
+            if (model_node->parent_index == -1)
+            {
+                if (model->node_count == 1)
+                {
+                    switch (op)
+                    {
+                        case Add_Scene_Node_Operation::FIRST:
+                        {
+                            add_child_first(scene, sub_scene_parent, current_scene_node);
+                        } break;
+
+                        case Add_Scene_Node_Operation::LAST:
+                        {
+                            add_child_last(scene, sub_scene_parent, current_scene_node);
+                        } break;
+
+                        case Add_Scene_Node_Operation::AFTER:
+                        {
+                            add_child_after(scene, sub_scene_parent, current_scene_node);
+                        } break;
+                    }
+                }
+                else
+                {
+                    add_child_last(scene, sub_scene_parent, current_scene_node);
+                }
+            }
+            else
+            {
+                add_child_last(scene, get_node(scene, node_indices[current_scene_node->parent_index]), current_scene_node);
+            }
+        }
+    }
+}
+
 static char buffer[128];
 
 static void draw_scene_node(Scene *scene, Scene_Node *node)
@@ -1069,7 +1191,7 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
     ImGui::PushID(node);
     U32 node_index = (S32)index_of(&scene->nodes, node);
 
-    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth|ImGuiTreeNodeFlags_DefaultOpen|ImGuiTreeNodeFlags_FramePadding;
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth|ImGuiTreeNodeFlags_FramePadding|ImGuiTreeNodeFlags_DefaultOpen|ImGuiTreeNodeFlags_OpenOnDoubleClick|ImGuiTreeNodeFlags_OpenOnArrow;
 
     bool is_leaf = node->first_child_index == -1;
     if (is_leaf)
@@ -1117,14 +1239,20 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
 
     if (ImGui::BeginDragDropTarget())
     {
-        ImGuiDragDropFlags target_flags = 0;
-        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_SCENE_NODE", target_flags))
+        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_SCENE_NODE"))
         {
             U32 child_node_index = *(const U32*)payload->Data;
             Scene_Node *child = get_node(scene, child_node_index);
             remove_child(scene, get_node(scene, child->parent_index), child);
             add_child_last(scene, node, child);
         }
+
+        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_ASSET"))
+        {
+            Asset_Handle asset_handle = *(const Asset_Handle *)payload->Data;
+            add_model_to_scene(scene, node, asset_handle, Add_Scene_Node_Operation::LAST);
+        }
+
         ImGui::EndDragDropTarget();
     }
 
@@ -1133,7 +1261,7 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
         ImGui::SameLine();
 
         ImGui::SetKeyboardFocusHere();
-        if (ImGui::InputText("###EditNodeTextInput", buffer, sizeof(buffer), ImGuiInputTextFlags_EnterReturnsTrue))
+        if (ImGui::InputText("##EditNodeTextInput", buffer, sizeof(buffer), ImGuiInputTextFlags_EnterReturnsTrue))
         {
             if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemDeactivated())
             {
@@ -1150,9 +1278,13 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
 
     if (is_open)
     {
-        if (ImGui::IsDragDropActive() && strcmp(ImGui::GetDragDropPayload()->DataType, "DND_SCENE_NODE") == 0 && !is_leaf && editor_state.dragging_node_index != node_index && node->first_child_index != editor_state.dragging_node_index)
+        bool is_dragging = ImGui::IsDragDropActive() &&
+        (strcmp(ImGui::GetDragDropPayload()->DataType, "DND_SCENE_NODE") == 0 || strcmp(ImGui::GetDragDropPayload()->DataType, "DND_ASSET") == 0);
+
+        if (!is_leaf && is_dragging && editor_state.dragging_node_index != (S32)node_index && node->first_child_index != editor_state.dragging_node_index)
         {
-            ImGui::Selectable("##DragFirstChild", true, ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing);
+            ImGuiSelectableFlags flags = ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing;
+            ImGui::Selectable("##DragFirstChild", true, flags, ImVec2(0.0f, 4.0f));
             if (ImGui::BeginDragDropTarget())
             {
                 if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_SCENE_NODE"))
@@ -1162,6 +1294,13 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
                     remove_child(scene, get_node(scene, child->parent_index), child);
                     add_child_first(scene, node, child);
                 }
+
+                if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_ASSET"))
+                {
+                    Asset_Handle asset_handle = *(const Asset_Handle *)payload->Data;
+                    add_model_to_scene(scene, node, asset_handle, Add_Scene_Node_Operation::FIRST);
+                }
+
                 ImGui::EndDragDropTarget();
             }   
         }
@@ -1171,12 +1310,16 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
             Scene_Node *child = &scene->nodes[node_index];
             draw_scene_node(scene, child);
         }
+
         ImGui::TreePop();
     }
 
-    if (ImGui::IsDragDropActive() && strcmp(ImGui::GetDragDropPayload()->DataType, "DND_SCENE_NODE") == 0 && node_index != 0 && editor_state.dragging_node_index != node_index && node->next_sibling_index != editor_state.dragging_node_index)
+    bool is_dragging = ImGui::IsDragDropActive() && (strcmp(ImGui::GetDragDropPayload()->DataType, "DND_SCENE_NODE") == 0 || strcmp(ImGui::GetDragDropPayload()->DataType, "DND_ASSET") == 0);
+
+    if (is_dragging && node_index != 0 && editor_state.dragging_node_index != (S32)node_index && node->next_sibling_index != editor_state.dragging_node_index)
     {
-        ImGui::Selectable("##DragAfterNode", true, ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing);
+        ImGuiSelectableFlags flags = ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing;
+        ImGui::Selectable("##DragAfterNode", true, flags, ImVec2(0.0f, 4.0f));
         if (ImGui::BeginDragDropTarget())
         {
             if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_SCENE_NODE"))
@@ -1186,6 +1329,13 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
                 remove_child(scene, get_node(scene, child->parent_index), child);
                 add_child_after(scene, node, child);
             }
+
+            if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_ASSET"))
+            {
+                Asset_Handle asset_handle = *(const Asset_Handle *)payload->Data;
+                add_model_to_scene(scene, node, asset_handle, Add_Scene_Node_Operation::AFTER);
+            }
+
             ImGui::EndDragDropTarget();
         }
     }
@@ -1230,6 +1380,7 @@ static void draw_scene_hierarchy_window()
 
             if (ImGui::MenuItem("Rename"))
             {
+                memset(buffer, 0, sizeof(buffer));
                 memcpy(buffer, node->name.data, node->name.count);
                 editor_state.rename_node_index = editor_state.node_index;
             }

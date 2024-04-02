@@ -136,16 +136,6 @@ struct Renderer
     void (*imgui_render)();
 };
 
-struct Light
-{
-    glm::vec3 position;
-    alignas(16) glm::vec3 direction;
-    alignas(4) F32 radius;
-    alignas(4) F32 outer_angle;
-    alignas(4) F32 inner_angle;
-    alignas(16) glm::vec3 color;
-};
-
 struct Renderer_State
 {
     struct Engine *engine;
@@ -187,7 +177,7 @@ struct Renderer_State
     Buffer_Handle globals_uniform_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
     Buffer_Handle object_data_storage_buffers[HE_MAX_FRAMES_IN_FLIGHT];
-    Object_Data *object_data_base;
+    Shader_Object_Data *object_data_base;
     U32 object_data_count;
 
     Buffer_Handle transfer_buffer;

@@ -162,7 +162,7 @@ Load_Asset_Result load_model(String path)
 
         Material_Descriptor material_descriptor =
         {
-            .name = copy_string(material_name, to_allocator(allocator)),
+            .name = material_name,
             .pipeline_state_handle = pipeline_state_handle
         };
 

@@ -6,7 +6,7 @@
 
 #include <imgui/imgui.h>
 
-bool select_asset(String name, String type, Asset_Handle *asset_handle)
+bool select_asset(String name, String type, Asset_Handle* asset_handle, const Select_Asset_Config &config)
 {
     Render_Context render_context = get_render_context();
     Renderer *renderer = render_context.renderer;
@@ -14,6 +14,8 @@ bool select_asset(String name, String type, Asset_Handle *asset_handle)
 
     const Asset_Info *info = get_asset_info(type);
     HE_ASSERT(info);
+
+    bool result = false;
 
     if (ImGui::Button(name.data))
     {
@@ -31,6 +33,11 @@ bool select_asset(String name, String type, Asset_Handle *asset_handle)
             if (path.count)
             {
                 *asset_handle = import_asset(path);
+                if (config.load_on_select)
+                {
+                    aquire_asset(*asset_handle);
+                }
+                result = true;
             }
         }
     }
@@ -44,12 +51,15 @@ bool select_asset(String name, String type, Asset_Handle *asset_handle)
             if (is_asset_handle_valid(asset) && get_asset_info(asset) == info)
             {
                 *asset_handle = asset;
+                if (config.load_on_select)
+                {
+                    aquire_asset(*asset_handle);
+                }
+                result = true;
             }
         }
         ImGui::EndDragDropTarget();
     }
-
-    bool result = false;
 
     if (asset_handle->uuid == 0)
     {
@@ -62,13 +72,19 @@ bool select_asset(String name, String type, Asset_Handle *asset_handle)
         ImGui::SameLine();
         ImGui::Text(entry.path.data);
 
-        ImGui::SameLine();
-        if (ImGui::Button("X"))
+        if (config.nullify)
         {
-            *asset_handle = {};
+            ImGui::SameLine();
+            if (ImGui::Button("X"))
+            {
+                if (config.load_on_select)
+                {
+                    release_asset(*asset_handle);
+                }
+                *asset_handle = {};
+                result = true;
+            }
         }
-
-        result = true;
     }
     else
     {

@@ -568,6 +568,30 @@ struct Skybox
     U64 skybox_material_asset;
 };
 
+enum class Light_Type : U8
+{
+    DIRECTIONAL,
+    POINT,
+    SPOT
+};
+
+struct Static_Mesh_Component
+{
+    Static_Mesh_Handle static_mesh;
+};
+
+struct Light_Component
+{
+    Light_Type type;
+
+    F32 radius;
+    F32 outer_angle;
+    F32 inner_angle;
+
+    glm::vec3 color;
+    F32 intensity;
+};
+
 struct Scene_Node
 {
     String name;
@@ -580,12 +604,17 @@ struct Scene_Node
 
     Transform transform;
 
-    U64 model_asset;
+    bool has_mesh;
+    Static_Mesh_Component mesh;
+
+    bool has_light;
+    Light_Component light;
 };
 
 struct Scene
 {
     Skybox skybox;
+
     Dynamic_Array< Scene_Node > nodes;
     S32 first_free_node_index;
 };
@@ -620,10 +649,19 @@ using Upload_Request_Handle = Resource_Handle< Upload_Request >;
 // Shader Structs
 //
 
-// todo(amer): @HardCoding per object data and globals struct layouts here
-struct Object_Data
+struct Shader_Object_Data
 {
     glm::mat4 model;
+};
+
+struct Shader_Light
+{
+    glm::vec3 position;
+    alignas(16) glm::vec3 direction;
+    alignas(4) F32 radius;
+    alignas(4) F32 outer_angle;
+    alignas(4) F32 inner_angle;
+    alignas(16) glm::vec3 color;
 };
 
 //

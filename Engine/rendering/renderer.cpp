@@ -362,7 +362,7 @@ bool init_renderer_state(Engine *engine)
                 renderer->set_index_buffer(static_mesh->indices_buffer, 0);
 
                 U32 object_data_index = renderer_state->object_data_count++;
-                Object_Data* object_data = &renderer_state->object_data_base[object_data_index];
+                Shader_Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
                 object_data->model = get_world_matrix(get_identity_transform());
                 renderer->draw_sub_mesh(static_mesh_handle, object_data_index, 0);
             }
@@ -387,7 +387,7 @@ bool init_renderer_state(Engine *engine)
 
                         HE_ASSERT(renderer_state->object_data_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
                         U32 object_data_index = renderer_state->object_data_count++;
-                        Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
+                        Shader_Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
                         object_data->model = get_world_matrix(model_node->transform);
 
                         Buffer_Handle vertex_buffers[] =
@@ -584,7 +584,7 @@ bool init_renderer_state(Engine *engine)
 
             Buffer_Descriptor object_data_storage_buffer_descriptor =
             {
-                .size = sizeof(Object_Data) * HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT,
+                .size = sizeof(Shader_Object_Data) * HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT,
                 .usage = Buffer_Usage::STORAGE_CPU_SIDE,
             };
             renderer_state->object_data_storage_buffers[frame_index] = renderer_create_buffer(object_data_storage_buffer_descriptor);
@@ -1325,6 +1325,12 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 {
     Material_Handle material_handle = aquire_handle(&renderer_state->materials);
     Material *material = get(&renderer_state->materials, material_handle);
+
+    if (descriptor.name.count)
+    {
+        material->name = copy_string(descriptor.name, to_allocator(get_general_purpose_allocator()));
+    }
+
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, descriptor.pipeline_state_handle);
     Shader *shader = get(&renderer_state->shaders, pipeline_state->descriptor.shader);
     Shader_Struct *properties = renderer_find_shader_struct(pipeline_state->descriptor.shader, HE_STRING_LITERAL("Material"));
@@ -1638,7 +1644,8 @@ U32 allocate_node(Scene *scene, String name)
 
     node->transform = get_identity_transform();
 
-    node->model_asset = 0;
+    node->has_mesh = false;
+    node->has_light = false;
 
     return node_index;
 }
@@ -2017,8 +2024,8 @@ bool init_imgui(Engine *engine)
     // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable Multi-Viewport / Platform Windows
 
     // Setup Dear ImGui style
-    // ImGui::StyleColorsDark();
-    ImGui::StyleColorsClassic();
+    ImGui::StyleColorsDark();
+    // ImGui::StyleColorsClassic();
 
     // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
     ImGuiStyle& style = ImGui::GetStyle();

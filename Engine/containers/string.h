@@ -9,8 +9,8 @@ struct String
     const char *data;
 };
 
-#define HE_STRING(string) { string_length(string), string }
-#define HE_STRING_LITERAL(string_literal) { comptime_string_length(string_literal), string_literal }
+#define HE_STRING(string) String { string_length(string), string }
+#define HE_STRING_LITERAL(string_literal) String { comptime_string_length(string_literal), string_literal }
 #define HE_EXPAND_STRING(string) (U32)((string).count), (string).data
 
 U64 string_length(const char *str);

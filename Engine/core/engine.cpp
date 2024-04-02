@@ -162,7 +162,7 @@ void game_loop(Engine *engine, F32 delta_time)
     {   
         U32 frame_index = renderer_state->current_frame_in_flight_index;
         Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[frame_index]);
-        renderer_state->object_data_base = (Object_Data *)object_data_storage_buffer->data;
+        renderer_state->object_data_base = (Shader_Object_Data *)object_data_storage_buffer->data;
         renderer_state->object_data_count = 0;
         renderer_state->current_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
 
@@ -177,7 +177,7 @@ void game_loop(Engine *engine, F32 delta_time)
         glm::vec3 *directional_light_direction = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("directional_light_direction"));
         glm::vec3 *directional_light_color = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("directional_light_color"));
         U32 *light_count = (U32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("light_count")); 
-        Light *lights = (Light*)get_pointer(globals_struct, (U8*)global_uniform_buffer->data, HE_STRING_LITERAL("lights"));
+        Shader_Light *lights = (Shader_Light *)get_pointer(globals_struct, (U8*)global_uniform_buffer->data, HE_STRING_LITERAL("lights"));
         F32 *gamma = (F32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("gamma"));
 
         Scene_Data *scene_data = &renderer_state->scene_data;
@@ -192,7 +192,7 @@ void game_loop(Engine *engine, F32 delta_time)
         *gamma = renderer_state->gamma;
 
         {
-            Light *light = &lights[0];
+            Shader_Light *light = &lights[0];
             light->position = scene_data->point_light.position;
             light->radius = scene_data->point_light.radius;
             
@@ -204,7 +204,7 @@ void game_loop(Engine *engine, F32 delta_time)
         }
 
         {
-            Light *light = &lights[1];
+            Shader_Light *light = &lights[1];
             light->position = scene_data->spot_light.position;
             light->radius = scene_data->spot_light.radius;
             light->direction = scene_data->spot_light.direction;

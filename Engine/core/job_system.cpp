@@ -294,6 +294,20 @@ Job_Handle execute_job(Job_Data job_data, Array_View< Job_Handle > wait_for_jobs
     return job_handle;
 }
 
+void wait_for_job_to_finish(Job_Handle job_handle)
+{
+    if (!is_valid_handle(&job_system_state.job_pool, job_handle))
+    {
+        return;
+    }
+
+    Job *job = get(&job_system_state.job_pool, job_handle);
+    if (job)
+    {
+        while (!job->finished);
+    }
+}
+
 void wait_for_all_jobs_to_finish()
 {
     while (job_system_state.in_progress_job_count.load())

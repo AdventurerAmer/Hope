@@ -16,25 +16,25 @@ typedef int64_t S64;
 typedef float F32;
 typedef double F64;
 
-#define HE_MIN_U8 0
-#define HE_MIN_U16 0
-#define HE_MIN_U32 0
-#define HE_MIN_U64 0
+#define HE_MIN_U8 ((U8)0)
+#define HE_MIN_U16 ((U16)0)
+#define HE_MIN_U32 ((U32)0)
+#define HE_MIN_U64 ((U64)0)
 
-#define HE_MAX_U8 0xFF
-#define HE_MAX_U16 0xFFFF
-#define HE_MAX_U32 0xFFFFFFFF
-#define HE_MAX_U64 0XFFFFFFFFFFFFFFFF
+#define HE_MAX_U8 ((U8)0xFF)
+#define HE_MAX_U16 ((U16)0xFFFF)
+#define HE_MAX_U32 ((U32)0xFFFFFFFF)
+#define HE_MAX_U64 ((U64)0XFFFFFFFFFFFFFFFF)
 
-#define HE_MIN_S8 -127
-#define HE_MIN_S16 -32768
-#define HE_MIN_S32 -2147483648
-#define HE_MIN_S64 -9223372036854775806
+#define HE_MIN_S8 ((S8)-127)
+#define HE_MIN_S16 ((S16)-32768)
+#define HE_MIN_S32 ((S32)-2147483648)
+#define HE_MIN_S64 ((S64)-9223372036854775806)
 
-#define HE_MAX_S8 128
-#define HE_MAX_S16 32769
-#define HE_MAX_S32 2147483649
-#define HE_MAX_S64 9223372036854775807
+#define HE_MAX_S8 ((S8)128)
+#define HE_MAX_S16 ((S16)32769)
+#define HE_MAX_S32 ((S32)2147483649)
+#define HE_MAX_S64 ((S64)9223372036854775807)
 
 #define HE_MIN_F32 FLT_MIN
 #define HE_MAX_F32 FLT_MAX

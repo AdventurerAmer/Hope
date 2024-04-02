@@ -1,9 +1,13 @@
 version 1
-entry_count 80
+entry_count 100
 
 asset 122433984408223052
 parent 0
 path 29 sponza/759203620573749278.jpg
+
+asset 700366889616505363
+parent 0
+path 75 flighthelmet/flighthelmet_materials_glassplasticmat_occlusionroughmetal.png
 
 asset 735344314189985025
 parent 0
@@ -16,6 +20,10 @@ path 30 sponza/7645212358685992005.jpg
 asset 1218245937320479653
 parent 0
 path 30 sponza/7056944414013900257.jpg
+
+asset 1542300562710018435
+parent 0
+path 24 corset/corset_normal.png
 
 asset 1592366032695847528
 parent 0
@@ -57,13 +65,33 @@ asset 2670317426124499114
 parent 0
 path 30 sponza/5823059166183034438.jpg
 
+asset 2920097016495326617
+parent 0
+path 69 flighthelmet/flighthelmet_materials_lensesmat_occlusionroughmetal.png
+
 asset 3038700182390986010
 parent 0
 path 30 sponza/6667038893015345571.jpg
 
+asset 3244898225665951552
+parent 0
+path 60 flighthelmet/flighthelmet_materials_metalpartsmat_normal.png
+
 asset 3968677317577022635
 parent 8015345852571305201
 path 18 sponza/sponza.gltf
+
+asset 4081248235208194876
+parent 0
+path 65 flighthelmet/flighthelmet_materials_glassplasticmat_basecolor.png
+
+asset 4101038381942615881
+parent 0
+path 60 flighthelmet/flighthelmet_materials_rubberwoodmat_normal.png
+
+asset 4213844486902225131
+parent 0
+path 62 flighthelmet/flighthelmet_materials_leatherpartsmat_normal.png
 
 asset 4616202591534216497
 parent 0
@@ -80,6 +108,14 @@ path 30 sponza/9288698199695299068.jpg
 asset 5392021351113867272
 parent 0
 path 17 skybox/bottom.jpg
+
+asset 5616399259521131636
+parent 0
+path 56 flighthelmet/flighthelmet_materials_lensesmat_normal.png
+
+asset 5627909535250815294
+parent 0
+path 18 corset/corset.gltf
 
 asset 5628488906864031416
 parent 0
@@ -121,6 +157,10 @@ asset 6967855870522168995
 parent 0
 path 30 sponza/2374361008830720677.jpg
 
+asset 7056638684453626189
+parent 0
+path 75 flighthelmet/flighthelmet_materials_leatherpartsmat_occlusionroughmetal.png
+
 asset 7445644185218232797
 parent 0
 path 29 sponza/466164707995436622.jpg
@@ -132,6 +172,10 @@ path 15 opaque_pbr.glsl
 asset 8165342927083170180
 parent 0
 path 11 skybox.glsl
+
+asset 8511563891712690352
+parent 0
+path 65 flighthelmet/flighthelmet_materials_leatherpartsmat_basecolor.png
 
 asset 8562793866600164516
 parent 0
@@ -156,6 +200,14 @@ path 30 sponza/4910669866631290573.jpg
 asset 9159621065586785266
 parent 0
 path 30 sponza/8783994986360286082.jpg
+
+asset 9745211643176234536
+parent 0
+path 63 flighthelmet/flighthelmet_materials_metalpartsmat_basecolor.png
+
+asset 10037110289834143916
+parent 0
+path 62 flighthelmet/flighthelmet_materials_glassplasticmat_normal.png
 
 asset 10086302852330984034
 parent 0
@@ -209,6 +261,14 @@ asset 11862542767902073477
 parent 0
 path 31 sponza/13196865903111448057.jpg
 
+asset 12073274582355000325
+parent 0
+path 63 flighthelmet/flighthelmet_materials_rubberwoodmat_basecolor.png
+
+asset 12398738567314717933
+parent 0
+path 27 corset/corset_basecolor.png
+
 asset 12438951073060705066
 parent 0
 path 30 sponza/8503262930880235456.jpg
@@ -221,9 +281,17 @@ asset 12823198258482195946
 parent 0
 path 30 sponza/4601176305987539675.jpg
 
+asset 13293278701419201523
+parent 0
+path 59 flighthelmet/flighthelmet_materials_lensesmat_basecolor.png
+
 asset 13378225761779421910
 parent 0
 path 30 sponza/1219024358953944284.jpg
+
+asset 13528872031087922285
+parent 0
+path 44 corset/corset_occlusionroughnessmetallic.png
 
 asset 13544072299191049513
 parent 0
@@ -261,6 +329,10 @@ asset 14572507862165446096
 parent 0
 path 30 sponza/7815564343179553343.jpg
 
+asset 14822683783636644278
+parent 0
+path 73 flighthelmet/flighthelmet_materials_rubberwoodmat_occlusionroughmetal.png
+
 asset 15054953919755052540
 parent 0
 path 31 sponza/14118779221266351425.jpg
@@ -272,6 +344,10 @@ path 16 skybox/front.jpg
 asset 16100182631515934415
 parent 0
 path 31 sponza/16299174074766089871.jpg
+
+asset 16113869882062232887
+parent 0
+path 73 flighthelmet/flighthelmet_materials_metalpartsmat_occlusionroughmetal.png
 
 asset 16313714981842005780
 parent 0
@@ -316,6 +392,10 @@ path 30 sponza/8006627369776289000.png
 asset 18045571140674849612
 parent 0
 path 31 sponza/15722799267630235092.jpg
+
+asset 18060137150482840628
+parent 0
+path 30 flighthelmet/flighthelmet.gltf
 
 asset 18218549930094824184
 parent 0
