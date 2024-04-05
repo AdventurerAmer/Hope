@@ -24,18 +24,6 @@ struct Load_Asset_Result
     };
 };
 
-typedef Load_Asset_Result (*load_asset_proc)(String path);
-typedef void (*unload_asset_proc)(Load_Asset_Result result);
-
-struct Asset_Info
-{
-    String name;
-    String *extensions;
-    U32 extension_count;
-    load_asset_proc load;
-    unload_asset_proc unload;
-};
-
 enum class Asset_State : U8
 {
     UNLOADED,
@@ -58,6 +46,27 @@ struct Asset_Handle
     }
 };
 
+struct Embeded_Asset_Params
+{
+    String name;
+    U16 type_info_index;
+    U64 data_id;
+};
+
+typedef void (*on_import_asset_proc)(Asset_Handle asset_handle);
+typedef Load_Asset_Result (*load_asset_proc)(String path, const Embeded_Asset_Params *params);
+typedef void (*unload_asset_proc)(Load_Asset_Result result);
+
+struct Asset_Info
+{
+    String name;
+    String *extensions;
+    U32 extension_count;
+    load_asset_proc load;
+    unload_asset_proc unload;
+    on_import_asset_proc on_import;
+};
+
 struct Asset_Registry_Entry
 {
     String path;
@@ -74,7 +83,7 @@ void deinit_asset_manager();
 
 String get_asset_path();
 
-bool register_asset(String name, Array_View< String > extensions, load_asset_proc load, unload_asset_proc unload);
+bool register_asset(String name, Array_View< String > extensions, load_asset_proc load, unload_asset_proc unload, on_import_asset_proc on_import = nullptr);
 
 bool is_asset_handle_valid(Asset_Handle asset_handle);
 
@@ -88,13 +97,18 @@ void release_asset(Asset_Handle asset_handle);
 
 Asset_Handle get_asset_handle(String path);
 Asset_Handle import_asset(String path);
+
 void set_parent(Asset_Handle asset, Asset_Handle parent);
 
-const Asset_Registry_Entry& get_asset_registry_entry(Asset_Handle asset_handle);
+bool is_asset_embeded(String path, Asset_Handle *out_parent = nullptr, U64 *out_data_id = nullptr);
+bool is_asset_embeded(Asset_Handle asset_handle);
+const Dynamic_Array< U64 >& get_embeded_assets(Asset_Handle asset_handle);
 
-Asset_Info* get_asset_info_from_extension(String extension);
+const Asset_Registry_Entry& get_asset_registry_entry(Asset_Handle asset_handle);
+const Asset_Info* get_asset_info_from_extension(String extension);
 const Asset_Info* get_asset_info(Asset_Handle asset_handle);
 const Asset_Info* get_asset_info(String name);
+const Asset_Info* get_asset_info(U16 type_info_index);
 
 template< typename T >
 T* get_asset_as(Asset_Handle asset_handle)

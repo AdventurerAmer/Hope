@@ -143,7 +143,7 @@ T& append(Dynamic_Array< T > *dynamic_array)
 }
 
 template< typename T >
-U32 index_of(Dynamic_Array< T > *dynamic_array, T &datum)
+U32 index_of(Dynamic_Array< T > *dynamic_array, const T &datum)
 {
     HE_ASSERT(dynamic_array);
     S64 index = &datum - dynamic_array->data;
@@ -152,7 +152,7 @@ U32 index_of(Dynamic_Array< T > *dynamic_array, T &datum)
 }
 
 template< typename T >
-U32 index_of(Dynamic_Array< T > *dynamic_array, T *datum)
+U32 index_of(Dynamic_Array< T > *dynamic_array, const T *datum)
 {
     HE_ASSERT(dynamic_array);
     S64 index = datum - dynamic_array->data;

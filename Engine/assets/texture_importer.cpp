@@ -21,7 +21,7 @@ extern Free_List_Allocator *stbi_image_allocator;
 
 #pragma warning(pop)
 
-Load_Asset_Result load_texture(String path)
+Load_Asset_Result load_texture(String path, const Embeded_Asset_Params *params)
 {
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 

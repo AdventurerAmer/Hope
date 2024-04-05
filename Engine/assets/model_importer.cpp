@@ -48,7 +48,73 @@ static Asset_Handle get_texture_asset_handle(String model_relative_path, const c
     return asset_handle;
 };
 
-Load_Asset_Result load_model(String path)
+void on_import_model(Asset_Handle asset_handle)
+{
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
+
+    const Asset_Registry_Entry &entry = get_asset_registry_entry(asset_handle);
+    String path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
+
+    Read_Entire_File_Result file_result = read_entire_file(path, to_allocator(allocator));
+
+    cgltf_options options = {};
+    options.memory.user_data = allocator;
+    options.memory.alloc_func = cgltf_alloc;
+    options.memory.free_func = cgltf_free;
+
+    cgltf_data *model_data = nullptr;
+
+    if (cgltf_parse(&options, file_result.data, file_result.size, &model_data) != cgltf_result_success)
+    {
+        HE_LOG(Resource, Fetal, "on import model -- cgltf -- unable to parse asset file: %.*s\n", HE_EXPAND_STRING(path));
+        return;
+    }
+
+    HE_DEFER { cgltf_free(model_data); };
+
+    Asset_Handle opaque_pbr_shader_asset = import_asset(HE_STRING_LITERAL("opaque_pbr.glsl"));
+
+    for (U32 material_index = 0; material_index < model_data->materials_count; material_index++)
+    {
+        cgltf_material *material = &model_data->materials[material_index];
+        String material_name = {};
+
+        if (material->name)
+        {
+            material_name = HE_STRING(material->name);
+        }
+        else
+        {
+            material_name = format_string(scratch_memory.arena, "material_%d", material_index);
+        }
+
+        String material_path = format_string(scratch_memory.arena, "@%llu-%llu/%.*s.hamaterial", asset_handle.uuid, (U64)material_index, HE_EXPAND_STRING(material_name));
+        Asset_Handle asset = import_asset(material_path);
+        set_parent(asset, opaque_pbr_shader_asset);
+    }
+
+    for (U32 static_mesh_index = 0; static_mesh_index < model_data->meshes_count; static_mesh_index++)
+    {
+        cgltf_mesh *static_mesh = &model_data->meshes[static_mesh_index];
+
+        String static_mesh_name;
+
+        if (static_mesh->name)
+        {
+            static_mesh_name = HE_STRING(static_mesh->name);
+        }
+        else
+        {
+            static_mesh_name = format_string(scratch_memory.arena, "static_mesh_%d", static_mesh_index);
+        }
+
+        String static_mesh_path = format_string(scratch_memory.arena, "@%llu-%llu/%.*s.hastaticmesh", asset_handle.uuid, (U64)static_mesh_index, HE_EXPAND_STRING(static_mesh_name));
+        Asset_Handle asset = import_asset(static_mesh_path);
+    }
+}
+
+Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
 {
     Free_List_Allocator *allocator = get_general_purpose_allocator();
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
@@ -82,16 +148,25 @@ Load_Asset_Result load_model(String path)
         return {};
     }
 
+    bool embeded_material = false;
+    bool embeded_static_mesh = false;
+
+    if (params)
+    {
+        const Asset_Info *info = get_asset_info(params->type_info_index);
+        embeded_material = info->name == HE_STRING_LITERAL("material");
+        embeded_static_mesh = info->name == HE_STRING_LITERAL("static_mesh");
+    }
+
     Asset_Handle opaque_pbr_shader_asset = import_asset(HE_STRING_LITERAL("opaque_pbr.glsl"));
     if (!is_asset_loaded(opaque_pbr_shader_asset))
     {
         HE_LOG(Resource, Fetal, "load_model -- cgltf -- unable to load model asset file: %.*s --> parent asset failed to load\n", HE_EXPAND_STRING(path));
         return {};
     }
+
     Shader_Handle opaque_pbr_shader = get_asset_handle_as<Shader>(opaque_pbr_shader_asset);
-
     Material_Handle *materials = HE_ALLOCATE_ARRAY(allocator, Material_Handle, model_data->materials_count);
-
     for (U32 material_index = 0; material_index < model_data->materials_count; material_index++)
     {
         cgltf_material *material = &model_data->materials[material_index];
@@ -177,6 +252,11 @@ Load_Asset_Result load_model(String path)
         set_property(material_handle, HE_STRING_LITERAL("occlusion_texture"), { .u64 = occlusion_texture.uuid });
 
         materials[material_index] = material_handle;
+
+        if (embeded_material && params->data_id == material_index)
+        {
+            return { .success = true, .index = material_handle.index, .generation = material_handle.generation };
+        }
     }
 
     Static_Mesh_Handle *static_meshes = HE_ALLOCATE_ARRAY(allocator, Static_Mesh_Handle, model_data->meshes_count);
@@ -361,6 +441,11 @@ Load_Asset_Result load_model(String path)
 
         Static_Mesh_Handle static_mesh_handle = renderer_create_static_mesh(static_mesh_descriptor);
         static_meshes[static_mesh_index] = static_mesh_handle;
+
+        if (embeded_static_mesh && params->data_id == static_mesh_index)
+        {
+            return { .success = true, .index = static_mesh_handle.index, .generation = static_mesh_handle.generation };
+        }
     }
 
     cgltf_scene *scene = &model_data->scenes[0];

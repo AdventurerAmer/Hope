@@ -36,7 +36,7 @@ static Front_Face str_to_front_face(String str)
     return Front_Face::CLOCKWISE;
 }
 
-Load_Asset_Result load_material(String path)
+Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
 {
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 

@@ -5,7 +5,7 @@
 
 #include "rendering/renderer.h"
 
-Load_Asset_Result load_shader(String path)
+Load_Asset_Result load_shader(String path, const Embeded_Asset_Params *params)
 {
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
     Render_Context render_context = get_render_context();

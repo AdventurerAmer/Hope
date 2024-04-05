@@ -70,16 +70,10 @@ void inspect(Scene_Node *scene_node)
 
 void inspect(Asset_Handle asset_handle)
 {
-    if (inspector_state.type == Inspection_Type::ASSET)
-    {
-        release_asset(inspector_state.data.asset_handle);
-    }
-
     if (is_asset_handle_valid(asset_handle))
     {
         inspector_state.type = Inspection_Type::ASSET;
         inspector_state.data.asset_handle = asset_handle;
-        aquire_asset(asset_handle);
     }
     else
     {
@@ -368,11 +362,14 @@ static void inspect_asset(Asset_Handle asset_handle)
 {
     if (!is_asset_loaded(asset_handle))
     {
+        aquire_asset(asset_handle);
         return;
     }
 
+    ImGui::BeginDisabled(is_asset_embeded(asset_handle));
+
     const Asset_Info *info = get_asset_info(asset_handle);
-    const Asset_Registry_Entry& entry = get_asset_registry_entry(asset_handle);
+    const Asset_Registry_Entry &entry = get_asset_registry_entry(asset_handle);
 
     ImGui::Text("%.*s", HE_EXPAND_STRING(entry.path));
 
@@ -382,6 +379,8 @@ static void inspect_asset(Asset_Handle asset_handle)
         Material_Handle material_handle = get_asset_handle_as<Material>(asset_handle);
         inspect_material(material_handle, entry.parent);
     }
+
+    ImGui::EndDisabled();
 }
 
 } // namespace Inspector_Panel

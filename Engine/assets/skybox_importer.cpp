@@ -10,7 +10,7 @@
 #include <stb/stb_image.h>
 #pragma warning(pop)
 
-Load_Asset_Result load_skybox(String path)
+Load_Asset_Result load_skybox(String path, const Embeded_Asset_Params *params)
 {
     Render_Context render_context = get_render_context();
     Renderer_State *renderer_state = render_context.renderer_state;

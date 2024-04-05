@@ -1231,12 +1231,7 @@ static VkDescriptorPool get_descriptor_pool(Vulkan_Descriptor_Pool_Allocator *al
         descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes.data;
         
         HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, &context->allocation_callbacks, &descriptor_pool));
-        
-        allocator->set_count_per_pool = (U32)(allocator->set_count_per_pool * 1.5f);
-        if (allocator->set_count_per_pool > 2 * HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT)
-        {
-            allocator->set_count_per_pool = 2 * HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
-        }
+        allocator->set_count_per_pool = (U32)(allocator->set_count_per_pool * 2.0f);
     }
 
     return descriptor_pool;

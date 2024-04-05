@@ -33,14 +33,13 @@ struct Asset
 
 using Asset_Registry = Excalibur::HashMap< U64, Asset_Registry_Entry >;
 using Asset_Cache = Excalibur::HashMap< U64, Asset >;
+using Embeded_Asset_Cache = Excalibur::HashMap< U64, Dynamic_Array<U64> >;
 
 #define HE_ASSET_REGISTRY_FILE_NAME "asset_registry.haregistry"
 
 struct Load_Asset_Job_Data
 {
     Asset_Handle asset_handle;
-    String path;
-    load_asset_proc load;
 };
 
 Job_Result load_asset_job(const Job_Parameters &params);
@@ -56,6 +55,7 @@ struct Asset_Manager
     String asset_registry_path;
     Asset_Registry asset_registry;
     Asset_Cache asset_cache;
+    Embeded_Asset_Cache embeded_cache;
     Mutex asset_mutex;
 };
 
@@ -85,6 +85,7 @@ bool init_asset_manager(String asset_path)
 
     asset_manager_state->asset_registry = Asset_Registry();
     asset_manager_state->asset_cache = Asset_Cache();
+    asset_manager_state->embeded_cache = Embeded_Asset_Cache();
 
     platform_create_mutex(&asset_manager_state->asset_mutex);
 
@@ -112,19 +113,27 @@ bool init_asset_manager(String asset_path)
     {
         String extensions[] =
         {
-            HE_STRING_LITERAL("gltf"),
-            HE_STRING_LITERAL("glb")
+            HE_STRING_LITERAL("hamaterial"),
         };
-
-        register_asset(HE_STRING_LITERAL("model"), to_array_view(extensions), &load_model, &unload_model);
+        register_asset(HE_STRING_LITERAL("material"), to_array_view(extensions), &load_material, &unload_material);
     }
 
     {
         String extensions[] =
         {
-            HE_STRING_LITERAL("hamaterial"),
+            HE_STRING_LITERAL("hastaticmesh"),
         };
-        register_asset(HE_STRING_LITERAL("material"), to_array_view(extensions), &load_material, &unload_material);
+        register_asset(HE_STRING_LITERAL("static_mesh"), to_array_view(extensions), nullptr, nullptr);
+    }
+
+    {
+        String extensions[] =
+        {
+            HE_STRING_LITERAL("gltf"),
+            HE_STRING_LITERAL("glb")
+        };
+
+        register_asset(HE_STRING_LITERAL("model"), to_array_view(extensions), &load_model, &unload_model, &on_import_model);
     }
 
     {
@@ -173,7 +182,7 @@ String get_asset_path()
     return asset_manager_state->asset_path;
 }
 
-bool register_asset(String name, Array_View< String > extensions, load_asset_proc load, unload_asset_proc unload)
+bool register_asset(String name, Array_View< String > extensions, load_asset_proc load, unload_asset_proc unload, on_import_asset_proc on_import)
 {
     for (U32 i = 0; i < asset_manager_state->asset_infos.count; i++)
     {
@@ -198,6 +207,7 @@ bool register_asset(String name, Array_View< String > extensions, load_asset_pro
         asset_info.extensions[i] = copy_string(extensions[i], to_allocator(arena));
     }
 
+    asset_info.on_import = on_import;
     asset_info.load = load;
     asset_info.unload = unload;
 
@@ -245,13 +255,12 @@ static Job_Handle aquire_asset_internal(Asset_Handle asset_handle)
             parent_job = aquire_asset_internal(entry.parent);
         }
         
-        const Asset_Info &asset_info = asset_manager_state->asset_infos[entry.type_info_index];
+        String path = entry.path;
+        const Asset_Info *asset_info = &asset_manager_state->asset_infos[entry.type_info_index];
 
         Load_Asset_Job_Data load_asset_job_data = 
         {
             .asset_handle = asset_handle,
-            .path = entry.path,
-            .load = asset_info.load,
         };
 
         Job_Data data = 
@@ -351,6 +360,12 @@ Asset_Handle get_asset_handle(String path)
 
 Asset_Handle import_asset(String path)
 {
+    if (path.count == 0)
+    {
+        HE_LOG(Assets, Error, "import_asset -- failed to import asset file path is empty\n");
+        return {};
+    }
+
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
 
@@ -359,6 +374,7 @@ Asset_Handle import_asset(String path)
     sanitize_path(path);
 
     auto &registry = asset_manager_state->asset_registry;
+    auto &embeded_cache = asset_manager_state->embeded_cache;
 
     Asset_Handle asset_handle = get_asset_handle_internal(path);
     if (asset_handle.uuid != 0)
@@ -366,16 +382,28 @@ Asset_Handle import_asset(String path)
         return asset_handle;
     }
 
-    String absolute_path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(path));
-
-    if (!file_exists(absolute_path))
+    Asset_Handle parent = {};
+    bool is_embeded = is_asset_embeded(path, &parent);
+    if (is_embeded)
     {
-        HE_LOG(Assets, Error, "import_asset -- failed to import asset file: %.*s --> filepath doesn't exist\n", HE_EXPAND_STRING(path));
-        return {};
+        if (!is_asset_handle_valid(parent))
+        {
+            HE_LOG(Assets, Error, "import_asset -- failed to import emdeded asset file: %.*s --> parent %llu is invalid\n", HE_EXPAND_STRING(path), parent.uuid);
+            return {};
+        }
+    }
+    else
+    {
+        String absolute_path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(path));
+        if (!file_exists(absolute_path))
+        {
+            HE_LOG(Assets, Error, "import_asset -- failed to import asset file: %.*s --> filepath doesn't exist\n", HE_EXPAND_STRING(path));
+            return {};
+        }
     }
 
     String extension = get_extension(path);
-    Asset_Info *asset_info = get_asset_info_from_extension(extension);
+    const Asset_Info *asset_info = get_asset_info_from_extension(extension);
     if (!asset_info)
     {
         HE_LOG(Assets, Error, "import_asset -- failed to import asset file: %.*s --> file extension: %.*s isn't registered", HE_EXPAND_STRING(path), HE_EXPAND_STRING(extension));
@@ -396,6 +424,28 @@ Asset_Handle import_asset(String path)
 
     asset_handle = { .uuid = generate_uuid() };
     registry.emplace(asset_handle.uuid, entry);
+
+    if (is_embeded)
+    {
+        auto it = embeded_cache.find(parent.uuid);
+        if (it == embeded_cache.iend())
+        {
+            Dynamic_Array<U64> embeded;
+            init(&embeded);
+            append(&embeded, asset_handle.uuid);
+            embeded_cache.emplace(parent.uuid, embeded);
+        }
+        else
+        {
+            Dynamic_Array<U64> &embeded = it.value();
+            append(&embeded, asset_handle.uuid);
+        }
+    }
+
+    if (asset_info->on_import)
+    {
+        asset_info->on_import(asset_handle);
+    }
 
     HE_LOG(Assets, Trace, "Imported Asset: %.*s\n", HE_EXPAND_STRING(entry.path));
     return asset_handle;
@@ -419,6 +469,40 @@ void set_parent(Asset_Handle asset, Asset_Handle parent)
     {
         HE_LOG(Assets, Error, "set_parent -- failed to set parent of asset %.*s-%llu parent asset %llu is invalid", HE_EXPAND_STRING(entry.path), asset.uuid, parent.uuid);
     }
+}
+
+bool is_asset_embeded(String path, Asset_Handle *out_parent, U64 *out_data_id)
+{
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Asset_Handle parent = {};
+    U64 data_id = 0;
+    char *name = HE_ALLOCATE_ARRAY(scratch_memory.arena, char, 128);
+    S32 count = sscanf(path.data, "@%llu-%llu/%s", &parent.uuid, &data_id, name);
+    if (out_parent)
+    {
+        *out_parent = parent;
+    }
+    if (out_data_id)
+    {
+        *out_data_id = data_id;
+    }
+    return count == 3;
+}
+
+bool is_asset_embeded(Asset_Handle asset_handle)
+{
+    const Asset_Registry_Entry &entry = get_asset_registry_entry(asset_handle);
+    return is_asset_embeded(entry.path);
+}
+
+const Dynamic_Array< U64 >& get_embeded_assets(Asset_Handle asset_handle)
+{
+    auto it = asset_manager_state->embeded_cache.find(asset_handle.uuid);
+    if (it == asset_manager_state->embeded_cache.iend())
+    {
+        return {};
+    }
+    return it.value();
 }
 
 const Asset_Registry_Entry& get_asset_registry_entry(Asset_Handle asset_handle)
@@ -456,11 +540,17 @@ const Asset_Info *get_asset_info(String name)
     return nullptr;
 }
 
+const Asset_Info *get_asset_info(U16 type_info_index)
+{
+    HE_ASSERT(type_info_index >= 0 && type_info_index < asset_manager_state->asset_infos.count);
+    return &asset_manager_state->asset_infos[type_info_index];
+}
+
 //
 // helpers
 //
 
-Asset_Info *get_asset_info_from_extension(String extension)
+const Asset_Info *get_asset_info_from_extension(String extension)
 {
     for (U32 i = 0; i < asset_manager_state->asset_infos.count; i++)
     {
@@ -480,12 +570,36 @@ Asset_Info *get_asset_info_from_extension(String extension)
 static Job_Result load_asset_job(const Job_Parameters &params)
 {
     Load_Asset_Job_Data *job_data = (Load_Asset_Job_Data *)params.data;
-    String path = format_string(params.arena, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(job_data->path));
+
+    const Asset_Registry_Entry &asset_entry = get_asset_registry_entry(job_data->asset_handle);
+    String relative_path = asset_entry.path;
+    load_asset_proc load = asset_manager_state->asset_infos[asset_entry.type_info_index].load;
+
+    Asset_Handle embedder_asset = {};
+    U64 data_id = 0;
+    bool is_embeded = is_asset_embeded(asset_entry.path, &embedder_asset, &data_id);
     
-    Load_Asset_Result load_result = job_data->load(path);
+    if (is_embeded)
+    {
+        const Asset_Registry_Entry &embedder_entry = get_asset_registry_entry(embedder_asset);
+        relative_path = embedder_entry.path;
+        load = asset_manager_state->asset_infos[embedder_entry.type_info_index].load;
+    }
+    HE_ASSERT(load);
+
+    String path = format_string(params.arena, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(relative_path));
+
+    Embeded_Asset_Params embeded_params =
+    {
+        .name = get_name(asset_entry.path),
+        .type_info_index = asset_entry.type_info_index,
+        .data_id = data_id,
+    };
+
+    Load_Asset_Result load_result = load(path, is_embeded ? &embeded_params : nullptr);
     if (!load_result.success)
     {
-        HE_LOG(Assets, Error, "load_asset_job -- failed to load asset: %.*s\n", HE_EXPAND_STRING(job_data->path));
+        HE_LOG(Assets, Error, "load_asset_job -- failed to load asset: %.*s\n", HE_EXPAND_STRING(asset_entry.path));
 
         platform_lock_mutex(&asset_manager_state->asset_mutex);
         auto entryIt = asset_manager_state->asset_registry.find(job_data->asset_handle.uuid);
@@ -505,7 +619,7 @@ static Job_Result load_asset_job(const Job_Parameters &params)
     asset_manager_state->asset_cache.emplace(job_data->asset_handle.uuid, Asset { .load_result = load_result });
     platform_unlock_mutex(&asset_manager_state->asset_mutex);
 
-    HE_LOG(Assets, Trace, "loaded asset: %.*s\n", HE_EXPAND_STRING(job_data->path));
+    HE_LOG(Assets, Trace, "loaded asset: %.*s\n", HE_EXPAND_STRING(asset_entry.path));
     return Job_Result::SUCCEEDED;
 }
 
@@ -569,6 +683,7 @@ static bool deserialize_asset_registry()
     }
 
     Asset_Registry &registry = asset_manager_state->asset_registry;
+    Embeded_Asset_Cache &embeded_cache = asset_manager_state->embeded_cache;
 
     String str = { .count = file_result.size, .data = (const char *)file_result.data };
     Parse_Name_Value_Result result = parse_name_value(&str, HE_STRING_LITERAL("version"));
@@ -634,7 +749,7 @@ static bool deserialize_asset_registry()
         str = advance(str, path_count);
 
         String extension = get_extension(path);
-        Asset_Info *asset_info = get_asset_info_from_extension(extension);
+        const Asset_Info *asset_info = get_asset_info_from_extension(extension);
         HE_ASSERT(asset_info);
 
         Asset_Registry_Entry entry = {};
@@ -645,6 +760,25 @@ static bool deserialize_asset_registry()
         entry.state = Asset_State::UNLOADED;
         entry.job = Resource_Pool< Job >::invalid_handle;
         registry.emplace(asset_uuid, entry);
+
+        Asset_Handle parent = {};
+        bool is_embeded = is_asset_embeded(path, &parent);
+        if (is_embeded)
+        {
+            auto it = embeded_cache.find(parent.uuid);
+            if (it == embeded_cache.iend())
+            {
+                Dynamic_Array<U64> embeded;
+                init(&embeded);
+                append(&embeded, asset_uuid);
+                embeded_cache.emplace(parent.uuid, embeded);
+            }
+            else
+            {
+                Dynamic_Array<U64> &embeded = it.value();
+                append(&embeded, asset_uuid);
+            }
+        }
     }
 
     return true;

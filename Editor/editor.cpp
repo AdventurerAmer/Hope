@@ -989,21 +989,17 @@ static void draw_assets_window()
     ImGui::SameLine();
     ImGui::Text("Path %s", current_path.string().c_str());
 
-    if (ImGui::BeginListBox("##Path", ImGui::GetContentRegionAvail()))
+    if (ImGui::BeginListBox("##Begin List Box", ImGui::GetContentRegionAvail()))
     {
         for (const auto &it : fs::directory_iterator(current_path))
         {
             const fs::path &path = it.path();
             const fs::path &relative = path.lexically_relative(current_path);
-            if (relative.extension() == ".haregistry")
-            {
-                continue;
-            }
 
-            Asset_Handle asset_handle = {};
             bool is_asset_file = false;
 
             auto asset_path_string = path.lexically_relative(editor_state.asset_path).string();
+
             String asset_path = HE_STRING(asset_path_string.c_str());
 
             if (it.is_regular_file())
@@ -1016,13 +1012,34 @@ static void draw_assets_window()
                 }
             }
 
-            bool is_selected = selected_path == path;
-            if (ImGui::Selectable(relative.string().c_str(), &is_selected))
+            if (!is_asset_file && !it.is_directory())
+            {
+                continue;
+            }
+
+            Asset_Handle asset_handle = get_asset_handle(asset_path);
+
+            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth|ImGuiTreeNodeFlags_FramePadding;
+
+            if (selected_path == path)
+            {
+                flags |= ImGuiTreeNodeFlags_Selected;
+            }
+
+            const Dynamic_Array< U64 > &embeded_assets = get_embeded_assets(asset_handle);
+            if (embeded_assets.count == 0)
+            {
+                flags |= ImGuiTreeNodeFlags_Leaf|ImGuiTreeNodeFlags_DefaultOpen;
+            }
+
+            ImGui::PushID(asset_path_string.c_str());
+
+            bool is_open = ImGui::TreeNodeEx(relative.string().c_str(), flags);
+            if (ImGui::IsItemClicked())
             {
                 if (it.is_directory())
                 {
                     current_path = path;
-                    break;
                 }
                 else
                 {
@@ -1040,22 +1057,53 @@ static void draw_assets_window()
 
             if (is_asset_file)
             {
-                if (asset_handle.uuid == 0)
-                {
-                    asset_handle = import_asset(asset_path);
-                }
-
                 ImGuiDragDropFlags src_flags = 0;
                 src_flags |= ImGuiDragDropFlags_SourceNoDisableHover;
                 src_flags |= ImGuiDragDropFlags_SourceNoHoldToOpenOthers;
                 if (ImGui::BeginDragDropSource(src_flags))
                 {
-                    editor_state.dragging_node_index = -1;
-
+                    if (asset_handle.uuid == 0)
+                    {
+                        asset_handle = import_asset(asset_path);
+                    }
                     ImGui::SetDragDropPayload("DND_ASSET", &asset_handle, sizeof(Asset_Handle));
                     ImGui::EndDragDropSource();
                 }
             }
+
+            if (is_open)
+            {
+                if (is_asset_file && asset_handle.uuid == 0)
+                {
+                    asset_handle = import_asset(asset_path);
+                }
+
+                for (U32 i = 0; i < embeded_assets.count; i++)
+                {
+                    Asset_Handle embeded_asset = { .uuid = embeded_assets[i] };
+                    const auto &entry = get_asset_registry_entry(embeded_asset);
+                    String name = get_name(entry.path);
+                    auto path = fs::path((const char *)entry.path.data);
+                    bool is_selected = selected_path == path;
+                    ImGui::Selectable(name.data, &is_selected);
+                    if (ImGui::IsItemClicked())
+                    {
+                        selected_path = path;
+                        Inspector_Panel::inspect(embeded_asset);
+                    }
+                    ImGuiDragDropFlags src_flags = 0;
+                    src_flags |= ImGuiDragDropFlags_SourceNoDisableHover;
+                    src_flags |= ImGuiDragDropFlags_SourceNoHoldToOpenOthers;
+                    if (ImGui::BeginDragDropSource(src_flags))
+                    {
+                        ImGui::SetDragDropPayload("DND_ASSET", &embeded_asset, sizeof(Asset_Handle));
+                        ImGui::EndDragDropSource();
+                    }
+                }
+                ImGui::TreePop();
+            }
+
+            ImGui::PopID();
         }
         
         ImGui::EndListBox();
