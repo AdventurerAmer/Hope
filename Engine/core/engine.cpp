@@ -45,18 +45,21 @@ bool startup(Engine *engine)
     window->width = 1296;
     window->height = 759;
     window->mode = Window_Mode::WINDOWED;
+    window->maximized = false;
 
     U32 &window_width = window->width;
     U32 &window_height = window->height;
     U8 &window_mode = (U8 &)window->mode;
+    bool &maximized = window->maximized;
     
     HE_DECLARE_CVAR("platform", engine_name, CVarFlag_None);
     HE_DECLARE_CVAR("platform", app_name, CVarFlag_None);
     HE_DECLARE_CVAR("platform", window_width, CVarFlag_None);
     HE_DECLARE_CVAR("platform", window_height, CVarFlag_None);
     HE_DECLARE_CVAR("platform", window_mode, CVarFlag_None);
+    HE_DECLARE_CVAR("platform", maximized, CVarFlag_None);
 
-    bool window_created = platform_create_window(window, app_name.data, (U32)window_width, (U32)window_height, (Window_Mode)window_mode);
+    bool window_created = platform_create_window(window, app_name.data, (U32)window_width, (U32)window_height, maximized, (Window_Mode)window_mode);
     if (!window_created)
     {
         HE_LOG(Core, Fetal, "failed to create window\n");
@@ -121,6 +124,7 @@ void on_event(Engine *engine, Event event)
             Window *window = &engine->window;
             window->width = event.window_width;
             window->height = event.window_height;
+            window->maximized = event.maximized;
             renderer_on_resize(event.client_width, event.client_height);
         } break;
     }

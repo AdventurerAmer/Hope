@@ -119,7 +119,7 @@ void imgui_draw_free_list_allocator(Free_List_Allocator *allocator, const char *
     ImGui::Text("free nodes: ");
 
     platform_lock_mutex(&allocator->mutex);
-    
+
     for (Free_List_Node *node = allocator->sentinal.next; node != &allocator->sentinal; node = node->next)
     {
         ImGui::Text("0x%p --- %llu bytes", node, node->size);

@@ -75,7 +75,6 @@ bool hope_app_init(Engine *engine)
 
     {
         Asset_Handle asset_asset = import_asset(HE_STRING_LITERAL("Sponza/Sponza.gltf"));
-        set_parent(asset_asset, opaque_pbr); // todo(amer): temprary
         if (asset_asset.uuid)
         {
             aquire_asset(asset_asset);
@@ -190,10 +189,13 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
         // static bool show_imgui_window = false;
         // ImGui::ShowDemoWindow(&show_imgui_window);
 
+#if 0
         draw_graphics_window();
         draw_assets_window();
         draw_scene_hierarchy_window();
+        imgui_draw_memory_system();
         Inspector_Panel::draw();
+#endif
     }
 }
 
@@ -1026,7 +1028,7 @@ static void draw_assets_window()
                 flags |= ImGuiTreeNodeFlags_Selected;
             }
 
-            const Dynamic_Array< U64 > &embeded_assets = get_embeded_assets(asset_handle);
+            Array_View< U64 > embeded_assets = get_embeded_assets(asset_handle);
             if (embeded_assets.count == 0)
             {
                 flags |= ImGuiTreeNodeFlags_Leaf|ImGuiTreeNodeFlags_DefaultOpen;
@@ -1184,18 +1186,16 @@ static void add_model_to_scene(Scene *scene, Scene_Node *node, Asset_Handle asse
 
         for (U32 i = 0; i < model->node_count; i++)
         {
-            Model_Node *model_node = &model->nodes[i];
+            Scene_Node *model_node = &model->nodes[i];
 
             node_indices[i] = allocate_node(scene, model_node->name);
             Scene_Node *current_scene_node = get_node(scene, node_indices[i]);
 
-            current_scene_node->transform = model_node->transform;
-            current_scene_node->mesh.static_mesh = model_node->static_mesh;
+            current_scene_node->has_mesh = model_node->has_mesh;
+            current_scene_node->mesh = model_node->mesh;
 
-            Render_Context render_context = get_render_context();
-            Renderer_State *renderer_state = render_context.renderer_state;
-
-            current_scene_node->has_mesh = is_valid_handle(&renderer_state->static_meshes, model_node->static_mesh);
+            current_scene_node->has_light = model_node->has_light;
+            current_scene_node->light = model_node->light;
 
             if (model_node->parent_index == -1)
             {
@@ -1226,7 +1226,7 @@ static void add_model_to_scene(Scene *scene, Scene_Node *node, Asset_Handle asse
             }
             else
             {
-                add_child_last(scene, get_node(scene, node_indices[current_scene_node->parent_index]), current_scene_node);
+                add_child_last(scene, get_node(scene, node_indices[model_node->parent_index]), current_scene_node);
             }
         }
     }

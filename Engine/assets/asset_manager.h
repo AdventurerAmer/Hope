@@ -102,7 +102,7 @@ void set_parent(Asset_Handle asset, Asset_Handle parent);
 
 bool is_asset_embeded(String path, Asset_Handle *out_parent = nullptr, U64 *out_data_id = nullptr);
 bool is_asset_embeded(Asset_Handle asset_handle);
-const Dynamic_Array< U64 >& get_embeded_assets(Asset_Handle asset_handle);
+Array_View< U64 > get_embeded_assets(Asset_Handle asset_handle);
 
 const Asset_Registry_Entry& get_asset_registry_entry(Asset_Handle asset_handle);
 const Asset_Info* get_asset_info_from_extension(String extension);
@@ -122,3 +122,5 @@ Resource_Handle< T > get_asset_handle_as(Asset_Handle asset_handle)
     Load_Asset_Result result = get_asset(asset_handle);
     return { .index = result.index, .generation = result.generation };
 }
+
+String format_embedded_asset(Asset_Handle asset_handle, U64 data_id, String name, Memory_Arena *arena);

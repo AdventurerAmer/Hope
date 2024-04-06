@@ -459,7 +459,7 @@ void platform_deallocate_memory(void *memory)
 // window
 //
 
-bool platform_create_window(Window *window, const char *title, U32 width, U32 height, Window_Mode window_mode)
+bool platform_create_window(Window *window, const char *title, U32 width, U32 height, bool maximized, Window_Mode window_mode)
 {
     HWND window_handle = CreateWindowExA(0, win32_platform_state.window_class_name, title,
                                          WS_OVERLAPPEDWINDOW,
@@ -473,13 +473,21 @@ bool platform_create_window(Window *window, const char *title, U32 width, U32 he
         return false;
     }
 
-    S32 screen_width = GetSystemMetrics(SM_CXSCREEN);
-    S32 screen_height = GetSystemMetrics(SM_CYSCREEN);
-    S32 center_x = (screen_width / 2) - (width / 2);
-    S32 center_y = (screen_height / 2) - (height / 2);
+    RECT screen = {};
+    SystemParametersInfoA(SPI_GETWORKAREA, 0, &screen, 0);
 
-    MoveWindow(window_handle, center_x, center_y, width, height, FALSE);
-    ShowWindow(window_handle, SW_SHOW);
+    S32 screen_width = screen.right - screen.left;
+    S32 screen_height = screen.bottom - screen.top;
+
+    S32 center_x = screen.left + (S32)((screen_width / 2.0f) - (width / 2.0f));
+    S32 center_y = screen.top + (S32)((screen_height / 2.0f) - (height / 2.0f));
+
+    SetWindowPos(window_handle, HWND_TOP, center_x, center_y, width, height, SWP_SHOWWINDOW);
+
+    if (maximized)
+    {
+        ShowWindow(window_handle, SW_MAXIMIZE);
+    }
 
     Win32_Window_State *win32_window_state = (Win32_Window_State *)VirtualAlloc(0, sizeof(Win32_Window_State), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
     win32_window_state->handle = window_handle;

@@ -147,38 +147,35 @@ static void inspect_scene_node(Scene_Node *scene_node)
         Render_Context render_context = get_render_context();
         Renderer_State *renderer_state = render_context.renderer_state;
 
-        if (is_valid_handle(&renderer_state->static_meshes, mesh_comp->static_mesh))
+        Asset_Handle static_mesh_asset = { .uuid = mesh_comp->static_mesh_asset };
+
+        if (is_asset_handle_valid(static_mesh_asset))
         {
-            Static_Mesh *static_mesh = renderer_get_static_mesh(mesh_comp->static_mesh);
-            ImGui::Text("Static Mesh");
-            ImGui::SameLine();
-            
-            bool selected = true;
-            if (ImGui::Selectable(static_mesh->name.data, &selected))
+            if (!is_asset_loaded(static_mesh_asset))
             {
+                aquire_asset(static_mesh_asset);
             }
-
-            ImGui::Spacing();
-
-            ImGui::Text("Materials");
-            ImGui::Spacing();
-
-            for (U32 i = 0; i < static_mesh->sub_meshes.count; i++)
+            else
             {
-                ImGui::PushID(i);
+                Static_Mesh_Handle static_mesh_handle = get_asset_handle_as<Static_Mesh>(static_mesh_asset);
+                Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+                ImGui::Text("Static Mesh");
+                ImGui::SameLine();
 
-                Sub_Mesh *sub_mesh = &static_mesh->sub_meshes[i];
-                Material_Handle material_handle = sub_mesh->material;
-                if (is_valid_handle(&renderer_state->materials, material_handle))
+                select_asset(HE_STRING_LITERAL("Static Mesh"), HE_STRING_LITERAL("static_mesh"), (Asset_Handle *)&mesh_comp->static_mesh_asset);
+
+                ImGui::Spacing();
+
+                ImGui::Text("Materials");
+                ImGui::Spacing();
+
+                for (U32 i = 0; i < static_mesh->sub_meshes.count; i++)
                 {
-                    Material *material = renderer_get_material(material_handle);
-                    bool selected = true;
-                    if (ImGui::Selectable(material->name.data, &selected))
-                    {
-                    }
+                    ImGui::PushID(i);
+                    Sub_Mesh *sub_mesh = &static_mesh->sub_meshes[i];
+                    select_asset(HE_STRING_LITERAL("Material"), HE_STRING_LITERAL("material"), (Asset_Handle *)&sub_mesh->material_asset);
+                    ImGui::PopID();
                 }
-
-                ImGui::PopID();
             }
         }
     }
@@ -253,7 +250,7 @@ static void inspect_scene_node(Scene_Node *scene_node)
                 scene_node->has_mesh = true;
 
                 Static_Mesh_Component *mesh_comp = &scene_node->mesh;
-                mesh_comp->static_mesh = Resource_Pool<Static_Mesh>::invalid_handle;
+                mesh_comp->static_mesh_asset = {};
             }
         }
 

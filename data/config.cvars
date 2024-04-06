@@ -4,6 +4,7 @@
 :window_width 1872
 :window_height 1096
 :window_mode 0
+:maximized 1
 @renderer
 :back_buffer_width 1856
 :back_buffer_height 1057

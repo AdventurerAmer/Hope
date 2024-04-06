@@ -297,10 +297,7 @@ Load_Asset_Result get_asset(Asset_Handle asset_handle)
 
     Asset_Cache &asset_cache = asset_manager_state->asset_cache;
     auto it = asset_cache.find(asset_handle.uuid);
-    if (it == asset_cache.iend())
-    {
-        return {};
-    }
+    HE_ASSERT(it != asset_cache.iend());
     Asset *asset = &it.value();
     return asset->load_result;
 }
@@ -495,14 +492,14 @@ bool is_asset_embeded(Asset_Handle asset_handle)
     return is_asset_embeded(entry.path);
 }
 
-const Dynamic_Array< U64 >& get_embeded_assets(Asset_Handle asset_handle)
+Array_View< U64 > get_embeded_assets(Asset_Handle asset_handle)
 {
     auto it = asset_manager_state->embeded_cache.find(asset_handle.uuid);
     if (it == asset_manager_state->embeded_cache.iend())
     {
         return {};
     }
-    return it.value();
+    return to_array_view(it.value());
 }
 
 const Asset_Registry_Entry& get_asset_registry_entry(Asset_Handle asset_handle)
@@ -782,4 +779,9 @@ static bool deserialize_asset_registry()
     }
 
     return true;
+}
+
+String format_embedded_asset(Asset_Handle asset_handle, U64 data_id, String name, Memory_Arena *arena)
+{
+    return format_string(arena, "@%llu-%llu/%.*s", asset_handle.uuid, data_id, HE_EXPAND_STRING(name));
 }

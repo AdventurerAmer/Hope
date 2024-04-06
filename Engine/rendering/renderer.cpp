@@ -309,7 +309,7 @@ bool init_renderer_state(Engine *engine)
         sub_mesh.index_count = index_count;
         sub_mesh.vertex_count = vertex_count;
 
-        sub_mesh.material = renderer_state->default_material;
+        sub_mesh.material_asset = 0;
 
         void *data_array[] = { data };
 
@@ -374,21 +374,37 @@ bool init_renderer_state(Engine *engine)
                 Model *model = get_asset_as<Model>(model_asset_handle);
                 for (U32 node_index = 0; node_index < model->node_count; node_index++)
                 {
-                    Model_Node *model_node = &model->nodes[node_index];
-                    if (is_valid_handle(&renderer_state->static_meshes, model_node->static_mesh))
+                    Scene_Node *node = &model->nodes[node_index];
+
+                    if (!node->has_mesh)
                     {
-                        Static_Mesh_Handle static_mesh_handle = model_node->static_mesh;
+                        continue;
+                    }
+
+                    Asset_Handle static_mesh_asset = { .uuid = node->mesh.static_mesh_asset };
+                    if (is_asset_handle_valid(static_mesh_asset))
+                    {
+                        Static_Mesh_Handle static_mesh_handle = renderer_state->default_static_mesh;
+
+                        if (!is_asset_loaded(static_mesh_asset))
+                        {
+                            aquire_asset(static_mesh_asset);
+                        }
+                        else
+                        {
+                            static_mesh_handle = get_asset_handle_as<Static_Mesh>(static_mesh_asset);
+                        }
+
                         Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
                         if (!static_mesh->is_uploaded_to_gpu)
                         {
-                            static_mesh_handle = renderer_state->default_static_mesh;
-                            static_mesh = renderer_get_static_mesh(renderer_state->default_static_mesh);
+                            continue;
                         }
 
                         HE_ASSERT(renderer_state->object_data_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
                         U32 object_data_index = renderer_state->object_data_count++;
                         Shader_Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
-                        object_data->model = get_world_matrix(model_node->transform);
+                        object_data->model = get_world_matrix(node->transform);
 
                         Buffer_Handle vertex_buffers[] =
                         {
@@ -408,15 +424,18 @@ bool init_renderer_state(Engine *engine)
                         {
                             Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
 
-                            Material_Handle material_handle = Resource_Pool<Material>::invalid_handle;
-
-                            if (is_valid_handle(&renderer_state->materials, sub_mesh->material))
+                            Asset_Handle material_asset = { .uuid = sub_mesh->material_asset };
+                            Material_Handle material_handle = renderer_state->default_material;
+                            if (is_asset_handle_valid(material_asset))
                             {
-                                material_handle = sub_mesh->material;
-                            }
-                            else
-                            {
-                                material_handle = renderer_state->default_material;
+                                if (!is_asset_loaded(material_asset))
+                                {
+                                    aquire_asset(material_asset);
+                                }
+                                else
+                                {
+                                    material_handle = get_asset_handle_as<Material>(material_asset);
+                                }
                             }
 
                             Material *material = renderer_get_material(material_handle);
@@ -1467,17 +1486,7 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
     if (property->is_texture_asset)
     {
         U32 *texture_index = (U32 *)&material->data[property->offset_in_buffer];
-
-        if (data.u64)
-        {
-            Asset_Handle asset_handle = { .uuid = data.u64 };
-            Texture_Handle texture = get_asset_handle_as<Texture>(asset_handle);
-            *texture_index = texture.index;
-        }
-        else
-        {
-            *texture_index = (U32)renderer_state->white_pixel_texture.index;
-        }
+        *texture_index = (U32)renderer_state->white_pixel_texture.index;
     }
     else
     {
@@ -1516,6 +1525,10 @@ void renderer_use_material(Material_Handle material_handle)
                         material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
                         aquire_asset(texture_asset);
                     }
+                }
+                else
+                {
+                    *texture_index = renderer_state->white_pixel_texture.index;
                 }
             }
         }
@@ -1918,6 +1931,7 @@ void renderer_handle_upload_requests()
             }
             renderer_destroy_upload_request(upload_request_handle);
             remove_and_swap_back(&renderer_state->pending_upload_requests, i);
+            i--;
         }
     }
 

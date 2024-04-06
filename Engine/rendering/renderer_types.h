@@ -482,7 +482,7 @@ struct Sub_Mesh
     U32 vertex_offset;
     U32 index_offset;
 
-    Material_Handle material;
+    U64 material_asset;
 };
 
 struct Static_Mesh_Descriptor
@@ -523,29 +523,12 @@ struct Static_Mesh
 
 using Static_Mesh_Handle = Resource_Handle< Static_Mesh >;
 
-struct Model_Node
-{
-    String name;
-
-    S32 parent_index;
-
-    Transform transform;
-
-    Static_Mesh_Handle static_mesh;
-};
-
 struct Model
 {
     String name;
 
-    U32 material_count;
-    Material_Handle *materials;
-
-    U32 static_mesh_count;
-    Static_Mesh_Handle *static_meshes;
-
     U32 node_count;
-    Model_Node *nodes;
+    struct Scene_Node *nodes;
 };
 
 //
@@ -577,7 +560,7 @@ enum class Light_Type : U8
 
 struct Static_Mesh_Component
 {
-    Static_Mesh_Handle static_mesh;
+    U64 static_mesh_asset;
 };
 
 struct Light_Component

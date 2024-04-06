@@ -48,6 +48,44 @@ static Asset_Handle get_texture_asset_handle(String model_relative_path, const c
     return asset_handle;
 };
 
+static String get_embedded_asset_path(cgltf_data *model_data, cgltf_material *material, Asset_Handle asset_handle, Memory_Arena *arena)
+{
+    U64 material_index = material - model_data->materials;
+    String material_name = {};
+
+    if (material->name)
+    {
+        material_name = format_string(arena, "%.*s.hamaterial", HE_EXPAND_STRING(HE_STRING(material->name)));
+    }
+    else
+    {
+        material_name = format_string(arena, "material_%d.hamaterial", material_index);
+    }
+
+    String material_path = format_embedded_asset(asset_handle, material_index, material_name, arena);
+    sanitize_path(material_path);
+    return material_path;
+}
+
+static String get_embedded_asset_path(cgltf_data *model_data, cgltf_mesh *mesh, Asset_Handle asset_handle, Memory_Arena *arena)
+{
+    U64 static_mesh_index = mesh - model_data->meshes;
+    String static_mesh_name = {};
+
+    if (mesh->name)
+    {
+        static_mesh_name = format_string(arena, "%.*s.hastaticmesh", HE_EXPAND_STRING(HE_STRING(mesh->name)));
+    }
+    else
+    {
+        static_mesh_name = format_string(arena, "static_mesh_%d.hastaticmesh", static_mesh_index);
+    }
+
+    String material_path = format_embedded_asset(asset_handle, static_mesh_index, static_mesh_name, arena);
+    sanitize_path(material_path);
+    return material_path;
+}
+
 void on_import_model(Asset_Handle asset_handle)
 {
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
@@ -78,18 +116,7 @@ void on_import_model(Asset_Handle asset_handle)
     for (U32 material_index = 0; material_index < model_data->materials_count; material_index++)
     {
         cgltf_material *material = &model_data->materials[material_index];
-        String material_name = {};
-
-        if (material->name)
-        {
-            material_name = HE_STRING(material->name);
-        }
-        else
-        {
-            material_name = format_string(scratch_memory.arena, "material_%d", material_index);
-        }
-
-        String material_path = format_string(scratch_memory.arena, "@%llu-%llu/%.*s.hamaterial", asset_handle.uuid, (U64)material_index, HE_EXPAND_STRING(material_name));
+        String material_path = get_embedded_asset_path(model_data, material, asset_handle, scratch_memory.arena);
         Asset_Handle asset = import_asset(material_path);
         set_parent(asset, opaque_pbr_shader_asset);
     }
@@ -97,19 +124,7 @@ void on_import_model(Asset_Handle asset_handle)
     for (U32 static_mesh_index = 0; static_mesh_index < model_data->meshes_count; static_mesh_index++)
     {
         cgltf_mesh *static_mesh = &model_data->meshes[static_mesh_index];
-
-        String static_mesh_name;
-
-        if (static_mesh->name)
-        {
-            static_mesh_name = HE_STRING(static_mesh->name);
-        }
-        else
-        {
-            static_mesh_name = format_string(scratch_memory.arena, "static_mesh_%d", static_mesh_index);
-        }
-
-        String static_mesh_path = format_string(scratch_memory.arena, "@%llu-%llu/%.*s.hastaticmesh", asset_handle.uuid, (U64)static_mesh_index, HE_EXPAND_STRING(static_mesh_name));
+        String static_mesh_path = get_embedded_asset_path(model_data, static_mesh, asset_handle, scratch_memory.arena);
         Asset_Handle asset = import_asset(static_mesh_path);
     }
 }
@@ -121,6 +136,8 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
 
     String asset_path = get_asset_path();
     String relative_path = sub_string(path, asset_path.count + 1);
+
+    Asset_Handle asset_handle = get_asset_handle(relative_path);
 
     Render_Context render_context = get_render_context();
     Renderer_State *renderer_state = render_context.renderer_state;
@@ -142,12 +159,6 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
 
     HE_DEFER { cgltf_free(model_data); };
 
-    if (cgltf_load_buffers(&options, model_data, path.data) != cgltf_result_success)
-    {
-        HE_LOG(Resource, Fetal, "load_model -- cgltf -- unable to load buffers from asset file: %.*s\n", HE_EXPAND_STRING(path));
-        return {};
-    }
-
     bool embeded_material = false;
     bool embeded_static_mesh = false;
 
@@ -158,29 +169,22 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         embeded_static_mesh = info->name == HE_STRING_LITERAL("static_mesh");
     }
 
-    Asset_Handle opaque_pbr_shader_asset = import_asset(HE_STRING_LITERAL("opaque_pbr.glsl"));
-    if (!is_asset_loaded(opaque_pbr_shader_asset))
+    if (embeded_material)
     {
-        HE_LOG(Resource, Fetal, "load_model -- cgltf -- unable to load model asset file: %.*s --> parent asset failed to load\n", HE_EXPAND_STRING(path));
-        return {};
-    }
+        Asset_Handle opaque_pbr_shader_asset = import_asset(HE_STRING_LITERAL("opaque_pbr.glsl"));
+        if (!is_asset_loaded(opaque_pbr_shader_asset))
+        {
+            HE_LOG(Resource, Fetal, "load_model -- cgltf -- unable to load model asset file: %.*s --> parent asset failed to load\n", HE_EXPAND_STRING(path));
+            return {};
+        }
 
-    Shader_Handle opaque_pbr_shader = get_asset_handle_as<Shader>(opaque_pbr_shader_asset);
-    Material_Handle *materials = HE_ALLOCATE_ARRAY(allocator, Material_Handle, model_data->materials_count);
-    for (U32 material_index = 0; material_index < model_data->materials_count; material_index++)
-    {
+        Shader_Handle opaque_pbr_shader = get_asset_handle_as<Shader>(opaque_pbr_shader_asset);
+
+        U32 material_index = u64_to_u32(params->data_id);
         cgltf_material *material = &model_data->materials[material_index];
         
-        String material_name = {};
-
-        if (material->name)
-        {
-            material_name = HE_STRING(material->name);
-        }
-        else
-        {
-            material_name = format_string(scratch_memory.arena, "material_%d", material_index);
-        }
+        String material_path = get_embedded_asset_path(model_data, material, asset_handle, scratch_memory.arena);
+        String material_name = get_name(material_path);
 
         Asset_Handle albedo_texture = {};
         Asset_Handle roughness_metallic_texture = {};
@@ -251,30 +255,22 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         set_property(material_handle, HE_STRING_LITERAL("metallic_factor"), { .f32 = material->pbr_metallic_roughness.metallic_factor });
         set_property(material_handle, HE_STRING_LITERAL("occlusion_texture"), { .u64 = occlusion_texture.uuid });
 
-        materials[material_index] = material_handle;
-
-        if (embeded_material && params->data_id == material_index)
-        {
-            return { .success = true, .index = material_handle.index, .generation = material_handle.generation };
-        }
+        return { .success = true, .index = material_handle.index, .generation = material_handle.generation };
     }
 
-    Static_Mesh_Handle *static_meshes = HE_ALLOCATE_ARRAY(allocator, Static_Mesh_Handle, model_data->meshes_count);
-
-    for (U32 static_mesh_index = 0; static_mesh_index < model_data->meshes_count; static_mesh_index++)
+    if (embeded_static_mesh)
     {
+        if (cgltf_load_buffers(&options, model_data, path.data) != cgltf_result_success)
+        {
+            HE_LOG(Resource, Fetal, "load_model -- cgltf -- unable to load buffers from asset file: %.*s\n", HE_EXPAND_STRING(path));
+            return {};
+        }
+
+        U32 static_mesh_index = u64_to_u32(params->data_id);
         cgltf_mesh *static_mesh = &model_data->meshes[static_mesh_index];
 
-        String static_mesh_name;
-
-        if (static_mesh->name)
-        {
-            static_mesh_name = HE_STRING(static_mesh->name);
-        }
-        else
-        {
-            static_mesh_name = format_string(scratch_memory.arena, "static_mesh_%d", static_mesh_index);
-        }
+        String static_mesh_path = get_embedded_asset_path(model_data, static_mesh, asset_handle, scratch_memory.arena);
+        String static_mesh_name = get_name(static_mesh_path);
 
         U64 total_vertex_count = 0;
         U64 total_index_count = 0;
@@ -296,9 +292,13 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
 
             total_index_count += primitive->indices->count;
             sub_meshes[sub_mesh_index].index_count = u64_to_u32(primitive->indices->count);
-            S64 material_index = primitive->material - model_data->materials;
-            HE_ASSERT(material_index >= 0 && material_index <= (S64)model_data->materials_count);
-            sub_meshes[sub_mesh_index].material = materials[material_index];
+
+            if (primitive->material)
+            {
+                cgltf_material *material = primitive->material;
+                String material_path = get_embedded_asset_path(model_data, material, asset_handle, scratch_memory.arena);
+                sub_meshes[sub_mesh_index].material_asset = get_asset_handle(material_path).uuid;
+            }
 
             for (U32 attribute_index = 0; attribute_index < primitive->attributes_count; attribute_index++)
             {
@@ -361,12 +361,12 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         for (U32 sub_mesh_index = 0; sub_mesh_index < (U32)static_mesh->primitives_count; sub_mesh_index++)
         {
             cgltf_primitive *primitive = &static_mesh->primitives[sub_mesh_index];
-            
+
             const auto *accessor = primitive->indices;
             const auto *view = accessor->buffer_view;
             U8 *data = (U8 *)view->buffer->data + view->offset + accessor->offset;
             copy_memory(indices + sub_meshes[sub_mesh_index].index_offset, data, primitive->indices->count * sizeof(U16));
-            
+
             for (U32 attribute_index = 0; attribute_index < primitive->attributes_count; attribute_index++)
             {
                 cgltf_attribute *attribute = &primitive->attributes[attribute_index];
@@ -426,10 +426,10 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         {
             .name = copy_string(static_mesh_name, to_allocator(allocator)),
             .data_array = to_array_view(data_array),
-            
+
             .indices = indices,
             .index_count = u64_to_u32(total_index_count),
-    
+
             .vertex_count = u64_to_u32(total_vertex_count),
             .positions = positions,
             .normals = normals,
@@ -440,26 +440,15 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         };
 
         Static_Mesh_Handle static_mesh_handle = renderer_create_static_mesh(static_mesh_descriptor);
-        static_meshes[static_mesh_index] = static_mesh_handle;
-
-        if (embeded_static_mesh && params->data_id == static_mesh_index)
-        {
-            return { .success = true, .index = static_mesh_handle.index, .generation = static_mesh_handle.generation };
-        }
+        return { .success = true, .index = static_mesh_handle.index, .generation = static_mesh_handle.generation };
     }
 
     cgltf_scene *scene = &model_data->scenes[0];
-    
+
     Model *model = HE_ALLOCATE(allocator, Model);
     model->name = copy_string(get_name(path), to_allocator(allocator));
-    
-    model->static_mesh_count = u64_to_u32(model_data->meshes_count);
-    model->static_meshes = static_meshes;
 
-    model->material_count = u64_to_u32(model_data->materials_count);
-    model->materials = materials;
-    
-    Model_Node *nodes = HE_ALLOCATE_ARRAY(allocator, Model_Node, scene->nodes_count);
+    Scene_Node *nodes = HE_ALLOCATE_ARRAY(allocator, Scene_Node, scene->nodes_count);
 
     model->node_count = u64_to_u32(scene->nodes_count);
     model->nodes = nodes;
@@ -469,7 +458,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         cgltf_node *node = scene->nodes[node_index];
 
         String node_name = {};
-        
+
         if (node->name)
         {
             node_name = HE_STRING(node->name);
@@ -494,11 +483,19 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         S64 mesh_index = (S64)(node->mesh - model_data->meshes);
         HE_ASSERT(mesh_index >= 0 && (S64)model_data->meshes_count);
 
-        Model_Node *model_node = &nodes[node_index];
-        model_node->name = copy_string(node_name, to_allocator(allocator));
-        model_node->parent_index = parent_index;
-        model_node->transform = transform;
-        model_node->static_mesh = static_meshes[mesh_index];
+        Scene_Node *scene_node = &nodes[node_index];
+        scene_node->name = copy_string(node_name, to_allocator(allocator));
+        scene_node->transform = transform;
+        scene_node->parent_index = parent_index;
+
+        if (node->mesh)
+        {
+            cgltf_mesh *static_mesh = node->mesh;
+            String static_mesh_path = get_embedded_asset_path(model_data, static_mesh, asset_handle, scratch_memory.arena);
+            scene_node->has_mesh = true;
+            Static_Mesh_Component *mesh_comp = &scene_node->mesh;
+            mesh_comp->static_mesh_asset = get_asset_handle(static_mesh_path).uuid;
+        }
     }
 
     return { .success = true, .data = model, .size = sizeof(Model) };
@@ -507,24 +504,14 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
 void unload_model(Load_Asset_Result load_result)
 {
     HE_ASSERT(sizeof(Model) == load_result.size);
-    
+
     Free_List_Allocator *allocator = get_general_purpose_allocator();
     Model *model = (Model *)load_result.data;
     deallocate(allocator, (void *)model->name.data);
 
-    for (U32 i = 0; i < model->material_count; i++)
-    {
-        renderer_destroy_material(model->materials[i]);
-    }
-
-    for (U32 i = 0; i < model->static_mesh_count; i++)
-    {
-        renderer_destroy_static_mesh(model->static_meshes[i]);
-    }
-
     for (U32 i = 0; i < model->node_count; i++)
     {
-        Model_Node *node = &model->nodes[i];
+        Scene_Node *node = &model->nodes[i];
         deallocate(allocator, (void *)node->name.data);
     }
 
