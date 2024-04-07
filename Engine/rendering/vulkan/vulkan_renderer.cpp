@@ -182,6 +182,30 @@ static void* vulkan_reallocate(void *user_data, void *original, size_t size, siz
     return reallocate((Free_List_Allocator *)user_data, original, size, (U16)alignment);
 }
 
+static VkDescriptorPool create_descriptor_bool(U32 set_count)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Array< VkDescriptorPoolSize, HE_MAX_DESCRIPTOR_POOL_SIZE_RATIO_COUNT > descriptor_pool_sizes;
+
+    for (U32 i = 0; i < context->descriptor_pool_ratios.count; i++)
+    {
+        VkDescriptorPoolSize *pool_size = &descriptor_pool_sizes[i];
+        pool_size->type = context->descriptor_pool_ratios[i].type;
+        pool_size->descriptorCount = (U32)(set_count * context->descriptor_pool_ratios[i].ratio);
+    }
+
+    VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    descriptor_pool_create_info.flags = 0;
+    descriptor_pool_create_info.maxSets = set_count;
+    descriptor_pool_create_info.poolSizeCount = context->descriptor_pool_ratios.count;
+    descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes.data;
+    
+    VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+    HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, &context->allocation_callbacks, &descriptor_pool));
+    
+    return descriptor_pool;
+}
+
 static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State *renderer_state)
 {
     context->renderer_state = renderer_state;
@@ -551,34 +575,15 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
         { .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .ratio = 4.0f }, 
     }};
 
-    Array< VkDescriptorPoolSize, HE_MAX_VULKAN_DESCRIPTOR_POOL_SIZE_RATIO_COUNT > descriptor_pool_sizes;
-
-    U32 initial_set_count_per_descriptor_pool = 1024;
-
-    for (U32 i = 0; i < context->descriptor_pool_ratios.count; i++)
-    {
-        VkDescriptorPoolSize *pool_size = &descriptor_pool_sizes[i];
-        pool_size->type = context->descriptor_pool_ratios[i].type;
-        pool_size->descriptorCount = (U32)(initial_set_count_per_descriptor_pool * context->descriptor_pool_ratios[i].ratio);
-    }
-
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
         Vulkan_Descriptor_Pool_Allocator *descriptor_pool_allocator = &context->descriptor_pool_allocators[frame_index];
-        descriptor_pool_allocator->set_count_per_pool = (U32)(initial_set_count_per_descriptor_pool * 1.5f);
-        
+        descriptor_pool_allocator->set_count_per_pool = 1024;
         init(&descriptor_pool_allocator->ready_pools);
         init(&descriptor_pool_allocator->full_pools);
+        VkDescriptorPool descriptor_pool = create_descriptor_bool(descriptor_pool_allocator->set_count_per_pool);
 
-        VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-        descriptor_pool_create_info.flags = 0;
-        descriptor_pool_create_info.maxSets = initial_set_count_per_descriptor_pool;
-        descriptor_pool_create_info.poolSizeCount = context->descriptor_pool_ratios.count;
-        descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes.data;
-
-        VkDescriptorPool descriptor_pool;
-        HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, &context->allocation_callbacks, &descriptor_pool));        
-
+        descriptor_pool_allocator->set_count_per_pool = (U32)(descriptor_pool_allocator->set_count_per_pool * 1.5f);
         append(&descriptor_pool_allocator->ready_pools, descriptor_pool);
     }
 
@@ -728,9 +733,32 @@ void vulkan_renderer_begin_frame()
 
     Vulkan_Descriptor_Pool_Allocator *descriptor_pool_allocator = &context->descriptor_pool_allocators[current_frame_in_flight_index];
 
+    // @Bug(amer): we are getting a memory leak here it seems vkResetDescriptorPool doesn't reset descriptor set handles but allocates a new one.
+#define VK_RESET_DESCRIPTOR_POOL_BUG 1
+
+#if VK_RESET_DESCRIPTOR_POOL_BUG
+    
     for (U32 i = 0; i < descriptor_pool_allocator->ready_pools.count; i++)
     {
-        vkResetDescriptorPool(context->logical_device, descriptor_pool_allocator->ready_pools[i], 0);
+        vkDestroyDescriptorPool(context->logical_device, descriptor_pool_allocator->ready_pools[i], &context->allocation_callbacks);
+    }
+
+    for (U32 i = 0; i < descriptor_pool_allocator->full_pools.count; i++)
+    {
+        vkDestroyDescriptorPool(context->logical_device, descriptor_pool_allocator->full_pools[i], &context->allocation_callbacks);
+    }
+
+    reset(&descriptor_pool_allocator->ready_pools);
+    reset(&descriptor_pool_allocator->full_pools);
+
+    VkDescriptorPool descriptor_pool = create_descriptor_bool(descriptor_pool_allocator->set_count_per_pool);
+    append(&descriptor_pool_allocator->ready_pools, descriptor_pool);
+
+#else
+    for (U32 i = 0; i < descriptor_pool_allocator->ready_pools.count; i++)
+    {
+        VkResult result = vkResetDescriptorPool(context->logical_device, descriptor_pool_allocator->ready_pools[i], 0);
+        HE_ASSERT(result == VK_SUCCESS);
     }
 
     for (U32 i = 0; i < descriptor_pool_allocator->full_pools.count; i++)
@@ -740,6 +768,7 @@ void vulkan_renderer_begin_frame()
     }
     
     reset(&descriptor_pool_allocator->full_pools);
+#endif
 
     VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[current_frame_in_flight_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);
 
@@ -1206,34 +1235,16 @@ static VkDescriptorType get_descriptor_type(Buffer_Usage usage)
 static VkDescriptorPool get_descriptor_pool(Vulkan_Descriptor_Pool_Allocator *allocator)
 {
     Vulkan_Context *context = &vulkan_context;
-    VkDescriptorPool descriptor_pool;
-
+    
     if (allocator->ready_pools.count)
     {
-        descriptor_pool = back(&allocator->ready_pools);
+        VkDescriptorPool descriptor_pool = back(&allocator->ready_pools);
         remove_back(&allocator->ready_pools);
+        return descriptor_pool;
     }
-    else
-    {
-        Array< VkDescriptorPoolSize, HE_MAX_DESCRIPTOR_POOL_SIZE_RATIO_COUNT > descriptor_pool_sizes;
-
-        for (U32 i = 0; i < context->descriptor_pool_ratios.count; i++)
-        {
-            VkDescriptorPoolSize *pool_size = &descriptor_pool_sizes[i];
-            pool_size->type = context->descriptor_pool_ratios[i].type;
-            pool_size->descriptorCount = (U32)(allocator->set_count_per_pool * context->descriptor_pool_ratios[i].ratio);
-        }
-
-        VkDescriptorPoolCreateInfo descriptor_pool_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-        descriptor_pool_create_info.flags = 0;
-        descriptor_pool_create_info.maxSets = allocator->set_count_per_pool;
-        descriptor_pool_create_info.poolSizeCount = context->descriptor_pool_ratios.count;
-        descriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes.data;
-        
-        HE_CHECK_VKRESULT(vkCreateDescriptorPool(context->logical_device, &descriptor_pool_create_info, &context->allocation_callbacks, &descriptor_pool));
-        allocator->set_count_per_pool = (U32)(allocator->set_count_per_pool * 2.0f);
-    }
-
+    
+    VkDescriptorPool descriptor_pool = create_descriptor_bool(allocator->set_count_per_pool);
+    allocator->set_count_per_pool = (U32)(allocator->set_count_per_pool * 1.5f);
     return descriptor_pool;
 }
 

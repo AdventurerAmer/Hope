@@ -189,13 +189,11 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
         // static bool show_imgui_window = false;
         // ImGui::ShowDemoWindow(&show_imgui_window);
 
-#if 0
         draw_graphics_window();
         draw_assets_window();
         draw_scene_hierarchy_window();
         imgui_draw_memory_system();
         Inspector_Panel::draw();
-#endif
     }
 }
 
