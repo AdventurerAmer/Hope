@@ -91,7 +91,7 @@ static void draw_transform(Transform *transform)
     ImGui::SameLine();
     if (ImGui::DragFloat3("###Rotation Drag Float3", &transform->euler_angles.x))
     {
-        transform->rotation = glm::quat(transform->euler_angles);
+        transform->rotation = glm::quat(glm::radians(transform->euler_angles));
     }
 
     ImGui::Text("Scale");
@@ -148,6 +148,7 @@ static void inspect_scene_node(Scene_Node *scene_node)
         Renderer_State *renderer_state = render_context.renderer_state;
 
         Asset_Handle static_mesh_asset = { .uuid = mesh_comp->static_mesh_asset };
+        select_asset(HE_STRING_LITERAL("Static Mesh"), HE_STRING_LITERAL("static_mesh"), (Asset_Handle *)&mesh_comp->static_mesh_asset);
 
         if (is_asset_handle_valid(static_mesh_asset))
         {
@@ -159,10 +160,6 @@ static void inspect_scene_node(Scene_Node *scene_node)
             {
                 Static_Mesh_Handle static_mesh_handle = get_asset_handle_as<Static_Mesh>(static_mesh_asset);
                 Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
-                ImGui::Text("Static Mesh");
-                ImGui::SameLine();
-
-                select_asset(HE_STRING_LITERAL("Static Mesh"), HE_STRING_LITERAL("static_mesh"), (Asset_Handle *)&mesh_comp->static_mesh_asset);
 
                 ImGui::Spacing();
 

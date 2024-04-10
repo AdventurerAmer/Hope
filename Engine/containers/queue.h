@@ -17,7 +17,18 @@ struct Ring_Queue
 template< typename T >
 void init(Ring_Queue< T > *queue, U32 capacity, Allocator allocator)
 {
-    HE_ASSERT((capacity & (capacity - 1)) == 0);
+    if ((capacity & (capacity - 1)) != 0)
+    {
+        U32 new_capacity = 2;
+        capacity--;
+        while (capacity >>= 1)
+        {
+            new_capacity <<= 1;
+        }
+        HE_ASSERT((new_capacity & (new_capacity - 1)) == 0);
+        capacity = new_capacity;
+    }
+
     queue->data = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, T, capacity);
     queue->capacity = capacity;
     queue->mask = capacity - 1;

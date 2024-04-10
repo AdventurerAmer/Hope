@@ -163,7 +163,46 @@ String eat_chars(String str, String chars)
         }
     }
 
-    return { };
+    return {};
+}
+
+String eat_none_of_chars(String str, String chars)
+{
+    for (U64 i = 0; i < str.count; i++)
+    {
+        bool should_eat = true;
+
+        for (U64 j = 0; j < chars.count; j++)
+        {
+            if (str.data[i] == chars.data[j])
+            {
+                should_eat = false;
+                break;
+            }
+        }
+
+        if (!should_eat)
+        {
+            return sub_string(str, i);
+        }
+    }
+
+    return str;
+}
+
+static constexpr String white_space = HE_STRING_LITERAL(" \n\t\r\v\f");
+
+String eat_white_space(String str)
+{
+    return eat_chars(str, white_space);
+}
+
+String eat_none_white_space(String *str)
+{
+    String result = *str;
+    *str = eat_none_of_chars(*str, white_space);
+    result.count -= str->count;
+    return result;
 }
 
 String format_string(Memory_Arena *arena, const char *format, ...)
@@ -239,6 +278,16 @@ U64 str_to_u64(String str)
     copy_memory((void *)data, str.data, str.count);
     data[str.count] = '\0';
     return strtoull(data, nullptr, 10);
+}
+
+S64 str_to_s64(String str)
+{
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Memory_Arena *arena = scratch_memory.arena;
+    char *data = (char *)(&arena->base[arena->offset]);
+    copy_memory((void *)data, str.data, str.count);
+    data[str.count] = '\0';
+    return strtoll(data, nullptr, 10);
 }
 
 F32 str_to_f32(String str)

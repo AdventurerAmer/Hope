@@ -9,6 +9,7 @@
 #include "core/job_system.h"
 #include "core/logging.h"
 
+#include "containers/string.h"
 #include "containers/queue.h"
 
 #include "assets/asset_manager.h"
@@ -36,8 +37,6 @@
 
 static Renderer_State *renderer_state;
 static Renderer *renderer;
-
-Free_List_Allocator *stbi_image_allocator;
 
 bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
 {
@@ -211,7 +210,6 @@ bool init_renderer_state(Engine *engine)
 
     Buffer *transfer_buffer = get(&renderer_state->buffers, renderer_state->transfer_buffer);
     init_free_list_allocator(&renderer_state->transfer_allocator, transfer_buffer->data, transfer_buffer->size, transfer_buffer->size);
-    stbi_image_allocator = &renderer_state->transfer_allocator;
 
     // default resources
     Renderer_Semaphore_Descriptor semaphore_descriptor =
@@ -451,6 +449,8 @@ bool init_renderer_state(Engine *engine)
                     }
                 }
             }
+
+            render_scene(renderer_state->scene_data.scene_handle);
         };
 
         Render_Target_Info render_targets[] =
@@ -1619,6 +1619,398 @@ void renderer_destroy_scene(Scene_Handle &scene_handle)
     scene_handle = Resource_Pool< Scene >::invalid_handle;
 }
 
+static String light_type_to_str(Light_Type type)
+{
+    switch (type)
+    {
+        case Light_Type::DIRECTIONAL: return HE_STRING_LITERAL("directional");
+        case Light_Type::POINT: return HE_STRING_LITERAL("point");
+        case Light_Type::SPOT: return HE_STRING_LITERAL("spot");
+        default:
+        {
+            HE_ASSERT(!"unsupported light type");
+        } break;
+    }
+
+    return {};
+}
+
+static Light_Type str_to_light_type(String str)
+{
+    if (str == "directional")
+    {
+        return Light_Type::DIRECTIONAL;
+    }
+    else if (str == "point")
+    {
+        return Light_Type::POINT;
+    }
+    else if (str == "spot")
+    {
+        return Light_Type::SPOT;
+    }
+
+    HE_ASSERT(!"unsupported light type");
+    return (Light_Type)0;
+}
+
+void serialize_scene_node(Scene_Node *node, S32 parent_index, String_Builder *builder)
+{
+    append(builder, "node_name %llu %.*s\n", node->name.count, HE_EXPAND_STRING(node->name));
+    append(builder, "parent %d\n", parent_index);
+
+    U32 component_count = 1;
+
+    if (node->has_mesh)
+    {
+        component_count++;
+    }
+
+    if (node->has_light)
+    {
+        component_count++;
+    }
+
+    append(builder, "component_count %u\n", component_count);
+
+    {
+        Transform *t = &node->transform;
+        glm::vec3 *p = &t->position;
+        glm::quat *r = &t->rotation;
+        glm::vec3 *s = &t->scale;
+
+        append(builder, "component transform\n");
+        append(builder, "position %f %f %f\n", p->x, p->y, p->z);
+        append(builder, "rotation %f %f %f %f\n", r->x, r->y, r->z, r->w);
+        append(builder, "scale %f %f %f\n", s->x, s->y, s->z);
+    }
+
+    if (node->has_mesh)
+    {
+        Static_Mesh_Component *static_mesh_comp = &node->mesh;
+        append(builder, "component mesh\n");
+        append(builder, "static_mesh_asset %llu\n", static_mesh_comp->static_mesh_asset);
+    }
+
+    if (node->has_light)
+    {
+        Light_Component *l = &node->light;
+        glm::vec3 *c = &l->color;
+        append(builder, "component light\n");
+        append(builder, "type %.*s\n", HE_EXPAND_STRING(light_type_to_str(l->type)));
+        append(builder, "color %f %f %f\n", c->r, c->g, c->b);
+        append(builder, "intensity %f\n", l->intensity);
+        append(builder, "radius %f\n", l->radius);
+        append(builder, "inner_angle %f\n", l->inner_angle);
+        append(builder, "outer_angle %f\n", l->outer_angle);
+    }
+}
+
+bool serialize_scene(Scene_Handle scene_handle, String path)
+{
+    struct Serialized_Scene_Node
+    {
+        U32 node_index;
+        S32 serialized_parent_index;
+    };
+
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+
+    Scene *scene = get(&renderer_state->scenes, scene_handle);
+    Skybox *skybox = &scene->skybox;
+
+    Ring_Queue< Serialized_Scene_Node > queue;
+    init(&queue, scene->nodes.count, to_allocator(scratch_memory.arena));
+
+    U32 serialized_node_index = 0;
+    push(&queue, { .node_index = 0, .serialized_parent_index = -1 });
+
+    String_Builder builder = {};
+    begin_string_builder(&builder, scratch_memory.arena);
+
+    append(&builder, "version 1\n");
+    append(&builder, "skybox_material_asset %llu\n", skybox->skybox_material_asset);
+    append(&builder, "node_count %u\n", scene->nodes.count);
+
+    while (!empty(&queue))
+    {
+        Serialized_Scene_Node item = {};
+        peek_front(&queue, &item);
+        pop_front(&queue);
+
+        Scene_Node *scene_node = get_node(scene, item.node_index);
+        serialize_scene_node(scene_node, item.serialized_parent_index, &builder);
+
+        S32 parent_index = serialized_node_index++;
+
+        for (S32 child_node_index = scene_node->first_child_index; child_node_index != -1; child_node_index = scene->nodes[child_node_index].next_sibling_index)
+        {
+            push(&queue, { .node_index = (U32)child_node_index, .serialized_parent_index = parent_index });
+        }
+    }
+
+    String contents = end_string_builder(&builder);
+    bool success = write_entire_file(path, (void *)contents.data, contents.count);
+    return success;
+}
+
+bool deserialize_transform(String *str, Transform *t)
+{
+    glm::vec3 &p = t->position;
+    glm::quat &r = t->rotation;
+    glm::vec3 &s = t->scale;
+
+    String position_lit = HE_STRING_LITERAL("position");
+    if (!starts_with(*str, position_lit))
+    {
+        return false;
+    }
+
+    *str = advance(*str, position_lit.count);
+    *str = eat_white_space(*str);
+
+    for (U32 i = 0; i < 3; i++)
+    {
+        String value = eat_none_white_space(str);
+        p[i] = str_to_f32(value);
+        *str = eat_white_space(*str);
+    }
+
+    String rotation_lit = HE_STRING_LITERAL("rotation");
+    if (!starts_with(*str, rotation_lit))
+    {
+        return false;
+    }
+
+    *str = advance(*str, rotation_lit.count);
+    *str = eat_white_space(*str);
+
+    glm::vec4 rv = {};
+
+    for (U32 i = 0; i < 4; i++)
+    {
+        String value = eat_none_white_space(str);
+        rv[i] = str_to_f32(value);
+        *str = eat_white_space(*str);
+    }
+    
+    r = glm::quat(rv.w, rv.x, rv.y, rv.z);
+    t->euler_angles = glm::eulerAngles(r);
+
+    String scale_lit = HE_STRING_LITERAL("scale");
+    if (!starts_with(*str, scale_lit))
+    {
+        return false;
+    }
+
+    *str = advance(*str, scale_lit.count);
+    *str = eat_white_space(*str);
+
+    for (U32 i = 0; i < 3; i++)
+    {
+        String value = eat_none_white_space(str);
+        s[i] = str_to_f32(value);
+        *str = eat_white_space(*str);
+    }
+
+    return true;
+}
+
+bool deserialize_light(String *str, Light_Component *light)
+{
+    Parse_Name_Value_Result result = parse_name_value(str, HE_STRING_LITERAL("type"));
+    if (!result.success)
+    {
+        return false;
+    }
+
+    Light_Type type = str_to_light_type(result.value);
+
+    String color_lit = HE_STRING_LITERAL("color");
+    if (!starts_with(*str, color_lit))
+    {
+        return false;
+    }
+    *str = advance(*str, color_lit.count);
+
+    glm::vec3 color = {};
+
+    for (U32 i = 0; i < 3; i++)
+    {
+        *str = eat_white_space(*str);
+        String value = eat_none_white_space(str);
+        color[i] = str_to_f32(value);
+        *str = eat_white_space(*str);
+    }
+
+    result = parse_name_value(str, HE_STRING_LITERAL("intensity"));
+    if (!result.success)
+    {
+        return false;
+    }
+    F32 intensity = str_to_f32(result.value);
+
+    result = parse_name_value(str, HE_STRING_LITERAL("radius"));
+    if (!result.success)
+    {
+        return false;
+    }
+
+    F32 radius = str_to_f32(result.value);
+
+    result = parse_name_value(str, HE_STRING_LITERAL("inner_angle"));
+    if (!result.success)
+    {
+        return false;
+    }
+
+    F32 inner_angle = str_to_f32(result.value);
+
+    result = parse_name_value(str, HE_STRING_LITERAL("outer_angle"));
+    if (!result.success)
+    {
+        return false;
+    }
+
+    F32 outer_angle = str_to_f32(result.value);
+
+    light->type = type;
+    light->color = color;
+    light->intensity = intensity;
+    light->radius = radius;
+    light->inner_angle = inner_angle;
+    light->outer_angle = outer_angle;
+    return true;
+}
+
+bool deserialize_scene(Scene_Handle scene_handle, String path)
+{
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Read_Entire_File_Result read_result = read_entire_file(path, to_allocator(scratch_memory.arena));
+    if (!read_result.success)
+    {
+        HE_LOG(Assets, Error, "failed to parse scene asset\n");
+        return false;
+    }
+
+    Scene *scene = renderer_get_scene(scene_handle);
+
+    remove_node(scene, get_root_node(scene));
+    scene->first_free_node_index = -1;
+    reset(&scene->nodes);
+
+    Skybox *skybox = &scene->skybox;
+
+    String contents = { .count = read_result.size, .data = (const char *)read_result.data };
+    String str = eat_white_space(contents);
+    Parse_Name_Value_Result result = parse_name_value(&str, HE_STRING_LITERAL("version"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "failed to parse scene asset\n");
+        return false;
+    }
+    U64 version = str_to_u64(result.value);
+
+    result = parse_name_value(&str, HE_STRING_LITERAL("skybox_material_asset"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "failed to parse scene asset\n");
+        return false;
+    }
+
+    Asset_Handle skybox_material = { .uuid = str_to_u64(result.value) };
+    skybox->skybox_material_asset = skybox_material.uuid;
+
+    result = parse_name_value(&str, HE_STRING_LITERAL("node_count"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "failed to parse scene asset\n");
+        return false;
+    }
+
+    U32 node_count = u64_to_u32(str_to_u64(result.value));
+    set_capacity(&scene->nodes, node_count);
+
+    for (U32 node_index = 0; node_index < node_count; node_index++)
+    {
+        result = parse_name_value(&str, HE_STRING_LITERAL("node_name"));
+        if (!result.success)
+        {
+            HE_LOG(Assets, Error, "failed to parse scene asset\n");
+            return false;
+        }
+        U64 name_count = str_to_u64(result.value);
+        String name = sub_string(str, 0, name_count);
+        str = advance(str, name_count);
+
+        result = parse_name_value(&str, HE_STRING_LITERAL("parent"));
+        if (!result.success)
+        {
+            HE_LOG(Assets, Error, "failed to parse scene asset\n");
+            return false;
+        }
+
+        S32 parent_index = (S32)str_to_s64(result.value);
+
+        result = parse_name_value(&str, HE_STRING_LITERAL("component_count"));
+        if (!result.success)
+        {
+            HE_LOG(Assets, Error, "failed to parse scene asset\n");
+            return false;
+        }
+
+        allocate_node(scene, name);
+        Scene_Node *node = get_node(scene, node_index);
+        if (parent_index != -1)
+        {
+            add_child_last(scene, get_node(scene, parent_index), node);
+        }
+
+        U32 component_count = u64_to_u32(str_to_u64(result.value));
+
+        for (U32 component_index = 0; component_index < component_count; component_index++)
+        {
+            result = parse_name_value(&str, HE_STRING_LITERAL("component"));
+            if (!result.success)
+            {
+                HE_LOG(Assets, Error, "failed to parse scene asset\n");
+                return false;
+            }
+
+            String type = result.value;
+            if (type == "transform")
+            {
+                if (!deserialize_transform(&str, &node->transform))
+                {
+                    HE_LOG(Assets, Error, "failed to parse scene asset\n");
+                    return false;
+                }
+            }
+            else if (type == "mesh")
+            {
+                result = parse_name_value(&str, HE_STRING_LITERAL("static_mesh_asset"));
+                if (!result.success)
+                {
+                    HE_LOG(Assets, Error, "failed to parse scene asset\n");
+                    return false;
+                }
+
+                node->has_mesh = true;
+                U64 static_mesh_asset = str_to_u64(result.value);
+                Static_Mesh_Component *static_mesh_comp = &node->mesh;
+                static_mesh_comp->static_mesh_asset = static_mesh_asset;
+            }
+            else if (type == "light")
+            {
+                node->has_light = true;
+                deserialize_light(&str, &node->light);
+            }
+        }
+    }
+
+    return true;
+}
+
 Scene_Node *get_root_node(Scene *scene)
 {
     HE_ASSERT(scene->nodes.count);
@@ -1772,13 +2164,13 @@ void remove_node(Scene *scene, Scene_Node *node)
         remove_node(scene, child);
     }
 
-    remove_child(scene, get_node(scene, node->parent_index), node);
+    if (node->parent_index != -1)
+    {
+        remove_child(scene, get_node(scene, node->parent_index), node);
+    }
 
     U32 node_index = index_of(&scene->nodes, node);
-    if (node->name.data)
-    {
-        deallocate(get_general_purpose_allocator(), (void *)node->name.data);
-    }
+    deallocate(get_general_purpose_allocator(), (void *)node->name.data);
 
     if (scene->first_free_node_index == -1)
     {
@@ -1793,65 +2185,88 @@ void remove_node(Scene *scene, Scene_Node *node)
     scene->first_free_node_index = node_index;
 }
 
-void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform)
+void traverse_scene_tree(Scene *scene, Scene_Node *node, const Transform &parent_transform)
 {
-    Transform transform = combine(parent_transform, scene_node->transform);
-    Render_Pass_Handle opaque_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("opaque"));
+    Transform transform = combine(parent_transform, node->transform);
 
-#if 0
-    if (scene_node->static_mesh_uuid != HE_MAX_U64)
+    if (node->has_mesh)
     {
-        Resource_Ref static_mesh_ref = { scene_node->static_mesh_uuid };
-        Static_Mesh_Handle static_mesh_handle = get_resource_handle_as<Static_Mesh>(static_mesh_ref);
-        Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
-        if (!static_mesh->is_uploaded_to_gpu)
+        Static_Mesh_Component *static_mesh_comp = &node->mesh;
+        Asset_Handle static_mesh_asset = { .uuid = static_mesh_comp->static_mesh_asset };
+        if (is_asset_handle_valid(static_mesh_asset))
         {
-            static_mesh_handle = renderer_state->default_static_mesh;
-            static_mesh = renderer_get_static_mesh(renderer_state->default_static_mesh);
-        }
-
-        HE_ASSERT(renderer_state->object_data_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
-        U32 object_data_index = renderer_state->object_data_count++;
-        Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
-        object_data->model = get_world_matrix(transform);
-
-        Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
-        for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
-        {
-            Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
-
-            Material_Handle material_handle = Resource_Pool<Material>::invalid_handle;
-
-            if (sub_mesh->material_uuid != HE_MAX_U64)
+            if (!is_asset_loaded(static_mesh_asset))
             {
-                Resource_Ref material_ref = { sub_mesh->material_uuid };
-                material_handle = get_resource_handle_as<Material>(material_ref);
+                aquire_asset(static_mesh_asset);
             }
             else
             {
-                material_handle = renderer_state->default_material;
-            }
+                Static_Mesh_Handle static_mesh_handle = get_asset_handle_as<Static_Mesh>(static_mesh_asset);
+                Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+                if (static_mesh->is_uploaded_to_gpu)
+                {
+                    HE_ASSERT(renderer_state->object_data_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
+                    U32 object_data_index = renderer_state->object_data_count++;
+                    Shader_Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
+                    object_data->model = get_world_matrix(transform);
 
-            Material *material = renderer_get_material(material_handle);
-            Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
+                    Buffer_Handle vertex_buffers[] =
+                    {
+                        static_mesh->positions_buffer,
+                        static_mesh->normals_buffer,
+                        static_mesh->uvs_buffer,
+                        static_mesh->tangents_buffer
+                    };
 
-            if (pipeline_state->descriptor.render_pass == opaque_pass)
-            {
-                Render_Packet *render_packet = &renderer_state->opaque_packets[renderer_state->opaque_packet_count++];
-                render_packet->static_mesh = static_mesh_handle;
-                render_packet->sub_mesh_index = sub_mesh_index;
-                render_packet->transform_index = object_data_index;
-                render_packet->material = material_handle;
+                    U64 offsets[] = { 0, 0, 0, 0 };
+
+                    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
+                    renderer->set_index_buffer(static_mesh->indices_buffer, 0);
+
+                    const Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
+                    for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
+                    {
+                        const Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
+
+                        Material_Handle material_handle = renderer_state->default_material;
+
+                        Asset_Handle material_asset = { .uuid = sub_mesh->material_asset };
+
+                        if (is_asset_handle_valid(material_asset))
+                        {
+                            if (!is_asset_loaded(material_asset))
+                            {
+                                aquire_asset(material_asset);
+                            }
+                            else
+                            {
+                                material_handle = get_asset_handle_as<Material>(material_asset);
+                            }
+                        }
+
+                        renderer_use_material(material_handle);
+                        renderer->draw_sub_mesh(static_mesh_handle, object_data_index, sub_mesh_index);
+                    }
+                }
             }
         }
-        
     }
 
-    for (Scene_Node *node = scene_node->first_child; node; node = node->next_sibling)
+    for (S32 node_index = node->first_child_index; node_index != -1; node_index = scene->nodes[node_index].next_sibling_index)
     {
-        renderer_parse_scene_tree(node, transform);
+        Scene_Node *child = get_node(scene, node_index);
+        traverse_scene_tree(scene, child, transform);
     }
-#endif
+}
+
+void render_scene(Scene_Handle scene_handle)
+{
+    Scene *scene = renderer_get_scene(scene_handle);
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Draw_Command *opaque_commands = HE_ALLOCATE_ARRAY(scratch_memory.arena, Draw_Command, scene->nodes.count);
+    Draw_Command *transparent_commands = HE_ALLOCATE_ARRAY(scratch_memory.arena, Draw_Command, scene->nodes.count);
+    Scene_Node *root = get_root_node(scene);
+    traverse_scene_tree(scene, root, get_identity_transform());
 }
 
 //

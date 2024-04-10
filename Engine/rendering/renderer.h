@@ -67,9 +67,9 @@ struct Scene_Data
     Directional_Light directional_light;
     Point_Light point_light;
     Spot_Light spot_light;
-
     U64 skybox_material_asset;
     U64 model_asset;
+    Scene_Handle scene_handle;
 };
 
 struct Renderer
@@ -163,8 +163,6 @@ struct Renderer_State
     Mutex pending_upload_requests_mutex;
     Counted_Array< Upload_Request_Handle, HE_MAX_UPLOAD_REQUEST_COUNT > pending_upload_requests;
 
-    Pipeline_State_Handle current_pipeline_state_handle;
-
     F32 gamma;
     bool triple_buffering;
     bool vsync;
@@ -200,6 +198,8 @@ struct Renderer_State
 
     Scene_Data scene_data;
     Render_Graph render_graph;
+
+    Pipeline_State_Handle current_pipeline_state_handle;
 
     bool imgui_docking;
 };
@@ -340,7 +340,10 @@ void add_child_after(Scene *scene, Scene_Node *target, Scene_Node *node);
 void remove_child(Scene *scene, Scene_Node *parent, Scene_Node *node);
 void remove_node(Scene *scene, Scene_Node *node);
 
-void renderer_parse_scene_tree(Scene_Node *scene_node, const Transform &parent_transform = get_identity_transform());
+void render_scene(Scene_Handle scene_handle);
+
+bool serialize_scene(Scene_Handle scene_handle, String path);
+bool deserialize_scene(Scene_Handle scene_handle, String path);
 
 //
 // Upload Request

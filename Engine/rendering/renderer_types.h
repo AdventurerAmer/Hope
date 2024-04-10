@@ -567,12 +567,13 @@ struct Light_Component
 {
     Light_Type type;
 
-    F32 radius;
-    F32 outer_angle;
-    F32 inner_angle;
-
     glm::vec3 color;
     F32 intensity;
+
+    F32 radius;
+
+    F32 inner_angle;
+    F32 outer_angle;
 };
 
 struct Scene_Node
@@ -597,12 +598,19 @@ struct Scene_Node
 struct Scene
 {
     Skybox skybox;
-
     Dynamic_Array< Scene_Node > nodes;
     S32 first_free_node_index;
 };
 
 using Scene_Handle = Resource_Handle< Scene >;
+
+struct Draw_Command
+{
+    Static_Mesh_Handle static_mesh;
+    Material_Handle material;
+    U16 sub_mesh_index;
+    U32 instance_index;
+};
 
 //
 // Uploads

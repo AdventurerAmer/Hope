@@ -1,5 +1,5 @@
 version 1
-entry_count 134
+entry_count 135
 
 asset 122433984408223052
 parent 0
@@ -508,6 +508,10 @@ path 30 sponza/2775690330959970771.jpg
 asset 17149917003605831596
 parent 0
 path 31 sponza/15295713303328085182.jpg
+
+asset 17319966283817102770
+parent 0
+path 12 test.hascene
 
 asset 17378923853646704072
 parent 0

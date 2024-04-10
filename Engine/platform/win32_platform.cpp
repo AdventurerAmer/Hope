@@ -197,52 +197,71 @@ static LRESULT CALLBACK win32_window_proc(HWND window, UINT message, WPARAM w_pa
             bool was_down = (l_param & (1u << 30));
             bool is_down = (l_param & (1u << 31)) == 0;
 
+            bool is_left_shift_down = GetKeyState(VK_LSHIFT) & 0x8000;
+            bool is_right_shift_down = GetKeyState(VK_RSHIFT) & 0x8000;
+            bool is_left_control_down = GetKeyState(VK_LCONTROL) & 0x8000;
+            bool is_right_control_down = GetKeyState(VK_RCONTROL) & 0x8000;
+            bool is_left_alt_down = GetKeyState(VK_LMENU) & 0x8000;
+            bool is_right_alt_down = GetKeyState(VK_RMENU) & 0x8000;
+
             if (key_code == VK_SHIFT)
             {
-                if (GetKeyState(VK_LSHIFT) & 0x8000)
+                if (is_left_shift_down)
                 {
                     key_code = VK_LSHIFT;
                 }
-                else if (GetKeyState(VK_RSHIFT) & 0x8000)
+                else if (is_right_shift_down)
                 {
                     key_code = VK_RSHIFT;
                 }
             }
 
+            if (key_code == VK_CONTROL)
+            {
+                if (is_left_control_down)
+                {
+                    key_code = VK_LCONTROL;
+                }
+                else if (is_right_control_down)
+                {
+                    key_code = VK_RCONTROL;
+                }
+            }
+
             if (key_code == VK_MENU)
             {
-                if (GetKeyState(VK_LMENU) & 0x8000)
+                if (is_left_alt_down)
                 {
                     key_code = VK_LMENU;
                 }
-                else if (GetKeyState(VK_RMENU) & 0x8000)
+                else if (is_right_alt_down)
                 {
                     key_code = VK_RMENU;
+                }
+            }
+
+            Input_State input_state = Input_State::RELEASED;
+
+            if (is_down)
+            {
+                if (was_down)
+                {
+                    input_state = Input_State::HELD;
+                }
+                else
+                {
+                    input_state = Input_State::PRESSED;
                 }
             }
 
             Event event = {};
             event.type = Event_Type::KEY;
             event.key = key_code;
-
-            if (is_down)
-            {
-                if (was_down)
-                {
-                    event.held = true;
-                    engine->input.key_states[key_code] = Input_State::HELD;
-                }
-                else
-                {
-                    event.pressed = true;
-                    engine->input.key_states[key_code] = Input_State::PRESSED;
-                }
-            }
-            else
-            {
-                engine->input.key_states[key_code] = Input_State::RELEASED;
-            }
-
+            event.is_control_down = is_left_control_down || is_right_control_down;
+            event.is_shift_down = is_left_shift_down || is_right_shift_down;
+            event.pressed = input_state == Input_State::PRESSED;
+            event.held = input_state == Input_State::HELD;
+            engine->input.key_states[key_code] = input_state;
             on_event(engine, event);
         } break;
 

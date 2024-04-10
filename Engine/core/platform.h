@@ -25,6 +25,7 @@ struct Event
 
     bool is_shift_down;
     bool is_control_down;
+    bool is_alt_down;
     bool double_click;
     
     U16 mouse_x;

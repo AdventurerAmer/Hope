@@ -5,15 +5,6 @@
 
 #include "rendering/renderer.h"
 
-#if 0
-extern Free_List_Allocator *stbi_image_allocator;
-
-#define STBI_MALLOC(sz) allocate(stbi_image_allocator, sz, 4)
-#define STBI_REALLOC(p, newsz) reallocate(stbi_image_allocator, p, newsz, 4)
-#define STBI_FREE(p) deallocate(stbi_image_allocator, p)
-
-#endif
-
 #pragma warning(push, 0)
 
 #define STB_IMAGE_IMPLEMENTATION

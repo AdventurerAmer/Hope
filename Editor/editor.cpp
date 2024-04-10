@@ -21,13 +21,24 @@ struct Editor_State
 	FPS_Camera_Controller camera_controller;
     Scene_Handle scene_handle;
     fs::path asset_path;
+
     S32 node_index = -1;
     S32 rename_node_index = -1;
     S32 dragging_node_index = -1;
     S32 selected_node_index = -1;
+    fs::path selected_path = "";
 };
 
 static Editor_State editor_state;
+
+static void reset_editor_state()
+{
+    editor_state.node_index = -1;
+    editor_state.rename_node_index = -1;
+    editor_state.dragging_node_index = -1;
+    editor_state.selected_node_index = -1;
+    editor_state.selected_path = "";
+}
 
 void draw_graphics_window();
 void draw_assets_window();
@@ -100,6 +111,8 @@ bool hope_app_init(Engine *engine)
     }
 
     editor_state.scene_handle = renderer_create_scene(1024);
+    deserialize_scene(editor_state.scene_handle, HE_STRING_LITERAL("assets/test.hascene"));
+    renderer_state->scene_data.scene_handle = editor_state.scene_handle;
     return true;
 }
 
@@ -131,6 +144,14 @@ void hope_app_on_event(Engine *engine, Event event)
                 {
                     engine->show_imgui = !engine->show_imgui;
                     engine->show_cursor = !engine->show_cursor;
+                }
+                else if (event.key == HE_KEY_S)
+                {
+                    if (event.is_control_down)
+                    {
+                        HE_LOG(Assets, Trace, "pressing ctrl + s\n");
+                        serialize_scene(editor_state.scene_handle, HE_STRING_LITERAL("assets/test.hascene"));
+                    }
                 }
 			}
 		} break;
@@ -200,6 +221,7 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
 void hope_app_shutdown(Engine *engine)
 {
     (void)engine;
+    serialize_scene(editor_state.scene_handle, HE_STRING_LITERAL("assets/test.hascene"));
 }
 
 static void draw_graphics_window()
@@ -970,7 +992,7 @@ static void create_material_asset_modal(bool open)
 static void draw_assets_window()
 {
     static fs::path current_path;
-    static fs::path selected_path;
+
 
     if (current_path.empty())
     {
@@ -1019,9 +1041,9 @@ static void draw_assets_window()
 
             Asset_Handle asset_handle = get_asset_handle(asset_path);
 
-            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth|ImGuiTreeNodeFlags_FramePadding;
+            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth|ImGuiTreeNodeFlags_FramePadding|ImGuiTreeNodeFlags_OpenOnArrow;
 
-            if (selected_path == path)
+            if (editor_state.selected_path == path)
             {
                 flags |= ImGuiTreeNodeFlags_Selected;
             }
@@ -1035,7 +1057,15 @@ static void draw_assets_window()
             ImGui::PushID(asset_path_string.c_str());
 
             bool is_open = ImGui::TreeNodeEx(relative.string().c_str(), flags);
+            
+            static bool was_toggled = false;
+            
             if (ImGui::IsItemClicked())
+            {
+                was_toggled = ImGui::IsItemToggledOpen();
+            }
+
+            if (ImGui::IsItemDeactivated() && !ImGui::IsDragDropActive() && !was_toggled)
             {
                 if (it.is_directory())
                 {
@@ -1043,7 +1073,9 @@ static void draw_assets_window()
                 }
                 else
                 {
-                    selected_path = path;
+                    reset_editor_state();
+                    editor_state.selected_path = path;
+
                     if (is_asset_file)
                     {
                         if (asset_handle.uuid == 0)
@@ -1084,11 +1116,12 @@ static void draw_assets_window()
                     const auto &entry = get_asset_registry_entry(embeded_asset);
                     String name = get_name(entry.path);
                     auto path = fs::path((const char *)entry.path.data);
-                    bool is_selected = selected_path == path;
+                    bool is_selected = editor_state.selected_path == path;
                     ImGui::Selectable(name.data, &is_selected);
-                    if (ImGui::IsItemClicked())
+                    if (ImGui::IsItemDeactivated() && !ImGui::IsDragDropActive())
                     {
-                        selected_path = path;
+                        reset_editor_state();
+                        editor_state.selected_path = path;
                         Inspector_Panel::inspect(embeded_asset);
                     }
                     ImGuiDragDropFlags src_flags = 0;
@@ -1263,6 +1296,7 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
 
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
     {
+        reset_editor_state();
         editor_state.selected_node_index = node_index;
         Inspector_Panel::inspect(get_node(scene, node_index));
     }

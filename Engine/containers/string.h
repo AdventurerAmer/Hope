@@ -95,6 +95,10 @@ String format_string(struct Memory_Arena *arena, const char *format, va_list arg
 
 String advance(String str, U64 count);
 String eat_chars(String str, String chars);
+String eat_none_of_chars(String str, String chars);
+
+String eat_white_space(String str);
+String eat_none_white_space(String *str);
 
 struct String_Builder
 {
@@ -116,5 +120,7 @@ struct Parse_Name_Value_Result
 };
 
 Parse_Name_Value_Result parse_name_value(String *str, String name);
+
 U64 str_to_u64(String str);
+S64 str_to_s64(String str);
 F32 str_to_f32(String str);
