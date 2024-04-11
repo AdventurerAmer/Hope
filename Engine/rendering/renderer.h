@@ -68,8 +68,7 @@ struct Scene_Data
     Point_Light point_light;
     Spot_Light spot_light;
     U64 skybox_material_asset;
-    U64 model_asset;
-    Scene_Handle scene_handle;
+    U64 scene_asset;
 };
 
 struct Renderer
@@ -136,6 +135,15 @@ struct Renderer
     void (*imgui_render)();
 };
 
+struct Frame_Render_Data
+{
+    Pipeline_State_Handle current_pipeline_state_handle;
+    Material_Handle current_material_handle;
+    Static_Mesh_Handle current_static_mesh_handle;
+    Dynamic_Array< Draw_Command > opaque_commands;
+    Dynamic_Array< Draw_Command > transparent_commands;
+};
+
 struct Renderer_State
 {
     struct Engine *engine;
@@ -196,10 +204,11 @@ struct Renderer_State
     
     Static_Mesh_Handle default_static_mesh;
 
-    Scene_Data scene_data;
     Render_Graph render_graph;
 
-    Pipeline_State_Handle current_pipeline_state_handle;
+    Scene_Data scene_data; // todo(amer): temprary
+
+    Frame_Render_Data render_data;
 
     bool imgui_docking;
 };
@@ -321,6 +330,7 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
 //
 
 Scene_Handle renderer_create_scene(U32 node_capacity);
+Scene_Handle renderer_create_scene(String name, U32 node_capacity);
 Scene *renderer_get_scene(Scene_Handle scene_handle);
 void renderer_destroy_scene(Scene_Handle &scene_handle);
 
@@ -333,14 +343,12 @@ Scene_Node *get_root_node(Scene *scene);
 Scene_Node *get_node(Scene *scene, S32 node_index);
 U32 allocate_node(Scene *scene, String name);
 
-void add_child_last(Scene *scene, Scene_Node *parent, Scene_Node *node);
-void add_child_first(Scene *scene, Scene_Node *parent, Scene_Node *node);
-void add_child_after(Scene *scene, Scene_Node *target, Scene_Node *node);
+void add_child_last(Scene *scene, S32 parent_index, U32 node_index);
+void add_child_first(Scene *scene, S32 parent_index, U32 node_index);
+void add_child_after(Scene *scene, U32 target_node_index, U32 node_index);
 
-void remove_child(Scene *scene, Scene_Node *parent, Scene_Node *node);
-void remove_node(Scene *scene, Scene_Node *node);
-
-void render_scene(Scene_Handle scene_handle);
+void remove_child(Scene *scene, S32 parent_index, U32 node_index);
+void remove_node(Scene *scene, U32 node_index);
 
 bool serialize_scene(Scene_Handle scene_handle, String path);
 bool deserialize_scene(Scene_Handle scene_handle, String path);
@@ -358,7 +366,12 @@ void renderer_handle_upload_requests();
 //
 // Render Context
 //
+
 Render_Context get_render_context();
+
+void begin_rendering(const Camera *camera = nullptr);
+void render_scene(Scene_Handle scene_handle);
+void end_rendering();
 
 //
 // Settings

@@ -20,7 +20,12 @@ enum class Inspection_Type
 
 union Inspection_Data
 {
-    Scene_Node *scene_node;
+    struct
+    {
+        Scene_Handle scene;
+        S32 scene_node_index;
+    };
+
     Asset_Handle asset_handle;
 };
 
@@ -48,7 +53,9 @@ void draw()
 
         case Inspection_Type::SCENE_NODE:
         {
-            inspect_scene_node(inspector_state.data.scene_node);
+            Scene *scene = renderer_get_scene(inspector_state.data.scene);
+            Scene_Node *node = get_node(scene, inspector_state.data.scene_node_index);
+            inspect_scene_node(node);
         } break;
 
         case Inspection_Type::ASSET:
@@ -60,12 +67,18 @@ void draw()
     ImGui::End();
 }
 
-void inspect(Scene_Node *scene_node)
+void inspect(Scene_Handle scene_handle, S32 scene_node_index)
 {
+    HE_ASSERT(scene_node_index != -1);
+
     inspector_state.type = Inspection_Type::SCENE_NODE;
-    inspector_state.data.scene_node = scene_node;
+    inspector_state.data.scene = scene_handle;
+    inspector_state.data.scene_node_index = scene_node_index;
+
+    Scene *scene = renderer_get_scene(scene_handle);
+    Scene_Node *node = get_node(scene, scene_node_index);
     memset(inspector_state.input_buffer, 0, sizeof(inspector_state.input_buffer));
-    memcpy(inspector_state.input_buffer, scene_node->name.data, scene_node->name.count);
+    memcpy(inspector_state.input_buffer, node->name.data, node->name.count);
 }
 
 void inspect(Asset_Handle asset_handle)
@@ -89,7 +102,7 @@ static void draw_transform(Transform *transform)
 
     ImGui::Text("Rotation");
     ImGui::SameLine();
-    if (ImGui::DragFloat3("###Rotation Drag Float3", &transform->euler_angles.x))
+    if (ImGui::DragFloat3("###Rotation Drag Float3", &transform->euler_angles.x, 1.0f, 0.0f, 360.0f))
     {
         transform->rotation = glm::quat(glm::radians(transform->euler_angles));
     }

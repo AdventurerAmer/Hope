@@ -13,6 +13,7 @@
 #include "assets/material_importer.h"
 #include "assets/model_importer.h"
 #include "assets/skybox_importer.h"
+#include "assets/scene_importer.h"
 
 #include <ExcaliburHash/ExcaliburHash.h>
 
@@ -151,7 +152,7 @@ bool init_asset_manager(String asset_path)
             HE_STRING_LITERAL("hascene")
         };
 
-        register_asset(HE_STRING_LITERAL("scene"), to_array_view(extensions), &load_texture, &unload_texture);
+        register_asset(HE_STRING_LITERAL("scene"), to_array_view(extensions), &load_scene, &unload_scene);
     }
 
     if (file_exists(asset_manager_state->asset_registry_path))

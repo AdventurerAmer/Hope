@@ -19,8 +19,9 @@ struct Editor_State
     Engine *engine;
 	Camera camera;
 	FPS_Camera_Controller camera_controller;
-    Scene_Handle scene_handle;
     fs::path asset_path;
+
+    Asset_Handle scene_asset;
 
     S32 node_index = -1;
     S32 rename_node_index = -1;
@@ -85,19 +86,6 @@ bool hope_app_init(Engine *engine)
     }
 
     {
-        Asset_Handle asset_asset = import_asset(HE_STRING_LITERAL("Sponza/Sponza.gltf"));
-        if (asset_asset.uuid)
-        {
-            aquire_asset(asset_asset);
-            renderer_state->scene_data.model_asset = asset_asset.uuid;
-        }
-        else
-        {
-            renderer_state->scene_data.model_asset = 0;
-        }
-    }
-
-    {
         Asset_Handle asset_handle = import_asset(HE_STRING_LITERAL("skybox/skybox_mat.hamaterial"));
         if (asset_handle.uuid)
         {
@@ -110,9 +98,21 @@ bool hope_app_init(Engine *engine)
         }
     }
 
-    editor_state.scene_handle = renderer_create_scene(1024);
-    deserialize_scene(editor_state.scene_handle, HE_STRING_LITERAL("assets/test.hascene"));
-    renderer_state->scene_data.scene_handle = editor_state.scene_handle;
+    Asset_Handle scene_asset = import_asset(HE_STRING_LITERAL("main.hascene"));
+
+    if (!is_asset_handle_valid(scene_asset))
+    {
+        String scene_name = HE_STRING_LITERAL("main");
+        Scene_Handle scene_handle = renderer_create_scene(scene_name, 1);
+        Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+        String save_path = format_string(scratch_memory.arena, "%.*s/%.*s.hascene", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(scene_name));
+        serialize_scene(scene_handle, save_path);
+        renderer_destroy_scene(scene_handle);
+    }
+
+    scene_asset = import_asset(HE_STRING_LITERAL("main.hascene"));
+    editor_state.scene_asset = scene_asset;
+    renderer_state->scene_data.scene_asset = scene_asset.uuid;
     return true;
 }
 
@@ -149,8 +149,13 @@ void hope_app_on_event(Engine *engine, Event event)
                 {
                     if (event.is_control_down)
                     {
-                        HE_LOG(Assets, Trace, "pressing ctrl + s\n");
-                        serialize_scene(editor_state.scene_handle, HE_STRING_LITERAL("assets/test.hascene"));
+                        if (is_asset_handle_valid(editor_state.scene_asset))
+                        {
+                            Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+                            const Asset_Registry_Entry &entry = get_asset_registry_entry(editor_state.scene_asset);
+                            String scene_path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
+                            serialize_scene(get_asset_handle_as<Scene>(editor_state.scene_asset), scene_path);
+                        }
                     }
                 }
 			}
@@ -213,15 +218,38 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
         draw_graphics_window();
         draw_assets_window();
         draw_scene_hierarchy_window();
-        imgui_draw_memory_system();
+        // imgui_draw_memory_system();
         Inspector_Panel::draw();
+
+        begin_rendering(camera);
+
+        if (is_asset_handle_valid(editor_state.scene_asset))
+        {
+            if (!is_asset_loaded(editor_state.scene_asset))
+            {
+                aquire_asset(editor_state.scene_asset);
+            }
+            else
+            {
+                Scene_Handle scene_handle = get_asset_handle_as<Scene>(editor_state.scene_asset);
+                render_scene(scene_handle);
+            }
+        }
+
+        end_rendering();
     }
 }
 
 void hope_app_shutdown(Engine *engine)
 {
     (void)engine;
-    serialize_scene(editor_state.scene_handle, HE_STRING_LITERAL("assets/test.hascene"));
+    if (is_asset_handle_valid(editor_state.scene_asset))
+    {
+        Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+        const Asset_Registry_Entry &entry = get_asset_registry_entry(editor_state.scene_asset);
+        String scene_path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
+        serialize_scene(get_asset_handle_as<Scene>(editor_state.scene_asset), scene_path);
+    }
 }
 
 static void draw_graphics_window()
@@ -1173,7 +1201,7 @@ enum class Add_Scene_Node_Operation
     AFTER,
 };
 
-static void add_model_to_scene(Scene *scene, Scene_Node *node, Asset_Handle asset_handle, Add_Scene_Node_Operation op)
+static void add_model_to_scene(Scene *scene, U32 node_index, Asset_Handle asset_handle, Add_Scene_Node_Operation op)
 {
     const Asset_Info *info = get_asset_info(asset_handle);
     if (info && info->name == HE_STRING_LITERAL("model"))
@@ -1188,27 +1216,27 @@ static void add_model_to_scene(Scene *scene, Scene_Node *node, Asset_Handle asse
         Model *model = get_asset_as<Model>(asset_handle);
         Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
-        Scene_Node *sub_scene_parent = node;
+        U32 sub_scene_parent = node_index;
 
         if (model->node_count != 1)
         {
-            U32 sub_scene_parent_index = allocate_node(scene, model->name);
-            sub_scene_parent = get_node(scene, sub_scene_parent_index);
+            sub_scene_parent = allocate_node(scene, model->name);
+
             switch (op)
             {
                 case Add_Scene_Node_Operation::FIRST:
                 {
-                    add_child_first(scene, node, sub_scene_parent);
+                    add_child_first(scene, node_index, sub_scene_parent);
                 } break;
 
                 case Add_Scene_Node_Operation::LAST:
                 {
-                    add_child_last(scene, node, sub_scene_parent);
+                    add_child_last(scene, node_index, sub_scene_parent);
                 } break;
 
                 case Add_Scene_Node_Operation::AFTER:
                 {
-                    add_child_after(scene, node, sub_scene_parent);
+                    add_child_after(scene, node_index, sub_scene_parent);
                 } break;
             }
         }
@@ -1221,6 +1249,7 @@ static void add_model_to_scene(Scene *scene, Scene_Node *node, Asset_Handle asse
 
             node_indices[i] = allocate_node(scene, model_node->name);
             Scene_Node *current_scene_node = get_node(scene, node_indices[i]);
+            current_scene_node->transform = model_node->transform;
 
             current_scene_node->has_mesh = model_node->has_mesh;
             current_scene_node->mesh = model_node->mesh;
@@ -1236,28 +1265,28 @@ static void add_model_to_scene(Scene *scene, Scene_Node *node, Asset_Handle asse
                     {
                         case Add_Scene_Node_Operation::FIRST:
                         {
-                            add_child_first(scene, sub_scene_parent, current_scene_node);
+                            add_child_first(scene, sub_scene_parent, node_indices[i]);
                         } break;
 
                         case Add_Scene_Node_Operation::LAST:
                         {
-                            add_child_last(scene, sub_scene_parent, current_scene_node);
+                            add_child_last(scene, sub_scene_parent, node_indices[i]);
                         } break;
 
                         case Add_Scene_Node_Operation::AFTER:
                         {
-                            add_child_after(scene, sub_scene_parent, current_scene_node);
+                            add_child_after(scene, sub_scene_parent, node_indices[i]);
                         } break;
                     }
                 }
                 else
                 {
-                    add_child_last(scene, sub_scene_parent, current_scene_node);
+                    add_child_last(scene, sub_scene_parent, node_indices[i]);
                 }
             }
             else
             {
-                add_child_last(scene, get_node(scene, node_indices[model_node->parent_index]), current_scene_node);
+                add_child_last(scene, node_indices[model_node->parent_index], node_indices[i]);
             }
         }
     }
@@ -1265,13 +1294,15 @@ static void add_model_to_scene(Scene *scene, Scene_Node *node, Asset_Handle asse
 
 static char buffer[128];
 
-static void draw_scene_node(Scene *scene, Scene_Node *node)
+static void draw_scene_node(Scene_Handle scene_handle, Scene *scene, S32 node_index)
 {
-    ImGui::PushID(node);
-    U32 node_index = (S32)index_of(&scene->nodes, node);
+    HE_ASSERT(node_index != -1);
+
+    ImGui::PushID(node_index);
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth|ImGuiTreeNodeFlags_FramePadding|ImGuiTreeNodeFlags_DefaultOpen|ImGuiTreeNodeFlags_OpenOnDoubleClick|ImGuiTreeNodeFlags_OpenOnArrow;
 
+    Scene_Node *node = get_node(scene, node_index);
     bool is_leaf = node->first_child_index == -1;
     if (is_leaf)
     {
@@ -1294,11 +1325,11 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
 
     bool is_open = ImGui::TreeNodeEx(label, flags);
 
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
     {
         reset_editor_state();
         editor_state.selected_node_index = node_index;
-        Inspector_Panel::inspect(get_node(scene, node_index));
+        Inspector_Panel::inspect(scene_handle, node_index);
     }
 
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
@@ -1323,14 +1354,14 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
         {
             U32 child_node_index = *(const U32*)payload->Data;
             Scene_Node *child = get_node(scene, child_node_index);
-            remove_child(scene, get_node(scene, child->parent_index), child);
-            add_child_last(scene, node, child);
+            remove_child(scene, child->parent_index, child_node_index);
+            add_child_last(scene, node_index, child_node_index);
         }
 
         if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_ASSET"))
         {
             Asset_Handle asset_handle = *(const Asset_Handle *)payload->Data;
-            add_model_to_scene(scene, node, asset_handle, Add_Scene_Node_Operation::LAST);
+            add_model_to_scene(scene, node_index, asset_handle, Add_Scene_Node_Operation::LAST);
         }
 
         ImGui::EndDragDropTarget();
@@ -1347,6 +1378,7 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
             {
                 editor_state.rename_node_index = -1;
                 String new_name = HE_STRING(buffer);
+                Scene_Node *node = get_node(scene, node_index);
                 if (node->name.data && new_name.count)
                 {
                     deallocate(get_general_purpose_allocator(), (void *)node->name.data);
@@ -1361,6 +1393,7 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
         bool is_dragging = ImGui::IsDragDropActive() &&
         (strcmp(ImGui::GetDragDropPayload()->DataType, "DND_SCENE_NODE") == 0 || strcmp(ImGui::GetDragDropPayload()->DataType, "DND_ASSET") == 0);
 
+        node = get_node(scene, node_index);
         if (!is_leaf && is_dragging && editor_state.dragging_node_index != (S32)node_index && node->first_child_index != editor_state.dragging_node_index)
         {
             ImGuiSelectableFlags flags = ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing;
@@ -1371,24 +1404,24 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
                 {
                     U32 child_node_index = *(const U32*)payload->Data;
                     Scene_Node *child = get_node(scene, child_node_index);
-                    remove_child(scene, get_node(scene, child->parent_index), child);
-                    add_child_first(scene, node, child);
+                    remove_child(scene, child->parent_index, child_node_index);
+                    add_child_first(scene, node_index, child_node_index);
                 }
 
                 if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_ASSET"))
                 {
                     Asset_Handle asset_handle = *(const Asset_Handle *)payload->Data;
-                    add_model_to_scene(scene, node, asset_handle, Add_Scene_Node_Operation::FIRST);
+                    add_model_to_scene(scene, node_index, asset_handle, Add_Scene_Node_Operation::FIRST);
                 }
 
                 ImGui::EndDragDropTarget();
             }   
         }
 
-        for (S32 node_index = node->first_child_index; node_index != -1; node_index = scene->nodes[node_index].next_sibling_index)
+        Scene_Node *node = get_node(scene, node_index);
+        for (S32 child_node_index = node->first_child_index; child_node_index != -1; child_node_index = get_node(scene, child_node_index)->next_sibling_index)
         {
-            Scene_Node *child = &scene->nodes[node_index];
-            draw_scene_node(scene, child);
+            draw_scene_node(scene_handle, scene, child_node_index);
         }
 
         ImGui::TreePop();
@@ -1396,6 +1429,7 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
 
     bool is_dragging = ImGui::IsDragDropActive() && (strcmp(ImGui::GetDragDropPayload()->DataType, "DND_SCENE_NODE") == 0 || strcmp(ImGui::GetDragDropPayload()->DataType, "DND_ASSET") == 0);
 
+    node = get_node(scene, node_index);
     if (is_dragging && node_index != 0 && editor_state.dragging_node_index != (S32)node_index && node->next_sibling_index != editor_state.dragging_node_index)
     {
         ImGuiSelectableFlags flags = ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing;
@@ -1406,14 +1440,14 @@ static void draw_scene_node(Scene *scene, Scene_Node *node)
             {
                 U32 child_node_index = *(const U32*)payload->Data;
                 Scene_Node *child = get_node(scene, child_node_index);
-                remove_child(scene, get_node(scene, child->parent_index), child);
-                add_child_after(scene, node, child);
+                remove_child(scene, child->parent_index, child_node_index);
+                add_child_after(scene, node_index, child_node_index);
             }
 
             if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_ASSET"))
             {
                 Asset_Handle asset_handle = *(const Asset_Handle *)payload->Data;
-                add_model_to_scene(scene, node, asset_handle, Add_Scene_Node_Operation::AFTER);
+                add_model_to_scene(scene, node_index, asset_handle, Add_Scene_Node_Operation::AFTER);
             }
 
             ImGui::EndDragDropTarget();
@@ -1427,60 +1461,68 @@ static void draw_scene_hierarchy_window()
 {
     ImGui::Begin("Hierarchy");
 
-    Scene *scene = renderer_get_scene(editor_state.scene_handle);
-
-    Scene_Node *root = get_root_node(scene);
-    draw_scene_node(scene, root);
-
-    static bool is_context_window_open = false;
-
-    if (ImGui::BeginPopupContextWindow())
+    if (is_asset_handle_valid(editor_state.scene_asset))
     {
-        is_context_window_open = true;
-
-        const char *label = "Create Child Node";
-        if (editor_state.node_index == -1)
+        if (!is_asset_loaded(editor_state.scene_asset))
         {
-            label = "Create Node";
+            aquire_asset(editor_state.scene_asset);
         }
-
-        if (ImGui::MenuItem(label))
+        else
         {
-            U32 node_index = allocate_node(scene, HE_STRING_LITERAL("Node"));
-            Scene_Node *parent = editor_state.node_index == -1 ? get_root_node(scene) : get_node(scene, editor_state.node_index);
-            Scene_Node *node = get_node(scene, node_index);
-            add_child_last(scene, parent, node);
-            memcpy(buffer, node->name.data, node->name.count);
-            editor_state.rename_node_index = node_index;
-        }
+            Scene_Handle scene_handle = get_asset_handle_as<Scene>(editor_state.scene_asset);
+            Scene *scene = renderer_get_scene(scene_handle);
+            draw_scene_node(scene_handle, scene, 0);
 
-        if (editor_state.node_index != -1)
-        {
-            Scene_Node *node = &scene->nodes[editor_state.node_index];
+            static bool is_context_window_open = false;
 
-            if (ImGui::MenuItem("Rename"))
+            if (ImGui::BeginPopupContextWindow())
             {
-                memset(buffer, 0, sizeof(buffer));
-                memcpy(buffer, node->name.data, node->name.count);
-                editor_state.rename_node_index = editor_state.node_index;
-            }
+                is_context_window_open = true;
 
-            if (ImGui::MenuItem("Delete"))
+                const char* label = "Create Child Node";
+                if (editor_state.node_index == -1)
+                {
+                    label = "Create Node";
+                }
+
+                if (ImGui::MenuItem(label))
+                {
+                    U32 node_index = allocate_node(scene, HE_STRING_LITERAL("Node"));
+                    Scene_Node *node = get_node(scene, node_index);
+                    add_child_last(scene, editor_state.node_index, node_index);
+                    memcpy(buffer, node->name.data, node->name.count);
+                    editor_state.rename_node_index = node_index;
+                }
+
+                if (editor_state.node_index != -1)
+                {
+                    Scene_Node *node = get_node(scene, editor_state.node_index);
+
+                    if (ImGui::MenuItem("Rename"))
+                    {
+                        memset(buffer, 0, sizeof(buffer));
+                        memcpy(buffer, node->name.data, node->name.count);
+                        editor_state.rename_node_index = editor_state.node_index;
+                    }
+
+                    if (ImGui::MenuItem("Delete"))
+                    {
+                        remove_node(scene, editor_state.node_index);
+                        editor_state.node_index = -1;
+                    }
+                }
+
+                ImGui::EndPopup();
+            }
+            else
             {
-                remove_node(scene, node);
+                if (is_context_window_open)
+                {
+                    editor_state.node_index = -1;
+                    is_context_window_open = false;
+                }
             }
         }
-
-        ImGui::EndPopup();
     }
-    else
-    {
-        if (is_context_window_open)
-        {
-            editor_state.node_index = -1;
-            is_context_window_open = false;
-        }
-    }
-
     ImGui::End();
 }

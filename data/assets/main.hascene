@@ -1,7 +1,7 @@
 version 1
 skybox_material_asset 1
 node_count 3
-node_name 4 Root
+node_name 4 main
 parent -1
 component_count 1
 component transform
@@ -14,15 +14,15 @@ component_count 2
 component transform
 position 0.000000 0.000000 0.000000
 rotation 0.000000 0.000000 0.000000 1.000000
-scale 5.000000 5.000000 5.000000
+scale 2.000000 2.000000 2.000000
 component mesh
-static_mesh_asset 6719325175347215281
-node_name 1 a
+static_mesh_asset 1596034640347025962
+node_name 6 Sponza
 parent 0
 component_count 2
 component transform
-position 1.000000 0.000000 0.000000
+position 0.000000 0.000000 0.000000
 rotation 0.000000 0.000000 0.000000 1.000000
-scale 3.000000 3.000000 3.000000
+scale 0.008000 0.008000 0.008000
 component mesh
-static_mesh_asset 6719325175347215281
+static_mesh_asset 9733723344646973205

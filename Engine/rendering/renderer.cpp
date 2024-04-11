@@ -365,92 +365,40 @@ bool init_renderer_state(Engine *engine)
                 renderer->draw_sub_mesh(static_mesh_handle, object_data_index, 0);
             }
 
-            Render_Pass_Handle opaque_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("opaque"));
-            Asset_Handle model_asset_handle = { .uuid = renderer_state->scene_data.model_asset };
-            if (is_asset_handle_valid(model_asset_handle) && is_asset_loaded(model_asset_handle))
+            Frame_Render_Data *render_data = &renderer_state->render_data;
+            
+            for (U32 draw_command_index = 0; draw_command_index < render_data->opaque_commands.count; draw_command_index++)
             {
-                Model *model = get_asset_as<Model>(model_asset_handle);
-                for (U32 node_index = 0; node_index < model->node_count; node_index++)
+                const Draw_Command *draw_command = &render_data->opaque_commands[draw_command_index];
+
+                if (render_data->current_material_handle != draw_command->material)
                 {
-                    Scene_Node *node = &model->nodes[node_index];
-
-                    if (!node->has_mesh)
-                    {
-                        continue;
-                    }
-
-                    Asset_Handle static_mesh_asset = { .uuid = node->mesh.static_mesh_asset };
-                    if (is_asset_handle_valid(static_mesh_asset))
-                    {
-                        Static_Mesh_Handle static_mesh_handle = renderer_state->default_static_mesh;
-
-                        if (!is_asset_loaded(static_mesh_asset))
-                        {
-                            aquire_asset(static_mesh_asset);
-                        }
-                        else
-                        {
-                            static_mesh_handle = get_asset_handle_as<Static_Mesh>(static_mesh_asset);
-                        }
-
-                        Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
-                        if (!static_mesh->is_uploaded_to_gpu)
-                        {
-                            continue;
-                        }
-
-                        HE_ASSERT(renderer_state->object_data_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
-                        U32 object_data_index = renderer_state->object_data_count++;
-                        Shader_Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
-                        object_data->model = get_world_matrix(node->transform);
-
-                        Buffer_Handle vertex_buffers[] =
-                        {
-                            static_mesh->positions_buffer,
-                            static_mesh->normals_buffer,
-                            static_mesh->uvs_buffer,
-                            static_mesh->tangents_buffer
-                        };
-
-                        U64 offsets[] = { 0, 0, 0, 0 };
-
-                        renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
-                        renderer->set_index_buffer(static_mesh->indices_buffer, 0);
-
-                        Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
-                        for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
-                        {
-                            Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
-
-                            Asset_Handle material_asset = { .uuid = sub_mesh->material_asset };
-                            Material_Handle material_handle = renderer_state->default_material;
-                            if (is_asset_handle_valid(material_asset))
-                            {
-                                if (!is_asset_loaded(material_asset))
-                                {
-                                    aquire_asset(material_asset);
-                                }
-                                else
-                                {
-                                    material_handle = get_asset_handle_as<Material>(material_asset);
-                                }
-                            }
-
-                            Material *material = renderer_get_material(material_handle);
-                            Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
-
-                            if (pipeline_state->descriptor.render_pass == opaque_pass)
-                            {
-                                renderer_use_material(material_handle);
-                                renderer->draw_sub_mesh(static_mesh_handle, object_data_index, sub_mesh_index);
-                            }
-                        }
-
-                    }
+                    render_data->current_material_handle = draw_command->material;
+                    renderer_use_material(draw_command->material);
                 }
-            }
 
-            render_scene(renderer_state->scene_data.scene_handle);
+                if (render_data->current_static_mesh_handle != draw_command->static_mesh)
+                {
+                    render_data->current_static_mesh_handle = draw_command->static_mesh;
+
+                    Static_Mesh *static_mesh = renderer_get_static_mesh(draw_command->static_mesh);
+
+                    Buffer_Handle vertex_buffers[] =
+                    {
+                        static_mesh->positions_buffer,
+                        static_mesh->normals_buffer,
+                        static_mesh->uvs_buffer,
+                        static_mesh->tangents_buffer
+                    };
+
+                    U64 offsets[] = { 0, 0, 0, 0 };
+
+                    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
+                    renderer->set_index_buffer(static_mesh->indices_buffer, 0);
+                }
+
+                renderer->draw_sub_mesh(draw_command->static_mesh, draw_command->instance_index, draw_command->sub_mesh_index);
+            }
         };
 
         Render_Target_Info render_targets[] =
@@ -612,6 +560,10 @@ bool init_renderer_state(Engine *engine)
             renderer_state->per_render_pass_bind_groups[frame_index] = renderer_create_bind_group(per_render_pass_bind_group_descriptor);
         }
     }
+
+    Frame_Render_Data *render_data = &renderer_state->render_data;
+    init(&render_data->opaque_commands);
+    init(&render_data->transparent_commands);
 
     return true;
 }
@@ -1555,10 +1507,10 @@ void renderer_use_material(Material_Handle material_handle)
 
     renderer->set_bind_groups(HE_PER_OBJECT_BIND_GROUP_INDEX, to_array_view(material_bind_groups));
 
-    if (renderer_state->current_pipeline_state_handle.index != material->pipeline_state_handle.index)
+    if (renderer_state->render_data.current_pipeline_state_handle.index != material->pipeline_state_handle.index)
     {
         renderer->set_pipeline_state(material->pipeline_state_handle);
-        renderer_state->current_pipeline_state_handle = material->pipeline_state_handle;
+        renderer_state->render_data.current_pipeline_state_handle = material->pipeline_state_handle;
     }
 }
 
@@ -1600,8 +1552,16 @@ Scene_Handle renderer_create_scene(U32 node_capacity)
     Scene_Handle scene_handle = aquire_handle(&renderer_state->scenes);
     Scene *scene = get(&renderer_state->scenes, scene_handle);
     init(&scene->nodes, 0, node_capacity);
+    scene->node_count = 0;
     scene->first_free_node_index = -1;
-    allocate_node(scene, HE_STRING_LITERAL("Root"));
+    return scene_handle;
+}
+
+Scene_Handle renderer_create_scene(String name, U32 node_capacity)
+{
+    Scene_Handle scene_handle = renderer_create_scene(node_capacity);
+    Scene *scene = get(&renderer_state->scenes, scene_handle);
+    allocate_node(scene, name);
     return scene_handle;
 }
 
@@ -1614,6 +1574,10 @@ Scene *renderer_get_scene(Scene_Handle scene_handle)
 void renderer_destroy_scene(Scene_Handle &scene_handle)
 {
     Scene *scene = get(&renderer_state->scenes, scene_handle);
+    if (scene->nodes.count)
+    {
+        remove_node(scene, 0);
+    }
     deinit(&scene->nodes);
     release_handle(&renderer_state->scenes, scene_handle);
     scene_handle = Resource_Pool< Scene >::invalid_handle;
@@ -1633,25 +1597,6 @@ static String light_type_to_str(Light_Type type)
     }
 
     return {};
-}
-
-static Light_Type str_to_light_type(String str)
-{
-    if (str == "directional")
-    {
-        return Light_Type::DIRECTIONAL;
-    }
-    else if (str == "point")
-    {
-        return Light_Type::POINT;
-    }
-    else if (str == "spot")
-    {
-        return Light_Type::SPOT;
-    }
-
-    HE_ASSERT(!"unsupported light type");
-    return (Light_Type)0;
 }
 
 void serialize_scene_node(Scene_Node *node, S32 parent_index, String_Builder *builder)
@@ -1720,7 +1665,7 @@ bool serialize_scene(Scene_Handle scene_handle, String path)
     Skybox *skybox = &scene->skybox;
 
     Ring_Queue< Serialized_Scene_Node > queue;
-    init(&queue, scene->nodes.count, to_allocator(scratch_memory.arena));
+    init(&queue, scene->node_count, to_allocator(scratch_memory.arena));
 
     U32 serialized_node_index = 0;
     push(&queue, { .node_index = 0, .serialized_parent_index = -1 });
@@ -1730,7 +1675,7 @@ bool serialize_scene(Scene_Handle scene_handle, String path)
 
     append(&builder, "version 1\n");
     append(&builder, "skybox_material_asset %llu\n", skybox->skybox_material_asset);
-    append(&builder, "node_count %u\n", scene->nodes.count);
+    append(&builder, "node_count %u\n", scene->node_count);
 
     while (!empty(&queue))
     {
@@ -1752,263 +1697,6 @@ bool serialize_scene(Scene_Handle scene_handle, String path)
     String contents = end_string_builder(&builder);
     bool success = write_entire_file(path, (void *)contents.data, contents.count);
     return success;
-}
-
-bool deserialize_transform(String *str, Transform *t)
-{
-    glm::vec3 &p = t->position;
-    glm::quat &r = t->rotation;
-    glm::vec3 &s = t->scale;
-
-    String position_lit = HE_STRING_LITERAL("position");
-    if (!starts_with(*str, position_lit))
-    {
-        return false;
-    }
-
-    *str = advance(*str, position_lit.count);
-    *str = eat_white_space(*str);
-
-    for (U32 i = 0; i < 3; i++)
-    {
-        String value = eat_none_white_space(str);
-        p[i] = str_to_f32(value);
-        *str = eat_white_space(*str);
-    }
-
-    String rotation_lit = HE_STRING_LITERAL("rotation");
-    if (!starts_with(*str, rotation_lit))
-    {
-        return false;
-    }
-
-    *str = advance(*str, rotation_lit.count);
-    *str = eat_white_space(*str);
-
-    glm::vec4 rv = {};
-
-    for (U32 i = 0; i < 4; i++)
-    {
-        String value = eat_none_white_space(str);
-        rv[i] = str_to_f32(value);
-        *str = eat_white_space(*str);
-    }
-    
-    r = glm::quat(rv.w, rv.x, rv.y, rv.z);
-    t->euler_angles = glm::eulerAngles(r);
-
-    String scale_lit = HE_STRING_LITERAL("scale");
-    if (!starts_with(*str, scale_lit))
-    {
-        return false;
-    }
-
-    *str = advance(*str, scale_lit.count);
-    *str = eat_white_space(*str);
-
-    for (U32 i = 0; i < 3; i++)
-    {
-        String value = eat_none_white_space(str);
-        s[i] = str_to_f32(value);
-        *str = eat_white_space(*str);
-    }
-
-    return true;
-}
-
-bool deserialize_light(String *str, Light_Component *light)
-{
-    Parse_Name_Value_Result result = parse_name_value(str, HE_STRING_LITERAL("type"));
-    if (!result.success)
-    {
-        return false;
-    }
-
-    Light_Type type = str_to_light_type(result.value);
-
-    String color_lit = HE_STRING_LITERAL("color");
-    if (!starts_with(*str, color_lit))
-    {
-        return false;
-    }
-    *str = advance(*str, color_lit.count);
-
-    glm::vec3 color = {};
-
-    for (U32 i = 0; i < 3; i++)
-    {
-        *str = eat_white_space(*str);
-        String value = eat_none_white_space(str);
-        color[i] = str_to_f32(value);
-        *str = eat_white_space(*str);
-    }
-
-    result = parse_name_value(str, HE_STRING_LITERAL("intensity"));
-    if (!result.success)
-    {
-        return false;
-    }
-    F32 intensity = str_to_f32(result.value);
-
-    result = parse_name_value(str, HE_STRING_LITERAL("radius"));
-    if (!result.success)
-    {
-        return false;
-    }
-
-    F32 radius = str_to_f32(result.value);
-
-    result = parse_name_value(str, HE_STRING_LITERAL("inner_angle"));
-    if (!result.success)
-    {
-        return false;
-    }
-
-    F32 inner_angle = str_to_f32(result.value);
-
-    result = parse_name_value(str, HE_STRING_LITERAL("outer_angle"));
-    if (!result.success)
-    {
-        return false;
-    }
-
-    F32 outer_angle = str_to_f32(result.value);
-
-    light->type = type;
-    light->color = color;
-    light->intensity = intensity;
-    light->radius = radius;
-    light->inner_angle = inner_angle;
-    light->outer_angle = outer_angle;
-    return true;
-}
-
-bool deserialize_scene(Scene_Handle scene_handle, String path)
-{
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    Read_Entire_File_Result read_result = read_entire_file(path, to_allocator(scratch_memory.arena));
-    if (!read_result.success)
-    {
-        HE_LOG(Assets, Error, "failed to parse scene asset\n");
-        return false;
-    }
-
-    Scene *scene = renderer_get_scene(scene_handle);
-
-    remove_node(scene, get_root_node(scene));
-    scene->first_free_node_index = -1;
-    reset(&scene->nodes);
-
-    Skybox *skybox = &scene->skybox;
-
-    String contents = { .count = read_result.size, .data = (const char *)read_result.data };
-    String str = eat_white_space(contents);
-    Parse_Name_Value_Result result = parse_name_value(&str, HE_STRING_LITERAL("version"));
-    if (!result.success)
-    {
-        HE_LOG(Assets, Error, "failed to parse scene asset\n");
-        return false;
-    }
-    U64 version = str_to_u64(result.value);
-
-    result = parse_name_value(&str, HE_STRING_LITERAL("skybox_material_asset"));
-    if (!result.success)
-    {
-        HE_LOG(Assets, Error, "failed to parse scene asset\n");
-        return false;
-    }
-
-    Asset_Handle skybox_material = { .uuid = str_to_u64(result.value) };
-    skybox->skybox_material_asset = skybox_material.uuid;
-
-    result = parse_name_value(&str, HE_STRING_LITERAL("node_count"));
-    if (!result.success)
-    {
-        HE_LOG(Assets, Error, "failed to parse scene asset\n");
-        return false;
-    }
-
-    U32 node_count = u64_to_u32(str_to_u64(result.value));
-    set_capacity(&scene->nodes, node_count);
-
-    for (U32 node_index = 0; node_index < node_count; node_index++)
-    {
-        result = parse_name_value(&str, HE_STRING_LITERAL("node_name"));
-        if (!result.success)
-        {
-            HE_LOG(Assets, Error, "failed to parse scene asset\n");
-            return false;
-        }
-        U64 name_count = str_to_u64(result.value);
-        String name = sub_string(str, 0, name_count);
-        str = advance(str, name_count);
-
-        result = parse_name_value(&str, HE_STRING_LITERAL("parent"));
-        if (!result.success)
-        {
-            HE_LOG(Assets, Error, "failed to parse scene asset\n");
-            return false;
-        }
-
-        S32 parent_index = (S32)str_to_s64(result.value);
-
-        result = parse_name_value(&str, HE_STRING_LITERAL("component_count"));
-        if (!result.success)
-        {
-            HE_LOG(Assets, Error, "failed to parse scene asset\n");
-            return false;
-        }
-
-        allocate_node(scene, name);
-        Scene_Node *node = get_node(scene, node_index);
-        if (parent_index != -1)
-        {
-            add_child_last(scene, get_node(scene, parent_index), node);
-        }
-
-        U32 component_count = u64_to_u32(str_to_u64(result.value));
-
-        for (U32 component_index = 0; component_index < component_count; component_index++)
-        {
-            result = parse_name_value(&str, HE_STRING_LITERAL("component"));
-            if (!result.success)
-            {
-                HE_LOG(Assets, Error, "failed to parse scene asset\n");
-                return false;
-            }
-
-            String type = result.value;
-            if (type == "transform")
-            {
-                if (!deserialize_transform(&str, &node->transform))
-                {
-                    HE_LOG(Assets, Error, "failed to parse scene asset\n");
-                    return false;
-                }
-            }
-            else if (type == "mesh")
-            {
-                result = parse_name_value(&str, HE_STRING_LITERAL("static_mesh_asset"));
-                if (!result.success)
-                {
-                    HE_LOG(Assets, Error, "failed to parse scene asset\n");
-                    return false;
-                }
-
-                node->has_mesh = true;
-                U64 static_mesh_asset = str_to_u64(result.value);
-                Static_Mesh_Component *static_mesh_comp = &node->mesh;
-                static_mesh_comp->static_mesh_asset = static_mesh_asset;
-            }
-            else if (type == "light")
-            {
-                node->has_light = true;
-                deserialize_light(&str, &node->light);
-            }
-        }
-    }
-
-    return true;
 }
 
 Scene_Node *get_root_node(Scene *scene)
@@ -2052,17 +1740,17 @@ U32 allocate_node(Scene *scene, String name)
     node->has_mesh = false;
     node->has_light = false;
 
+    scene->node_count++;
     return node_index;
 }
 
-void add_child_last(Scene *scene, Scene_Node *parent, Scene_Node *node)
+void add_child_last(Scene *scene, S32 parent_index, U32 node_index)
 {
     HE_ASSERT(scene);
-    HE_ASSERT(parent);
-    HE_ASSERT(node);
 
-    node->parent_index = index_of(&scene->nodes, parent);
-    U32 node_index = index_of(&scene->nodes, node);
+    Scene_Node *parent = get_node(scene, parent_index);
+    Scene_Node *node = get_node(scene, node_index);
+    node->parent_index = parent_index;
 
     if (parent->last_child_index != -1)
     {
@@ -2076,14 +1764,14 @@ void add_child_last(Scene *scene, Scene_Node *parent, Scene_Node *node)
     }
 }
 
-void add_child_first(Scene *scene, Scene_Node *parent, Scene_Node *node)
+void add_child_first(Scene *scene, S32 parent_index, U32 node_index)
 {
     HE_ASSERT(scene);
-    HE_ASSERT(parent);
-    HE_ASSERT(node);
 
-    node->parent_index = index_of(&scene->nodes, parent);
-    U32 node_index = index_of(&scene->nodes, node);
+    Scene_Node *parent = get_node(scene, parent_index);
+    Scene_Node *node = get_node(scene, node_index);
+
+    node->parent_index = parent_index;
 
     if (parent->first_child_index != -1)
     {
@@ -2097,21 +1785,18 @@ void add_child_first(Scene *scene, Scene_Node *parent, Scene_Node *node)
     }
 }
 
-void add_child_after(Scene *scene, Scene_Node *target, Scene_Node *node)
+void add_child_after(Scene *scene, U32 target_node_index, U32 node_index)
 {
     HE_ASSERT(scene);
-    HE_ASSERT(target);
-    HE_ASSERT(node);
 
-    Scene_Node *parent = get_node(scene, target->parent_index);
-
-    U32 target_index = index_of(&scene->nodes, target);
-    U32 parent_index = index_of(&scene->nodes, parent);
-    U32 node_index = index_of(&scene->nodes, node);
+    Scene_Node *target_node = get_node(scene, target_node_index);
+    Scene_Node *parent = get_node(scene, target_node->parent_index);
+    Scene_Node *node = get_node(scene, node_index);
+    U32 parent_index = target_node->parent_index;
     
     node->parent_index = parent_index;
 
-    if (parent->last_child_index == target_index)
+    if (parent->last_child_index == target_node_index)
     {
         node->prev_sibling_index = parent->last_child_index;
         scene->nodes[parent->last_child_index].next_sibling_index = node_index;
@@ -2119,19 +1804,19 @@ void add_child_after(Scene *scene, Scene_Node *target, Scene_Node *node)
     }
     else
     {
-        node->next_sibling_index = target->next_sibling_index;
-        node->prev_sibling_index = target_index;
+        node->next_sibling_index = target_node->next_sibling_index;
+        node->prev_sibling_index = target_node_index;
 
-        scene->nodes[target->next_sibling_index].prev_sibling_index = node_index;
-        target->next_sibling_index = node_index;
+        scene->nodes[target_node->next_sibling_index].prev_sibling_index = node_index;
+        target_node->next_sibling_index = node_index;
     }
 }
 
-void remove_child(Scene *scene, Scene_Node *parent, Scene_Node *node)
+void remove_child(Scene *scene, S32 parent_index, U32 node_index)
 {
-    HE_ASSERT(parent);
-    HE_ASSERT(node);
-    HE_ASSERT(node->parent_index == index_of(&scene->nodes, parent));
+    Scene_Node *parent = get_node(scene, parent_index);
+    Scene_Node *node = get_node(scene, node_index);
+    HE_ASSERT(node->parent_index == parent_index);
     
     if (node->prev_sibling_index != -1)
     {
@@ -2156,20 +1841,20 @@ void remove_child(Scene *scene, Scene_Node *parent, Scene_Node *node)
     node->prev_sibling_index = -1;
 }
 
-void remove_node(Scene *scene, Scene_Node *node)
+void remove_node(Scene *scene, U32 node_index)
 {
-    for (S32 node_index = node->first_child_index; node_index != -1; node_index = get_node(scene, node_index)->next_sibling_index)
+    Scene_Node *node = get_node(scene, node_index);
+
+    for (S32 child_node_index = node->first_child_index; child_node_index != -1; child_node_index = get_node(scene, child_node_index)->next_sibling_index)
     {
-        Scene_Node *child = get_node(scene, node_index);
-        remove_node(scene, child);
+        remove_node(scene, child_node_index);
     }
 
     if (node->parent_index != -1)
     {
-        remove_child(scene, get_node(scene, node->parent_index), node);
+        remove_child(scene, node->parent_index, node_index);
     }
 
-    U32 node_index = index_of(&scene->nodes, node);
     deallocate(get_general_purpose_allocator(), (void *)node->name.data);
 
     if (scene->first_free_node_index == -1)
@@ -2183,10 +1868,15 @@ void remove_node(Scene *scene, Scene_Node *node)
     }
 
     scene->first_free_node_index = node_index;
+
+    HE_ASSERT(scene->node_count);
+    scene->node_count--;
 }
 
-void traverse_scene_tree(Scene *scene, Scene_Node *node, const Transform &parent_transform)
+static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_transform, Frame_Render_Data *render_data)
 {
+    Scene_Node *node = get_node(scene, node_index);
+
     Transform transform = combine(parent_transform, node->transform);
 
     if (node->has_mesh)
@@ -2202,6 +1892,7 @@ void traverse_scene_tree(Scene *scene, Scene_Node *node, const Transform &parent
             else
             {
                 Static_Mesh_Handle static_mesh_handle = get_asset_handle_as<Static_Mesh>(static_mesh_asset);
+
                 Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
                 if (static_mesh->is_uploaded_to_gpu)
                 {
@@ -2209,19 +1900,6 @@ void traverse_scene_tree(Scene *scene, Scene_Node *node, const Transform &parent
                     U32 object_data_index = renderer_state->object_data_count++;
                     Shader_Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
                     object_data->model = get_world_matrix(transform);
-
-                    Buffer_Handle vertex_buffers[] =
-                    {
-                        static_mesh->positions_buffer,
-                        static_mesh->normals_buffer,
-                        static_mesh->uvs_buffer,
-                        static_mesh->tangents_buffer
-                    };
-
-                    U64 offsets[] = { 0, 0, 0, 0 };
-
-                    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
-                    renderer->set_index_buffer(static_mesh->indices_buffer, 0);
 
                     const Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
                     for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
@@ -2244,29 +1922,31 @@ void traverse_scene_tree(Scene *scene, Scene_Node *node, const Transform &parent
                             }
                         }
 
-                        renderer_use_material(material_handle);
-                        renderer->draw_sub_mesh(static_mesh_handle, object_data_index, sub_mesh_index);
+                        HE_ASSERT(is_valid_handle(&renderer_state->static_meshes, static_mesh_handle));
+                        HE_ASSERT(is_valid_handle(&renderer_state->materials, material_handle));
+
+                        Draw_Command &draw_command = append(&render_data->opaque_commands);
+                        draw_command.static_mesh = static_mesh_handle;
+                        draw_command.sub_mesh_index = sub_mesh_index;
+                        draw_command.material = material_handle;
+                        draw_command.instance_index = object_data_index;
                     }
                 }
             }
         }
     }
 
-    for (S32 node_index = node->first_child_index; node_index != -1; node_index = scene->nodes[node_index].next_sibling_index)
+    for (S32 child_node_index = node->first_child_index; child_node_index != -1; child_node_index = get_node(scene, child_node_index)->next_sibling_index)
     {
-        Scene_Node *child = get_node(scene, node_index);
-        traverse_scene_tree(scene, child, transform);
+        traverse_scene_tree(scene, child_node_index, transform, render_data);
     }
 }
 
 void render_scene(Scene_Handle scene_handle)
 {
     Scene *scene = renderer_get_scene(scene_handle);
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    Draw_Command *opaque_commands = HE_ALLOCATE_ARRAY(scratch_memory.arena, Draw_Command, scene->nodes.count);
-    Draw_Command *transparent_commands = HE_ALLOCATE_ARRAY(scratch_memory.arena, Draw_Command, scene->nodes.count);
-    Scene_Node *root = get_root_node(scene);
-    traverse_scene_tree(scene, root, get_identity_transform());
+    traverse_scene_tree(scene, 0, get_identity_transform(), &renderer_state->render_data);
+    render(&renderer_state->render_graph, renderer, renderer_state);
 }
 
 //
@@ -2433,6 +2113,170 @@ void renderer_set_triple_buffering(bool enabled)
     }
     
     renderer_state->current_frame_in_flight_index = 0;
+}
+
+static U8* get_pointer(Shader_Struct *_struct, U8 *data, String name)
+{
+    for (U32 i = 0; i < _struct->member_count; i++)
+    {
+        Shader_Struct_Member *member = &_struct->members[i];
+        if (member->name == name)
+        {
+            return &data[member->offset];
+        }
+    }
+
+    return nullptr;
+}
+
+void begin_rendering(const Camera *camera)
+{
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+
+    renderer->begin_frame();
+
+    U32 frame_index = renderer_state->current_frame_in_flight_index;
+
+    Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[frame_index]);
+
+    Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_shader, HE_STRING_LITERAL("Globals"));
+    glm::mat4 *view = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("view"));
+    glm::mat4 *projection = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("projection"));
+    glm::vec3 *eye = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("eye"));
+    glm::vec3 *directional_light_direction = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("directional_light_direction"));
+    glm::vec3 *directional_light_color = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("directional_light_color"));
+    U32 *light_count = (U32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("light_count"));
+    Shader_Light *lights = (Shader_Light *)get_pointer(globals_struct, (U8*)global_uniform_buffer->data, HE_STRING_LITERAL("lights"));
+    F32 *gamma = (F32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("gamma"));
+
+    Scene_Data *scene_data = &renderer_state->scene_data;
+
+    *view = glm::mat4(1.0f);
+    *projection = glm::mat4(1.0f);
+    *eye = glm::vec3(0.0f);
+
+    if (camera)
+    {
+        *view = camera->view;
+        glm::mat4 proj = camera->projection;
+        proj[1][1] *= -1;
+        *projection = proj;
+        *eye = camera->position;
+    }
+
+    *gamma = renderer_state->gamma;
+
+    *directional_light_direction = scene_data->directional_light.direction;
+    *directional_light_color = srgb_to_linear(scene_data->directional_light.color, renderer_state->gamma) * scene_data->directional_light.intensity;
+    *light_count = 2;
+
+    {
+        Shader_Light *light = &lights[0];
+        light->position = scene_data->point_light.position;
+        light->radius = scene_data->point_light.radius;
+
+        light->direction = { 0.0f, 0.0f, 0.0f };
+        light->outer_angle = glm::radians(180.0f);
+        light->inner_angle = glm::radians(0.0f);
+
+        light->color = srgb_to_linear(scene_data->point_light.color, renderer_state->gamma) * scene_data->point_light.intensity;
+    }
+
+    {
+        Shader_Light *light = &lights[1];
+        light->position = scene_data->spot_light.position;
+        light->radius = scene_data->spot_light.radius;
+        light->direction = scene_data->spot_light.direction;
+        light->outer_angle = glm::radians(scene_data->spot_light.outer_angle);
+        light->inner_angle = glm::radians(scene_data->spot_light.inner_angle);
+        light->color = srgb_to_linear(scene_data->spot_light.color, renderer_state->gamma) * scene_data->spot_light.intensity;
+    }
+
+    Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[frame_index]);
+    renderer_state->object_data_base = (Shader_Object_Data *)object_data_storage_buffer->data;
+    renderer_state->object_data_count = 0;
+
+    Frame_Render_Data *render_data = &renderer_state->render_data;
+
+    render_data->current_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
+    render_data->current_material_handle = Resource_Pool< Material >::invalid_handle;
+    render_data->current_static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
+    reset(&render_data->opaque_commands);
+    reset(&render_data->transparent_commands);
+
+    U32 texture_count = renderer_state->textures.capacity;
+    Texture_Handle *textures = HE_ALLOCATE_ARRAY(scratch_memory.arena, Texture_Handle, texture_count);
+    Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(scratch_memory.arena, Sampler_Handle, texture_count);
+
+    for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
+    {
+        Texture *texture = get(&renderer_state->textures, it);
+
+        if (texture->is_attachment || !texture->is_uploaded_to_gpu)
+        {
+            textures[it.index] = renderer_state->white_pixel_texture;
+        }
+        else
+        {
+            textures[it.index] = it;
+        }
+
+        samplers[it.index] = texture->is_cubemap ? renderer_state->default_cubemap_sampler : renderer_state->default_texture_sampler;
+    }
+
+    Update_Binding_Descriptor globals_uniform_buffer_binding =
+    {
+        .binding_number = 0,
+        .element_index = 0,
+        .count = 1,
+        .buffers = &renderer_state->globals_uniform_buffers[frame_index]
+    };
+
+    Update_Binding_Descriptor object_data_storage_buffer_binding =
+    {
+        .binding_number = 1,
+        .element_index = 0,
+        .count = 1,
+        .buffers = &renderer_state->object_data_storage_buffers[frame_index]
+    };
+
+    Update_Binding_Descriptor update_binding_descriptors[] =
+    {
+        globals_uniform_buffer_binding,
+        object_data_storage_buffer_binding
+    };
+    renderer_update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
+
+    Update_Binding_Descriptor update_textures_binding_descriptors[] =
+    {
+        {
+            .binding_number = 0,
+            .element_index = 0,
+            .count = texture_count,
+            .textures = textures,
+            .samplers = samplers
+        },
+    };
+    renderer_update_bind_group(renderer_state->per_render_pass_bind_groups[frame_index], to_array_view(update_textures_binding_descriptors));
+
+    Bind_Group_Handle bind_groups[] =
+    {
+        renderer_state->per_frame_bind_groups[frame_index],
+        renderer_state->per_render_pass_bind_groups[frame_index]
+    };
+
+    renderer->set_bind_groups(0, to_array_view(bind_groups));
+}
+
+void end_rendering()
+{
+    renderer->end_frame();
+
+    renderer_state->current_frame_in_flight_index++;
+    if (renderer_state->current_frame_in_flight_index >= renderer_state->frames_in_flight)
+    {
+        renderer_state->current_frame_in_flight_index = 0;
+    }
 }
 
 //
