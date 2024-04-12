@@ -7,6 +7,8 @@
 #include "containers/string.h"
 #include "containers/resource_pool.h"
 
+#include "../data/shaders/common.glsl"
+
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 #include <glm/mat4x4.hpp>
@@ -24,9 +26,6 @@
 #define HE_MAX_BIND_GROUP_INDEX_COUNT 4
 #define HE_MAX_ATTACHMENT_COUNT 16
 #define HE_MAX_SHADER_COUNT_PER_PIPELINE 8
-#define HE_PER_FRAME_BIND_GROUP_INDEX 0
-#define HE_PER_PASS_BIND_GROUP_INDEX 1
-#define HE_PER_OBJECT_BIND_GROUP_INDEX 2
 #define HE_MAX_LIGHT_COUNT_PER_SCENE 1024
 
 #ifdef HE_SHIPPING
@@ -553,9 +552,9 @@ struct Skybox
 
 enum class Light_Type : U8
 {
-    DIRECTIONAL,
-    POINT,
-    SPOT
+    DIRECTIONAL = 0,
+    POINT = 1,
+    SPOT = 2
 };
 
 struct Static_Mesh_Component
@@ -641,15 +640,16 @@ using Upload_Request_Handle = Resource_Handle< Upload_Request >;
 // Shader Structs
 //
 
-struct Shader_Object_Data
+struct Shader_Instance_Data
 {
     glm::mat4 model;
 };
 
 struct Shader_Light
 {
-    glm::vec3 position;
+    U32 type;
     alignas(16) glm::vec3 direction;
+    alignas(16) glm::vec3 position;
     alignas(4) F32 radius;
     alignas(4) F32 outer_angle;
     alignas(4) F32 inner_angle;

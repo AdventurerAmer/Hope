@@ -258,103 +258,9 @@ static void draw_graphics_window()
     Renderer *renderer = render_context.renderer;
     Renderer_State *renderer_state = render_context.renderer_state;
 
-    Scene_Data *scene_data = &render_context.renderer_state->scene_data;
-    Directional_Light *directional_light = &scene_data->directional_light;
-    Point_Light *point_light = &scene_data->point_light;
-    Spot_Light *spot_light = &scene_data->spot_light;
-
     // ImGui Graphics Settings
     {
         ImGui::Begin("Graphics");
-
-        ImGui::Text("Directional Light");
-        ImGui::Separator();
-
-        ImGui::Text("Directional Light Direction");
-        ImGui::SameLine();
-
-        ImGui::DragFloat3("##Directional Light Direction", &directional_light->direction.x, 0.1f, -1.0f, 1.0f);
-
-        if (glm::length2(directional_light->direction) > 0.0f)
-        {
-            directional_light->direction = glm::normalize(directional_light->direction);
-        }
-
-        ImGui::Text("Directional Light Color");
-        ImGui::SameLine();
-
-        ImGui::ColorEdit3("##Directional Light Color", &directional_light->color.r);
-        ImGui::DragFloat("##Directional Light Intensity", &directional_light->intensity);
-
-        ImGui::Text("Point Light");
-        ImGui::Separator();
-
-        ImGui::Text("Point Light Position");
-        ImGui::SameLine();
-
-        ImGui::DragFloat3("##Point Light Position", &point_light->position.x, 0.1f);
-
-        ImGui::Text("Point Light Radius");
-        ImGui::SameLine();
-
-        ImGui::DragFloat("##Point Light Radius", &point_light->radius);
-
-        ImGui::Text("Point Light Color");
-        ImGui::SameLine();
-
-        ImGui::ColorEdit3("##Point Light Color", &point_light->color.r);
-
-        ImGui::Text("Point Light Intensity");
-        ImGui::SameLine();
-
-        ImGui::DragFloat("##Point Light Intensity", &point_light->intensity);
-
-        ImGui::Text("Spot Light");
-        ImGui::Separator();
-
-        ImGui::Text("Spot Light Position");
-        ImGui::SameLine();
-
-        ImGui::DragFloat3("##Spot Light Position", &spot_light->position.x, 0.1f);
-
-        ImGui::Text("Spot Light Radius");
-        ImGui::SameLine();
-
-        ImGui::DragFloat("##Spot Light Radius", &spot_light->radius);
-
-        ImGui::Text("Spot Light Direction");
-        ImGui::SameLine();
-
-        ImGui::DragFloat3("##Spot Light Direction", &spot_light->direction.x, 0.1f, -1.0f, 1.0f);
-
-        if (glm::length2(spot_light->direction) > 0.0f)
-        {
-            spot_light->direction = glm::normalize(spot_light->direction);
-        }
-
-        ImGui::Text("Spot Light Outer Angle");
-        ImGui::SameLine();
-
-        ImGui::DragFloat("##Spot Light Outer Angle", &spot_light->outer_angle, 1.0f, 0.0f, 360.0f);
-
-        ImGui::Text("Spot Light Inner Angle");
-        ImGui::SameLine();
-
-        ImGui::DragFloat("##Spot Light Inner Angle", &spot_light->inner_angle, 1.0f, 0.0f, 360.0f);
-
-        ImGui::Text("Spot Light Color");
-        ImGui::SameLine();
-
-        ImGui::ColorEdit3("##Spot Light Color", &spot_light->color.r);
-
-        ImGui::Text("Spot Light Intensity");
-        ImGui::SameLine();
-
-        ImGui::DragFloat("##Spot Light Intensity", &spot_light->intensity);
-
-        ImGui::Text("");
-        ImGui::Text("Settings");
-        ImGui::Separator();
 
         //
         // VSync
@@ -1488,8 +1394,8 @@ static void draw_scene_hierarchy_window()
                 if (ImGui::MenuItem(label))
                 {
                     U32 node_index = allocate_node(scene, HE_STRING_LITERAL("Node"));
+                    add_child_last(scene, editor_state.node_index == -1 ? 0 : editor_state.node_index, node_index);
                     Scene_Node *node = get_node(scene, node_index);
-                    add_child_last(scene, editor_state.node_index, node_index);
                     memcpy(buffer, node->name.data, node->name.count);
                     editor_state.rename_node_index = node_index;
                 }

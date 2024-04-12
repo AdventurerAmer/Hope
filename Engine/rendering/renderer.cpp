@@ -359,10 +359,12 @@ bool init_renderer_state(Engine *engine)
                 renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
                 renderer->set_index_buffer(static_mesh->indices_buffer, 0);
 
-                U32 object_data_index = renderer_state->object_data_count++;
-                Shader_Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
-                object_data->model = get_world_matrix(get_identity_transform());
-                renderer->draw_sub_mesh(static_mesh_handle, object_data_index, 0);
+                Frame_Render_Data *render_data = &renderer_state->render_data;
+
+                U32 instance_index = render_data->instance_count++;
+                Shader_Instance_Data *instance_data = &render_data->instance_base[instance_index];
+                instance_data->model = get_world_matrix(get_identity_transform());
+                renderer->draw_sub_mesh(static_mesh_handle, instance_index, 0);
             }
 
             Frame_Render_Data *render_data = &renderer_state->render_data;
@@ -483,7 +485,7 @@ bool init_renderer_state(Engine *engine)
         Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/default.glsl"), allocator);
         String default_shader_source = { .count = result.size, .data = (const char *)result.data };
         
-        Shader_Compilation_Result default_shader_compilation_result = renderer_compile_shader(default_shader_source, HE_STRING_LITERAL("shaders")); // todo(amer): @Leak
+        Shader_Compilation_Result default_shader_compilation_result = renderer_compile_shader(default_shader_source, HE_STRING_LITERAL("shaders"));
         HE_ASSERT(default_shader_compilation_result.success);
 
         Shader_Descriptor default_shader_descriptor =
@@ -525,19 +527,23 @@ bool init_renderer_state(Engine *engine)
 
         Shader *default_shader = get(&renderer_state->shaders, renderer_state->default_shader);
 
+        Frame_Render_Data *render_data = &renderer_state->render_data;
+        init(&render_data->opaque_commands);
+        init(&render_data->transparent_commands);
+
         Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_shader, HE_STRING_LITERAL("Globals"));
         HE_ASSERT(globals_struct);
 
-        Bind_Group_Descriptor per_frame_bind_group_descriptor =
+        Bind_Group_Descriptor globals_bind_group_descriptor =
         {
             .shader = renderer_state->default_shader,
-            .group_index = HE_PER_FRAME_BIND_GROUP_INDEX
+            .group_index = SHADER_GLOBALS_BIND_GROUP
         };
 
-        Bind_Group_Descriptor per_render_pass_bind_group_descriptor =
+        Bind_Group_Descriptor pass_bind_group_descriptor =
         {
             .shader = renderer_state->default_shader,
-            .group_index = HE_PER_PASS_BIND_GROUP_INDEX
+            .group_index = SHADER_PASS_BIND_GROUP
         };
 
         for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -547,23 +553,26 @@ bool init_renderer_state(Engine *engine)
                 .size = globals_struct->size,
                 .usage = Buffer_Usage::UNIFORM,
             };
-            renderer_state->globals_uniform_buffers[frame_index] = renderer_create_buffer(globals_uniform_buffer_descriptor);
+            render_data->globals_uniform_buffers[frame_index] = renderer_create_buffer(globals_uniform_buffer_descriptor);
 
-            Buffer_Descriptor object_data_storage_buffer_descriptor =
+            Buffer_Descriptor instance_storage_buffer_descriptor =
             {
-                .size = sizeof(Shader_Object_Data) * HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT,
+                .size = sizeof(Shader_Instance_Data) * HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT,
                 .usage = Buffer_Usage::STORAGE_CPU_SIDE,
             };
-            renderer_state->object_data_storage_buffers[frame_index] = renderer_create_buffer(object_data_storage_buffer_descriptor);
+            render_data->instance_storage_buffers[frame_index] = renderer_create_buffer(instance_storage_buffer_descriptor);
 
-            renderer_state->per_frame_bind_groups[frame_index] = renderer_create_bind_group(per_frame_bind_group_descriptor);
-            renderer_state->per_render_pass_bind_groups[frame_index] = renderer_create_bind_group(per_render_pass_bind_group_descriptor);
+            Buffer_Descriptor light_storage_buffer_descriptor =
+            {
+                .size = sizeof(Shader_Light) * HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT,
+                .usage = Buffer_Usage::STORAGE_CPU_SIDE,
+            };
+            render_data->light_storage_buffers[frame_index] = renderer_create_buffer(light_storage_buffer_descriptor);
+
+            render_data->globals_bind_groups[frame_index] = renderer_create_bind_group(globals_bind_group_descriptor);
+            render_data->pass_bind_groups[frame_index] = renderer_create_bind_group(pass_bind_group_descriptor);
         }
     }
-
-    Frame_Render_Data *render_data = &renderer_state->render_data;
-    init(&render_data->opaque_commands);
-    init(&render_data->transparent_commands);
 
     return true;
 }
@@ -1318,13 +1327,13 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         Buffer_Handle buffer_handle = renderer_create_buffer(material_buffer_descriptor);
         material->buffers[frame_index] = buffer_handle;
 
-        Bind_Group_Descriptor bind_group_descriptor =
+        Bind_Group_Descriptor object_bind_group_descriptor =
         {
             .shader = pipeline_state->descriptor.shader,
-            .group_index = HE_PER_OBJECT_BIND_GROUP_INDEX
+            .group_index = SHADER_OBJECT_BIND_GROUP
         };
 
-        material->bind_groups[frame_index] = renderer_create_bind_group(bind_group_descriptor);
+        material->bind_groups[frame_index] = renderer_create_bind_group(object_bind_group_descriptor);
     }
 
     init(&material->properties, properties->member_count);
@@ -1505,7 +1514,7 @@ void renderer_use_material(Material_Handle material_handle)
         material->bind_groups[renderer_state->current_frame_in_flight_index]
     };
 
-    renderer->set_bind_groups(HE_PER_OBJECT_BIND_GROUP_INDEX, to_array_view(material_bind_groups));
+    renderer->set_bind_groups(SHADER_OBJECT_BIND_GROUP, to_array_view(material_bind_groups));
 
     if (renderer_state->render_data.current_pipeline_state_handle.index != material->pipeline_state_handle.index)
     {
@@ -1896,9 +1905,9 @@ static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_t
                 Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
                 if (static_mesh->is_uploaded_to_gpu)
                 {
-                    HE_ASSERT(renderer_state->object_data_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
-                    U32 object_data_index = renderer_state->object_data_count++;
-                    Shader_Object_Data *object_data = &renderer_state->object_data_base[object_data_index];
+                    HE_ASSERT(render_data->instance_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
+                    U32 instance_index = render_data->instance_count++;
+                    Shader_Instance_Data *object_data = &render_data->instance_base[instance_index];
                     object_data->model = get_world_matrix(transform);
 
                     const Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
@@ -1929,11 +1938,27 @@ static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_t
                         draw_command.static_mesh = static_mesh_handle;
                         draw_command.sub_mesh_index = sub_mesh_index;
                         draw_command.material = material_handle;
-                        draw_command.instance_index = object_data_index;
+                        draw_command.instance_index = instance_index;
                     }
                 }
             }
         }
+    }
+
+    if (node->has_light)
+    {
+        Light_Component *light_comp = &node->light;
+
+        Shader_Light *light = &render_data->light_base[*render_data->light_count];
+        *render_data->light_count = *render_data->light_count + 1;
+
+        light->type = (U32)light_comp->type;
+        light->direction = (glm::vec3)glm::rotate(transform.rotation, { 0.0f, 0.0f, -1.0f, 0.0f });
+        light->position = transform.position;
+        light->radius = light_comp->radius;
+        light->outer_angle = glm::radians(light_comp->outer_angle);
+        light->inner_angle = glm::radians(light_comp->inner_angle);
+        light->color = srgb_to_linear(light_comp->color, renderer_state->gamma) * light_comp->intensity;
     }
 
     for (S32 child_node_index = node->first_child_index; child_node_index != -1; child_node_index = get_node(scene, child_node_index)->next_sibling_index)
@@ -1946,7 +1971,6 @@ void render_scene(Scene_Handle scene_handle)
 {
     Scene *scene = renderer_get_scene(scene_handle);
     traverse_scene_tree(scene, 0, get_identity_transform(), &renderer_state->render_data);
-    render(&renderer_state->render_graph, renderer, renderer_state);
 }
 
 //
@@ -2137,23 +2161,25 @@ void begin_rendering(const Camera *camera)
 
     U32 frame_index = renderer_state->current_frame_in_flight_index;
 
-    Buffer *global_uniform_buffer = get(&renderer_state->buffers, renderer_state->globals_uniform_buffers[frame_index]);
+    Frame_Render_Data *render_data = &renderer_state->render_data;
+    Buffer *global_uniform_buffer = get(&renderer_state->buffers, render_data->globals_uniform_buffers[frame_index]);
 
     Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_shader, HE_STRING_LITERAL("Globals"));
     glm::mat4 *view = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("view"));
     glm::mat4 *projection = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("projection"));
     glm::vec3 *eye = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("eye"));
-    glm::vec3 *directional_light_direction = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("directional_light_direction"));
-    glm::vec3 *directional_light_color = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("directional_light_color"));
     U32 *light_count = (U32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("light_count"));
-    Shader_Light *lights = (Shader_Light *)get_pointer(globals_struct, (U8*)global_uniform_buffer->data, HE_STRING_LITERAL("lights"));
-    F32 *gamma = (F32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("gamma"));
+    F32 *gamma = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("gamma"));
 
     Scene_Data *scene_data = &renderer_state->scene_data;
 
     *view = glm::mat4(1.0f);
     *projection = glm::mat4(1.0f);
     *eye = glm::vec3(0.0f);
+    *gamma = renderer_state->gamma;
+
+    *light_count = 0;
+    render_data->light_count = light_count;
 
     if (camera)
     {
@@ -2164,12 +2190,7 @@ void begin_rendering(const Camera *camera)
         *eye = camera->position;
     }
 
-    *gamma = renderer_state->gamma;
-
-    *directional_light_direction = scene_data->directional_light.direction;
-    *directional_light_color = srgb_to_linear(scene_data->directional_light.color, renderer_state->gamma) * scene_data->directional_light.intensity;
-    *light_count = 2;
-
+#if 0
     {
         Shader_Light *light = &lights[0];
         light->position = scene_data->point_light.position;
@@ -2191,12 +2212,14 @@ void begin_rendering(const Camera *camera)
         light->inner_angle = glm::radians(scene_data->spot_light.inner_angle);
         light->color = srgb_to_linear(scene_data->spot_light.color, renderer_state->gamma) * scene_data->spot_light.intensity;
     }
+#endif
 
-    Buffer *object_data_storage_buffer = get(&renderer_state->buffers, renderer_state->object_data_storage_buffers[frame_index]);
-    renderer_state->object_data_base = (Shader_Object_Data *)object_data_storage_buffer->data;
-    renderer_state->object_data_count = 0;
+    Buffer *instance_storage_buffer = get(&renderer_state->buffers, render_data->instance_storage_buffers[frame_index]);
+    render_data->instance_base = (Shader_Instance_Data *)instance_storage_buffer->data;
+    render_data->instance_count = 0;
 
-    Frame_Render_Data *render_data = &renderer_state->render_data;
+    Buffer *light_storage_buffer = get(&renderer_state->buffers, render_data->light_storage_buffers[frame_index]);
+    render_data->light_base = (Shader_Light *)light_storage_buffer->data;
 
     render_data->current_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
     render_data->current_material_handle = Resource_Pool< Material >::invalid_handle;
@@ -2224,52 +2247,54 @@ void begin_rendering(const Camera *camera)
         samplers[it.index] = texture->is_cubemap ? renderer_state->default_cubemap_sampler : renderer_state->default_texture_sampler;
     }
 
-    Update_Binding_Descriptor globals_uniform_buffer_binding =
-    {
-        .binding_number = 0,
-        .element_index = 0,
-        .count = 1,
-        .buffers = &renderer_state->globals_uniform_buffers[frame_index]
-    };
-
-    Update_Binding_Descriptor object_data_storage_buffer_binding =
-    {
-        .binding_number = 1,
-        .element_index = 0,
-        .count = 1,
-        .buffers = &renderer_state->object_data_storage_buffers[frame_index]
-    };
-
-    Update_Binding_Descriptor update_binding_descriptors[] =
-    {
-        globals_uniform_buffer_binding,
-        object_data_storage_buffer_binding
-    };
-    renderer_update_bind_group(renderer_state->per_frame_bind_groups[frame_index], to_array_view(update_binding_descriptors));
-
-    Update_Binding_Descriptor update_textures_binding_descriptors[] =
+    Update_Binding_Descriptor update_globals_bindings[] =
     {
         {
-            .binding_number = 0,
+            .binding_number = SHADER_GLOBALS_UNIFORM_BINDING,
+            .element_index = 0,
+            .count = 1,
+            .buffers = &render_data->globals_uniform_buffers[frame_index]
+        },
+        {
+            .binding_number = SHADER_BINDLESS_TEXTURES_BINDING,
             .element_index = 0,
             .count = texture_count,
             .textures = textures,
             .samplers = samplers
         },
     };
-    renderer_update_bind_group(renderer_state->per_render_pass_bind_groups[frame_index], to_array_view(update_textures_binding_descriptors));
+    renderer_update_bind_group(render_data->globals_bind_groups[frame_index], to_array_view(update_globals_bindings));
+
+    Update_Binding_Descriptor update_pass_bindings[] =
+    {
+        {
+            .binding_number = SHADER_INSTANCE_STORAGE_BUFFER_BINDING,
+            .element_index = 0,
+            .count = 1,
+            .buffers = &render_data->instance_storage_buffers[frame_index]
+        },
+        {
+            .binding_number = SHADER_LIGHT_STORAGE_BUFFER_BINDING,
+            .element_index = 0,
+            .count = 1,
+            .buffers = &render_data->light_storage_buffers[frame_index]
+        },
+    };
+
+    renderer_update_bind_group(render_data->pass_bind_groups[frame_index], to_array_view(update_pass_bindings));
 
     Bind_Group_Handle bind_groups[] =
     {
-        renderer_state->per_frame_bind_groups[frame_index],
-        renderer_state->per_render_pass_bind_groups[frame_index]
+        render_data->globals_bind_groups[frame_index],
+        render_data->pass_bind_groups[frame_index]
     };
 
-    renderer->set_bind_groups(0, to_array_view(bind_groups));
+    renderer->set_bind_groups(SHADER_GLOBALS_BIND_GROUP, to_array_view(bind_groups));
 }
 
 void end_rendering()
 {
+    render(&renderer_state->render_graph, renderer, renderer_state);
     renderer->end_frame();
 
     renderer_state->current_frame_in_flight_index++;

@@ -247,7 +247,7 @@ static void inspect_scene_node(Scene_Node *scene_node)
             ImGui::Text("Inner Angle");
             ImGui::SameLine();
 
-            ImGui::DragFloat("##Inner Angle Drag Float", &light->inner_angle, 1.0f, 0.0f, 360.0f);
+            ImGui::DragFloat("##Inner Angle Drag Float", &light->inner_angle, 1.0f, 0.0f, light->outer_angle);
         }
     }
 

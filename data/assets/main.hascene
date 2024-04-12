@@ -1,6 +1,6 @@
 version 1
 skybox_material_asset 1
-node_count 3
+node_count 6
 node_name 4 main
 parent -1
 component_count 1
@@ -8,13 +8,55 @@ component transform
 position 0.000000 0.000000 0.000000
 rotation 0.000000 0.000000 0.000000 1.000000
 scale 1.000000 1.000000 1.000000
+node_name 16 DirectionalLight
+parent 0
+component_count 2
+component transform
+position 0.000000 0.000000 0.000000
+rotation -0.382683 0.000000 0.000000 0.923880
+scale 1.000000 1.000000 1.000000
+component light
+type directional
+color 1.000000 1.000000 1.000000
+intensity 1.000000
+radius 1.000000
+inner_angle 30.000000
+outer_angle 45.000000
+node_name 10 PointLight
+parent 0
+component_count 2
+component transform
+position 3.000000 2.000000 0.000000
+rotation 0.000000 0.000000 0.000000 1.000000
+scale 1.000000 1.000000 1.000000
+component light
+type point
+color 0.818627 0.248208 0.100322
+intensity 3.000000
+radius 5.000000
+inner_angle 30.000000
+outer_angle 45.000000
+node_name 9 SpotLight
+parent 0
+component_count 2
+component transform
+position -3.000000 2.000000 -0.500000
+rotation -0.707107 0.000000 0.000000 0.707107
+scale 1.000000 1.000000 1.000000
+component light
+type spot
+color 0.089869 0.286669 0.833333
+intensity 3.000000
+radius 5.000000
+inner_angle 30.000000
+outer_angle 45.000000
 node_name 6 Corset
 parent 0
 component_count 2
 component transform
 position 0.000000 0.000000 0.000000
 rotation 0.000000 0.000000 0.000000 1.000000
-scale 2.000000 2.000000 2.000000
+scale 3.000000 3.000000 3.000000
 component mesh
 static_mesh_asset 1596034640347025962
 node_name 6 Sponza

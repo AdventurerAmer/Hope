@@ -21,20 +21,20 @@ out Fragment_Input
     vec4 tangent;
 } frag_input;
 
-layout (std430, set = 0, binding = 1) readonly buffer Instance_Buffer
+layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_INSTANCE_STORAGE_BUFFER_BINDING) readonly buffer Instance_Buffer
 {
     Instance_Data instances[];
 };
 
 void main()
 {
-    mat4 model = instances[gl_InstanceIndex].model;
+    mat4 local_to_world = instances[gl_InstanceIndex].local_to_world;
 
-    vec4 world_position = model * vec4(in_position, 1.0);
+    vec4 world_position = local_to_world * vec4(in_position, 1.0);
     frag_input.position = world_position.xyz;
     gl_Position = globals.projection * globals.view * world_position;
 
-    mat3 normal_matrix = transpose(inverse(mat3(model)));
+    mat3 normal_matrix = transpose(inverse(mat3(local_to_world)));
     vec3 normal = normalize(normal_matrix * in_normal);
     vec4 tangent = vec4(normalize(normal_matrix * in_tangent.xyz), in_tangent.w);
 
@@ -61,14 +61,19 @@ in Fragment_Input
     vec4 tangent;
 } frag_input;
 
-layout(set = 1, binding = 0) uniform sampler2D u_textures[];
+layout(set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_BINDLESS_TEXTURES_BINDING) uniform sampler2D u_textures[];
 
 vec4 sample_texture(uint texture_index, vec2 uv)
 {
     return texture( u_textures[ nonuniformEXT( texture_index ) ], uv );
 }
 
-layout (std430, set = 2, binding = 0) uniform Material
+layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_STORAGE_BUFFER_BINDING) readonly buffer Light_Buffer
+{
+    Light lights[];
+};
+
+layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFORM_BUFFER_BINDING) uniform Material
 {
     uint albedo_texture;
     vec3 albedo_color;
@@ -133,10 +138,10 @@ vec3 brdf(vec3 L, vec3 radiance, vec3 N, vec3 V, float NdotV, vec3 albedo, float
 void main()
 {
     float gamma = globals.gamma;
-    
+
     vec3 albedo = srgb_to_linear( sample_texture( material.albedo_texture, frag_input.uv ).rgb, gamma );
     albedo *= srgb_to_linear( material.albedo_color, gamma );
-    
+
     vec3 roughness_metallic = sample_texture( material.roughness_metallic_texture, frag_input.uv ).rgb;
 
     float roughness = roughness_metallic.g;
@@ -157,29 +162,50 @@ void main()
     N = normalize(TBN * N);
     
     vec3 V = normalize(globals.eye - frag_input.position);
-
     float NdotV = max(0.0, dot(N, V));
-    vec3 Lo = brdf( -globals.directional_light_direction, globals.directional_light_color, N, V, NdotV, albedo, roughness, metallic );
-    
+
     float rmin = 0.0001;
+
+    vec3 Lo = vec3(0.0f);
 
     for (uint i = 0; i < globals.light_count; i++)
     {
-        Light light = globals.lights[i];
-        vec3 frag_pos_to_light = light.position - frag_input.position; 
-        
-        // point light calculations
-        float r = length(frag_pos_to_light);
-        vec3 L = frag_pos_to_light / r;
-        float attenuation = pow(light.radius / max(r, rmin), 2);
-        attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
-        
-        // spot light calculations
-        float cos_theta_u = cos(light.outer_angle);
-        float cos_theta_p = cos(light.inner_angle);
-        float cos_theta_s = dot(light.direction, -L);
-        float t = pow(clamp((cos_theta_s - cos_theta_u) / (cos_theta_p - cos_theta_u), 0.0, 1.0), 2.0);
-        attenuation *= t;
+        Light light = lights[i];
+
+        float attenuation = 1.0f;
+        vec3 L = vec3(0.0f);
+
+        switch (light.type)
+        {
+            case LIGHT_TYPE_DIRECTIONAL:
+            {
+                L = -light.direction;
+            } break;
+
+            case LIGHT_TYPE_POINT:
+            {
+                vec3 frag_pos_to_light = light.position - frag_input.position;
+                float r = length(frag_pos_to_light);
+                L = frag_pos_to_light / r;
+                attenuation = pow(light.radius / max(r, rmin), 2);
+                attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
+            } break;
+
+            case LIGHT_TYPE_SPOT:
+            {
+                vec3 frag_pos_to_light = light.position - frag_input.position;
+                float r = length(frag_pos_to_light);
+                L = frag_pos_to_light / r;
+                attenuation = pow(light.radius / max(r, rmin), 2);
+                attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
+
+                float cos_theta_u = cos(light.outer_angle);
+                float cos_theta_p = cos(light.inner_angle);
+                float cos_theta_s = dot(light.direction, -L);
+                float t = pow(clamp((cos_theta_s - cos_theta_u) / (cos_theta_p - cos_theta_u), 0.0, 1.0), 2.0);
+                attenuation *= t;
+            } break;
+        }
 
         vec3 radiance = light.color * attenuation; 
         Lo += brdf(L, radiance, N, V, NdotV, albedo, roughness, metallic);

@@ -137,6 +137,19 @@ struct Renderer
 
 struct Frame_Render_Data
 {
+    Bind_Group_Handle globals_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
+    Bind_Group_Handle pass_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
+
+    Buffer_Handle globals_uniform_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+
+    Buffer_Handle instance_storage_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    Shader_Instance_Data *instance_base;
+    U32 instance_count;
+
+    Buffer_Handle light_storage_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    Shader_Light *light_base;
+    U32 *light_count;
+
     Pipeline_State_Handle current_pipeline_state_handle;
     Material_Handle current_material_handle;
     Static_Mesh_Handle current_static_mesh_handle;
@@ -176,21 +189,9 @@ struct Renderer_State
     bool vsync;
     MSAA_Setting msaa_setting;
     Anisotropic_Filtering_Setting anisotropic_filtering_setting;
-    
-    Bind_Group_Handle per_frame_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
-    Bind_Group_Handle per_render_pass_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
-
-    Buffer_Handle globals_uniform_buffers[HE_MAX_FRAMES_IN_FLIGHT];
-
-    Buffer_Handle object_data_storage_buffers[HE_MAX_FRAMES_IN_FLIGHT];
-    Shader_Object_Data *object_data_base;
-    U32 object_data_count;
 
     Buffer_Handle transfer_buffer;
     Free_List_Allocator transfer_allocator;
-
-    U32 frames_in_flight;
-    U32 current_frame_in_flight_index;
 
     Shader_Handle default_shader;
     Pipeline_State_Handle default_pipeline;
@@ -207,6 +208,9 @@ struct Renderer_State
     Render_Graph render_graph;
 
     Scene_Data scene_data; // todo(amer): temprary
+
+    U32 frames_in_flight;
+    U32 current_frame_in_flight_index;
 
     Frame_Render_Data render_data;
 

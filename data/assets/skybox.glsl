@@ -10,18 +10,18 @@
 
 layout (location = 0) in vec3 in_position;
 
-layout (std430, set = 0, binding = 1) readonly buffer Instance_Buffer
+out vec3 out_cubemap_uv;
+
+layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_INSTANCE_STORAGE_BUFFER_BINDING) readonly buffer Instance_Buffer
 {
     Instance_Data instances[];
 };
 
-out vec3 out_cubemap_uv;
-
 void main()
 {
-    mat4 model = instances[gl_InstanceIndex].model;
+    mat4 local_to_world = instances[gl_InstanceIndex].local_to_world;
     mat4 view_rotation = mat4(mat3(globals.view));
-    gl_Position = globals.projection * view_rotation * model * vec4(in_position, 1.0);
+    gl_Position = globals.projection * view_rotation * local_to_world * vec4(in_position, 1.0);
     out_cubemap_uv = in_position;
 }
 
@@ -39,23 +39,29 @@ in vec3 in_cubemap_uv;
 
 layout (location = 0) out vec4 out_color;
 
-layout(set = 1, binding = 0) uniform samplerCube u_cubemaps[];
-
-layout (std430, set = 2, binding = 0) uniform Material
-{
-    uint skybox_cubemap;
-    vec3 sky_color;
-} material;
+layout(set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_BINDLESS_TEXTURES_BINDING) uniform samplerCube u_cubemaps[];
 
 vec4 sample_cubemap(uint texture_index, vec3 uv)
 {
     return texture(u_cubemaps[nonuniformEXT(texture_index)], uv);
 }
 
+layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_STORAGE_BUFFER_BINDING) readonly buffer Light_Buffer
+{
+    Light lights[];
+};
+
+layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFORM_BUFFER_BINDING) uniform Material
+{
+    uint skybox_cubemap;
+    vec3 sky_color;
+} material;
+
 void main()
 {
-    float gamma = globals.gamma;
-    vec3 color = srgb_to_linear(sample_cubemap(material.skybox_cubemap, in_cubemap_uv).rgb, gamma);
-    color *= srgb_to_linear(material.sky_color, gamma);
-    out_color = vec4(linear_to_srgb(color, gamma), 1.0f);
+    Light l = lights[0];
+    vec3 c = l.color;
+    vec3 color = srgb_to_linear( sample_cubemap(material.skybox_cubemap, in_cubemap_uv).rgb, globals.gamma );
+    color *= srgb_to_linear( material.sky_color, globals.gamma ) * c;
+    out_color = vec4( linear_to_srgb(color, globals.gamma), 1.0f );
 }
