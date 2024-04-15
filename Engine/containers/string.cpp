@@ -5,6 +5,8 @@
 #include <stdarg.h>
 #include <stdlib.h>
 
+static constexpr String white_space = HE_STRING_LITERAL(" \n\t\r\v\f");
+
 U64 string_length(const char *str)
 {
     U64 length = 0;
@@ -190,8 +192,6 @@ String eat_none_of_chars(String str, String chars)
     return str;
 }
 
-static constexpr String white_space = HE_STRING_LITERAL(" \n\t\r\v\f");
-
 String eat_white_space(String str)
 {
     return eat_chars(str, white_space);
@@ -247,7 +247,6 @@ String end_string_builder(String_Builder *string_builder)
 
 Parse_Name_Value_Result parse_name_value(String *str, String name)
 {
-    String white_space = HE_STRING_LITERAL(" \n\t\r\v\f");
     *str = eat_chars(*str, white_space);
     if (!starts_with(*str, name))
     {
@@ -268,6 +267,30 @@ Parse_Name_Value_Result parse_name_value(String *str, String name)
     *str = eat_chars(*str, white_space);
 
     return { .success = true, .value = value };
+}
+
+Parse_Name_Float3_Result parse_name_float3(String *str, String name)
+{
+    *str = eat_white_space(*str);
+    if (!starts_with(*str, name))
+    {
+        return {};
+    }
+
+    *str = advance(*str, name.count);
+    *str = eat_white_space(*str);
+
+    Parse_Name_Float3_Result result = { .success = true };
+
+    for (U32 i = 0; i < 3; i++)
+    {
+        String value = eat_none_white_space(str);
+        result.values[i] = str_to_f32(value);
+        *str = eat_white_space(*str);
+    }
+
+    *str = eat_white_space(*str);
+    return result;
 }
 
 U64 str_to_u64(String str)

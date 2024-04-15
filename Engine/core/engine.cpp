@@ -92,25 +92,7 @@ bool startup(Engine *engine)
     Render_Context render_context = get_render_context();
     Renderer_State *renderer_state = render_context.renderer_state;
     Renderer *renderer = render_context.renderer;
-    Scene_Data *scene_data = &renderer_state->scene_data;
-
-    scene_data->directional_light.direction = { 0.0f, -1.0f, 0.0f };
-    scene_data->directional_light.color = { 1.0f, 1.0f, 1.0f };
-    scene_data->directional_light.intensity = 1.0f;
-
-    scene_data->point_light.position = { -3.0f, 2.0f, 0.0f };
-    scene_data->point_light.radius = 5.0f;
-    scene_data->point_light.color = { 1.0f, 1.0f, 1.0f };
-    scene_data->point_light.intensity = 1.0f;
-
-    scene_data->spot_light.position = { 3.0f, 2.0f, 0.0f };
-    scene_data->spot_light.direction = { 0.0f, -1.0f, 0.0f };
-    scene_data->spot_light.outer_angle = 45.0f;
-    scene_data->spot_light.inner_angle = 30.0f;
-    scene_data->spot_light.radius = 5.0f;
-    scene_data->spot_light.color = { 1.0f, 1.0f, 1.0f };
-    scene_data->spot_light.intensity = 1.0f;
-
+    
     bool app_inited = hope_app_init(engine);
     return app_inited;
 }

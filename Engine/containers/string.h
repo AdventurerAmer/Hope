@@ -121,6 +121,14 @@ struct Parse_Name_Value_Result
 
 Parse_Name_Value_Result parse_name_value(String *str, String name);
 
+struct Parse_Name_Float3_Result
+{
+    bool success;
+    F32 values[3];
+};
+
+Parse_Name_Float3_Result parse_name_float3(String *str, String name);
+
 U64 str_to_u64(String str);
 S64 str_to_s64(String str);
 F32 str_to_f32(String str);

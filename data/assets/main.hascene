@@ -1,5 +1,6 @@
 version 1
-skybox_material_asset 1
+ambient_color 1.000000 1.000000 1.000000
+skybox_material_asset 11193936441130767775
 node_count 6
 node_name 4 main
 parent -1

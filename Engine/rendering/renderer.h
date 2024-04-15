@@ -59,18 +59,6 @@ struct Spot_Light
     float intensity;
 };
 
-struct Scene_Data
-{
-    glm::mat4 view;
-    glm::mat4 projection;
-    glm::vec3 eye;
-    Directional_Light directional_light;
-    Point_Light point_light;
-    Spot_Light spot_light;
-    U64 skybox_material_asset;
-    U64 scene_asset;
-};
-
 struct Renderer
 {
     bool (*init)(struct Engine *engine, struct Renderer_State *renderer_state);
@@ -206,8 +194,6 @@ struct Renderer_State
     Static_Mesh_Handle default_static_mesh;
 
     Render_Graph render_graph;
-
-    Scene_Data scene_data; // todo(amer): temprary
 
     U32 frames_in_flight;
     U32 current_frame_in_flight_index;

@@ -7,6 +7,7 @@
 #include <imgui/imgui.h>
 
 #include "../editor_utils.h"
+#include "../editor.h"
 
 namespace Inspector_Panel
 {
@@ -33,7 +34,7 @@ struct Inspector_State
 {
     Inspection_Type type = Inspection_Type::NONE;
     Inspection_Data data = {};
-    char input_buffer[128];
+    char rename_node_buffer[128];
 };
 
 static Inspector_State inspector_state;
@@ -70,6 +71,7 @@ void draw()
 void inspect(Scene_Handle scene_handle, S32 scene_node_index)
 {
     HE_ASSERT(scene_node_index != -1);
+    Editor::reset_selection();
 
     inspector_state.type = Inspection_Type::SCENE_NODE;
     inspector_state.data.scene = scene_handle;
@@ -77,12 +79,14 @@ void inspect(Scene_Handle scene_handle, S32 scene_node_index)
 
     Scene *scene = renderer_get_scene(scene_handle);
     Scene_Node *node = get_node(scene, scene_node_index);
-    memset(inspector_state.input_buffer, 0, sizeof(inspector_state.input_buffer));
-    memcpy(inspector_state.input_buffer, node->name.data, node->name.count);
+    memset(inspector_state.rename_node_buffer, 0, sizeof(inspector_state.rename_node_buffer));
+    memcpy(inspector_state.rename_node_buffer, node->name.data, node->name.count);
 }
 
 void inspect(Asset_Handle asset_handle)
 {
+    Editor::reset_selection();
+
     if (is_asset_handle_valid(asset_handle))
     {
         inspector_state.type = Inspection_Type::ASSET;
@@ -98,18 +102,18 @@ static void draw_transform(Transform *transform)
 {
     ImGui::Text("Position");
     ImGui::SameLine();
-    ImGui::DragFloat3("###Position Drag Float3", &transform->position.x);
+    ImGui::DragFloat3("###Position Drag Float3", &transform->position.x, 0.1f);
 
     ImGui::Text("Rotation");
     ImGui::SameLine();
-    if (ImGui::DragFloat3("###Rotation Drag Float3", &transform->euler_angles.x, 1.0f, 0.0f, 360.0f))
+    if (ImGui::DragFloat3("###Rotation Drag Float3", &transform->euler_angles.x, 1, 0.0f, 360.0f))
     {
         transform->rotation = glm::quat(glm::radians(transform->euler_angles));
     }
 
     ImGui::Text("Scale");
     ImGui::SameLine();
-    ImGui::DragFloat3("###Scale Drag Float3", &transform->scale.x);
+    ImGui::DragFloat3("###Scale Drag Float3", &transform->scale.x, 0.1f);
 }
 
 static void inspect_scene_node(Scene_Node *scene_node)
@@ -117,11 +121,11 @@ static void inspect_scene_node(Scene_Node *scene_node)
     ImGui::Text("Node");
     ImGui::SameLine();
 
-    if (ImGui::InputText("###EditNodeTextInput", inspector_state.input_buffer, sizeof(inspector_state.input_buffer), ImGuiInputTextFlags_EnterReturnsTrue))
+    if (ImGui::InputText("###EditNodeTextInput", inspector_state.rename_node_buffer, sizeof(inspector_state.rename_node_buffer), ImGuiInputTextFlags_EnterReturnsTrue))
     {
         if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemDeactivated())
         {
-            String new_name = HE_STRING(inspector_state.input_buffer);
+            String new_name = HE_STRING(inspector_state.rename_node_buffer);
             if (scene_node->name.data && new_name.count)
             {
                 deallocate(get_general_purpose_allocator(), (void *)scene_node->name.data);
@@ -131,60 +135,68 @@ static void inspect_scene_node(Scene_Node *scene_node)
     }
     else
     {
-        memset(inspector_state.input_buffer, 0, sizeof(inspector_state.input_buffer));
-        memcpy(inspector_state.input_buffer, scene_node->name.data, scene_node->name.count);
+        memset(inspector_state.rename_node_buffer, 0, sizeof(inspector_state.rename_node_buffer));
+        memcpy(inspector_state.rename_node_buffer, scene_node->name.data, scene_node->name.count);
     }
 
     ImGui::Separator();
 
-    ImGui::Text("Transform");
-    ImGui::Spacing();
-
-    draw_transform(&scene_node->transform);
+    if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::Spacing();
+        draw_transform(&scene_node->transform);
+    }
 
     ImGui::Separator();
 
     if (scene_node->has_mesh)
     {
         Static_Mesh_Component *mesh_comp = &scene_node->mesh;
-        ImGui::Text("Static Mesh Component");
-        ImGui::SameLine();
 
         if (ImGui::Button("X##Static Mesh Component"))
         {
             scene_node->has_mesh = false;
         }
 
-        ImGui::Spacing();
+        ImGui::SameLine();
 
-        Render_Context render_context = get_render_context();
-        Renderer_State *renderer_state = render_context.renderer_state;
-
-        Asset_Handle static_mesh_asset = { .uuid = mesh_comp->static_mesh_asset };
-        select_asset(HE_STRING_LITERAL("Static Mesh"), HE_STRING_LITERAL("static_mesh"), (Asset_Handle *)&mesh_comp->static_mesh_asset);
-
-        if (is_asset_handle_valid(static_mesh_asset))
+        if (ImGui::CollapsingHeader("Static Mesh", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            if (!is_asset_loaded(static_mesh_asset))
+            ImGui::Spacing();
+
+            Render_Context render_context = get_render_context();
+            Renderer_State *renderer_state = render_context.renderer_state;
+
+            Asset_Handle static_mesh_asset = { .uuid = mesh_comp->static_mesh_asset };
+            select_asset(HE_STRING_LITERAL("Static Mesh"), HE_STRING_LITERAL("static_mesh"), (Asset_Handle *)&mesh_comp->static_mesh_asset);
+
+            if (is_asset_handle_valid(static_mesh_asset))
             {
-                aquire_asset(static_mesh_asset);
-            }
-            else
-            {
-                Static_Mesh_Handle static_mesh_handle = get_asset_handle_as<Static_Mesh>(static_mesh_asset);
-                Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
-
-                ImGui::Spacing();
-
-                ImGui::Text("Materials");
-                ImGui::Spacing();
-
-                for (U32 i = 0; i < static_mesh->sub_meshes.count; i++)
+                if (!is_asset_loaded(static_mesh_asset))
                 {
-                    ImGui::PushID(i);
-                    Sub_Mesh *sub_mesh = &static_mesh->sub_meshes[i];
-                    select_asset(HE_STRING_LITERAL("Material"), HE_STRING_LITERAL("material"), (Asset_Handle *)&sub_mesh->material_asset);
-                    ImGui::PopID();
+                    aquire_asset(static_mesh_asset);
+                }
+                else
+                {
+                    Static_Mesh_Handle static_mesh_handle = get_asset_handle_as<Static_Mesh>(static_mesh_asset);
+                    Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+
+                    ImGui::Spacing();
+
+                    if (ImGui::TreeNode("Materials"))
+                    {
+                        ImGui::Spacing();
+
+                        for (U32 i = 0; i < static_mesh->sub_meshes.count; i++)
+                        {
+                            ImGui::PushID(i);
+                            Sub_Mesh* sub_mesh = &static_mesh->sub_meshes[i];
+                            select_asset(HE_STRING_LITERAL("Material"), HE_STRING_LITERAL("material"), (Asset_Handle*)&sub_mesh->material_asset);
+                            ImGui::PopID();
+                        }
+
+                        ImGui::TreePop();
+                    }
                 }
             }
         }
@@ -195,59 +207,67 @@ static void inspect_scene_node(Scene_Node *scene_node)
     if (scene_node->has_light)
     {
         Light_Component *light = &scene_node->light;
-        ImGui::Text("Light Component");
-        ImGui::SameLine();
-
+        
         if (ImGui::Button("X##Light Component"))
         {
             scene_node->has_light = false;
         }
+        ImGui::SameLine();
 
-        ImGui::Spacing();
-
-        const char *light_types[] = { "Directional", "Point", "Spot" };
-
-        if (ImGui::BeginCombo("##LightType", light_types[(U8)light->type]))
+        if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            for (U32 i = 0; i < HE_ARRAYCOUNT(light_types); i++)
+            ImGui::Spacing();
+
+            const char* light_types[] = { "Directional", "Point", "Spot" };
+
+            ImGui::Text("Type");
+            ImGui::SameLine();
+
+            if (ImGui::BeginCombo("##LightType", light_types[(U8)light->type]))
             {
-                bool is_selected = i == (U8)light->type;
-                if (ImGui::Selectable(light_types[i], is_selected))
+                for (U32 i = 0; i < HE_ARRAYCOUNT(light_types); i++)
                 {
-                    light->type = (Light_Type)i;
-                }
+                    bool is_selected = i == (U8)light->type;
+                    if (ImGui::Selectable(light_types[i], is_selected))
+                    {
+                        light->type = (Light_Type)i;
+                    }
 
-                if (is_selected)
-                {
-                    ImGui::SetItemDefaultFocus();
+                    if (is_selected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
                 }
+                ImGui::EndCombo();
             }
-            ImGui::EndCombo();
-        }
 
-        ImGui::Text("Color");
-        ImGui::ColorEdit3("##ColorEdit3", &light->color.r);
-
-        ImGui::Text("Intensity");
-        ImGui::DragFloat("##IntensityDragFloat", &light->intensity, 0.1f, 0.0f);
-
-        if (light->type != Light_Type::DIRECTIONAL)
-        {
-            ImGui::Text("Radius");
-            ImGui::DragFloat("##RadiusDragFloat", &light->radius, 0.1f, 0.0f);
-        }
-
-        if (light->type == Light_Type::SPOT)
-        {
-            ImGui::Text("Outer Angle");
+            ImGui::Text("Color");
             ImGui::SameLine();
+            ImGui::ColorEdit3("##ColorEdit3", &light->color.r);
 
-            ImGui::DragFloat("##Outer Angle Drag Float", &light->outer_angle, 1.0f, 0.0f, 360.0f);
-
-            ImGui::Text("Inner Angle");
+            ImGui::Text("Intensity");
             ImGui::SameLine();
+            ImGui::DragFloat("##IntensityDragFloat", &light->intensity, 0.1f, 0.0f);
 
-            ImGui::DragFloat("##Inner Angle Drag Float", &light->inner_angle, 1.0f, 0.0f, light->outer_angle);
+            if (light->type != Light_Type::DIRECTIONAL)
+            {
+                ImGui::Text("Radius");
+                ImGui::SameLine();
+                ImGui::DragFloat("##RadiusDragFloat", &light->radius, 0.1f, 0.0f);
+            }
+
+            if (light->type == Light_Type::SPOT)
+            {
+                ImGui::Text("Outer Angle");
+                ImGui::SameLine();
+
+                ImGui::DragFloat("##Outer Angle Drag Float", &light->outer_angle, 1.0f, 0.0f, 360.0f);
+
+                ImGui::Text("Inner Angle");
+                ImGui::SameLine();
+
+                ImGui::DragFloat("##Inner Angle Drag Float", &light->inner_angle, 1.0f, 0.0f, light->outer_angle);
+            }
         }
     }
 

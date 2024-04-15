@@ -70,7 +70,7 @@ bool select_asset(String name, String type, Asset_Handle* asset_handle, const Se
     {
         const Asset_Registry_Entry &entry = get_asset_registry_entry(*asset_handle);
         ImGui::SameLine();
-        ImGui::Text(entry.path.data);
+        ImGui::Text(get_name(entry.path).data);
 
         if (config.nullify)
         {

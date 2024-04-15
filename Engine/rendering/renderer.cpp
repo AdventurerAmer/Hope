@@ -336,37 +336,6 @@ bool init_renderer_state(Engine *engine)
     {
         auto render = [](Renderer *renderer, Renderer_State *renderer_state)
         {
-            Asset_Handle skybox_material_asset = { .uuid = renderer_state->scene_data.skybox_material_asset };
-
-            if (is_asset_handle_valid(skybox_material_asset) && is_asset_loaded(skybox_material_asset))
-            {
-                Material_Handle skybox_material = get_asset_handle_as<Material>(skybox_material_asset);
-                renderer_use_material(skybox_material);
-
-                Static_Mesh_Handle static_mesh_handle = renderer_state->default_static_mesh;
-                Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
-
-                Buffer_Handle vertex_buffers[] =
-                {
-                    static_mesh->positions_buffer,
-                    static_mesh->normals_buffer,
-                    static_mesh->uvs_buffer,
-                    static_mesh->tangents_buffer
-                };
-
-                U64 offsets[] = { 0, 0, 0, 0 };
-
-                renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
-                renderer->set_index_buffer(static_mesh->indices_buffer, 0);
-
-                Frame_Render_Data *render_data = &renderer_state->render_data;
-
-                U32 instance_index = render_data->instance_count++;
-                Shader_Instance_Data *instance_data = &render_data->instance_base[instance_index];
-                instance_data->model = get_world_matrix(get_identity_transform());
-                renderer->draw_sub_mesh(static_mesh_handle, instance_index, 0);
-            }
-
             Frame_Render_Data *render_data = &renderer_state->render_data;
             
             for (U32 draw_command_index = 0; draw_command_index < render_data->opaque_commands.count; draw_command_index++)
@@ -1563,6 +1532,9 @@ Scene_Handle renderer_create_scene(U32 node_capacity)
     init(&scene->nodes, 0, node_capacity);
     scene->node_count = 0;
     scene->first_free_node_index = -1;
+    Skybox *skybox = &scene->skybox;
+    skybox->skybox_material_asset = 0;
+    skybox->ambient_color = { 1.0f, 1.0f, 1.0f };
     return scene_handle;
 }
 
@@ -1683,6 +1655,12 @@ bool serialize_scene(Scene_Handle scene_handle, String path)
     begin_string_builder(&builder, scratch_memory.arena);
 
     append(&builder, "version 1\n");
+
+    {
+        glm::vec3 &a = skybox->ambient_color;
+        append(&builder, "ambient_color %f %f %f\n", a.r, a.g, a.b);
+    }
+
     append(&builder, "skybox_material_asset %llu\n", skybox->skybox_material_asset);
     append(&builder, "node_count %u\n", scene->node_count);
 
@@ -1970,7 +1948,32 @@ static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_t
 void render_scene(Scene_Handle scene_handle)
 {
     Scene *scene = renderer_get_scene(scene_handle);
-    traverse_scene_tree(scene, 0, get_identity_transform(), &renderer_state->render_data);
+    Skybox *skybox = &scene->skybox;
+    Asset_Handle skybox_material_asset = { .uuid = skybox->skybox_material_asset };
+
+    Frame_Render_Data *render_data = &renderer_state->render_data;
+
+    if (is_asset_handle_valid(skybox_material_asset))
+    {
+        if (!is_asset_loaded(skybox_material_asset))
+        {
+            aquire_asset(skybox_material_asset);
+        }
+        else
+        {
+            U32 instance_index = render_data->instance_count++;
+            Shader_Instance_Data *object_data = &render_data->instance_base[instance_index];
+            object_data->model = get_world_matrix(get_identity_transform());
+
+            Draw_Command &draw_command = append(&render_data->opaque_commands);
+            draw_command.static_mesh = renderer_state->default_static_mesh;
+            draw_command.sub_mesh_index = 0;
+            draw_command.material = get_asset_handle_as<Material>(skybox_material_asset);
+            draw_command.instance_index = instance_index;
+        }
+    }
+
+    traverse_scene_tree(scene, 0, get_identity_transform(), render_data);
 }
 
 //
@@ -2171,8 +2174,6 @@ void begin_rendering(const Camera *camera)
     U32 *light_count = (U32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("light_count"));
     F32 *gamma = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("gamma"));
 
-    Scene_Data *scene_data = &renderer_state->scene_data;
-
     *view = glm::mat4(1.0f);
     *projection = glm::mat4(1.0f);
     *eye = glm::vec3(0.0f);
@@ -2189,30 +2190,6 @@ void begin_rendering(const Camera *camera)
         *projection = proj;
         *eye = camera->position;
     }
-
-#if 0
-    {
-        Shader_Light *light = &lights[0];
-        light->position = scene_data->point_light.position;
-        light->radius = scene_data->point_light.radius;
-
-        light->direction = { 0.0f, 0.0f, 0.0f };
-        light->outer_angle = glm::radians(180.0f);
-        light->inner_angle = glm::radians(0.0f);
-
-        light->color = srgb_to_linear(scene_data->point_light.color, renderer_state->gamma) * scene_data->point_light.intensity;
-    }
-
-    {
-        Shader_Light *light = &lights[1];
-        light->position = scene_data->spot_light.position;
-        light->radius = scene_data->spot_light.radius;
-        light->direction = scene_data->spot_light.direction;
-        light->outer_angle = glm::radians(scene_data->spot_light.outer_angle);
-        light->inner_angle = glm::radians(scene_data->spot_light.inner_angle);
-        light->color = srgb_to_linear(scene_data->spot_light.color, renderer_state->gamma) * scene_data->spot_light.intensity;
-    }
-#endif
 
     Buffer *instance_storage_buffer = get(&renderer_state->buffers, render_data->instance_storage_buffers[frame_index]);
     render_data->instance_base = (Shader_Instance_Data *)instance_storage_buffer->data;

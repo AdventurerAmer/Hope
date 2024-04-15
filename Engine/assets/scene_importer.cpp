@@ -27,6 +27,18 @@ Load_Asset_Result load_scene(String path, const Embeded_Asset_Params *params)
     }
     U64 version = str_to_u64(result.value);
 
+    glm::vec3 ambient_color = {};
+
+    {
+        Parse_Name_Float3_Result result = parse_name_float3(&str, HE_STRING_LITERAL("ambient_color"));
+        if (!result.success)
+        {
+            HE_LOG(Assets, Error, "failed to parse scene asset\n");
+            return {};
+        }
+        ambient_color = { result.values[0], result.values[1], result.values[2] };
+    }
+
     result = parse_name_value(&str, HE_STRING_LITERAL("skybox_material_asset"));
     if (!result.success)
     {
@@ -47,6 +59,7 @@ Load_Asset_Result load_scene(String path, const Embeded_Asset_Params *params)
     Scene_Handle scene_handle = renderer_create_scene(node_count);
     Scene *scene = renderer_get_scene(scene_handle);
     Skybox *skybox = &scene->skybox;
+    skybox->ambient_color = ambient_color;
     skybox->skybox_material_asset = skybox_material.uuid;
 
     for (U32 node_index = 0; node_index < node_count; node_index++)

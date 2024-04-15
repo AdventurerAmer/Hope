@@ -547,6 +547,7 @@ enum class Skybox_Face : U8
 
 struct Skybox
 {
+    glm::vec3 ambient_color;
     U64 skybox_material_asset;
 };
 
