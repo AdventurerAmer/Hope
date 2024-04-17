@@ -499,6 +499,59 @@ static VkFrontFace get_front_face(Front_Face front_face)
     return VK_FRONT_FACE_MAX_ENUM;
 }
 
+static VkCompareOp get_depth_func(Depth_Func depth_func)
+{
+    switch (depth_func)
+    {
+        case Depth_Func::NEVER:
+        {
+            return VK_COMPARE_OP_NEVER;
+        } break;
+
+        case Depth_Func::LESS:
+        {
+            return VK_COMPARE_OP_LESS;
+        } break;
+
+        case Depth_Func::EQUAL:
+        {
+            return VK_COMPARE_OP_EQUAL;
+        } break;
+
+        case Depth_Func::LESS_OR_EQUAL:
+        {
+            return VK_COMPARE_OP_LESS_OR_EQUAL;
+        } break;
+
+        case Depth_Func::GREATER:
+        {
+            return VK_COMPARE_OP_GREATER;
+        } break;
+
+        case Depth_Func::NOT_EQUAL:
+        {
+            return VK_COMPARE_OP_NOT_EQUAL;
+        } break;
+
+        case Depth_Func::GREATER_OR_EQUAL:
+        {
+            return VK_COMPARE_OP_GREATER_OR_EQUAL;
+        } break;
+
+        case Depth_Func::ALWAYS:
+        {
+            return VK_COMPARE_OP_ALWAYS;
+        } break;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported depth func");
+        } break;
+    }
+
+    return VK_COMPARE_OP_MAX_ENUM;
+}
+
 bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  const Pipeline_State_Descriptor &descriptor, Vulkan_Context *context)
 {
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
@@ -622,8 +675,8 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
     depth_stencil_state_create_info.depthTestEnable = descriptor.settings.depth_testing ? VK_TRUE : VK_FALSE;
-    depth_stencil_state_create_info.depthWriteEnable = descriptor.settings.depth_testing ? VK_TRUE : VK_FALSE;
-    depth_stencil_state_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
+    depth_stencil_state_create_info.depthWriteEnable = descriptor.settings.depth_writing ? VK_TRUE : VK_FALSE;
+    depth_stencil_state_create_info.depthCompareOp = get_depth_func(descriptor.settings.depth_func);
     depth_stencil_state_create_info.depthBoundsTestEnable = VK_FALSE;
     depth_stencil_state_create_info.minDepthBounds = 0.0f;
     depth_stencil_state_create_info.maxDepthBounds = 1.0f;

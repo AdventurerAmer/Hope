@@ -21,7 +21,7 @@ out Fragment_Input
     vec4 tangent;
 } frag_input;
 
-layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_INSTANCE_STORAGE_BUFFER_BINDING) readonly buffer Instance_Buffer
+layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_INSTANCE_STORAGE_BUFFER_BINDING) readonly buffer Instance_Buffer
 {
     Instance_Data instances[];
 };
@@ -61,7 +61,7 @@ in Fragment_Input
     vec4 tangent;
 } frag_input;
 
-layout(set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_BINDLESS_TEXTURES_BINDING) uniform sampler2D u_textures[];
+layout(set = SHADER_PASS_BIND_GROUP, binding = SHADER_BINDLESS_TEXTURES_BINDING) uniform sampler2D u_textures[];
 
 vec4 sample_texture(uint texture_index, vec2 uv)
 {

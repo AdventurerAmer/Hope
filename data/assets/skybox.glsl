@@ -12,7 +12,7 @@ layout (location = 0) in vec3 in_position;
 
 out vec3 out_cubemap_uv;
 
-layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_INSTANCE_STORAGE_BUFFER_BINDING) readonly buffer Instance_Buffer
+layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_INSTANCE_STORAGE_BUFFER_BINDING) readonly buffer Instance_Buffer
 {
     Instance_Data instances[];
 };
@@ -39,7 +39,7 @@ in vec3 in_cubemap_uv;
 
 layout (location = 0) out vec4 out_color;
 
-layout(set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_BINDLESS_TEXTURES_BINDING) uniform samplerCube u_cubemaps[];
+layout(set = SHADER_PASS_BIND_GROUP, binding = SHADER_BINDLESS_TEXTURES_BINDING) uniform samplerCube u_cubemaps[];
 
 vec4 sample_cubemap(uint texture_index, vec3 uv)
 {

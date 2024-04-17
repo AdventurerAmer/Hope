@@ -31,34 +31,6 @@ enum RenderingAPI
 #define HE_MAX_SCENE_COUNT 4096
 #define HE_MAX_UPLOAD_REQUEST_COUNT 4096
 
-struct Directional_Light
-{
-    glm::vec3 direction;
-    glm::vec3 color;
-    F32 intensity;
-};
-
-struct Point_Light
-{
-    glm::vec3 position;
-    float radius;
-
-    glm::vec3 color;
-    float intensity;
-};
-
-struct Spot_Light
-{
-    glm::vec3 position;
-    glm::vec3 direction;
-    F32 outer_angle;
-    F32 inner_angle;
-    float radius;
-
-    glm::vec3 color;
-    float intensity;
-};
-
 struct Renderer
 {
     bool (*init)(struct Engine *engine, struct Renderer_State *renderer_state);
@@ -141,6 +113,8 @@ struct Frame_Render_Data
     Pipeline_State_Handle current_pipeline_state_handle;
     Material_Handle current_material_handle;
     Static_Mesh_Handle current_static_mesh_handle;
+
+    Dynamic_Array< Draw_Command > skyboxes_commands;
     Dynamic_Array< Draw_Command > opaque_commands;
     Dynamic_Array< Draw_Command > transparent_commands;
 };
@@ -199,6 +173,9 @@ struct Renderer_State
     U32 current_frame_in_flight_index;
 
     Frame_Render_Data render_data;
+
+    Shader_Handle geometry_shader;
+    Pipeline_State_Handle geometry_pipeline;
 
     bool imgui_docking;
 };
@@ -298,6 +275,7 @@ void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle);
 //
 Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &descriptor);
 Static_Mesh* renderer_get_static_mesh(Static_Mesh_Handle static_mesh_handle);
+void renderer_use_static_mesh(Static_Mesh_Handle static_mesh_handle);
 void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle);
 
 //

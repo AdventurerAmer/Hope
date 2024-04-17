@@ -1,5 +1,6 @@
 #include "rendering/renderer.h"
 #include "rendering/renderer_utils.h"
+#include "rendering/render_passes.h"
 
 #include "core/platform.h"
 #include "core/cvars.h"
@@ -332,98 +333,7 @@ bool init_renderer_state(Engine *engine)
     }
 
     init(&renderer_state->render_graph);
-
-    {
-        auto render = [](Renderer *renderer, Renderer_State *renderer_state)
-        {
-            Frame_Render_Data *render_data = &renderer_state->render_data;
-            
-            for (U32 draw_command_index = 0; draw_command_index < render_data->opaque_commands.count; draw_command_index++)
-            {
-                const Draw_Command *draw_command = &render_data->opaque_commands[draw_command_index];
-
-                if (render_data->current_material_handle != draw_command->material)
-                {
-                    render_data->current_material_handle = draw_command->material;
-                    renderer_use_material(draw_command->material);
-                }
-
-                if (render_data->current_static_mesh_handle != draw_command->static_mesh)
-                {
-                    render_data->current_static_mesh_handle = draw_command->static_mesh;
-
-                    Static_Mesh *static_mesh = renderer_get_static_mesh(draw_command->static_mesh);
-
-                    Buffer_Handle vertex_buffers[] =
-                    {
-                        static_mesh->positions_buffer,
-                        static_mesh->normals_buffer,
-                        static_mesh->uvs_buffer,
-                        static_mesh->tangents_buffer
-                    };
-
-                    U64 offsets[] = { 0, 0, 0, 0 };
-
-                    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
-                    renderer->set_index_buffer(static_mesh->indices_buffer, 0);
-                }
-
-                renderer->draw_sub_mesh(draw_command->static_mesh, draw_command->instance_index, draw_command->sub_mesh_index);
-            }
-        };
-
-        Render_Target_Info render_targets[] =
-        {
-            {
-                .name = "multisample_main",
-                .operation = Attachment_Operation::CLEAR,
-                .info =
-                {
-                    .format = Texture_Format::R8G8B8A8_UNORM,
-                    .resizable_sample = true,
-                    .resizable = true,
-                    .scale_x = 1.0f,
-                    .scale_y = 1.0f,
-                }
-            },
-            {
-                .name = "depth",
-                .operation = Attachment_Operation::CLEAR,
-                .info =
-                {
-                    .format = Texture_Format::DEPTH_F32_STENCIL_U8,
-                    .resizable_sample = true,
-                    .resizable = true,
-                    .scale_x = 1.0f,
-                    .scale_y = 1.0f,
-                }
-            }
-        };
-
-        Render_Graph_Node &node = add_node(&renderer_state->render_graph, "opaque", to_array_view(render_targets), render);
-        add_resolve_color_attachment(&renderer_state->render_graph, &node, "multisample_main", "main");
-        node.clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
-        node.clear_values[1].depth = 1.0f;
-    }
-
-    {
-        auto render = [](Renderer *renderer, Renderer_State *renderer_state)
-        {
-            renderer->imgui_render();
-        };
-
-        Render_Target_Info render_targets[] =
-        {
-            {
-                .name = "main",
-                .operation = Attachment_Operation::LOAD
-            }
-        };
-
-        add_node(&renderer_state->render_graph, "ui", to_array_view(render_targets), render);
-    }
-
-    set_presentable_attachment(&renderer_state->render_graph, "main");
+    setup_render_passes(&renderer_state->render_graph, renderer_state);
     
     bool compiled = compile(&renderer_state->render_graph, renderer, renderer_state);
     if (!compiled)
@@ -474,6 +384,9 @@ bool init_renderer_state(Engine *engine)
                 .cull_mode = Cull_Mode::BACK,
                 .front_face = Front_Face::COUNTER_CLOCKWISE,
                 .fill_mode = Fill_Mode::SOLID,
+                .depth_func = Depth_Func::LESS_OR_EQUAL,
+                .depth_testing = true,
+                .depth_writing = false,
                 .sample_shading = true,
             },
             .shader = renderer_state->default_shader,
@@ -497,6 +410,7 @@ bool init_renderer_state(Engine *engine)
         Shader *default_shader = get(&renderer_state->shaders, renderer_state->default_shader);
 
         Frame_Render_Data *render_data = &renderer_state->render_data;
+        init(&render_data->skyboxes_commands);
         init(&render_data->opaque_commands);
         init(&render_data->transparent_commands);
 
@@ -541,6 +455,44 @@ bool init_renderer_state(Engine *engine)
             render_data->globals_bind_groups[frame_index] = renderer_create_bind_group(globals_bind_group_descriptor);
             render_data->pass_bind_groups[frame_index] = renderer_create_bind_group(pass_bind_group_descriptor);
         }
+    }
+
+    {
+        Allocator allocator = to_allocator(scratch_memory.arena);
+        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/geometry.glsl"), allocator);
+        String shader_source = { .count = result.size, .data = (const char *)result.data };
+
+        Shader_Compilation_Result compilation_result = renderer_compile_shader(shader_source, HE_STRING_LITERAL("shaders"));
+        HE_ASSERT(compilation_result.success);
+
+        Shader_Descriptor shader_descriptor =
+        {
+            .name = HE_STRING_LITERAL("geometry"),
+            .compilation_result = &compilation_result
+        };
+
+        renderer_state->geometry_shader = renderer_create_shader(shader_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->geometry_shader));
+        renderer_destroy_shader_compilation_result(&compilation_result);
+
+        Pipeline_State_Descriptor pipeline_state_descriptor =
+        {
+            .settings =
+            {
+                .cull_mode = Cull_Mode::BACK,
+                .front_face = Front_Face::COUNTER_CLOCKWISE,
+                .fill_mode = Fill_Mode::SOLID,
+                .depth_func = Depth_Func::LESS,
+                .depth_testing = true,
+                .depth_writing = true,
+                .sample_shading = true,
+            },
+            .shader = renderer_state->geometry_shader,
+            .render_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("geometry")), // todo(amer): we should not depend on the render graph here...
+        };
+
+        renderer_state->geometry_pipeline = renderer_create_pipeline_state(pipeline_state_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, renderer_state->geometry_pipeline));
     }
 
     return true;
@@ -595,7 +547,6 @@ void deinit_renderer_state()
     platform_shutdown_imgui();
     ImGui::DestroyContext();
 }
-
 
 void renderer_on_resize(U32 width, U32 height)
 {
@@ -1242,6 +1193,33 @@ Static_Mesh *renderer_get_static_mesh(Static_Mesh_Handle static_mesh_handle)
     return get(&renderer_state->static_meshes, static_mesh_handle);
 }
 
+void renderer_use_static_mesh(Static_Mesh_Handle static_mesh_handle)
+{
+    Frame_Render_Data *render_data = &renderer_state->render_data;
+
+    if (render_data->current_static_mesh_handle == static_mesh_handle)
+    {
+        return;
+    }
+
+    render_data->current_static_mesh_handle = static_mesh_handle;
+
+    Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+
+    Buffer_Handle vertex_buffers[] =
+    {
+        static_mesh->positions_buffer,
+        static_mesh->normals_buffer,
+        static_mesh->uvs_buffer,
+        static_mesh->tangents_buffer
+    };
+
+    U64 offsets[] = { 0, 0, 0, 0 };
+
+    renderer->set_vertex_buffers(to_array_view(vertex_buffers), to_array_view(offsets));
+    renderer->set_index_buffer(static_mesh->indices_buffer, 0);
+}
+
 void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle)
 {
     Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
@@ -1429,6 +1407,15 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
 
 void renderer_use_material(Material_Handle material_handle)
 {
+    Frame_Render_Data *render_data = &renderer_state->render_data;
+
+    if (render_data->current_material_handle == material_handle)
+    {
+        return;
+    }
+
+    render_data->current_material_handle = material_handle;
+
     Material *material = get(&renderer_state->materials, material_handle);
 
     if (material->dirty_count)
@@ -1485,10 +1472,10 @@ void renderer_use_material(Material_Handle material_handle)
 
     renderer->set_bind_groups(SHADER_OBJECT_BIND_GROUP, to_array_view(material_bind_groups));
 
-    if (renderer_state->render_data.current_pipeline_state_handle.index != material->pipeline_state_handle.index)
+    if (render_data->current_pipeline_state_handle.index != material->pipeline_state_handle.index)
     {
         renderer->set_pipeline_state(material->pipeline_state_handle);
-        renderer_state->render_data.current_pipeline_state_handle = material->pipeline_state_handle;
+        render_data->current_pipeline_state_handle = material->pipeline_state_handle;
     }
 }
 
@@ -1965,11 +1952,11 @@ void render_scene(Scene_Handle scene_handle)
             Shader_Instance_Data *object_data = &render_data->instance_base[instance_index];
             object_data->model = get_world_matrix(get_identity_transform());
 
-            Draw_Command &draw_command = append(&render_data->opaque_commands);
-            draw_command.static_mesh = renderer_state->default_static_mesh;
-            draw_command.sub_mesh_index = 0;
-            draw_command.material = get_asset_handle_as<Material>(skybox_material_asset);
-            draw_command.instance_index = instance_index;
+            Draw_Command &dc = append(&render_data->skyboxes_commands);
+            dc.static_mesh = renderer_state->default_static_mesh;
+            dc.sub_mesh_index = 0;
+            dc.material = get_asset_handle_as<Material>(skybox_material_asset);
+            dc.instance_index = instance_index;
         }
     }
 
@@ -2201,6 +2188,7 @@ void begin_rendering(const Camera *camera)
     render_data->current_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
     render_data->current_material_handle = Resource_Pool< Material >::invalid_handle;
     render_data->current_static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
+    reset(&render_data->skyboxes_commands);
     reset(&render_data->opaque_commands);
     reset(&render_data->transparent_commands);
 
@@ -2233,11 +2221,10 @@ void begin_rendering(const Camera *camera)
             .buffers = &render_data->globals_uniform_buffers[frame_index]
         },
         {
-            .binding_number = SHADER_BINDLESS_TEXTURES_BINDING,
+            .binding_number = SHADER_INSTANCE_STORAGE_BUFFER_BINDING,
             .element_index = 0,
-            .count = texture_count,
-            .textures = textures,
-            .samplers = samplers
+            .count = 1,
+            .buffers = &render_data->instance_storage_buffers[frame_index]
         },
     };
     renderer_update_bind_group(render_data->globals_bind_groups[frame_index], to_array_view(update_globals_bindings));
@@ -2245,16 +2232,17 @@ void begin_rendering(const Camera *camera)
     Update_Binding_Descriptor update_pass_bindings[] =
     {
         {
-            .binding_number = SHADER_INSTANCE_STORAGE_BUFFER_BINDING,
-            .element_index = 0,
-            .count = 1,
-            .buffers = &render_data->instance_storage_buffers[frame_index]
-        },
-        {
             .binding_number = SHADER_LIGHT_STORAGE_BUFFER_BINDING,
             .element_index = 0,
             .count = 1,
             .buffers = &render_data->light_storage_buffers[frame_index]
+        },
+        {
+            .binding_number = SHADER_BINDLESS_TEXTURES_BINDING,
+            .element_index = 0,
+            .count = texture_count,
+            .textures = textures,
+            .samplers = samplers
         },
     };
 

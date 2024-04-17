@@ -1600,21 +1600,32 @@ void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Fr
 
         if (is_color_format(texture->format))
         {
-            vulkan_clear_values[clear_value_index].color =
+            if (is_color_format_int(texture->format))
             {
-                clear_values[clear_value_index].color.r,
-                clear_values[clear_value_index].color.g,
-                clear_values[clear_value_index].color.b,
-                clear_values[clear_value_index].color.a,
-            };
+                for (U32 i = 0; i < 4; i++)
+                {
+                    vulkan_clear_values[clear_value_index].color.int32[i] = clear_values[clear_value_index].icolor[i];
+                }
+            }
+            else if (is_color_format_uint(texture->format))
+            {
+                for (U32 i = 0; i < 4; i++)
+                {
+                    vulkan_clear_values[clear_value_index].color.uint32[i] = clear_values[clear_value_index].ucolor[i];
+                }
+            }
+            else
+            {
+                for (U32 i = 0; i < 4; i++)
+                {
+                    vulkan_clear_values[clear_value_index].color.float32[i] = clear_values[clear_value_index].color[i];
+                }
+            }
         }
         else
         {
-            vulkan_clear_values[clear_value_index].depthStencil =
-            {
-                clear_values[clear_value_index].depth,
-                clear_values[clear_value_index].stencil,
-            };
+            vulkan_clear_values[clear_value_index].depthStencil.depth = clear_values[clear_value_index].depth;
+            vulkan_clear_values[clear_value_index].depthStencil.stencil = clear_values[clear_value_index].stencil;
         }
     }
 

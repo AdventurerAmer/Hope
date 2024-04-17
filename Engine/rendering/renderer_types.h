@@ -104,6 +104,7 @@ enum class Texture_Format
     R8G8B8A8_SRGB,
     B8G8R8A8_SRGB,
     B8G8R8A8_UNORM,
+    R32_SINT,
     DEPTH_F32_STENCIL_U8,
     COUNT
 };
@@ -188,6 +189,8 @@ using Sampler_Handle = Resource_Handle< Sampler >;
 struct Clear_Value
 {
     glm::vec4 color;
+    glm::ivec4 icolor;
+    glm::uvec4 ucolor;
     F32 depth;
     U8 stencil;
 };
@@ -383,12 +386,26 @@ enum class Fill_Mode : U8
     WIREFRAME
 };
 
+enum class Depth_Func
+{
+    NEVER,
+    LESS,
+    EQUAL,
+    LESS_OR_EQUAL,
+    GREATER,
+    NOT_EQUAL,
+    GREATER_OR_EQUAL,
+    ALWAYS,
+};
+
 struct Pipeline_State_Settings
 {
     Cull_Mode cull_mode = Cull_Mode::BACK;
     Front_Face front_face = Front_Face::COUNTER_CLOCKWISE;
     Fill_Mode fill_mode = Fill_Mode::SOLID;
+    Depth_Func depth_func = Depth_Func::LESS_OR_EQUAL;
     bool depth_testing = true;
+    bool depth_writing = false;
     bool sample_shading = false;
 };
 

@@ -109,7 +109,12 @@ VkFormat get_texture_format(Texture_Format texture_format)
         case Texture_Format::B8G8R8A8_UNORM:
         {
             return VK_FORMAT_B8G8R8A8_UNORM;
-        }
+        } break;
+
+        case Texture_Format::R32_SINT:
+        {
+            return VK_FORMAT_R32_SINT;
+        } break;
 
         case Texture_Format::DEPTH_F32_STENCIL_U8:
         {

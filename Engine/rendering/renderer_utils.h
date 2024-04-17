@@ -4,6 +4,8 @@
 #include "rendering/renderer_types.h"
 
 bool is_color_format(Texture_Format format);
+bool is_color_format_int(Texture_Format format);
+bool is_color_format_uint(Texture_Format format);
 
 U32 get_size_of_shader_data_type(Shader_Data_Type data_type);
 
