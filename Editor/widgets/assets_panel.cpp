@@ -6,6 +6,7 @@
 #include <core/logging.h>
 
 #include <rendering/renderer.h>
+#include <rendering/renderer_utils.h>
 #include <assets/asset_manager.h>
 
 #include <imgui/imgui.h>
@@ -361,7 +362,7 @@ const char* cull_mode_to_string(Cull_Mode mode)
 
         default:
         {
-            HE_ASSERT("unsupported cull mode");
+            HE_ASSERT(!"unsupported cull mode");
         } break;
     }
 
@@ -379,12 +380,56 @@ const char* front_face_to_string(Front_Face front_face)
 
         case Front_Face::COUNTER_CLOCKWISE:
         {
-            return "counterclockwise";
+            return "counter_clockwise";
         } break;
 
         default:
         {
-            HE_ASSERT("unsupported front face");
+            HE_ASSERT(!"unsupported front face");
+        } break;
+    }
+
+    return "";
+}
+
+const char* compare_operation_to_str(Compare_Operation op)
+{
+    switch (op)
+    {
+        case Compare_Operation::NEVER: return "never";
+        case Compare_Operation::LESS: return "less";
+        case Compare_Operation::EQUAL: return "equal";
+        case Compare_Operation::LESS_OR_EQUAL: return "less_or_equal";
+        case Compare_Operation::GREATER: return "greater";
+        case Compare_Operation::NOT_EQUAL: return "not_equal";
+        case Compare_Operation::GREATER_OR_EQUAL: return "greater_or_equal";
+        case Compare_Operation::ALWAYS: return "always";
+
+        default:
+        {
+            HE_ASSERT(!"unsupported compare operation");
+        } break;
+    }
+
+    return "";
+}
+
+const char* stencil_operation_to_str(Stencil_Operation op)
+{
+    switch (op)
+    {
+        case Stencil_Operation::KEEP: return "keep";
+        case Stencil_Operation::ZERO: return "zero";
+        case Stencil_Operation::REPLACE: return "replace";
+        case Stencil_Operation::INCREMENT_AND_CLAMP: return "increment_and_clamp";
+        case Stencil_Operation::DECREMENT_AND_CLAMP: return "decrement_and_clamp";
+        case Stencil_Operation::INVERT: return "invert";
+        case Stencil_Operation::INCREMENT_AND_WRAP: return "increment_and_wrap";
+        case Stencil_Operation::DECREMENT_AND_WRAP: return "decrement_and_wrap";
+
+        default:
+        {
+            HE_ASSERT(!"unsupported stencil operation");
         } break;
     }
 
@@ -397,9 +442,7 @@ struct Create_Material_Asset_Data
     U32 property_count;
     Material_Property *properties = nullptr;
     U32 render_pass_index = 0;
-    Cull_Mode cull_mode = Cull_Mode::BACK;
-    Front_Face front_face = Front_Face::COUNTER_CLOCKWISE;
-    bool depth_testing = true;
+    Pipeline_State_Settings pipeline_state_settings;
 };
 
 static void create_material_asset_modal(bool open)
@@ -430,9 +473,7 @@ static void create_material_asset_modal(bool open)
             }
 
             asset_data.render_pass_index = 0;
-            asset_data.cull_mode = Cull_Mode::BACK;
-            asset_data.front_face = Front_Face::COUNTER_CLOCKWISE;
-            asset_data.depth_testing = true;
+            asset_data.pipeline_state_settings = {};
         };
 
         String extensions[] =
@@ -511,14 +552,16 @@ static void create_material_asset_modal(bool open)
         ImGui::Text("Cull Mode");
         ImGui::SameLine();
 
-        if (ImGui::BeginCombo("##Cull Mode", cull_modes[(U32)asset_data.cull_mode]))
+        Pipeline_State_Settings &settings = asset_data.pipeline_state_settings;
+
+        if (ImGui::BeginCombo("##Cull Mode", cull_modes[(U32)settings.cull_mode]))
         {
             for (U32 i = 0; i < HE_ARRAYCOUNT(cull_modes); i++)
             {
-                bool is_selected = i == (U32)asset_data.cull_mode;
+                bool is_selected = i == (U32)settings.cull_mode;
                 if (ImGui::Selectable(cull_modes[i], is_selected))
                 {
-                    asset_data.cull_mode = (Cull_Mode)i;
+                    settings.cull_mode = (Cull_Mode)i;
                 }
 
                 if (is_selected)
@@ -529,19 +572,19 @@ static void create_material_asset_modal(bool open)
             ImGui::EndCombo();
         }
 
-        static constexpr const char *front_faces[] = { "clockwise", "counterclockwise" };
+        static constexpr const char *front_faces[] = { "clockwise", "counter clockwise" };
 
         ImGui::Text("Front Face");
         ImGui::SameLine();
 
-        if (ImGui::BeginCombo("##Front Face", front_faces[(U32)asset_data.front_face]))
+        if (ImGui::BeginCombo("##Front Face", front_faces[(U32)settings.front_face]))
         {
             for (U32 i = 0; i < HE_ARRAYCOUNT(front_faces); i++)
             {
-                bool is_selected = i == (U32)asset_data.front_face;
+                bool is_selected = i == (U32)settings.front_face;
                 if (ImGui::Selectable(front_faces[i], is_selected))
                 {
-                    asset_data.front_face = (Front_Face)i;
+                    settings.front_face = (Front_Face)i;
                 }
 
                 if (is_selected)
@@ -549,13 +592,143 @@ static void create_material_asset_modal(bool open)
                     ImGui::SetItemDefaultFocus();
                 }
             }
+            ImGui::EndCombo();
+        }
+
+        static constexpr const char *compare_ops[] = { "never", "less", "equal", "less or equal", "greater", "not equal", "greater or equal", "always" };
+
+        ImGui::Text("Depth Operation");
+        ImGui::SameLine();
+
+        if (ImGui::BeginCombo("##Depth Operation", compare_ops[(U32)settings.depth_operation]))
+        {
+            for (U32 i = 0; i < HE_ARRAYCOUNT(compare_ops); i++)
+            {
+                bool is_selected = i == (U32)settings.depth_operation;
+                if (ImGui::Selectable(compare_ops[i], is_selected))
+                {
+                    settings.depth_operation = (Compare_Operation)i;
+                }
+                if (is_selected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+
             ImGui::EndCombo();
         }
 
         ImGui::Text("Depth Testing");
         ImGui::SameLine();
+        ImGui::Checkbox("##Depth Testing", &settings.depth_testing);
 
-        ImGui::Checkbox("##Depth Testing", &asset_data.depth_testing);
+        ImGui::Text("Depth Writing");
+        ImGui::SameLine();
+        ImGui::Checkbox("##Depth Writing", &settings.depth_writing);
+
+        ImGui::Text("Stencil Operation");
+        ImGui::SameLine();
+
+        if (ImGui::BeginCombo("##Stencil Operation", compare_ops[(U32)settings.stencil_operation]))
+        {
+            for (U32 i = 0; i < HE_ARRAYCOUNT(compare_ops); i++)
+            {
+                bool is_selected = i == (U32)settings.stencil_operation;
+                if (ImGui::Selectable(compare_ops[i], is_selected))
+                {
+                    settings.stencil_operation = (Compare_Operation)i;
+                }
+                if (is_selected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+
+            ImGui::EndCombo();
+        }
+
+        ImGui::Text("Stencil Testing");
+        ImGui::SameLine();
+        ImGui::Checkbox("##Stencil Testing", &settings.stencil_testing);
+
+        static constexpr const char *stencil_ops[] = { "keep", "zero", "replace", "increment and clamp", "decrement and clamp", "invert", "increment and wrap", "decrement and wrap" };
+
+        ImGui::Text("Stencil Fail");
+        ImGui::SameLine();
+
+        if (ImGui::BeginCombo("##Stencil Fail", stencil_ops[(U32)settings.stencil_fail]))
+        {
+            for (U32 i = 0; i < HE_ARRAYCOUNT(stencil_ops); i++)
+            {
+                bool is_selected = i == (U32)settings.stencil_fail;
+                if (ImGui::Selectable(stencil_ops[i], is_selected))
+                {
+                    settings.stencil_fail = (Stencil_Operation)i;
+                }
+                if (is_selected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+
+            ImGui::EndCombo();
+        }
+
+        ImGui::Text("Stencil Pass");
+        ImGui::SameLine();
+
+        if (ImGui::BeginCombo("##Stencil Pass", stencil_ops[(U32)settings.stencil_pass]))
+        {
+            for (U32 i = 0; i < HE_ARRAYCOUNT(stencil_ops); i++)
+            {
+                bool is_selected = i == (U32)settings.stencil_pass;
+                if (ImGui::Selectable(stencil_ops[i], is_selected))
+                {
+                    settings.stencil_pass = (Stencil_Operation)i;
+                }
+
+                if (is_selected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+
+            ImGui::EndCombo();
+        }
+
+        ImGui::Text("Depth Fail");
+        ImGui::SameLine();
+
+        if (ImGui::BeginCombo("##Depth Fail", stencil_ops[(U32)settings.depth_fail]))
+        {
+            for (U32 i = 0; i < HE_ARRAYCOUNT(stencil_ops); i++)
+            {
+                bool is_selected = i == (U32)settings.depth_fail;
+                if (ImGui::Selectable(stencil_ops[i], is_selected))
+                {
+                    settings.depth_fail = (Stencil_Operation)i;
+                }
+
+                if (is_selected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+
+            ImGui::EndCombo();
+        }
+
+        ImGui::Text("Stencil Compare Mask");
+        ImGui::SameLine();
+        ImGui::DragInt("##Stencil Compare Mask", (int *)&settings.stencil_compare_mask, 1.0f, 0, 255);
+
+        ImGui::Text("Stencil Write Mask");
+        ImGui::SameLine();
+        ImGui::DragInt("##Stencil Write Mask", (int *)&settings.stencil_write_mask, 1.0f, 0, 255);
+
+        ImGui::Text("Stencil Reference Value");
+        ImGui::SameLine();
+        ImGui::DragInt("##Stencil Reference Value", (int *)&settings.stencil_reference_value, 1.0f, 0, 255);
 
         if (is_asset_handle_valid(asset_data.shader_asset))
         {
@@ -615,18 +788,18 @@ static void create_material_asset_modal(bool open)
 
                         case Shader_Data_Type::VECTOR2F:
                         {
-                            ImGui::DragFloat2("##Property", (F32 *)&property->data.v2);
+                            ImGui::DragFloat2("##Property", (F32 *)&property->data.v2f);
                         } break;
 
                         case Shader_Data_Type::VECTOR3F:
                         {
                             if (is_color)
                             {
-                                ImGui::ColorEdit3("##Property", (F32*)&property->data.v3);
+                                ImGui::ColorEdit3("##Property", (F32 *)&property->data.v3f);
                             }
                             else
                             {
-                                ImGui::DragFloat3("##Property", (F32 *)&property->data.v3);
+                                ImGui::DragFloat3("##Property", (F32 *)&property->data.v3f);
                             }
                         } break;
 
@@ -634,11 +807,11 @@ static void create_material_asset_modal(bool open)
                         {
                             if (property->is_color)
                             {
-                                ImGui::ColorEdit4("##Property", (F32*)&property->data.v4);
+                                ImGui::ColorEdit4("##Property", (F32 *)&property->data.v4f);
                             }
                             else
                             {
-                                ImGui::DragFloat4("##Property", (F32 *)&property->data.v4);
+                                ImGui::DragFloat4("##Property", (F32 *)&property->data.v4f);
                             }
                         } break;
                     }
@@ -662,8 +835,10 @@ static void create_material_asset_modal(bool open)
 
                 String title = HE_STRING_LITERAL("Save Material Asset");
                 String filter = HE_STRING_LITERAL("Material (.hamaterial)");
+
                 String absolute_path = save_file_dialog(title, filter, to_array_view(extensions));
                 HE_DEFER { deallocate(get_general_purpose_allocator(), (void *)absolute_path.data); };
+
                 if (absolute_path.count)
                 {
                     String path = absolute_path;
@@ -676,46 +851,119 @@ static void create_material_asset_modal(bool open)
 
                     String_Builder builder = {};
                     begin_string_builder(&builder, scratch_memory.arena);
+
                     append(&builder, "version 1\n");
                     append(&builder, "shader %llu\n", asset_data.shader_asset.uuid);
                     append(&builder, "render_pass %s\n", render_passes[asset_data.render_pass_index]);
-                    append(&builder, "cull_mode %s\n", cull_mode_to_string(asset_data.cull_mode));
-                    append(&builder, "front_face %s\n", front_face_to_string(asset_data.front_face));
-                    append(&builder, "depth_testing %s\n", asset_data.depth_testing ? "enabled" : "disabled");
+                    append(&builder, "cull_mode %s\n", cull_mode_to_string(settings.cull_mode));
+                    append(&builder, "front_face %s\n", front_face_to_string(settings.front_face));
+
+                    append(&builder, "depth_operation %s\n", compare_operation_to_str(settings.depth_operation));
+                    append(&builder, "depth_testing %s\n", settings.depth_testing ? "true" : "false");
+                    append(&builder, "depth_writing %s\n", settings.depth_writing ? "true" : "false");
+
+                    append(&builder, "stencil_operation %s\n", compare_operation_to_str(settings.stencil_operation));
+                    append(&builder, "stencil_testing %s\n", settings.stencil_testing ? "true" : "false");
+                    append(&builder, "stencil_pass %s\n", stencil_operation_to_str(settings.stencil_pass));
+                    append(&builder, "stencil_fail %s\n", stencil_operation_to_str(settings.stencil_fail));
+                    append(&builder, "depth_fail %s\n", stencil_operation_to_str(settings.depth_fail));
+
+                    append(&builder, "stencil_compare_mask %u\n", settings.stencil_compare_mask);
+                    append(&builder, "stencil_write_mask %u\n", settings.stencil_write_mask);
+                    append(&builder, "stencil_reference_value %u\n", settings.stencil_reference_value);
+
                     append(&builder, "property_count %u\n", asset_data.property_count);
+
                     for (U32 i = 0; i < asset_data.property_count; i++)
                     {
                         Material_Property *property = &asset_data.properties[i];
                         bool is_texture_asset = ends_with(property->name, HE_STRING_LITERAL("texture")) || ends_with(property->name, HE_STRING_LITERAL("cubemap"));
                         bool is_color = ends_with(property->name, HE_STRING_LITERAL("color"));
-
-                        // todo(amer): shader_data_type to string
-                        append(&builder, "%.*s %u ", HE_EXPAND_STRING(property->name), (U32)property->data_type);
+                        append(&builder, "%.*s %.*s ", HE_EXPAND_STRING(property->name), HE_EXPAND_STRING(shader_data_type_to_str(property->data_type)));
                         switch (property->data_type)
                         {
+                            case Shader_Data_Type::U8:
+                            case Shader_Data_Type::U16:
+                            case Shader_Data_Type::U64:
+                            {
+                                append(&builder, "%llu\n", property->data.u64);
+                            } break;
+
                             case Shader_Data_Type::U32:
                             {
                                 append(&builder, "%llu\n", is_texture_asset ? property->data.u64 : property->data.u32);
                             } break;
 
-                            case Shader_Data_Type::F32:
+                            case Shader_Data_Type::S8:
                             {
-                                append(&builder, "%f\n", property->data.f32);
+                                append(&builder, "%ll\n", property->data.s8);
+                            } break;
+
+                            case Shader_Data_Type::S16:
+                            {
+                                append(&builder, "%ll\n", property->data.s16);
+                            } break;
+
+                            case Shader_Data_Type::S32:
+                            {
+                                append(&builder, "%ll\n", property->data.s32);
+                            } break;
+
+                            case Shader_Data_Type::S64:
+                            {
+                                append(&builder, "%ll\n", property->data.s64);
+                            } break;
+
+                            case Shader_Data_Type::F16:
+                            case Shader_Data_Type::F32:
+                            case Shader_Data_Type::F64:
+                            {
+                                append(&builder, "%f\n", property->data.f64);
                             } break;
 
                             case Shader_Data_Type::VECTOR2F:
                             {
-                                append(&builder, "%f %f\n", property->data.v2[0], property->data.v2[1]);
+                                append(&builder, "%f %f\n", property->data.v2f.x, property->data.v2f.y);
+                            } break;
+
+                            case Shader_Data_Type::VECTOR2S:
+                            {
+                                append(&builder, "%ll %ll\n", property->data.v2s.x, property->data.v2s.y);
+                            } break;
+
+                            case Shader_Data_Type::VECTOR2U:
+                            {
+                                append(&builder, "%llu %llu\n", property->data.v2u.x, property->data.v2u.y);
                             } break;
 
                             case Shader_Data_Type::VECTOR3F:
                             {
-                                append(&builder, "%f %f %f\n", property->data.v3.x, property->data.v3.y, property->data.v3.z);
+                                append(&builder, "%f %f %f\n", property->data.v3f.x, property->data.v3f.y, property->data.v3f.z);
+                            } break;
+
+                            case Shader_Data_Type::VECTOR3S:
+                            {
+                                append(&builder, "%ll %ll %ll\n", property->data.v3s.x, property->data.v3s.y, property->data.v3s.z);
+                            } break;
+
+                            case Shader_Data_Type::VECTOR3U:
+                            {
+                                append(&builder, "%llu %llu %llu\n", property->data.v3u.x, property->data.v3u.y, property->data.v3u.z);
                             } break;
 
                             case Shader_Data_Type::VECTOR4F:
                             {
-                                append(&builder, "%f %f %f %f\n", property->data.v4.x, property->data.v4.y, property->data.v4.z, property->data.v4.w);
+                                append(&builder, "%f %f %f %f\n", property->data.v4f.x, property->data.v4f.y, property->data.v4f.z, property->data.v4f.w);
+                            } break;
+
+                            case Shader_Data_Type::VECTOR4S:
+                            {
+                                append(&builder, "%ll %ll %ll %ll\n", property->data.v4s.x, property->data.v4s.y, property->data.v4s.z, property->data.v4s.w);
+                            } break;
+
+                            case Shader_Data_Type::VECTOR4U:
+                            {
+                                append(&builder, "%llu %llu %llu %llu\n", property->data.v4u.x, property->data.v4u.y, property->data.v4u.z, property->data.v4u.w);
                             } break;
                         }
                     }

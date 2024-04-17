@@ -1,5 +1,5 @@
 version 1
-entry_count 131
+entry_count 136
 
 asset 62636994909288842
 parent 0
@@ -92,6 +92,10 @@ path 69 flighthelmet/flighthelmet_materials_lensesmat_occlusionroughmetal.png
 asset 2948329419528880293
 parent 0
 path 24 corset/corset_normal.png
+
+asset 3023274599992012132
+parent 0
+path 14 cube/cube.gltf
 
 asset 3038700182390986010
 parent 0
@@ -216,6 +220,10 @@ path 29 sponza/466164707995436622.jpg
 asset 7831815662403975022
 parent 8015345852571305201
 path 46 @7356666216630384374-10/material_11.hamaterial
+
+asset 7947054628376301445
+parent 8015345852571305201
+path 38 @3023274599992012132-0/cube.hamaterial
 
 asset 8015345852571305201
 parent 0
@@ -357,6 +365,10 @@ asset 12438951073060705066
 parent 0
 path 30 sponza/8503262930880235456.jpg
 
+asset 12725177303487466838
+parent 0
+path 40 @3023274599992012132-0/cube.hastaticmesh
+
 asset 12742101149747568531
 parent 0
 path 31 sponza/10388182081421875623.jpg
@@ -392,6 +404,10 @@ path 30 sponza/2969916736137545357.jpg
 asset 13599451077794705389
 parent 0
 path 30 sponza/4675343432951571524.jpg
+
+asset 13693397776315124322
+parent 0
+path 31 cube/cube_metallicroughness.png
 
 asset 14192671941262803509
 parent 0
@@ -500,6 +516,10 @@ path 31 sponza/16275776544635328252.png
 asset 17503357348022033327
 parent 0
 path 27 corset/corset_basecolor.png
+
+asset 17704958554211029977
+parent 0
+path 23 cube/cube_basecolor.png
 
 asset 17854286579452636849
 parent 0

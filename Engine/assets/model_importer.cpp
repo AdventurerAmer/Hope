@@ -248,7 +248,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         Material_Handle material_handle = renderer_create_material(material_descriptor);
 
         set_property(material_handle, HE_STRING_LITERAL("albedo_texture"), { .u64 = albedo_texture.uuid });
-        set_property(material_handle, HE_STRING_LITERAL("albedo_color"), { .v3 = *(glm::vec3 *)material->pbr_metallic_roughness.base_color_factor });
+        set_property(material_handle, HE_STRING_LITERAL("albedo_color"), { .v3f = *(glm::vec3 *)material->pbr_metallic_roughness.base_color_factor });
         set_property(material_handle, HE_STRING_LITERAL("normal_texture"), { .u64 = normal_texture.uuid });
         set_property(material_handle, HE_STRING_LITERAL("roughness_metallic_texture"), { .u64 = roughness_metallic_texture.uuid });
         set_property(material_handle, HE_STRING_LITERAL("roughness_factor"), { .f32 = material->pbr_metallic_roughness.roughness_factor });

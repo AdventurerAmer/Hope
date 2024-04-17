@@ -4,6 +4,7 @@
 #include "core/file_system.h"
 
 #include "rendering/renderer.h"
+#include "rendering/renderer_utils.h"
 
 static constexpr const char* cull_modes[] = { "none", "front", "back" };
 
@@ -20,7 +21,7 @@ static Cull_Mode str_to_cull_mode(String str)
     return Cull_Mode::NONE;
 }
 
-static constexpr const char* front_faces[] = { "clockwise", "counterclockwise"};
+static constexpr const char* front_faces[] = { "clockwise", "counter_clockwise"};
 
 static Front_Face str_to_front_face(String str)
 {
@@ -34,6 +35,36 @@ static Front_Face str_to_front_face(String str)
 
     HE_ASSERT(!"unsupported front face");
     return Front_Face::CLOCKWISE;
+}
+
+static constexpr const char* compare_ops[] = { "never", "less", "equal", "less_or_equal", "greater", "not_equal", "greater_or_equal", "always" };
+
+static Compare_Operation str_to_compare_op(String str)
+{
+    for (U32 i = 0; i < HE_ARRAYCOUNT(compare_ops); i++)
+    {
+        if (str == compare_ops[i])
+        {
+            return (Compare_Operation)i;
+        }
+    }
+    HE_ASSERT(!"unsupported compare op");
+    return Compare_Operation::ALWAYS;
+}
+
+static constexpr const char *stencil_ops[] = { "keep", "zero", "replace", "increment_and_clamp", "decrement_and_clamp", "invert", "increment_and_wrap", "decrement_and_wrap" };
+
+static Stencil_Operation str_to_stencil_op(String str)
+{
+    for (U32 i = 0; i < HE_ARRAYCOUNT(stencil_ops); i++)
+    {
+        if (str == stencil_ops[i])
+        {
+            return (Stencil_Operation)i;
+        }
+    }
+    HE_ASSERT(!"unsupported stencil op");
+    return Stencil_Operation::KEEP;
 }
 
 Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
@@ -96,14 +127,104 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
     
     Front_Face front_face = str_to_front_face(result.value);
 
+    result = parse_name_value(&str, HE_STRING_LITERAL("depth_operation"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
+        return {};
+    }
+
+    Compare_Operation depth_op = str_to_compare_op(result.value);
+
     result = parse_name_value(&str, HE_STRING_LITERAL("depth_testing"));
     if (!result.success)
     {
         HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
         return {};
     }
+
+    bool depth_testing = result.value == "true";
+
+    result = parse_name_value(&str, HE_STRING_LITERAL("depth_writing"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
+        return {};
+    }
+
+    bool depth_writing = result.value == "true";
+
+    result = parse_name_value(&str, HE_STRING_LITERAL("stencil_operation"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
+        return {};
+    }
+
+    Compare_Operation stencil_op = str_to_compare_op(result.value);
+
+    result = parse_name_value(&str, HE_STRING_LITERAL("stencil_testing"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
+        return {};
+    }
+
+    bool stencil_testing = result.value == "true";
+
+    result = parse_name_value(&str, HE_STRING_LITERAL("stencil_pass"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
+        return {};
+    }
+
+    Stencil_Operation stencil_pass = str_to_stencil_op(result.value);
+
+    result = parse_name_value(&str, HE_STRING_LITERAL("stencil_fail"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
+        return {};
+    }
+
+    Stencil_Operation stencil_fail = str_to_stencil_op(result.value);
     
-    bool depth_testing = result.value == "enabled";
+    result = parse_name_value(&str, HE_STRING_LITERAL("depth_fail"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
+        return {};
+    }
+
+    Stencil_Operation depth_fail = str_to_stencil_op(result.value);
+
+    result = parse_name_value(&str, HE_STRING_LITERAL("stencil_compare_mask"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
+        return {};
+    }
+
+    U32 stencil_compare_mask = u64_to_u32(str_to_u64(result.value));
+
+    result = parse_name_value(&str, HE_STRING_LITERAL("stencil_write_mask"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
+        return {};
+    }
+
+    U32 stencil_write_mask = u64_to_u32(str_to_u64(result.value));
+
+    result = parse_name_value(&str, HE_STRING_LITERAL("stencil_reference_value"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
+        return {};
+    }
+
+    U32 stencil_reference_value = u64_to_u32(str_to_u64(result.value));
 
     result = parse_name_value(&str, HE_STRING_LITERAL("property_count"));
     if (!result.success)
@@ -146,7 +267,7 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
             str = advance(str, type.count);
             str = eat_chars(str, white_space);
 
-            Shader_Data_Type data_type = (Shader_Data_Type)u64_to_u32(str_to_u64(type));
+            Shader_Data_Type data_type = (Shader_Data_Type)str_to_shader_data_type(type);
             
             bool is_texture_asset = (ends_with(name, HE_STRING_LITERAL("texture")) || ends_with(name, HE_STRING_LITERAL("cubemap"))) && data_type == Shader_Data_Type::U32;
 
@@ -205,7 +326,7 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
                         str = advance(str, value.count);
                         str = eat_chars(str, white_space);
                         F32 value_f32 = str_to_f32(value);
-                        data.v2[i] = value_f32;
+                        data.v2f[i] = value_f32;
                     }
                 } break;
 
@@ -223,7 +344,7 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
                         str = advance(str, value.count);
                         str = eat_chars(str, white_space);
                         F32 value_f32 = str_to_f32(value);
-                        data.v3[i] = value_f32;
+                        data.v3f[i] = value_f32;
                     }
                 } break;
 
@@ -241,7 +362,7 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
                         str = advance(str, value.count);
                         str = eat_chars(str, white_space);
                         F32 value_f32 = str_to_f32(value);
-                        data.v4[i] = value_f32;
+                        data.v4f[i] = value_f32;
                     }
                 } break;
             }
@@ -265,9 +386,17 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
             .cull_mode = cull_mode,
             .front_face = front_face,
             .fill_mode = Fill_Mode::SOLID,
-            .depth_func = Depth_Func::LESS_OR_EQUAL,
+            .depth_operation = depth_op,
             .depth_testing = depth_testing,
-            .depth_writing = false,
+            .depth_writing = depth_writing,
+            .stencil_operation = stencil_op,
+            .stencil_fail = stencil_fail,
+            .stencil_pass = stencil_pass,
+            .depth_fail = depth_fail,
+            .stencil_compare_mask = stencil_compare_mask,
+            .stencil_write_mask = stencil_write_mask,
+            .stencil_reference_value = stencil_reference_value,
+            .stencil_testing = stencil_testing,
             .sample_shading = true,
         },
         .shader = shader_handle,

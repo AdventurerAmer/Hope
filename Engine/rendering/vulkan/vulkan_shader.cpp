@@ -499,57 +499,78 @@ static VkFrontFace get_front_face(Front_Face front_face)
     return VK_FRONT_FACE_MAX_ENUM;
 }
 
-static VkCompareOp get_depth_func(Depth_Func depth_func)
+static VkCompareOp get_compare_operation(Compare_Operation op)
 {
-    switch (depth_func)
+    switch (op)
     {
-        case Depth_Func::NEVER:
+        case Compare_Operation::NEVER:
         {
             return VK_COMPARE_OP_NEVER;
         } break;
 
-        case Depth_Func::LESS:
+        case Compare_Operation::LESS:
         {
             return VK_COMPARE_OP_LESS;
         } break;
 
-        case Depth_Func::EQUAL:
+        case Compare_Operation::EQUAL:
         {
             return VK_COMPARE_OP_EQUAL;
         } break;
 
-        case Depth_Func::LESS_OR_EQUAL:
+        case Compare_Operation::LESS_OR_EQUAL:
         {
             return VK_COMPARE_OP_LESS_OR_EQUAL;
         } break;
 
-        case Depth_Func::GREATER:
+        case Compare_Operation::GREATER:
         {
             return VK_COMPARE_OP_GREATER;
         } break;
 
-        case Depth_Func::NOT_EQUAL:
+        case Compare_Operation::NOT_EQUAL:
         {
             return VK_COMPARE_OP_NOT_EQUAL;
         } break;
 
-        case Depth_Func::GREATER_OR_EQUAL:
+        case Compare_Operation::GREATER_OR_EQUAL:
         {
             return VK_COMPARE_OP_GREATER_OR_EQUAL;
         } break;
 
-        case Depth_Func::ALWAYS:
+        case Compare_Operation::ALWAYS:
         {
             return VK_COMPARE_OP_ALWAYS;
         } break;
 
         default:
         {
-            HE_ASSERT(!"unsupported depth func");
+            HE_ASSERT(!"unsupported compare operation");
         } break;
     }
 
     return VK_COMPARE_OP_MAX_ENUM;
+}
+
+static VkStencilOp get_stencil_operation(Stencil_Operation op)
+{
+    switch (op)
+    {
+        case Stencil_Operation::KEEP: return VK_STENCIL_OP_KEEP;
+        case Stencil_Operation::ZERO: return VK_STENCIL_OP_ZERO;
+        case Stencil_Operation::REPLACE: return VK_STENCIL_OP_REPLACE;
+        case Stencil_Operation::INCREMENT_AND_CLAMP: return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+        case Stencil_Operation::DECREMENT_AND_CLAMP: return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+        case Stencil_Operation::INVERT: return VK_STENCIL_OP_INVERT;
+        case Stencil_Operation::INCREMENT_AND_WRAP: return VK_STENCIL_OP_INCREMENT_AND_WRAP;
+        case Stencil_Operation::DECREMENT_AND_WRAP: return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+        default:
+        {
+            HE_ASSERT(!"unsupported stencil operation");
+        } break;
+    }
+
+    return VK_STENCIL_OP_MAX_ENUM;
 }
 
 bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  const Pipeline_State_Descriptor &descriptor, Vulkan_Context *context)
@@ -676,13 +697,22 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
     depth_stencil_state_create_info.depthTestEnable = descriptor.settings.depth_testing ? VK_TRUE : VK_FALSE;
     depth_stencil_state_create_info.depthWriteEnable = descriptor.settings.depth_writing ? VK_TRUE : VK_FALSE;
-    depth_stencil_state_create_info.depthCompareOp = get_depth_func(descriptor.settings.depth_func);
+    depth_stencil_state_create_info.depthCompareOp = get_compare_operation(descriptor.settings.depth_operation);
     depth_stencil_state_create_info.depthBoundsTestEnable = VK_FALSE;
     depth_stencil_state_create_info.minDepthBounds = 0.0f;
     depth_stencil_state_create_info.maxDepthBounds = 1.0f;
-    depth_stencil_state_create_info.stencilTestEnable = VK_FALSE; // note(amer): stencil test is disabled
-    depth_stencil_state_create_info.front = {};
-    depth_stencil_state_create_info.back = {};
+    depth_stencil_state_create_info.stencilTestEnable = descriptor.settings.stencil_testing ? VK_TRUE: VK_FALSE;
+    depth_stencil_state_create_info.back =
+    {
+        .failOp = get_stencil_operation(descriptor.settings.depth_fail),
+        .passOp = get_stencil_operation(descriptor.settings.stencil_pass),
+        .depthFailOp = get_stencil_operation(descriptor.settings.depth_fail),
+        .compareOp = get_compare_operation(descriptor.settings.stencil_operation),
+        .compareMask = descriptor.settings.stencil_compare_mask,
+        .writeMask = descriptor.settings.stencil_write_mask,
+        .reference = descriptor.settings.stencil_reference_value
+    };
+    depth_stencil_state_create_info.front = depth_stencil_state_create_info.back;
 
     VkGraphicsPipelineCreateInfo graphics_pipeline_create_info = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
     graphics_pipeline_create_info.stageCount = shader_stage_create_infos.count;

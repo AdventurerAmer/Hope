@@ -1,7 +1,7 @@
 version 1
 ambient_color 1.000000 1.000000 1.000000
 skybox_material_asset 11193936441130767775
-node_count 6
+node_count 7
 node_name 4 main
 parent -1
 component_count 1
@@ -32,7 +32,7 @@ rotation 0.000000 0.000000 0.000000 1.000000
 scale 1.000000 1.000000 1.000000
 component light
 type point
-color 0.818627 0.248208 0.100322
+color 0.808824 0.766610 0.091191
 intensity 3.000000
 radius 5.000000
 inner_angle 30.000000
@@ -46,7 +46,7 @@ rotation -0.707107 0.000000 0.000000 0.707107
 scale 1.000000 1.000000 1.000000
 component light
 type spot
-color 0.089869 0.286669 0.833333
+color 0.734757 0.098712 0.774510
 intensity 3.000000
 radius 5.000000
 inner_angle 30.000000
@@ -69,3 +69,12 @@ rotation 0.000000 0.000000 0.000000 1.000000
 scale 0.008000 0.008000 0.008000
 component mesh
 static_mesh_asset 9733723344646973205
+node_name 4 Cube
+parent 0
+component_count 2
+component transform
+position 0.000000 0.400000 -1.000000
+rotation 0.000000 0.000000 0.000000 1.000000
+scale 0.300000 0.300000 0.300000
+component mesh
+static_mesh_asset 12725177303487466838

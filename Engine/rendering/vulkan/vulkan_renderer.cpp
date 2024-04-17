@@ -1454,47 +1454,32 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
         attachment->format = get_texture_format(attachment_info.format);
         attachment->samples = get_sample_count(attachment_info.sample_count);
         attachment->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachment->stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
 
         switch (attachment_info.operation)
         {
             case Attachment_Operation::DONT_CARE:
             {
                 attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
                 attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             } break;
 
             case Attachment_Operation::LOAD:
             {
                 attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
                 attachment->initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             } break;
 
             case Attachment_Operation::CLEAR:
             {
                 attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
                 attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             } break;
         }
 
-        switch (descriptor.stencil_operation)
-        {
-            case Attachment_Operation::DONT_CARE:
-            {
-                attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            } break;
-
-            case Attachment_Operation::LOAD:
-            {
-                attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            } break;
-
-            case Attachment_Operation::CLEAR:
-            {
-                attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-            } break;
-        }
-
-        attachment->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         attachment->finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
         VkAttachmentReference *attachment_ref = &attachment_refs[attachment_index];
@@ -1624,8 +1609,7 @@ void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Fr
         }
         else
         {
-            vulkan_clear_values[clear_value_index].depthStencil.depth = clear_values[clear_value_index].depth;
-            vulkan_clear_values[clear_value_index].depthStencil.stencil = clear_values[clear_value_index].stencil;
+            vulkan_clear_values[clear_value_index].depthStencil = { clear_values[clear_value_index].depth, clear_values[clear_value_index].stencil };
         }
     }
 

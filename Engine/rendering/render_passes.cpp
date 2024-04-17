@@ -9,8 +9,6 @@ void ui_pass(Renderer *renderer, Renderer_State *renderer_state);
 
 void setup_render_passes(Render_Graph *render_graph, Renderer_State *renderer_state)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-
     // geometry pass
     {
         Render_Target_Info render_targets[] =
@@ -44,7 +42,7 @@ void setup_render_passes(Render_Graph *render_graph, Renderer_State *renderer_st
         Render_Graph_Node &node = add_node(render_graph, "geometry", to_array_view(render_targets), &geometry_pass);
         add_resolve_color_attachment(render_graph, &node, "ms_scene", "scene");
         node.clear_values[0].icolor = { -1, -1, -1, -1 };
-        node.clear_values[1].depth = 1.0f;
+        node.clear_values[1] = { .depth = 1.0f, .stencil = 0 };
     }
 
     // opaque pass

@@ -348,18 +348,18 @@ static void inspect_material(Material_Handle material_handle, Asset_Handle shade
 
             case Shader_Data_Type::VECTOR2F:
             {
-                changed &= ImGui::DragFloat2("##MaterialPropertyDragFloat2", &data.v2.x);
+                changed &= ImGui::DragFloat2("##MaterialPropertyDragFloat2", &data.v2f.x);
             } break;
 
             case Shader_Data_Type::VECTOR3F:
             {
                 if (property->is_color)
                 {
-                    changed &= ImGui::ColorEdit3("##MaterialPropertyColorEdit3", &data.v3.x);
+                    changed &= ImGui::ColorEdit3("##MaterialPropertyColorEdit3", &data.v3f.x);
                 }
                 else
                 {
-                    changed &= ImGui::DragFloat3("##MaterialPropertyDragFloat3", &data.v3.x);
+                    changed &= ImGui::DragFloat3("##MaterialPropertyDragFloat3", &data.v3f.x);
                 }
             } break;
 
@@ -367,11 +367,11 @@ static void inspect_material(Material_Handle material_handle, Asset_Handle shade
             {
                 if (property->is_color)
                 {
-                    changed &= ImGui::ColorEdit3("##MaterialPropertyColorEdit3", &data.v4.x);
+                    changed &= ImGui::ColorEdit3("##MaterialPropertyColorEdit3", &data.v4f.x);
                 }
                 else
                 {
-                    changed &= ImGui::DragFloat4("##MaterialPropertyDragFloat4", &data.v4.x);
+                    changed &= ImGui::DragFloat4("##MaterialPropertyDragFloat4", &data.v4f.x);
                 }
             } break;
         }

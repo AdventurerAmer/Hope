@@ -384,7 +384,7 @@ bool init_renderer_state(Engine *engine)
                 .cull_mode = Cull_Mode::BACK,
                 .front_face = Front_Face::COUNTER_CLOCKWISE,
                 .fill_mode = Fill_Mode::SOLID,
-                .depth_func = Depth_Func::LESS_OR_EQUAL,
+                .depth_operation = Compare_Operation::LESS_OR_EQUAL,
                 .depth_testing = true,
                 .depth_writing = false,
                 .sample_shading = true,
@@ -405,7 +405,7 @@ bool init_renderer_state(Engine *engine)
         HE_ASSERT(is_valid_handle(&renderer_state->materials, renderer_state->default_material));
         
         set_property(renderer_state->default_material, HE_STRING_LITERAL("debug_texture_index"), { .u32 = (U32)renderer_state->white_pixel_texture.index });
-        set_property(renderer_state->default_material, HE_STRING_LITERAL("debug_color"), { .v3 = { 1.0f, 0.0f, 1.0f }});
+        set_property(renderer_state->default_material, HE_STRING_LITERAL("debug_color"), { .v3f = { 1.0f, 0.0f, 1.0f }});
 
         Shader *default_shader = get(&renderer_state->shaders, renderer_state->default_shader);
 
@@ -482,10 +482,21 @@ bool init_renderer_state(Engine *engine)
                 .cull_mode = Cull_Mode::BACK,
                 .front_face = Front_Face::COUNTER_CLOCKWISE,
                 .fill_mode = Fill_Mode::SOLID,
-                .depth_func = Depth_Func::LESS,
+                
+                .depth_operation = Compare_Operation::LESS,
                 .depth_testing = true,
                 .depth_writing = true,
-                .sample_shading = true,
+                
+                .stencil_operation = Compare_Operation::ALWAYS,
+                .stencil_fail = Stencil_Operation::KEEP,
+                .stencil_pass = Stencil_Operation::REPLACE,
+                .depth_fail = Stencil_Operation::KEEP,
+                .stencil_compare_mask = 0xFF,
+                .stencil_write_mask = 0xFF,
+                .stencil_reference_value = 1,
+                .stencil_testing = true,
+
+                .sample_shading = false,
             },
             .shader = renderer_state->geometry_shader,
             .render_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("geometry")), // todo(amer): we should not depend on the render graph here...

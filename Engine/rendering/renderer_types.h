@@ -216,7 +216,6 @@ struct Render_Pass_Descriptor
     Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > color_attachments;
     Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > depth_stencil_attachments;
     Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > resolve_attachments;
-    Attachment_Operation stencil_operation = Attachment_Operation::DONT_CARE;
 };
 
 struct Render_Pass
@@ -277,6 +276,14 @@ enum class Shader_Data_Type
     VECTOR2F,
     VECTOR3F,
     VECTOR4F,
+
+    VECTOR2S,
+    VECTOR3S,
+    VECTOR4S,
+
+    VECTOR2U,
+    VECTOR3U,
+    VECTOR4U,
 
     MATRIX3F,
     MATRIX4F,
@@ -386,7 +393,7 @@ enum class Fill_Mode : U8
     WIREFRAME
 };
 
-enum class Depth_Func
+enum class Compare_Operation
 {
     NEVER,
     LESS,
@@ -398,14 +405,38 @@ enum class Depth_Func
     ALWAYS,
 };
 
+enum class Stencil_Operation
+{
+    KEEP,
+    ZERO,
+    REPLACE,
+    INCREMENT_AND_CLAMP,
+    DECREMENT_AND_CLAMP,
+    INVERT,
+    INCREMENT_AND_WRAP,
+    DECREMENT_AND_WRAP,
+};
+
 struct Pipeline_State_Settings
 {
     Cull_Mode cull_mode = Cull_Mode::BACK;
     Front_Face front_face = Front_Face::COUNTER_CLOCKWISE;
     Fill_Mode fill_mode = Fill_Mode::SOLID;
-    Depth_Func depth_func = Depth_Func::LESS_OR_EQUAL;
+
+    Compare_Operation depth_operation = Compare_Operation::LESS_OR_EQUAL;
     bool depth_testing = true;
     bool depth_writing = false;
+
+    Compare_Operation stencil_operation = Compare_Operation::ALWAYS;
+    Stencil_Operation stencil_fail = Stencil_Operation::KEEP;
+    Stencil_Operation stencil_pass = Stencil_Operation::KEEP;
+    Stencil_Operation depth_fail = Stencil_Operation::KEEP;
+
+    U32 stencil_compare_mask = 0xff;
+    U32 stencil_write_mask = 0xff;
+    U32 stencil_reference_value = 0;
+    bool stencil_testing = false;
+
     bool sample_shading = false;
 };
 
@@ -450,9 +481,17 @@ union Material_Property_Data
     F32 f32;
     F32 f64;
 
-    glm::vec2 v2;
-    glm::vec3 v3;
-    glm::vec4 v4;
+    glm::vec2 v2f;
+    glm::vec3 v3f;
+    glm::vec4 v4f;
+
+    glm::ivec2 v2s;
+    glm::ivec3 v3s;
+    glm::ivec4 v4s;
+
+    glm::uvec2 v2u;
+    glm::uvec3 v3u;
+    glm::uvec4 v4u;
 };
 
 struct Material_Property

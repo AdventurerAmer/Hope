@@ -2,8 +2,18 @@ version 1
 shader 8165342927083170180
 render_pass opaque
 cull_mode none
-front_face counterclockwise
-depth_testing disabled
+front_face counter_clockwise
+depth_operation always
+depth_testing false
+depth_writing false
+stencil_operation equal
+stencil_testing true
+stencil_pass keep
+stencil_fail keep
+depth_fail keep
+stencil_compare_mask 255
+stencil_write_mask 255
+stencil_reference_value 0
 property_count 2
-skybox_cubemap 7 1592366032695847528
-sky_color 13 1.000000 1.000000 1.000000
+skybox_cubemap u32 1592366032695847528
+sky_color v3f 1.000000 1.000000 1.000000
