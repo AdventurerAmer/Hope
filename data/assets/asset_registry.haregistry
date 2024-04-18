@@ -1,5 +1,5 @@
 version 1
-entry_count 136
+entry_count 137
 
 asset 62636994909288842
 parent 0
@@ -268,6 +268,10 @@ path 30 sponza/4910669866631290573.jpg
 asset 9159621065586785266
 parent 0
 path 30 sponza/8783994986360286082.jpg
+
+asset 9454918637899659995
+parent 8015345852571305201
+path 16 basic.hamaterial
 
 asset 9733723344646973205
 parent 0

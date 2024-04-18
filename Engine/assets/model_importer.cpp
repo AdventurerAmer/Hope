@@ -218,9 +218,6 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             occlusion_texture = get_texture_asset_handle(relative_path, image);
         }
 
-        String render_pass_name = HE_STRING_LITERAL("opaque");
-        Render_Pass_Handle render_pass = get_render_pass(&renderer_state->render_graph, render_pass_name);
-
         Pipeline_State_Settings settings =
         {
             .cull_mode = material->double_sided ? Cull_Mode::NONE : Cull_Mode::BACK,
@@ -230,19 +227,12 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             .sample_shading = true,
         };
 
-        Pipeline_State_Descriptor pipeline_state_descriptor =
-        {
-            .settings = settings,
-            .shader = opaque_pbr_shader,
-            .render_pass = render_pass,
-        };
-
-        Pipeline_State_Handle pipeline_state_handle = renderer_create_pipeline_state(pipeline_state_descriptor);
-
         Material_Descriptor material_descriptor =
         {
             .name = material_name,
-            .pipeline_state_handle = pipeline_state_handle
+            .type = Material_Type::opaque,
+            .shader = opaque_pbr_shader,
+            .settings = settings,
         };
 
         Material_Handle material_handle = renderer_create_material(material_descriptor);

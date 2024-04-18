@@ -1,6 +1,6 @@
 version 1
+type opaque
 shader 8165342927083170180
-render_pass opaque
 cull_mode none
 front_face counter_clockwise
 depth_operation always

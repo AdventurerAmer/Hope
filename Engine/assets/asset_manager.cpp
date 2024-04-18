@@ -544,6 +544,14 @@ const Asset_Info *get_asset_info(U16 type_info_index)
     return &asset_manager_state->asset_infos[type_info_index];
 }
 
+
+Load_Asset_Result *get_asset_load_result(Asset_Handle asset)
+{
+    auto it = asset_manager_state->asset_cache.find(asset.uuid);
+    HE_ASSERT(it != asset_manager_state->asset_cache.iend());
+    return &it.value().load_result;
+}
+
 //
 // helpers
 //

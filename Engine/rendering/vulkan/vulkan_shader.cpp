@@ -580,8 +580,7 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     Renderer_State *renderer_state = context->renderer_state;
     
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, pipeline_state_handle);
-    pipeline_state->descriptor = descriptor;
-       
+    
     Shader *shader = get(&context->renderer_state->shaders, descriptor.shader);
     Vulkan_Shader *vulkan_shader = &context->shaders[descriptor.shader.index];
 

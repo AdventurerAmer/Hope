@@ -88,8 +88,16 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
         HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
         return {};
     }
-    String version = result.value;
-    U64 version_value = str_to_u64(version);
+    U64 version_value = str_to_u64(result.value);
+
+    result = parse_name_value(&str, HE_STRING_LITERAL("type"));
+    if (!result.success)
+    {
+        HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
+        return {};
+    }
+
+    Material_Type type = result.value == "opaque" ? Material_Type::opaque : Material_Type::transparent;
 
     result = parse_name_value(&str, HE_STRING_LITERAL("shader"));
     if (!result.success)
@@ -97,17 +105,8 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
         HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
         return {};
     }
-    
+
     Asset_Handle shader_asset = { .uuid = str_to_u64(result.value) };
-
-    result = parse_name_value(&str, HE_STRING_LITERAL("render_pass"));
-    if (!result.success)
-    {
-        HE_LOG(Assets, Error, "load_material -- failed to parse material asset: %.*s\n", HE_EXPAND_STRING(path));
-        return {};
-    }
-
-    String render_pass = result.value;
 
     result = parse_name_value(&str, HE_STRING_LITERAL("cull_mode"));
     if (!result.success)
@@ -377,38 +376,31 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
     Render_Context render_context = get_render_context();
     Renderer_State *renderer_state = render_context.renderer_state;
 
-    Shader_Handle shader_handle = get_asset_handle_as<Shader>(shader_asset);
-    
-    Pipeline_State_Descriptor pipeline_state_descriptor
+    Pipeline_State_Settings settings =
     {
-        .settings = 
-        {
-            .cull_mode = cull_mode,
-            .front_face = front_face,
-            .fill_mode = Fill_Mode::SOLID,
-            .depth_operation = depth_op,
-            .depth_testing = depth_testing,
-            .depth_writing = depth_writing,
-            .stencil_operation = stencil_op,
-            .stencil_fail = stencil_fail,
-            .stencil_pass = stencil_pass,
-            .depth_fail = depth_fail,
-            .stencil_compare_mask = stencil_compare_mask,
-            .stencil_write_mask = stencil_write_mask,
-            .stencil_reference_value = stencil_reference_value,
-            .stencil_testing = stencil_testing,
-            .sample_shading = true,
-        },
-        .shader = shader_handle,
-        .render_pass = get_render_pass(&renderer_state->render_graph, render_pass),
+        .cull_mode = cull_mode,
+        .front_face = front_face,
+        .fill_mode = Fill_Mode::SOLID,
+        .depth_operation = depth_op,
+        .depth_testing = depth_testing,
+        .depth_writing = depth_writing,
+        .stencil_operation = stencil_op,
+        .stencil_fail = stencil_fail,
+        .stencil_pass = stencil_pass,
+        .depth_fail = depth_fail,
+        .stencil_compare_mask = stencil_compare_mask,
+        .stencil_write_mask = stencil_write_mask,
+        .stencil_reference_value = stencil_reference_value,
+        .stencil_testing = stencil_testing,
+        .sample_shading = true,
     };
-
-    Pipeline_State_Handle pipeline_state_handle = renderer_create_pipeline_state(pipeline_state_descriptor);
 
     Material_Descriptor material_descriptor =
     {
-        .name = copy_string(path, to_allocator(get_general_purpose_allocator())),
-        .pipeline_state_handle = pipeline_state_handle
+        .name = path,
+        .type = type,
+        .shader = get_asset_handle_as<Shader>(shader_asset),
+        .settings = settings
     };
 
     Material_Handle material_handle = renderer_create_material(material_descriptor);
@@ -418,16 +410,9 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
     {
         Material_Property *property = &material_properties[i];
         S32 index = find_property(material_handle, property->name);
-        if (index != -1)
+        if (index != -1 && material->properties[index].data_type == property->data_type)
         {
-            if (material->properties[index].data_type == property->data_type)
-            {
-                set_property(material_handle, index, property->data);
-            }
-            else
-            {
-                // todo(amer): invalidate material asset because it contains old properties because the shader got reloaded or something...
-            }
+            set_property(material_handle, index, property->data);
         }
     }
 

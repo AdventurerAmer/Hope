@@ -451,7 +451,11 @@ struct Pipeline_State_Descriptor
 struct Pipeline_State
 {
     String name;
-    Pipeline_State_Descriptor descriptor;
+
+    Pipeline_State_Settings settings;
+
+    Shader_Handle shader;
+    Render_Pass_Handle render_pass;
 };
 
 using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
@@ -460,10 +464,18 @@ using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
 // Material
 //
 
+enum class Material_Type : U8
+{
+    opaque,
+    transparent,
+};
+
 struct Material_Descriptor
 {
     String name;
-    Pipeline_State_Handle pipeline_state_handle;
+    Material_Type type;
+    Shader_Handle shader;
+    Pipeline_State_Settings settings;
 };
 
 union Material_Property_Data
@@ -510,6 +522,7 @@ struct Material
 {
     String name;
 
+    Material_Type type;
     Pipeline_State_Handle pipeline_state_handle;
 
     Dynamic_Array< Material_Property > properties;
@@ -609,9 +622,9 @@ struct Skybox
 
 enum class Light_Type : U8
 {
-    DIRECTIONAL = 0,
-    POINT = 1,
-    SPOT = 2
+    DIRECTIONAL,
+    POINT,
+    SPOT
 };
 
 struct Static_Mesh_Component

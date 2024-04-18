@@ -273,6 +273,7 @@ void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle);
 //
 // Static Meshes
 //
+
 Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &descriptor);
 Static_Mesh* renderer_get_static_mesh(Static_Mesh_Handle static_mesh_handle);
 void renderer_use_static_mesh(Static_Mesh_Handle static_mesh_handle);
@@ -292,6 +293,8 @@ void renderer_destroy_material(Material_Handle &material_handle);
 S32 find_property(Material_Handle material_handle, String name);
 bool set_property(Material_Handle material_handle, String name, Material_Property_Data data);
 bool set_property(Material_Handle material_handle, S32 property_id, Material_Property_Data data);
+
+bool serialize_material(Material_Handle material_handle, U64 shader_asset_uuid, String path);
 
 //
 // Scenes
@@ -319,7 +322,6 @@ void remove_child(Scene *scene, S32 parent_index, U32 node_index);
 void remove_node(Scene *scene, U32 node_index);
 
 bool serialize_scene(Scene_Handle scene_handle, String path);
-bool deserialize_scene(Scene_Handle scene_handle, String path);
 
 //
 // Upload Request

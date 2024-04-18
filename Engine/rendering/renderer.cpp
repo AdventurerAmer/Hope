@@ -376,29 +376,24 @@ bool init_renderer_state(Engine *engine)
         renderer_state->default_shader = renderer_create_shader(default_shader_descriptor);
         HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->default_shader));
         renderer_destroy_shader_compilation_result(&default_shader_compilation_result);
-        
-        Pipeline_State_Descriptor default_pipeline_state_descriptor =
-        {
-            .settings =
-            {
-                .cull_mode = Cull_Mode::BACK,
-                .front_face = Front_Face::COUNTER_CLOCKWISE,
-                .fill_mode = Fill_Mode::SOLID,
-                .depth_operation = Compare_Operation::LESS_OR_EQUAL,
-                .depth_testing = true,
-                .depth_writing = false,
-                .sample_shading = true,
-            },
-            .shader = renderer_state->default_shader,
-            .render_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("opaque")), // todo(amer): we should not depend on the render graph here...
-        };
 
-        renderer_state->default_pipeline = renderer_create_pipeline_state(default_pipeline_state_descriptor);
-        HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, renderer_state->default_pipeline));
+        Pipeline_State_Settings settings =
+        {
+            .cull_mode = Cull_Mode::BACK,
+            .front_face = Front_Face::COUNTER_CLOCKWISE,
+            .fill_mode = Fill_Mode::SOLID,
+            .depth_operation = Compare_Operation::LESS_OR_EQUAL,
+            .depth_testing = true,
+            .depth_writing = false,
+            .sample_shading = true,
+        };
 
         Material_Descriptor default_material_descriptor =
         {
-            .pipeline_state_handle = renderer_state->default_pipeline,
+            .name = HE_STRING_LITERAL("default"),
+            .type = Material_Type::opaque,
+            .shader = renderer_state->default_shader,
+            .settings = settings,
         };
 
         renderer_state->default_material = renderer_create_material(default_material_descriptor);
@@ -1017,7 +1012,9 @@ Pipeline_State_Handle renderer_create_pipeline_state(const Pipeline_State_Descri
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
     Pipeline_State *pipeline_state = &renderer_state->pipeline_states.data[pipeline_state_handle.index];
-    pipeline_state->descriptor = descriptor;
+    pipeline_state->render_pass = descriptor.render_pass;
+    pipeline_state->shader = descriptor.shader;
+    pipeline_state->settings = descriptor.settings;
 
     return pipeline_state_handle;
 }
@@ -1269,9 +1266,19 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         material->name = copy_string(descriptor.name, to_allocator(get_general_purpose_allocator()));
     }
 
-    Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, descriptor.pipeline_state_handle);
-    Shader *shader = get(&renderer_state->shaders, pipeline_state->descriptor.shader);
-    Shader_Struct *properties = renderer_find_shader_struct(pipeline_state->descriptor.shader, HE_STRING_LITERAL("Material"));
+    String pass_name = HE_STRING_LITERAL("opaque");
+
+    Pipeline_State_Descriptor pipeline_state_desc =
+    {
+        .settings = descriptor.settings,
+        .shader = descriptor.shader,
+        .render_pass = get_render_pass(&renderer_state->render_graph, pass_name),
+    };
+
+    Pipeline_State_Handle pipeline_state_handle = renderer_create_pipeline_state(pipeline_state_desc);
+    Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, pipeline_state_handle);
+    Shader *shader = get(&renderer_state->shaders, descriptor.shader);
+    Shader_Struct *properties = renderer_find_shader_struct(descriptor.shader, HE_STRING_LITERAL("Material"));
     HE_ASSERT(properties);
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -1287,7 +1294,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 
         Bind_Group_Descriptor object_bind_group_descriptor =
         {
-            .shader = pipeline_state->descriptor.shader,
+            .shader = descriptor.shader,
             .group_index = SHADER_OBJECT_BIND_GROUP
         };
 
@@ -1326,7 +1333,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         property->is_color = ends_with(property->name, HE_STRING_LITERAL("color")) && (member->data_type == Shader_Data_Type::VECTOR3F || member->data_type == Shader_Data_Type::VECTOR4F);
     }
 
-    material->pipeline_state_handle = descriptor.pipeline_state_handle;
+    material->pipeline_state_handle = pipeline_state_handle;
     material->data = HE_ALLOCATE_ARRAY(get_general_purpose_allocator(), U8, properties->size);
     material->size = properties->size;
     material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
@@ -1349,7 +1356,6 @@ void renderer_destroy_material(Material_Handle &material_handle)
     }
 
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle); 
-    
     renderer_destroy_pipeline_state(material->pipeline_state_handle);
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -1488,6 +1494,256 @@ void renderer_use_material(Material_Handle material_handle)
         renderer->set_pipeline_state(material->pipeline_state_handle);
         render_data->current_pipeline_state_handle = material->pipeline_state_handle;
     }
+}
+
+static const char* cull_mode_to_string(Cull_Mode mode)
+{
+    switch (mode)
+    {
+        case Cull_Mode::NONE:
+        {
+            return "none";
+        } break;
+
+        case Cull_Mode::FRONT:
+        {
+            return "front";
+        } break;
+
+        case Cull_Mode::BACK:
+        {
+            return "back";
+        } break;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported cull mode");
+        } break;
+    }
+
+    return "";
+}
+
+static const char* front_face_to_string(Front_Face front_face)
+{
+    switch (front_face)
+    {
+        case Front_Face::CLOCKWISE:
+        {
+            return "clockwise";
+        } break;
+
+        case Front_Face::COUNTER_CLOCKWISE:
+        {
+            return "counter_clockwise";
+        } break;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported front face");
+        } break;
+    }
+
+    return "";
+}
+
+static const char* compare_operation_to_str(Compare_Operation op)
+{
+    switch (op)
+    {
+        case Compare_Operation::NEVER: return "never";
+        case Compare_Operation::LESS: return "less";
+        case Compare_Operation::EQUAL: return "equal";
+        case Compare_Operation::LESS_OR_EQUAL: return "less_or_equal";
+        case Compare_Operation::GREATER: return "greater";
+        case Compare_Operation::NOT_EQUAL: return "not_equal";
+        case Compare_Operation::GREATER_OR_EQUAL: return "greater_or_equal";
+        case Compare_Operation::ALWAYS: return "always";
+
+        default:
+        {
+            HE_ASSERT(!"unsupported compare operation");
+        } break;
+    }
+
+    return "";
+}
+
+static const char* stencil_operation_to_str(Stencil_Operation op)
+{
+    switch (op)
+    {
+        case Stencil_Operation::KEEP: return "keep";
+        case Stencil_Operation::ZERO: return "zero";
+        case Stencil_Operation::REPLACE: return "replace";
+        case Stencil_Operation::INCREMENT_AND_CLAMP: return "increment_and_clamp";
+        case Stencil_Operation::DECREMENT_AND_CLAMP: return "decrement_and_clamp";
+        case Stencil_Operation::INVERT: return "invert";
+        case Stencil_Operation::INCREMENT_AND_WRAP: return "increment_and_wrap";
+        case Stencil_Operation::DECREMENT_AND_WRAP: return "decrement_and_wrap";
+
+        default:
+        {
+            HE_ASSERT(!"unsupported stencil operation");
+        } break;
+    }
+
+    return "";
+}
+
+static const char* material_type_to_str(Material_Type type)
+{
+    switch (type)
+    {
+        case Material_Type::opaque:
+        {
+            return "opaque";
+        } break;
+
+        case Material_Type::transparent:
+        {
+            return "transparent";
+        } break;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported rendering pass");
+        } break;
+    }
+
+    return "";
+}
+
+bool serialize_material(Material_Handle material_handle, U64 shader_asset_uuid, String path)
+{
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+
+    Material *material = renderer_get_material(material_handle);
+    Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
+
+    const Pipeline_State_Settings &settings = pipeline_state->settings;
+
+    String_Builder builder = {};
+    begin_string_builder(&builder, scratch_memory.arena);
+
+    append(&builder, "version 1\n");
+    append(&builder, "type %s\n", material_type_to_str(material->type));
+    append(&builder, "shader %llu\n", shader_asset_uuid);
+    append(&builder, "cull_mode %s\n", cull_mode_to_string(settings.cull_mode));
+    append(&builder, "front_face %s\n", front_face_to_string(settings.front_face));
+
+    append(&builder, "depth_operation %s\n", compare_operation_to_str(settings.depth_operation));
+    append(&builder, "depth_testing %s\n", settings.depth_testing ? "true" : "false");
+    append(&builder, "depth_writing %s\n", settings.depth_writing ? "true" : "false");
+
+    append(&builder, "stencil_operation %s\n", compare_operation_to_str(settings.stencil_operation));
+    append(&builder, "stencil_testing %s\n", settings.stencil_testing ? "true" : "false");
+    append(&builder, "stencil_pass %s\n", stencil_operation_to_str(settings.stencil_pass));
+    append(&builder, "stencil_fail %s\n", stencil_operation_to_str(settings.stencil_fail));
+    append(&builder, "depth_fail %s\n", stencil_operation_to_str(settings.depth_fail));
+
+    append(&builder, "stencil_compare_mask %u\n", settings.stencil_compare_mask);
+    append(&builder, "stencil_write_mask %u\n", settings.stencil_write_mask);
+    append(&builder, "stencil_reference_value %u\n", settings.stencil_reference_value);
+
+    append(&builder, "property_count %u\n", material->properties.count);
+
+    for (U32 i = 0; i < material->properties.count; i++)
+    {
+        Material_Property *property = &material->properties[i];
+        bool is_texture_asset = ends_with(property->name, HE_STRING_LITERAL("texture")) || ends_with(property->name, HE_STRING_LITERAL("cubemap"));
+        bool is_color = ends_with(property->name, HE_STRING_LITERAL("color"));
+        append(&builder, "%.*s %.*s ", HE_EXPAND_STRING(property->name), HE_EXPAND_STRING(shader_data_type_to_str(property->data_type)));
+        switch (property->data_type)
+        {
+            case Shader_Data_Type::U8:
+            case Shader_Data_Type::U16:
+            case Shader_Data_Type::U64:
+            {
+                append(&builder, "%llu\n", property->data.u64);
+            } break;
+
+            case Shader_Data_Type::U32:
+            {
+                append(&builder, "%llu\n", is_texture_asset ? property->data.u64 : property->data.u32);
+            } break;
+
+            case Shader_Data_Type::S8:
+            {
+                append(&builder, "%ll\n", property->data.s8);
+            } break;
+
+            case Shader_Data_Type::S16:
+            {
+                append(&builder, "%ll\n", property->data.s16);
+            } break;
+
+            case Shader_Data_Type::S32:
+            {
+                append(&builder, "%ll\n", property->data.s32);
+            } break;
+
+            case Shader_Data_Type::S64:
+            {
+                append(&builder, "%ll\n", property->data.s64);
+            } break;
+
+            case Shader_Data_Type::F16:
+            case Shader_Data_Type::F32:
+            case Shader_Data_Type::F64:
+            {
+                append(&builder, "%f\n", property->data.f64);
+            } break;
+
+            case Shader_Data_Type::VECTOR2F:
+            {
+                append(&builder, "%f %f\n", property->data.v2f.x, property->data.v2f.y);
+            } break;
+
+            case Shader_Data_Type::VECTOR2S:
+            {
+                append(&builder, "%ll %ll\n", property->data.v2s.x, property->data.v2s.y);
+            } break;
+
+            case Shader_Data_Type::VECTOR2U:
+            {
+                append(&builder, "%llu %llu\n", property->data.v2u.x, property->data.v2u.y);
+            } break;
+
+            case Shader_Data_Type::VECTOR3F:
+            {
+                append(&builder, "%f %f %f\n", property->data.v3f.x, property->data.v3f.y, property->data.v3f.z);
+            } break;
+
+            case Shader_Data_Type::VECTOR3S:
+            {
+                append(&builder, "%ll %ll %ll\n", property->data.v3s.x, property->data.v3s.y, property->data.v3s.z);
+            } break;
+
+            case Shader_Data_Type::VECTOR3U:
+            {
+                append(&builder, "%llu %llu %llu\n", property->data.v3u.x, property->data.v3u.y, property->data.v3u.z);
+            } break;
+
+            case Shader_Data_Type::VECTOR4F:
+            {
+                append(&builder, "%f %f %f %f\n", property->data.v4f.x, property->data.v4f.y, property->data.v4f.z, property->data.v4f.w);
+            } break;
+
+            case Shader_Data_Type::VECTOR4S:
+            {
+                append(&builder, "%ll %ll %ll %ll\n", property->data.v4s.x, property->data.v4s.y, property->data.v4s.z, property->data.v4s.w);
+            } break;
+
+            case Shader_Data_Type::VECTOR4U:
+            {
+                append(&builder, "%llu %llu %llu %llu\n", property->data.v4u.x, property->data.v4u.y, property->data.v4u.z, property->data.v4u.w);
+            } break;
+        }
+    }
+    String contents = end_string_builder(&builder);
+    bool success = write_entire_file(path, (void *)contents.data, contents.count);
+    return success;
 }
 
 //
@@ -2176,7 +2432,6 @@ void begin_rendering(const Camera *camera)
     *projection = glm::mat4(1.0f);
     *eye = glm::vec3(0.0f);
     *gamma = renderer_state->gamma;
-
     *light_count = 0;
     render_data->light_count = light_count;
 

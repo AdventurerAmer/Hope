@@ -110,6 +110,8 @@ const Asset_Info* get_asset_info(Asset_Handle asset_handle);
 const Asset_Info* get_asset_info(String name);
 const Asset_Info* get_asset_info(U16 type_info_index);
 
+Load_Asset_Result *get_asset_load_result(Asset_Handle asset);
+
 template< typename T >
 T* get_asset_as(Asset_Handle asset_handle)
 {

@@ -659,10 +659,18 @@ void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Re
             {
                 Pipeline_State *pipeline_state = &renderer_state->pipeline_states.data[it.index];
 
-                if (pipeline_state->descriptor.render_pass == node.render_pass)
+                if (pipeline_state->render_pass == node.render_pass)
                 {
                     renderer->destroy_pipeline_state(it);
-                    renderer->create_pipeline_state(it, pipeline_state->descriptor);
+                    
+                    Pipeline_State_Descriptor pipeline_state_desc =
+                    {
+                        .settings = pipeline_state->settings,
+                        .shader = pipeline_state->shader,
+                        .render_pass = pipeline_state->render_pass,
+                    };
+
+                    renderer->create_pipeline_state(it, pipeline_state_desc);
                 }
             }
         }

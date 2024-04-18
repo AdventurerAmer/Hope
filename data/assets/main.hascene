@@ -34,7 +34,7 @@ component light
 type point
 color 0.808824 0.766610 0.091191
 intensity 3.000000
-radius 5.000000
+radius 3.000000
 inner_angle 30.000000
 outer_angle 45.000000
 node_name 9 SpotLight
