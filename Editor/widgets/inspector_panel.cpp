@@ -188,11 +188,10 @@ static void inspect_scene_node(Scene_Node *scene_node)
                     {
                         ImGui::Spacing();
 
-                        for (U32 i = 0; i < static_mesh->sub_meshes.count; i++)
+                        for (U32 i = 0; i < mesh_comp->materials.count; i++)
                         {
                             ImGui::PushID(i);
-                            Sub_Mesh* sub_mesh = &static_mesh->sub_meshes[i];
-                            select_asset(HE_STRING_LITERAL("Material"), HE_STRING_LITERAL("material"), (Asset_Handle*)&sub_mesh->material_asset);
+                            select_asset(HE_STRING_LITERAL("Material"), HE_STRING_LITERAL("material"), (Asset_Handle*)&mesh_comp->materials[i]);
                             ImGui::PopID();
                         }
 
@@ -317,9 +316,8 @@ static void inspect_material(Asset_Handle material_asset)
 
     Pipeline_State_Settings &settings = pipeline_state->settings;
 
+    bool shader_changed = select_asset(HE_STRING_LITERAL("Shader"), HE_STRING_LITERAL("shader"), &shader_asset, { .nullify = false });
     bool pipeline_changed = false;
-
-    pipeline_changed |= select_asset(HE_STRING_LITERAL("Shader"), HE_STRING_LITERAL("shader"), &shader_asset, { .nullify = false });
 
     static constexpr const char *types[] = { "opaque", "transparent" };
 
@@ -443,6 +441,7 @@ static void inspect_material(Asset_Handle material_asset)
                     settings.stencil_operation = (Compare_Operation)i;
                     pipeline_changed = true;
                 }
+
                 if (is_selected)
                 {
                     ImGui::SetItemDefaultFocus();
@@ -471,6 +470,7 @@ static void inspect_material(Asset_Handle material_asset)
                     settings.stencil_fail = (Stencil_Operation)i;
                     pipeline_changed = true;
                 }
+
                 if (is_selected)
                 {
                     ImGui::SetItemDefaultFocus();
@@ -577,12 +577,12 @@ static void inspect_material(Asset_Handle material_asset)
 
             case Shader_Data_Type::F32:
             {
-                property_changed |= ImGui::DragFloat("##MaterialPropertyDragFloat", &data.f32);
+                property_changed |= ImGui::DragFloat("##MaterialPropertyDragFloat", &data.f32, 0.1f);
             } break;
 
             case Shader_Data_Type::VECTOR2F:
             {
-                property_changed |= ImGui::DragFloat2("##MaterialPropertyDragFloat2", &data.v2f.x);
+                property_changed |= ImGui::DragFloat2("##MaterialPropertyDragFloat2", &data.v2f.x, 0.1f);
             } break;
 
             case Shader_Data_Type::VECTOR3F:
@@ -593,7 +593,7 @@ static void inspect_material(Asset_Handle material_asset)
                 }
                 else
                 {
-                    property_changed |= ImGui::DragFloat3("##MaterialPropertyDragFloat3", &data.v3f.x);
+                    property_changed |= ImGui::DragFloat3("##MaterialPropertyDragFloat3", &data.v3f.x, 0.1f);
                 }
             } break;
 
@@ -605,7 +605,7 @@ static void inspect_material(Asset_Handle material_asset)
                 }
                 else
                 {
-                    property_changed |= ImGui::DragFloat4("##MaterialPropertyDragFloat4", &data.v4f.x);
+                    property_changed |= ImGui::DragFloat4("##MaterialPropertyDragFloat4", &data.v4f.x, 0.1f);
                 }
             } break;
             }
@@ -619,7 +619,7 @@ static void inspect_material(Asset_Handle material_asset)
         }
     }
 
-    if (pipeline_changed)
+    if (shader_changed)
     {
         set_parent(material_asset, shader_asset);
 
@@ -628,7 +628,10 @@ static void inspect_material(Asset_Handle material_asset)
             Job_Handle job = aquire_asset(shader_asset);
             wait_for_job_to_finish(job);
         }
+    }
 
+    if (shader_changed || pipeline_changed)
+    {
         Material_Descriptor material_desc =
         {
             .name = material->name,
@@ -638,16 +641,29 @@ static void inspect_material(Asset_Handle material_asset)
         };
 
         Material_Handle new_material_handle = renderer_create_material(material_desc);
-        // todo(amer): @leak we should destroy this material handle after 3 frames...
-        // renderer_destroy_material(material_handle);
-        material_handle = new_material_handle;
+        Material *new_material = renderer_get_material(new_material_handle);
+        
+        for (U32 i = 0; i < new_material->properties.count; i++)
+        {
+            S32 property_id = find_property(material_handle, new_material->properties[i].name);
+            if (property_id != -1 && material->properties[property_id].data_type == new_material->properties[i].data_type)
+            {
+                set_property(new_material_handle, new_material->properties[i].name, material->properties[property_id].data);
+            }
+        }
 
+        // todo(amer): we should destroy this material handle after 3 frames instead of waiting...
+        renderer_wait_for_gpu_to_finish_all_work();
+        renderer_destroy_material(material_handle);
+        
+        material_handle = new_material_handle;
+        
         Load_Asset_Result *load_result = get_asset_load_result(material_asset);
         load_result->index = new_material_handle.index;
         load_result->generation = new_material_handle.generation;
     }
 
-    if (pipeline_changed || property_changed)
+    if (shader_changed || pipeline_changed || property_changed)
     {
         Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
         const Asset_Registry_Entry &entry = get_asset_registry_entry(material_asset);

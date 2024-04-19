@@ -138,6 +138,37 @@ Load_Asset_Result load_scene(String path, const Embeded_Asset_Params *params)
                 U64 static_mesh_asset = str_to_u64(result.value);
                 Static_Mesh_Component *static_mesh_comp = &node->mesh;
                 static_mesh_comp->static_mesh_asset = static_mesh_asset;
+
+                result = parse_name_value(&str, HE_STRING_LITERAL("material_count"));
+                if (!result.success)
+                {
+                    renderer_destroy_scene(scene_handle);
+                    HE_LOG(Assets, Error, "failed to parse scene asset\n");
+                    return {};
+                }
+
+                U32 material_count = u64_to_u32(str_to_u64(result.value));
+
+                if (!static_mesh_comp->materials.data)
+                {
+                    init(&static_mesh_comp->materials);
+                }
+
+                set_count(&static_mesh_comp->materials, material_count);
+                
+                for (U32 i = 0; i < material_count; i++)
+                {
+                    result = parse_name_value(&str, HE_STRING_LITERAL("material_asset"));
+                    if (!result.success)
+                    {
+                        renderer_destroy_scene(scene_handle);
+                        HE_LOG(Assets, Error, "failed to parse scene asset\n");
+                        return {};
+                    }
+                    U64 material_asset_uuid = str_to_u64(result.value);
+                    static_mesh_comp->materials[i] = material_asset_uuid;
+
+                }
             }
             else if (type == "light")
             {

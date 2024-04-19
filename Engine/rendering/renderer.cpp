@@ -1870,6 +1870,11 @@ void serialize_scene_node(Scene_Node *node, S32 parent_index, String_Builder *bu
         Static_Mesh_Component *static_mesh_comp = &node->mesh;
         append(builder, "component mesh\n");
         append(builder, "static_mesh_asset %llu\n", static_mesh_comp->static_mesh_asset);
+        append(builder, "material_count %llu\n", static_mesh_comp->materials.count);
+        for (U32 i = 0; i < static_mesh_comp->materials.count; i++)
+        {
+            append(builder, "material_asset %llu\n", static_mesh_comp->materials[i]);
+        }
     }
 
     if (node->has_light)
@@ -2149,7 +2154,7 @@ static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_t
 
                         Material_Handle material_handle = renderer_state->default_material;
 
-                        Asset_Handle material_asset = { .uuid = sub_mesh->material_asset };
+                        Asset_Handle material_asset = { .uuid = static_mesh_comp->materials[sub_mesh_index] };
 
                         if (is_asset_handle_valid(material_asset))
                         {

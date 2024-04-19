@@ -306,31 +306,44 @@ static void draw_scene_node(Scene_Handle scene_handle, Scene *scene, S32 node_in
 
     if (is_open)
     {
-        bool is_dragging = ImGui::IsDragDropActive() &&
-        (strcmp(ImGui::GetDragDropPayload()->DataType, "DND_SCENE_NODE") == 0 || strcmp(ImGui::GetDragDropPayload()->DataType, "DND_ASSET") == 0);
-
-        node = get_node(scene, node_index);
-        if (!is_leaf && is_dragging && scene_hierarchy_state.dragging_node_index != (S32)node_index && node->first_child_index != scene_hierarchy_state.dragging_node_index)
+        if (ImGui::IsDragDropActive())
         {
-            ImGuiSelectableFlags flags = ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing;
-            ImGui::Selectable("##DragFirstChild", true, flags, ImVec2(0.0f, 4.0f));
-            if (ImGui::BeginDragDropTarget())
+            bool show_drag_widget = false;
+            bool is_dragging_scene_node = strcmp(ImGui::GetDragDropPayload()->DataType, "DND_SCENE_NODE") == 0 && scene_hierarchy_state.dragging_node_index != (S32)node_index && node->first_child_index != scene_hierarchy_state.dragging_node_index;
+            show_drag_widget |= is_dragging_scene_node;
+            
+            bool is_dragging_asset = strcmp(ImGui::GetDragDropPayload()->DataType, "DND_ASSET") == 0;
+            if (is_dragging_asset)
             {
-                if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_SCENE_NODE"))
-                {
-                    U32 child_node_index = *(const U32*)payload->Data;
-                    Scene_Node *child = get_node(scene, child_node_index);
-                    remove_child(scene, child->parent_index, child_node_index);
-                    add_child_first(scene, node_index, child_node_index);
-                }
+                const ImGuiPayload* payload = ImGui::GetDragDropPayload();
+                Asset_Handle asset_handle = *(const Asset_Handle*)payload->Data;
+                show_drag_widget = get_asset_info(asset_handle)->name == "model";
+            }
+            
+            node = get_node(scene, node_index);
+            if (!is_leaf && show_drag_widget)
+            {
+                ImGuiSelectableFlags flags = ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing;
 
-                if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_ASSET"))
+                ImGui::Selectable("##DragFirstChild", true, flags, ImVec2(0.0f, 4.0f));
+                if (ImGui::BeginDragDropTarget())
                 {
-                    Asset_Handle asset_handle = *(const Asset_Handle *)payload->Data;
-                    add_model_to_scene(scene, node_index, asset_handle, Add_Scene_Node_Operation::FIRST);
-                }
+                    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_SCENE_NODE"))
+                    {
+                        U32 child_node_index = *(const U32*)payload->Data;
+                        Scene_Node *child = get_node(scene, child_node_index);
+                        remove_child(scene, child->parent_index, child_node_index);
+                        add_child_first(scene, node_index, child_node_index);
+                    }
 
-                ImGui::EndDragDropTarget();
+                    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_ASSET"))
+                    {
+                        Asset_Handle asset_handle = *(const Asset_Handle *)payload->Data;
+                        add_model_to_scene(scene, node_index, asset_handle, Add_Scene_Node_Operation::FIRST);
+                    }
+
+                    ImGui::EndDragDropTarget();
+                }
             }
         }
 
@@ -343,30 +356,41 @@ static void draw_scene_node(Scene_Handle scene_handle, Scene *scene, S32 node_in
         ImGui::TreePop();
     }
 
-    bool is_dragging = ImGui::IsDragDropActive() && (strcmp(ImGui::GetDragDropPayload()->DataType, "DND_SCENE_NODE") == 0 || strcmp(ImGui::GetDragDropPayload()->DataType, "DND_ASSET") == 0);
-
-    node = get_node(scene, node_index);
-    if (is_dragging && node_index != 0 && scene_hierarchy_state.dragging_node_index != (S32)node_index && node->next_sibling_index != scene_hierarchy_state.dragging_node_index)
+    if (ImGui::IsDragDropActive())
     {
-        ImGuiSelectableFlags flags = ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing;
-        ImGui::Selectable("##DragAfterNode", true, flags, ImVec2(0.0f, 4.0f));
-        if (ImGui::BeginDragDropTarget())
+        bool show_drag_widget = false;
+        show_drag_widget |= strcmp(ImGui::GetDragDropPayload()->DataType, "DND_SCENE_NODE") == 0 && scene_hierarchy_state.dragging_node_index != (S32)node_index && node->next_sibling_index != scene_hierarchy_state.dragging_node_index;    
+        bool is_dragging_asset = strcmp(ImGui::GetDragDropPayload()->DataType, "DND_ASSET") == 0;
+        if (is_dragging_asset)
         {
-            if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_SCENE_NODE"))
-            {
-                U32 child_node_index = *(const U32*)payload->Data;
-                Scene_Node *child = get_node(scene, child_node_index);
-                remove_child(scene, child->parent_index, child_node_index);
-                add_child_after(scene, node_index, child_node_index);
-            }
+            const ImGuiPayload *payload = ImGui::GetDragDropPayload();
+            Asset_Handle asset_handle = *(const Asset_Handle*)payload->Data;
+            show_drag_widget = get_asset_info(asset_handle)->name == "model";
+        }
 
-            if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_ASSET"))
+        node = get_node(scene, node_index);
+        if (node_index != 0 && show_drag_widget)
+        {
+            ImGuiSelectableFlags flags = ImGuiSelectableFlags_SpanAvailWidth|ImGuiSelectableFlags_NoPadWithHalfSpacing;
+            ImGui::Selectable("##DragAfterNode", true, flags, ImVec2(0.0f, 4.0f));
+            if (ImGui::BeginDragDropTarget())
             {
-                Asset_Handle asset_handle = *(const Asset_Handle *)payload->Data;
-                add_model_to_scene(scene, node_index, asset_handle, Add_Scene_Node_Operation::AFTER);
-            }
+                if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_SCENE_NODE"))
+                {
+                    U32 child_node_index = *(const U32*)payload->Data;
+                    Scene_Node *child = get_node(scene, child_node_index);
+                    remove_child(scene, child->parent_index, child_node_index);
+                    add_child_after(scene, node_index, child_node_index);
+                }
 
-            ImGui::EndDragDropTarget();
+                if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_ASSET"))
+                {
+                    Asset_Handle asset_handle = *(const Asset_Handle*)payload->Data;
+                    add_model_to_scene(scene, node_index, asset_handle, Add_Scene_Node_Operation::AFTER);
+                }
+
+                ImGui::EndDragDropTarget();
+            }
         }
     }
 

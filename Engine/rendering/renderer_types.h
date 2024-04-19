@@ -630,6 +630,7 @@ enum class Light_Type : U8
 struct Static_Mesh_Component
 {
     U64 static_mesh_asset;
+    Dynamic_Array< U64 > materials;
 };
 
 struct Light_Component
