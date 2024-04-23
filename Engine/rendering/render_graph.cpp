@@ -694,3 +694,28 @@ Texture_Handle get_presentable_attachment(Render_Graph *render_graph, Renderer_S
 
     return presentable_attachment;
 }
+
+Texture_Handle get_texture_resource(Render_Graph *render_graph, Renderer_State *renderer_state, String name)
+{
+    auto it = find(&render_graph->resource_cache, name);
+    if (!is_valid(it))
+    {
+        return Resource_Pool< Texture >::invalid_handle;
+    }
+
+    const Render_Graph_Resource &resource = render_graph->resources[*it.value];
+    Texture_Handle result = Resource_Pool< Texture >::invalid_handle;
+
+    if (renderer_state->msaa_setting == MSAA_Setting::NONE && resource.resolver_handle != -1)
+    {
+        Render_Graph_Resource_Handle resolver_handle = render_graph->presentable_resource->resolver_handle;
+        Render_Graph_Resource &resolver = render_graph->resources[resolver_handle];
+        result = resolver.info.handles[renderer_state->current_frame_in_flight_index];
+    }
+    else
+    {
+        result = resource.info.handles[renderer_state->current_frame_in_flight_index];
+    }
+
+    return result;
+}

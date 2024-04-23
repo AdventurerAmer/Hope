@@ -122,6 +122,28 @@ void hope_app_on_event(Engine *engine, Event event)
                 update_camera(&editor_state.camera);
             }
         } break;
+
+        case Event_Type::MOUSE:
+        {
+            if (event.pressed && event.button == HE_BUTTON_LEFT)
+            {
+                bool interacting_with_imgui = ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow|ImGuiHoveredFlags_AllowWhenBlockedByPopup) || ImGui::IsAnyItemHovered();
+                if (!interacting_with_imgui)
+                {
+                    Render_Context render_context = get_render_context();
+                    Renderer_State *renderer_state = render_context.renderer_state;
+                    Frame_Render_Data *render_data = &renderer_state->render_data;
+                    Buffer* buffer = renderer_get_buffer(render_data->scene_buffers[renderer_state->current_frame_in_flight_index]);
+                    S32 node_index = *(S32*)buffer->data;
+                    Editor::reset_selection();
+                    if (node_index != -1)
+                    {
+                        Inspector_Panel::inspect(get_asset_handle_as<Scene>(editor_state.scene_asset), node_index);
+                    }
+                    Scene_Hierarchy_Panel::select(node_index);
+                }
+            }
+        } break;
 	}
 }
 
@@ -132,8 +154,10 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
     Camera *camera = &editor_state.camera;
     FPS_Camera_Controller *camera_controller = &editor_state.camera_controller;
 
+    bool interacting_with_imgui = ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow|ImGuiHoveredFlags_AllowWhenBlockedByPopup) || ImGui::IsAnyItemHovered();
+    
     FPS_Camera_Controller_Input camera_controller_input = {};
-    camera_controller_input.can_control = input->button_states[HE_BUTTON_RIGHT] != Input_State::RELEASED && !engine->show_imgui;
+    camera_controller_input.can_control = input->button_states[HE_BUTTON_RIGHT] != Input_State::RELEASED && !interacting_with_imgui;
     camera_controller_input.move_fast = input->key_states[HE_KEY_LEFT_SHIFT] != Input_State::RELEASED;
     camera_controller_input.forward = input->key_states[HE_KEY_W] != Input_State::RELEASED;
     camera_controller_input.backward = input->key_states[HE_KEY_S] != Input_State::RELEASED;
@@ -144,14 +168,20 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
     camera_controller_input.delta_x = -input->mouse_delta_x;
     camera_controller_input.delta_y = -input->mouse_delta_y;
 
+    ImGuiIO &io = ImGui::GetIO();
+    // io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+
     if (camera_controller_input.can_control)
     {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
         engine->lock_cursor = true;
+        engine->show_cursor = false;
         control_camera(camera_controller, camera, camera_controller_input, delta_time);
     }
     else
     {
         engine->lock_cursor = false;
+        engine->show_cursor = true;
     }
 
     Render_Context render_context = get_render_context();
@@ -166,7 +196,6 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
 
         draw_graphics_window();
 
-        // imgui_draw_memory_system();
         Scene_Hierarchy_Panel::draw(editor_state.scene_asset.uuid);
         Assets_Panel::draw();
         Inspector_Panel::draw();

@@ -28,8 +28,8 @@ struct Event
     bool is_alt_down;
     bool double_click;
     
-    U16 mouse_x;
-    U16 mouse_y;
+    S16 mouse_x;
+    S16 mouse_y;
 
     bool mouse_wheel_up;
     bool mouse_wheel_down;

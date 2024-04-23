@@ -18,6 +18,7 @@
 
 struct Instance_Data
 {
+    int entity_index;
     mat4 local_to_world;
 };
 

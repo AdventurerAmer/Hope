@@ -713,7 +713,8 @@ using Upload_Request_Handle = Resource_Handle< Upload_Request >;
 
 struct Shader_Instance_Data
 {
-    glm::mat4 model;
+    S32 entity_index;
+    alignas(16) glm::mat4 model;
 };
 
 struct Shader_Light

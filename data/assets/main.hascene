@@ -51,17 +51,6 @@ intensity 3.000000
 radius 5.000000
 inner_angle 30.000000
 outer_angle 45.000000
-node_name 4 Cube
-parent 0
-component_count 2
-component transform
-position 0.000000 0.200000 -1.000000
-rotation 0.000000 0.000000 0.000000 1.000000
-scale 0.250000 0.250000 0.250000
-component mesh
-static_mesh_asset 12725177303487466838
-material_count 1
-material_asset 9454918637899659995
 node_name 6 Sponza
 parent 0
 component_count 2
@@ -103,8 +92,19 @@ component_count 2
 component transform
 position 0.000000 0.000000 0.000000
 rotation -0.000000 1.000000 -0.000000 0.000000
-scale 3.000000 3.000000 3.000000
+scale 5.000000 5.000000 5.000000
 component mesh
 static_mesh_asset 1596034640347025962
 material_count 1
 material_asset 6161747045336294976
+node_name 4 Cube
+parent 0
+component_count 2
+component transform
+position 0.000000 0.200000 -1.000000
+rotation 0.000000 0.000000 0.000000 1.000000
+scale 0.250000 0.250000 0.250000
+component mesh
+static_mesh_asset 12725177303487466838
+material_count 1
+material_asset 9454918637899659995

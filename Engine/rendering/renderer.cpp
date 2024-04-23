@@ -449,6 +449,13 @@ bool init_renderer_state(Engine *engine)
 
             render_data->globals_bind_groups[frame_index] = renderer_create_bind_group(globals_bind_group_descriptor);
             render_data->pass_bind_groups[frame_index] = renderer_create_bind_group(pass_bind_group_descriptor);
+
+            Buffer_Descriptor scene_buffer_descriptor =
+            {
+                .size = sizeof(S32),
+                .usage = Buffer_Usage::TRANSFER,
+            };
+            render_data->scene_buffers[frame_index] = renderer_create_buffer(scene_buffer_descriptor);
         }
     }
 
@@ -2145,6 +2152,7 @@ static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_t
                     HE_ASSERT(render_data->instance_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
                     U32 instance_index = render_data->instance_count++;
                     Shader_Instance_Data *object_data = &render_data->instance_base[instance_index];
+                    object_data->entity_index = node_index;
                     object_data->model = get_world_matrix(transform);
 
                     const Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
@@ -2223,6 +2231,7 @@ void render_scene(Scene_Handle scene_handle)
             U32 instance_index = render_data->instance_count++;
             Shader_Instance_Data *object_data = &render_data->instance_base[instance_index];
             object_data->model = get_world_matrix(get_identity_transform());
+            object_data->entity_index = -1;
 
             Draw_Command &dc = append(&render_data->skyboxes_commands);
             dc.static_mesh = renderer_state->default_static_mesh;

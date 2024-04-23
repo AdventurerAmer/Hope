@@ -113,6 +113,7 @@ bool compile(Render_Graph *render_graph, struct Renderer *renderer, struct Rende
 void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
 void render(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
 Texture_Handle get_presentable_attachment(Render_Graph *render_graph, struct Renderer_State *renderer_state);
+Texture_Handle get_texture_resource(Render_Graph *render_graph, struct Renderer_State *renderer_state, String name);
 
 Render_Graph_Node_Handle get_node(Render_Graph *render_graph, String name);
 Render_Pass_Handle get_render_pass(Render_Graph *render_graph, String name);

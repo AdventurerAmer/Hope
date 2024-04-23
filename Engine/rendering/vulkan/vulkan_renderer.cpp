@@ -889,6 +889,34 @@ void vulkan_renderer_end_frame()
     vkCmdCopyImage(context->command_buffer, vulkan_presentable_attachment->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     transtion_image_to_layout(context->command_buffer, swapchain_image, 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
+    Texture_Handle scene_texture = get_texture_resource(&renderer_state->render_graph, renderer_state, HE_STRING_LITERAL("scene"));
+    Vulkan_Image *scene_image = &context->textures[scene_texture.index];
+
+    transtion_image_to_layout(context->command_buffer, scene_image->handle, 1, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    Buffer_Handle scene_buffer = renderer_state->render_data.scene_buffers[renderer_state->current_frame_in_flight_index];
+    Vulkan_Buffer *vulkan_scene_buffer = &context->buffers[scene_buffer.index];
+
+    U32 x = glm::clamp((U32)renderer_state->engine->input.mouse_x, 0u, renderer_state->back_buffer_width - 1);
+    U32 y = glm::clamp((U32)renderer_state->engine->input.mouse_y, 0u, renderer_state->back_buffer_height - 1);
+
+    VkBufferImageCopy buffer_image_copy =
+    {
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource =
+        {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        },
+        .imageOffset = { (S32)x, (S32)y, 0 },
+        .imageExtent = { 1, 1, 1 }
+    };
+
+    vkCmdCopyImageToBuffer(context->command_buffer, scene_image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vulkan_scene_buffer->handle, 1, &buffer_image_copy);
     vkEndCommandBuffer(context->command_buffer);
 
     VkSemaphoreSubmitInfoKHR wait_semaphore_infos[] = 
@@ -1689,7 +1717,7 @@ static VkBufferUsageFlags get_buffer_usage_flags(Buffer_Usage usage)
     {
         case Buffer_Usage::TRANSFER:
         { 
-            return VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            return VK_BUFFER_USAGE_TRANSFER_SRC_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         } break;
         
         case Buffer_Usage::VERTEX:

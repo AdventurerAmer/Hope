@@ -117,6 +117,8 @@ struct Frame_Render_Data
     Dynamic_Array< Draw_Command > skyboxes_commands;
     Dynamic_Array< Draw_Command > opaque_commands;
     Dynamic_Array< Draw_Command > transparent_commands;
+
+    Buffer_Handle scene_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 };
 
 struct Renderer_State

@@ -15,10 +15,16 @@ layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_INSTANCE_STORA
     Instance_Data instances[];
 };
 
+out Fragment_Input
+{
+    flat int entity_index;
+} frag_input;
+
 void main()
 {
     mat4 local_to_world = instances[gl_InstanceIndex].local_to_world;
     gl_Position = globals.projection * globals.view * local_to_world * vec4(in_position, 1.0);
+    frag_input.entity_index = instances[gl_InstanceIndex].entity_index;
 }
 
 #type fragment
@@ -33,7 +39,12 @@ void main()
 
 layout(location = 0) out int out_color;
 
+in Fragment_Input
+{
+    flat int entity_index;
+} frag_input;
+
 void main()
 {
-    out_color = -1 * int(sign(globals.gamma));
+    out_color = frag_input.entity_index * int(sign(clamp(globals.gamma, 0.0, 1.0)));
 }

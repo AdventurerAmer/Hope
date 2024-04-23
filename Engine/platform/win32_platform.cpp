@@ -120,7 +120,7 @@ HE_FORCE_INLINE static void win32_handle_mouse_input(Event *event, UINT message,
 static LRESULT CALLBACK win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
 {
     static Engine *engine = win32_platform_state.engine;
-    LRESULT result = ImGui_ImplWin32_WndProcHandler(window, message, w_param, l_param);
+    LRESULT result = 0;
 
     switch (message)
     {
@@ -344,6 +344,7 @@ static LRESULT CALLBACK win32_window_proc(HWND window, UINT message, WPARAM w_pa
         } break;
     }
 
+    ImGui_ImplWin32_WndProcHandler(window, message, w_param, l_param);
     return result;
 }
 
