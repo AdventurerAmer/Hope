@@ -117,6 +117,11 @@ void select(S32 node_index)
      scene_hierarchy_state.selected_node_index = node_index;
 }
 
+S32 get_selected_node()
+{
+    return scene_hierarchy_state.selected_node_index;
+}
+
 void reset_selection()
 {
     scene_hierarchy_state.context_menu_node_index = -1;

@@ -20,9 +20,6 @@ struct Engine
     Window window;
 
     Input input;
-    
-    // todo(amer): move this to debug state
-    bool show_imgui;
 };
 
 bool startup(Engine *engine);

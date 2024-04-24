@@ -46,5 +46,5 @@ in Fragment_Input
 
 void main()
 {
-    out_color = frag_input.entity_index * int(sign(clamp(globals.gamma, 0.0, 1.0)));
+    out_color = frag_input.entity_index * int(NOOP(globals.gamma));
 }

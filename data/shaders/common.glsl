@@ -9,10 +9,13 @@
 
 #define SHADER_PASS_BIND_GROUP 1
 #define SHADER_LIGHT_STORAGE_BUFFER_BINDING 0
-#define SHADER_BINDLESS_TEXTURES_BINDING 1
+#define SHADER_LIGHT_TILES_STORAGE_BUFFER_BINDING 1
+#define SHADER_BINDLESS_TEXTURES_BINDING 2
 
 #define SHADER_OBJECT_BIND_GROUP 2
 #define SHADER_MATERIAL_UNIFORM_BUFFER_BINDING 0
+
+#define NOOP(x) step(-1.0, clamp((x), 0.0, 1.0))
 
 #ifndef __cplusplus
 
@@ -39,11 +42,17 @@ struct Light
 
 layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFORM_BINDING) uniform Globals
 {
+    uvec2 resolution;
+
     mat4 view;
     mat4 projection;
     vec3 eye;
+
     float gamma;
+
     uint light_count;
+    uint light_tile_size;
+    uint light_tile_stride;
 } globals;
 
 vec3 srgb_to_linear(vec3 color, float gamma)

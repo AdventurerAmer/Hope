@@ -31,6 +31,9 @@ enum RenderingAPI
 #define HE_MAX_SCENE_COUNT 4096
 #define HE_MAX_UPLOAD_REQUEST_COUNT 4096
 
+#define HE_MAX_LIGHT_COUNT 4096
+#define HE_LIGHT_TILE_SIZE 32
+
 struct Renderer
 {
     bool (*init)(struct Engine *engine, struct Renderer_State *renderer_state);
@@ -110,6 +113,14 @@ struct Frame_Render_Data
     Shader_Light *light_base;
     U32 *light_count;
 
+    U32 tile_count_x;
+    U32 tile_count_y;
+    U32 tile_count;
+    U32 max_light_word_count;
+    U32 light_tiles_size;
+
+    Buffer_Handle light_tiles[HE_MAX_FRAMES_IN_FLIGHT];
+
     Pipeline_State_Handle current_pipeline_state_handle;
     Material_Handle current_material_handle;
     Static_Mesh_Handle current_static_mesh_handle;
@@ -119,6 +130,12 @@ struct Frame_Render_Data
     Dynamic_Array< Draw_Command > transparent_commands;
 
     Buffer_Handle scene_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+
+    glm::mat4 view;
+    glm::mat4 projection;
+
+    F32 near_z;
+    F32 far_z;
 };
 
 struct Renderer_State

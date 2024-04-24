@@ -14,12 +14,12 @@ parent 0
 component_count 2
 component transform
 position 0.000000 0.000000 0.000000
-rotation -0.382683 0.000000 0.000000 0.923880
-scale 1.000000 1.000000 1.000000
+rotation -0.319476 -0.135143 0.285618 0.893361
+scale 0.999995 0.999996 0.999996
 component light
 type directional
 color 1.000000 1.000000 1.000000
-intensity 2.000000
+intensity 1.000000
 radius 1.000000
 inner_angle 30.000000
 outer_angle 45.000000
@@ -27,14 +27,14 @@ node_name 10 PointLight
 parent 0
 component_count 2
 component transform
-position 3.000000 2.000000 0.000000
+position 4.500000 2.000000 0.000000
 rotation 0.000000 0.000000 0.000000 1.000000
 scale 1.000000 1.000000 1.000000
 component light
 type point
-color 0.808824 0.766610 0.091191
-intensity 3.000000
-radius 3.000000
+color 0.965686 0.877694 0.591719
+intensity 5.000000
+radius 5.000000
 inner_angle 30.000000
 outer_angle 45.000000
 node_name 9 SpotLight
@@ -42,7 +42,7 @@ parent 0
 component_count 2
 component transform
 position -3.000000 2.000000 -0.500000
-rotation -0.707107 0.000000 0.000000 0.707107
+rotation -0.707107 -0.000000 0.000000 0.707107
 scale 1.000000 1.000000 1.000000
 component light
 type spot
@@ -90,9 +90,9 @@ node_name 6 Corset
 parent 0
 component_count 2
 component transform
-position 0.000000 0.000000 0.000000
-rotation -0.000000 1.000000 -0.000000 0.000000
-scale 5.000000 5.000000 5.000000
+position -0.059788 -0.010705 -0.455152
+rotation -0.025594 -0.999665 0.002300 -0.003005
+scale 5.387847 5.049962 5.036954
 component mesh
 static_mesh_asset 1596034640347025962
 material_count 1
@@ -101,7 +101,7 @@ node_name 4 Cube
 parent 0
 component_count 2
 component transform
-position 0.000000 0.200000 -1.000000
+position 0.491876 0.333179 -0.803758
 rotation 0.000000 0.000000 0.000000 1.000000
 scale 0.250000 0.250000 0.250000
 component mesh

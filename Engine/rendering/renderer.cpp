@@ -31,6 +31,7 @@
 #pragma warning(push, 0)
 
 #include <imgui.h>
+#include <ImGuizmo/ImGuizmo.h>
 
 #pragma warning(pop)
 
@@ -140,9 +141,9 @@ bool init_renderer_state(Engine *engine)
         init(&renderer_state->upload_requests, HE_MAX_UPLOAD_REQUEST_COUNT, allocator);
     }
 
-    platform_create_mutex(&renderer_state->pending_upload_requests_mutex); 
+    platform_create_mutex(&renderer_state->pending_upload_requests_mutex);
     reset(&renderer_state->pending_upload_requests);
-    
+
     U32 &back_buffer_width = renderer_state->back_buffer_width;
     U32 &back_buffer_height = renderer_state->back_buffer_height;
     bool &triple_buffering = renderer_state->triple_buffering;
@@ -221,10 +222,10 @@ bool init_renderer_state(Engine *engine)
     {
         U32* white_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
         *white_pixel_data = 0xFFFFFFFF;
-        
+
         void *data_array[] =
         {
-            white_pixel_data 
+            white_pixel_data
         };
 
         Texture_Descriptor white_pixel_descriptor =
@@ -249,7 +250,7 @@ bool init_renderer_state(Engine *engine)
         {
             normal_pixel_data
         };
-        
+
         Texture_Descriptor normal_pixel_descriptor =
         {
             .name = HE_STRING_LITERAL("normal pixel"),
@@ -273,13 +274,13 @@ bool init_renderer_state(Engine *engine)
 
         glm::vec3 _normals[] = { { -0.000000f, -1.000000f, 0.000000f },{ -0.000000f, -1.000000f, 0.000000f },{ -0.000000f, -1.000000f, 0.000000f },{ 0.000000f, 1.000000f, -0.000000f },{ 0.000000f, 1.000000f, -0.000000f },{ 0.000000f, 1.000000f, -0.000000f },{ 1.000000f, -0.000000f, -0.000000f },{ 1.000000f, -0.000000f, -0.000000f },{ 1.000000f, -0.000000f, -0.000000f },{ -0.000000f, -0.000000f, 1.000000f },{ -0.000000f, -0.000000f, 1.000000f },{ -0.000000f, -0.000000f, 1.000000f },{ -1.000000f, -0.000000f, -0.000000f },{ -1.000000f, -0.000000f, -0.000000f },{ -1.000000f, -0.000000f, -0.000000f },{ 0.000000f, 0.000000f, -1.000000f },{ 0.000000f, 0.000000f, -1.000000f },{ 0.000000f, 0.000000f, -1.000000f },{ 0.000000f, -1.000000f, 0.000000f },{ 0.000000f, -1.000000f, 0.000000f },{ 0.000000f, -1.000000f, 0.000000f },{ 0.000000f, 1.000000f, 0.000000f },{ 0.000000f, 1.000000f, 0.000000f },{ 0.000000f, 1.000000f, 0.000000f },{ 1.000000f, 0.000000f, 0.000001f },{ 1.000000f, 0.000000f, 0.000001f },{ 1.000000f, 0.000000f, 0.000001f },{ -0.000000f, 0.000000f, 1.000000f },{ -0.000000f, 0.000000f, 1.000000f },{ -0.000000f, 0.000000f, 1.000000f },{ -1.000000f, -0.000000f, -0.000000f },{ -1.000000f, -0.000000f, -0.000000f },{ -1.000000f, -0.000000f, -0.000000f },{ 0.000000f, 0.000000f, -1.000000f },{ 0.000000f, 0.000000f, -1.000000f },{ 0.000000f, 0.000000f, -1.000000f } };
 
-        glm::vec2 _uvs[] = { { 0.000000f, 0.000000f },{ -1.000000f, 1.000000f },{ 0.000000f, 1.000000f },{ 0.000000f, 0.000000f },{ 1.000000f, -1.000000f },{ 1.000000f, -0.000000f },{ 1.000000f, 0.000000f },{ 0.000000f, -1.000000f },{ 1.000000f, -1.000000f },{ 1.000000f, 0.000000f },{ -0.000000f, -1.000000f },{ 1.000000f, -1.000000f },{ 0.000000f, 0.000000f },{ 1.000000f, 1.000000f },{ 1.000000f, 0.000000f },{ 0.000000f, 0.000000f },{ -1.000000f, 1.000000f },{ 0.000000f, 1.000000f },{ 0.000000f, 0.000000f },{ -1.000000f, 0.000000f },{ -1.000000f, 1.000000f },{ 0.000000f, 0.000000f },{ -0.000000f, -1.000000f },{ 1.000000f, -1.000000f },{ 1.000000f, 0.000000f },{ -0.000000f, 0.000000f },{ 0.000000f, -1.000000f },{ 1.000000f, 0.000000f },{ -0.000000f, 0.000000f },{ -0.000000f, -1.000000f },{ 0.000000f, 0.000000f },{ 0.000000f, 1.000000f },{ 1.000000f, 1.000000f },{ 0.000000f, 0.000000f },{ -1.000000f, 0.000000f },{ -1.000000f, 1.000000f } };        
+        glm::vec2 _uvs[] = { { 0.000000f, 0.000000f },{ -1.000000f, 1.000000f },{ 0.000000f, 1.000000f },{ 0.000000f, 0.000000f },{ 1.000000f, -1.000000f },{ 1.000000f, -0.000000f },{ 1.000000f, 0.000000f },{ 0.000000f, -1.000000f },{ 1.000000f, -1.000000f },{ 1.000000f, 0.000000f },{ -0.000000f, -1.000000f },{ 1.000000f, -1.000000f },{ 0.000000f, 0.000000f },{ 1.000000f, 1.000000f },{ 1.000000f, 0.000000f },{ 0.000000f, 0.000000f },{ -1.000000f, 1.000000f },{ 0.000000f, 1.000000f },{ 0.000000f, 0.000000f },{ -1.000000f, 0.000000f },{ -1.000000f, 1.000000f },{ 0.000000f, 0.000000f },{ -0.000000f, -1.000000f },{ 1.000000f, -1.000000f },{ 1.000000f, 0.000000f },{ -0.000000f, 0.000000f },{ 0.000000f, -1.000000f },{ 1.000000f, 0.000000f },{ -0.000000f, 0.000000f },{ -0.000000f, -1.000000f },{ 0.000000f, 0.000000f },{ 0.000000f, 1.000000f },{ 1.000000f, 1.000000f },{ 0.000000f, 0.000000f },{ -1.000000f, 0.000000f },{ -1.000000f, 1.000000f } };
 
         glm::vec4 _tangents[] = { { 1.000000f, -0.000000f, -0.000000f, -1.000000f },{ 1.000000f, -0.000000f, -0.000000f, -1.000000f },{ 1.000000f, -0.000000f, -0.000000f, -1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, -0.000000f, 0.000000f, 1.000000f },{ 0.000000f, 0.000000f, -1.000000f, 1.000000f },{ 0.000000f, 0.000000f, -1.000000f, 1.000000f },{ 0.000000f, 0.000000f, -1.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 0.000000f, -0.000000f, -1.000000f, -1.000000f },{ 0.000000f, -0.000000f, -1.000000f, -1.000000f },{ 0.000000f, -0.000000f, -1.000000f, -1.000000f },{ 1.000000f, -0.000000f, 0.000000f, -1.000000f },{ 1.000000f, -0.000000f, 0.000000f, -1.000000f },{ 1.000000f, -0.000000f, 0.000000f, -1.000000f },{ 1.000000f, -0.000000f, -0.000000f, -1.000000f },{ 1.000000f, 0.000000f, -0.000000f, -1.000000f },{ 1.000000f, -0.000000f, -0.000000f, -1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 0.000001f, 0.000000f, -1.000000f, 1.000000f },{ 0.000001f, 0.000000f, -1.000000f, 1.000000f },{ 0.000001f, 0.000000f, -1.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 1.000000f, 0.000000f, 0.000000f, 1.000000f },{ 0.000000f, -0.000000f, -1.000000f, -1.000000f },{ 0.000000f, -0.000000f, -1.000000f, -1.000000f },{ 0.000000f, -0.000000f, -1.000000f, -1.000000f },{ 1.000000f, -0.000000f, 0.000000f, -1.000000f },{ 1.000000f, -0.000000f, 0.000000f, -1.000000f },{ 1.000000f, -0.000000f, 0.000000f, -1.000000f } };
 
         U64 size = sizeof(U16) * (U64)index_count + (sizeof(glm::vec3) + sizeof(glm::vec3) + sizeof(glm::vec2) + sizeof(glm::vec4)) * (U64)vertex_count;
         U8 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U8, size);
-        
+
         U16 *indices = (U16 *)data;
         copy_memory(indices, _indices, sizeof(U16) * HE_ARRAYCOUNT(_indices));
 
@@ -287,13 +288,13 @@ bool init_renderer_state(Engine *engine)
 
         glm::vec3 *positions = (glm::vec3 *)vertex_data;
         copy_memory(positions, _positions, sizeof(glm::vec3) * HE_ARRAYCOUNT(_positions));
-        
+
         glm::vec3 *normals = (glm::vec3 *)(vertex_data + sizeof(glm::vec3) * vertex_count);
         copy_memory(normals, _normals, sizeof(glm::vec3) * HE_ARRAYCOUNT(_normals));
-        
+
         glm::vec2 *uvs = (glm::vec2 *)(vertex_data + (sizeof(glm::vec3) + sizeof(glm::vec3)) * vertex_count);
         copy_memory(uvs, _uvs, sizeof(glm::vec2) * HE_ARRAYCOUNT(_uvs));
-        
+
         glm::vec4 *tangents = (glm::vec4 *)(vertex_data + (sizeof(glm::vec3) + sizeof(glm::vec2) + sizeof(glm::vec3)) * vertex_count);
         copy_memory(tangents, _tangents, sizeof(glm::vec4) * HE_ARRAYCOUNT(_tangents));
 
@@ -319,13 +320,13 @@ bool init_renderer_state(Engine *engine)
 
             .indices = indices,
             .index_count = index_count,
-            
+
             .vertex_count = vertex_count,
             .positions = positions,
             .normals = normals,
             .uvs = uvs,
             .tangents = tangents,
-            
+
             .sub_meshes = sub_meshes
         };
 
@@ -334,7 +335,7 @@ bool init_renderer_state(Engine *engine)
 
     init(&renderer_state->render_graph);
     setup_render_passes(&renderer_state->render_graph, renderer_state);
-    
+
     bool compiled = compile(&renderer_state->render_graph, renderer, renderer_state);
     if (!compiled)
     {
@@ -357,13 +358,13 @@ bool init_renderer_state(Engine *engine)
         .anisotropy = 1
     };
 
-    renderer_state->default_cubemap_sampler = renderer_create_sampler(default_cubemap_sampler_descriptor); 
+    renderer_state->default_cubemap_sampler = renderer_create_sampler(default_cubemap_sampler_descriptor);
 
     {
         Allocator allocator = to_allocator(scratch_memory.arena);
         Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/default.glsl"), allocator);
         String default_shader_source = { .count = result.size, .data = (const char *)result.data };
-        
+
         Shader_Compilation_Result default_shader_compilation_result = renderer_compile_shader(default_shader_source, HE_STRING_LITERAL("shaders"));
         HE_ASSERT(default_shader_compilation_result.success);
 
@@ -398,7 +399,7 @@ bool init_renderer_state(Engine *engine)
 
         renderer_state->default_material = renderer_create_material(default_material_descriptor);
         HE_ASSERT(is_valid_handle(&renderer_state->materials, renderer_state->default_material));
-        
+
         set_property(renderer_state->default_material, HE_STRING_LITERAL("debug_texture_index"), { .u32 = (U32)renderer_state->white_pixel_texture.index });
         set_property(renderer_state->default_material, HE_STRING_LITERAL("debug_color"), { .v3f = { 1.0f, 0.0f, 1.0f }});
 
@@ -442,10 +443,11 @@ bool init_renderer_state(Engine *engine)
 
             Buffer_Descriptor light_storage_buffer_descriptor =
             {
-                .size = sizeof(Shader_Light) * HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT,
+                .size = sizeof(Shader_Light) * HE_MAX_LIGHT_COUNT,
                 .usage = Buffer_Usage::STORAGE_CPU_SIDE,
             };
             render_data->light_storage_buffers[frame_index] = renderer_create_buffer(light_storage_buffer_descriptor);
+            render_data->light_tiles[frame_index] = Resource_Pool< Buffer >::invalid_handle;
 
             render_data->globals_bind_groups[frame_index] = renderer_create_bind_group(globals_bind_group_descriptor);
             render_data->pass_bind_groups[frame_index] = renderer_create_bind_group(pass_bind_group_descriptor);
@@ -484,11 +486,11 @@ bool init_renderer_state(Engine *engine)
                 .cull_mode = Cull_Mode::BACK,
                 .front_face = Front_Face::COUNTER_CLOCKWISE,
                 .fill_mode = Fill_Mode::SOLID,
-                
+
                 .depth_operation = Compare_Operation::LESS,
                 .depth_testing = true,
                 .depth_writing = true,
-                
+
                 .stencil_operation = Compare_Operation::ALWAYS,
                 .stencil_fail = Stencil_Operation::KEEP,
                 .stencil_pass = Stencil_Operation::REPLACE,
@@ -815,10 +817,10 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
     String sources[(U32)Shader_Stage::COUNT] = {};
 
     Shader_Compilation_Result compilation_result = {};
-    
+
     String str = source;
     S32 last_shader_stage_index = -1;
-    
+
     String type_literal = HE_STRING_LITERAL("type");
     U64 search_offset = 0;
 
@@ -829,7 +831,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
         {
             break;
         }
-        
+
         String str_after_index = sub_string(str, hash_symbol_index + 1);
         if (!starts_with(str_after_index, type_literal))
         {
@@ -859,10 +861,10 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
             str = advance(str, shader_stage_signature[i].count);
             sources[i] = str;
             last_shader_stage_index = (S32)i;
-            break;                
-        }    
+            break;
+        }
     }
-    
+
     for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
     {
         if (!sources[stage_index].count)
@@ -875,7 +877,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
 
         shaderc_shader_kind kind = shader_stage_to_shaderc_kind((Shader_Stage)stage_index);
         shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, source.data, source.count, kind, include_path.data, "main", options);
-        
+
         HE_DEFER
         {
             shaderc_result_release(result);
@@ -885,7 +887,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
         if (status != shaderc_compilation_status_success)
         {
             HE_LOG(Resource, Fetal, "%s\n", shaderc_result_get_error_message(result));
-            
+
             for (U32 i = 0; i < stage_index; i++)
             {
                 if (compilation_result.stages[stage_index].count)
@@ -1198,7 +1200,7 @@ Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &des
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_static_mesh(static_mesh_handle, descriptor, upload_request_handle);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
-    
+
     renderer_add_pending_upload_request(upload_request_handle);
     return static_mesh_handle;
 }
@@ -1295,7 +1297,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
             .size = properties->size,
             .usage = Buffer_Usage::UNIFORM
         };
-        
+
         Buffer_Handle buffer_handle = renderer_create_buffer(material_buffer_descriptor);
         material->buffers[frame_index] = buffer_handle;
 
@@ -1362,7 +1364,7 @@ void renderer_destroy_material(Material_Handle &material_handle)
         deallocate(get_general_purpose_allocator(), (void *)material->name.data);
     }
 
-    Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle); 
+    Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle);
     renderer_destroy_pipeline_state(material->pipeline_state_handle);
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -1479,7 +1481,7 @@ void renderer_use_material(Material_Handle material_handle)
     }
 
     Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
-    
+
     Update_Binding_Descriptor update_binding_descriptor =
     {
         .binding_number = 0,
@@ -1487,7 +1489,7 @@ void renderer_use_material(Material_Handle material_handle)
         .count = 1,
         .buffers = &material->buffers[renderer_state->current_frame_in_flight_index],
     };
-    renderer_update_bind_group(material->bind_groups[renderer_state->current_frame_in_flight_index], { .count = 1, .data = &update_binding_descriptor });    
+    renderer_update_bind_group(material->bind_groups[renderer_state->current_frame_in_flight_index], { .count = 1, .data = &update_binding_descriptor });
 
     Bind_Group_Handle material_bind_groups[] =
     {
@@ -2046,7 +2048,7 @@ void add_child_after(Scene *scene, U32 target_node_index, U32 node_index)
     Scene_Node *parent = get_node(scene, target_node->parent_index);
     Scene_Node *node = get_node(scene, node_index);
     U32 parent_index = target_node->parent_index;
-    
+
     node->parent_index = parent_index;
 
     if (parent->last_child_index == target_node_index)
@@ -2070,7 +2072,7 @@ void remove_child(Scene *scene, S32 parent_index, U32 node_index)
     Scene_Node *parent = get_node(scene, parent_index);
     Scene_Node *node = get_node(scene, node_index);
     HE_ASSERT(node->parent_index == parent_index);
-    
+
     if (node->prev_sibling_index != -1)
     {
         scene->nodes[node->prev_sibling_index].next_sibling_index = node->next_sibling_index;
@@ -2286,25 +2288,25 @@ void renderer_destroy_upload_request(Upload_Request_Handle upload_request_handle
 {
     Upload_Request *upload_request = get(&renderer_state->upload_requests, upload_request_handle);
     HE_ASSERT(upload_request->target_value);
-    
+
     renderer_destroy_semaphore(upload_request->semaphore);
 
     for (U32 i = 0; i < upload_request->allocations_in_transfer_buffer.count; i++)
     {
         deallocate(&renderer_state->transfer_allocator, upload_request->allocations_in_transfer_buffer[i]);
     }
-    
+
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->destroy_upload_request(upload_request_handle);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
-    
+
     release_handle(&renderer_state->upload_requests, upload_request_handle);
 }
 
 void renderer_handle_upload_requests()
 {
     platform_lock_mutex(&renderer_state->pending_upload_requests_mutex);
-    
+
     for (U32 i = 0; i < renderer_state->pending_upload_requests.count; i++)
     {
         Upload_Request_Handle upload_request_handle = renderer_state->pending_upload_requests[i];
@@ -2338,14 +2340,14 @@ Render_Context get_render_context()
 //
 
 void renderer_set_anisotropic_filtering(Anisotropic_Filtering_Setting anisotropic_filtering_setting)
-{  
+{
     if (renderer_state->anisotropic_filtering_setting == anisotropic_filtering_setting)
     {
         return;
     }
-    
+
     renderer->wait_for_gpu_to_finish_all_work();
-    
+
     Sampler_Descriptor default_sampler_descriptor = {};
     default_sampler_descriptor.min_filter = Filter::LINEAR;
     default_sampler_descriptor.mag_filter = Filter::NEAREST;
@@ -2406,7 +2408,7 @@ void renderer_set_triple_buffering(bool enabled)
     {
         renderer_state->frames_in_flight = HE_MAX_FRAMES_IN_FLIGHT - 1;
     }
-    
+
     renderer_state->current_frame_in_flight_index = 0;
 }
 
@@ -2439,8 +2441,15 @@ void begin_rendering(const Camera *camera)
     glm::mat4 *view = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("view"));
     glm::mat4 *projection = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("projection"));
     glm::vec3 *eye = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("eye"));
-    U32 *light_count = (U32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("light_count"));
     F32 *gamma = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("gamma"));
+    U32 *light_count = (U32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("light_count"));
+
+    U32 *light_tile_stride = (U32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("light_tile_stride"));
+    U32 *light_tile_size = (U32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("light_tile_size"));
+    *light_tile_size = HE_LIGHT_TILE_SIZE;
+
+    glm::uvec2 *resolution = (glm::uvec2 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("resolution"));
+    *resolution = glm::uvec2(renderer_state->back_buffer_width, renderer_state->back_buffer_height);
 
     *view = glm::mat4(1.0f);
     *projection = glm::mat4(1.0f);
@@ -2456,6 +2465,11 @@ void begin_rendering(const Camera *camera)
         proj[1][1] *= -1;
         *projection = proj;
         *eye = camera->position;
+
+        render_data->view = camera->view;
+        render_data->projection = camera->projection;
+        render_data->near_z = camera->near_clip;
+        render_data->far_z = camera->far_clip;
     }
 
     Buffer *instance_storage_buffer = get(&renderer_state->buffers, render_data->instance_storage_buffers[frame_index]);
@@ -2464,6 +2478,38 @@ void begin_rendering(const Camera *camera)
 
     Buffer *light_storage_buffer = get(&renderer_state->buffers, render_data->light_storage_buffers[frame_index]);
     render_data->light_base = (Shader_Light *)light_storage_buffer->data;
+
+    Buffer_Handle &active_lights_per_tile_buffer_handle = render_data->light_tiles[frame_index];
+
+    render_data->tile_count_x = renderer_state->back_buffer_width / HE_LIGHT_TILE_SIZE;
+    render_data->tile_count_y = renderer_state->back_buffer_height / HE_LIGHT_TILE_SIZE;
+    render_data->tile_count = render_data->tile_count_x * render_data->tile_count_y;
+    render_data->max_light_word_count = (HE_MAX_LIGHT_COUNT / 32) + (HE_MAX_LIGHT_COUNT % 32 != 0);
+    render_data->light_tiles_size = render_data->tile_count * render_data->max_light_word_count * sizeof(U32);
+
+    *light_tile_stride = render_data->tile_count_x * render_data->max_light_word_count;
+
+    bool recreate_active_lights_per_tile_buffer = !is_valid_handle(&renderer_state->buffers, active_lights_per_tile_buffer_handle);
+
+    if (is_valid_handle(&renderer_state->buffers, active_lights_per_tile_buffer_handle))
+    {
+        Buffer *active_lights_per_tile = renderer_get_buffer(active_lights_per_tile_buffer_handle);
+        if (active_lights_per_tile->size != render_data->light_tiles_size)
+        {
+            recreate_active_lights_per_tile_buffer = true;
+            renderer_destroy_buffer(active_lights_per_tile_buffer_handle);
+        }
+    }
+
+    if (recreate_active_lights_per_tile_buffer)
+    {
+        Buffer_Descriptor desc =
+        {
+            .size = render_data->light_tiles_size,
+            .usage = Buffer_Usage::STORAGE_CPU_SIDE
+        };
+        render_data->light_tiles[frame_index] = renderer_create_buffer(desc);
+    }
 
     render_data->current_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
     render_data->current_material_handle = Resource_Pool< Material >::invalid_handle;
@@ -2518,6 +2564,12 @@ void begin_rendering(const Camera *camera)
             .buffers = &render_data->light_storage_buffers[frame_index]
         },
         {
+            .binding_number = SHADER_LIGHT_TILES_STORAGE_BUFFER_BINDING,
+            .element_index = 0,
+            .count = 1,
+            .buffers = &render_data->light_tiles[frame_index]
+        },
+        {
             .binding_number = SHADER_BINDLESS_TEXTURES_BINDING,
             .element_index = 0,
             .count = texture_count,
@@ -2539,6 +2591,98 @@ void begin_rendering(const Camera *camera)
 
 void end_rendering()
 {
+    Frame_Render_Data *render_data = &renderer_state->render_data;
+
+    // todo(amer): we can do this in a compute shader as well.
+    Buffer *light_tiles_buffer = renderer_get_buffer(render_data->light_tiles[renderer_state->current_frame_in_flight_index]);
+
+    U32 *light_tiles = (U32 *)light_tiles_buffer->data;
+
+    U32 light_word_count = (*render_data->light_count / 32) + (*render_data->light_count % 32 != 0);
+    for (U32 tile_index = 0; tile_index < render_data->tile_count; tile_index++)
+    {
+        memset(&light_tiles[tile_index * render_data->max_light_word_count], 0, light_word_count * sizeof(U32));
+    }
+
+    U32 light_count = *render_data->light_count;
+    Shader_Light *lights = render_data->light_base;
+
+    F32 inv_tile_size = 1.0f / HE_LIGHT_TILE_SIZE;
+    U32 tile_stride = render_data->tile_count_x * render_data->max_light_word_count;
+
+    for (U32 light_index = 0; light_index < light_count; light_index++)
+    {
+        const Shader_Light *light = &lights[light_index];
+        glm::vec4 view_p = render_data->view * glm::vec4(light->position, 1.0f);
+
+        if (light->type == (U32)Light_Type::DIRECTIONAL)
+        {
+            continue;
+        }
+
+        bool is_light_infront_of_camera = view_p.z + light->radius > -render_data->near_z;
+        if (!is_light_infront_of_camera)
+        {
+            continue;
+        }
+
+        glm::vec2 aabb_min = { HE_MAX_F32, HE_MAX_F32 };
+        glm::vec2 aabb_max = { HE_MIN_F32, HE_MIN_F32 };
+
+        for (U32 corner_index = 0; corner_index < 8; corner_index++)
+        {
+            F32 cx = (corner_index & 1) ? 1.0f : -1.0f;
+            F32 cy = (corner_index & 2) ? 1.0f : -1.0f;
+            F32 cz = (corner_index & 4) ? 1.0f : -1.0f;
+            glm::vec3 corner_world_pos = glm::vec3(cx, cy, cz) * light->radius + light->position;
+            glm::vec4 corner_view_pos = render_data->view * glm::vec4(corner_world_pos, 1.0f);
+            corner_view_pos.z = glm::max(render_data->near_z, corner_view_pos.z);
+            glm::vec4 corner_ndc = render_data->projection * corner_view_pos;
+            corner_ndc /= corner_ndc.w;
+
+            glm::vec2 corner_ndc_xy = (glm::vec2)corner_ndc;
+            aabb_min = glm::min(aabb_min, corner_ndc_xy);
+            aabb_max = glm::max(aabb_max, corner_ndc_xy);
+        }
+
+        glm::vec2 half = { 0.5f, 0.5f };
+        glm::vec2 screen_size = { renderer_state->back_buffer_width, renderer_state->back_buffer_height };
+
+        glm::vec2 screen_size_minus_one = { renderer_state->back_buffer_width - 1 , renderer_state->back_buffer_height - 1 };
+
+        glm::vec2 screen_aabb_min = (aabb_min * 0.5f + half) * screen_size_minus_one;
+        glm::vec2 screen_aabb_max = (aabb_max * 0.5f + half) * screen_size_minus_one;
+        glm::vec2 screen_aabb_size = screen_aabb_max - screen_aabb_min;
+
+        if (screen_aabb_size.x < 0.0001f || screen_aabb_size.y < 0.0001f ||
+            screen_aabb_min.x > (F32)renderer_state->back_buffer_width ||
+            screen_aabb_min.y > (F32)renderer_state->back_buffer_height ||
+            screen_aabb_max.x < 0.0f || screen_aabb_max.y < 0.0f)
+        {
+            continue;
+        }
+
+        screen_aabb_min = glm::max(screen_aabb_min, glm::vec2(0.0f, 0.0f));
+        screen_aabb_max = glm::min(screen_aabb_max, screen_size);
+
+        U32 first_tile_x = (U32)(screen_aabb_min.x * inv_tile_size);
+        U32 last_tile_x = glm::min((U32)(screen_aabb_max.x * inv_tile_size), render_data->tile_count_x - 1);
+
+        U32 first_tile_y = (U32)(screen_aabb_min.y * inv_tile_size);
+        U32 last_tile_y = glm::min((U32)(screen_aabb_max.y * inv_tile_size), render_data->tile_count_y - 1);
+
+        for (U32 y = first_tile_y; y <= last_tile_y; y++)
+        {
+            for (U32 x = first_tile_x; x <= last_tile_x; x++)
+            {
+                U32 tile_index = y * tile_stride + x;
+                U32 word_index = light_index / 32;
+                U32 bit_index = light_index % 32;
+                light_tiles[tile_index + word_index] |= (1 << bit_index);
+            }
+        }
+    }
+
     render(&renderer_state->render_graph, renderer, renderer_state);
     renderer->end_frame();
 
@@ -2587,66 +2731,65 @@ void imgui_new_frame()
     platform_imgui_new_frame();
     renderer->imgui_new_frame();
     ImGui::NewFrame();
+    ImGuizmo::BeginFrame();
 
-    if (renderer_state->engine->show_imgui)
+    if (renderer_state->imgui_docking)
     {
-        if (renderer_state->imgui_docking)
+        static bool opt_fullscreen_persistant = true;
+        bool opt_fullscreen = opt_fullscreen_persistant;
+        static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+
+        // We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
+        // because it would be confusing to have two docking targets within each others.
+        ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar|ImGuiWindowFlags_NoDocking;
+
+        if (opt_fullscreen)
         {
-            static bool opt_fullscreen_persistant = true;
-            bool opt_fullscreen = opt_fullscreen_persistant;
-            static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
-
-            // We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
-            // because it would be confusing to have two docking targets within each others.
-            ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar|ImGuiWindowFlags_NoDocking;
-
-            if (opt_fullscreen)
-            {
-                ImGuiViewport *viewport = ImGui::GetMainViewport();
-                ImGui::SetNextWindowPos(viewport->Pos);
-                ImGui::SetNextWindowSize(viewport->Size);
-                ImGui::SetNextWindowViewport(viewport->ID);
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-                window_flags |= ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove;
-                window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus|ImGuiWindowFlags_NoNavFocus;
-            }
-
-            // When using ImGuiDockNodeFlags_PassthruCentralNode, DockSpace() will render our background
-            // and handle the pass-thru hole, so we ask Begin() to not render a background.
-            if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
-            {
-                window_flags |= ImGuiWindowFlags_NoBackground;
-            }
-
-            // Important: note that we proceed even if Begin() returns false (aka window is collapsed).
-            // This is because we want to keep our DockSpace() active. If a DockSpace() is inactive,
-            // all active windows docked into it will lose their parent and become undocked.
-            // We cannot preserve the docking relationship between an active window and an inactive docking, otherwise
-            // any change of dockspace/settings would lead to windows being stuck in limbo and never being visible.
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-            ImGui::Begin("DockSpace", &renderer_state->imgui_docking, window_flags);
-            ImGui::PopStyleVar();
-
-            if (opt_fullscreen)
-            {
-                ImGui::PopStyleVar(2);
-            }
-
-            // DockSpace
-            ImGuiIO &io = ImGui::GetIO();
-
-            ImGuiStyle& style = ImGui::GetStyle();
-            float minWindowSizeX = style.WindowMinSize.x;
-            style.WindowMinSize.x = 280.0f;
-
-            if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
-            {
-                ImGuiID dockspace_id = ImGui::GetID("DockSpace");
-                ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
-            }
-
-            style.WindowMinSize.x = minWindowSizeX;
+            ImGuiViewport *viewport = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(viewport->Pos);
+            ImGui::SetNextWindowSize(viewport->Size);
+            ImGui::SetNextWindowViewport(viewport->ID);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            window_flags |= ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove;
+            window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus|ImGuiWindowFlags_NoNavFocus;
         }
+
+        // When using ImGuiDockNodeFlags_PassthruCentralNode, DockSpace() will render our background
+        // and handle the pass-thru hole, so we ask Begin() to not render a background.
+        if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
+        {
+            window_flags |= ImGuiWindowFlags_NoBackground;
+        }
+
+        // Important: note that we proceed even if Begin() returns false (aka window is collapsed).
+        // This is because we want to keep our DockSpace() active. If a DockSpace() is inactive,
+        // all active windows docked into it will lose their parent and become undocked.
+        // We cannot preserve the docking relationship between an active window and an inactive docking, otherwise
+        // any change of dockspace/settings would lead to windows being stuck in limbo and never being visible.
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::Begin("DockSpace", &renderer_state->imgui_docking, window_flags);
+        ImGui::PopStyleVar();
+
+        if (opt_fullscreen)
+        {
+            ImGui::PopStyleVar(2);
+        }
+
+        // DockSpace
+        ImGuiIO &io = ImGui::GetIO();
+
+        ImGuiStyle& style = ImGui::GetStyle();
+        float minWindowSizeX = style.WindowMinSize.x;
+        style.WindowMinSize.x = 280.0f;
+
+        if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+        {
+            ImGuiID dockspace_id = ImGui::GetID("DockSpace");
+            ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+        }
+
+        style.WindowMinSize.x = minWindowSizeX;
     }
+
 }

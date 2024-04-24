@@ -73,6 +73,11 @@ layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_STORAGE_BUF
     Light lights[];
 };
 
+layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_TILES_STORAGE_BUFFER_BINDING) readonly buffer Light_Tiles_Buffer
+{
+    uint light_tiles[];
+};
+
 layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFORM_BUFFER_BINDING) uniform Material
 {
     uint albedo_texture;
@@ -164,47 +169,59 @@ void main()
     vec3 V = normalize(globals.eye - frag_input.position);
     float NdotV = max(0.0, dot(N, V));
 
-    float rmin = 0.0001;
+    uvec2 tile = uvec2(gl_FragCoord.xy) / globals.light_tile_size;
+    uint tile_index = tile.y * globals.light_tile_stride + tile.x;
 
+    float rmin = 0.0001;
     vec3 Lo = vec3(0.0f);
 
-    for (uint i = 0; i < globals.light_count; i++)
+    for (uint light_index = 0; light_index < globals.light_count; light_index++)
     {
-        Light light = lights[i];
+        Light light = lights[light_index];
 
         float attenuation = 1.0f;
         vec3 L = vec3(0.0f);
 
-        switch (light.type)
+        if (light.type == LIGHT_TYPE_DIRECTIONAL)
         {
-            case LIGHT_TYPE_DIRECTIONAL:
-            {
-                L = -light.direction;
-            } break;
+            L = -light.direction;
+        }
+        else
+        {
+            uint word_index = light_index / 32;
+            uint bit_index = light_index % 32;
 
-            case LIGHT_TYPE_POINT:
+            if ((light_tiles[tile_index + word_index] & (1 << bit_index)) == 0)
             {
-                vec3 frag_pos_to_light = light.position - frag_input.position;
-                float r = length(frag_pos_to_light);
-                L = frag_pos_to_light / r;
-                attenuation = pow(light.radius / max(r, rmin), 2);
-                attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
-            } break;
+                continue;
+            }
 
-            case LIGHT_TYPE_SPOT:
+            switch (light.type)
             {
-                vec3 frag_pos_to_light = light.position - frag_input.position;
-                float r = length(frag_pos_to_light);
-                L = frag_pos_to_light / r;
-                attenuation = pow(light.radius / max(r, rmin), 2);
-                attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
+                case LIGHT_TYPE_POINT:
+                {
+                    vec3 frag_pos_to_light = light.position - frag_input.position;
+                    float r = length(frag_pos_to_light);
+                    L = frag_pos_to_light / r;
+                    attenuation = pow(light.radius / max(r, rmin), 2);
+                    attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
+                } break;
 
-                float cos_theta_u = cos(light.outer_angle);
-                float cos_theta_p = cos(light.inner_angle);
-                float cos_theta_s = dot(light.direction, -L);
-                float t = pow(clamp((cos_theta_s - cos_theta_u) / (cos_theta_p - cos_theta_u), 0.0, 1.0), 2.0);
-                attenuation *= t;
-            } break;
+                case LIGHT_TYPE_SPOT:
+                {
+                    vec3 frag_pos_to_light = light.position - frag_input.position;
+                    float r = length(frag_pos_to_light);
+                    L = frag_pos_to_light / r;
+                    attenuation = pow(light.radius / max(r, rmin), 2);
+                    attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
+
+                    float cos_theta_u = cos(light.outer_angle);
+                    float cos_theta_p = cos(light.inner_angle);
+                    float cos_theta_s = dot(light.direction, -L);
+                    float t = pow(clamp((cos_theta_s - cos_theta_u) / (cos_theta_p - cos_theta_u), 0.0, 1.0), 2.0);
+                    attenuation *= t;
+                } break;
+            }
         }
 
         vec3 radiance = light.color * attenuation; 

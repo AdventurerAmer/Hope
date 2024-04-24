@@ -890,9 +890,10 @@ void vulkan_renderer_end_frame()
     transtion_image_to_layout(context->command_buffer, swapchain_image, 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     Texture_Handle scene_texture = get_texture_resource(&renderer_state->render_graph, renderer_state, HE_STRING_LITERAL("scene"));
+
     Vulkan_Image *scene_image = &context->textures[scene_texture.index];
 
-    transtion_image_to_layout(context->command_buffer, scene_image->handle, 1, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transtion_image_to_layout(context->command_buffer, scene_image->handle, 1, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
     Buffer_Handle scene_buffer = renderer_state->render_data.scene_buffers[renderer_state->current_frame_in_flight_index];
     Vulkan_Buffer *vulkan_scene_buffer = &context->buffers[scene_buffer.index];
@@ -2094,11 +2095,7 @@ void vulkan_renderer_imgui_render()
     }
 
     ImGui::Render();
-
-    if (renderer_state->engine->show_imgui)
-    {
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), context->command_buffer);
-    }
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), context->command_buffer);
 }
 
 // todo(amer): make this a utility function and use it in vulkan_renderer_create_texture...

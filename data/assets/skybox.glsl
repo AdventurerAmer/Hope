@@ -51,6 +51,11 @@ layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_STORAGE_BUF
     Light lights[];
 };
 
+layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_TILES_STORAGE_BUFFER_BINDING) readonly buffer Active_Light_Buffer
+{
+    uint light_tiles[];
+};
+
 layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFORM_BUFFER_BINDING) uniform Material
 {
     uint skybox_cubemap;
@@ -61,6 +66,6 @@ void main()
 {
     Light l = lights[0];
     vec3 color = srgb_to_linear( sample_cubemap(material.skybox_cubemap, in_cubemap_uv).rgb, globals.gamma );
-    color *= srgb_to_linear( material.sky_color, globals.gamma ) * step(0.0f, l.color.r);
+    color *= srgb_to_linear( material.sky_color, globals.gamma ) * NOOP(l.color.r) * NOOP(float(light_tiles[0]));
     out_color = vec4( linear_to_srgb(color, globals.gamma), 1.0f );
 }

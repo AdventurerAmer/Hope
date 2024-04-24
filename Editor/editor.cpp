@@ -9,7 +9,7 @@
 
 #include <imgui/imgui.h>
 #include <ImGui/imgui_internal.h>
-
+#include <ImGuizmo/ImGuizmo.h>
 
 #include "editor_utils.h"
 #include "widgets/inspector_panel.h"
@@ -22,6 +22,10 @@ struct Editor_State
 	Camera camera;
 	FPS_Camera_Controller camera_controller;
     Asset_Handle scene_asset;
+
+    ImGuizmo::OPERATION operation = ImGuizmo::OPERATION::TRANSLATE;
+    ImGuizmo::MODE mode = ImGuizmo::MODE::WORLD;
+    bool show_ui_panels = false;
 };
 
 static Editor_State editor_state;
@@ -95,8 +99,7 @@ void hope_app_on_event(Engine *engine, Event event)
                 }
                 else if (event.key == HE_KEY_F10)
                 {
-                    engine->show_imgui = !engine->show_imgui;
-                    engine->show_cursor = !engine->show_cursor;
+                    editor_state.show_ui_panels = !editor_state.show_ui_panels;
                 }
                 else if (event.key == HE_KEY_S)
                 {
@@ -109,6 +112,28 @@ void hope_app_on_event(Engine *engine, Event event)
                             String scene_path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
                             serialize_scene(get_asset_handle_as<Scene>(editor_state.scene_asset), scene_path);
                         }
+                    }
+                }
+
+                ImGuiHoveredFlags hover_flags = ImGuiHoveredFlags_AnyWindow|ImGuiHoveredFlags_AllowWhenBlockedByPopup;
+                bool interacting_with_imgui = ImGui::IsWindowHovered(hover_flags) || ImGui::IsAnyItemHovered();
+                if (engine->input.button_states[HE_BUTTON_RIGHT] == Input_State::RELEASED || interacting_with_imgui)
+                {
+                    if (event.key == HE_KEY_Q)
+                    {
+                        Editor::reset_selection();
+                    }
+                    else if (event.key == HE_KEY_W)
+                    {
+                        editor_state.operation = ImGuizmo::OPERATION::TRANSLATE;
+                    }
+                    else if (event.key == HE_KEY_E)
+                    {
+                        editor_state.operation = ImGuizmo::OPERATION::ROTATE;
+                    }
+                    else if (event.key == HE_KEY_R)
+                    {
+                        editor_state.operation = ImGuizmo::OPERATION::SCALE;
                     }
                 }
 			}
@@ -127,7 +152,14 @@ void hope_app_on_event(Engine *engine, Event event)
         {
             if (event.pressed && event.button == HE_BUTTON_LEFT)
             {
-                bool interacting_with_imgui = ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow|ImGuiHoveredFlags_AllowWhenBlockedByPopup) || ImGui::IsAnyItemHovered();
+                ImGuiHoveredFlags hover_flags = ImGuiHoveredFlags_AnyWindow|ImGuiHoveredFlags_AllowWhenBlockedByPopup;
+                bool interacting_with_imgui = ImGui::IsWindowHovered(hover_flags) || ImGui::IsAnyItemHovered();
+
+                if (Scene_Hierarchy_Panel::get_selected_node() != -1)
+                {
+                    interacting_with_imgui |= ImGuizmo::IsOver();
+                }
+
                 if (!interacting_with_imgui)
                 {
                     Render_Context render_context = get_render_context();
@@ -154,7 +186,8 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
     Camera *camera = &editor_state.camera;
     FPS_Camera_Controller *camera_controller = &editor_state.camera_controller;
 
-    bool interacting_with_imgui = ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow|ImGuiHoveredFlags_AllowWhenBlockedByPopup) || ImGui::IsAnyItemHovered();
+    ImGuiHoveredFlags hover_flags = ImGuiHoveredFlags_AnyWindow|ImGuiHoveredFlags_AllowWhenBlockedByPopup;
+    bool interacting_with_imgui = ImGui::IsWindowHovered(hover_flags) || ImGui::IsAnyItemHovered();
     
     FPS_Camera_Controller_Input camera_controller_input = {};
     camera_controller_input.can_control = input->button_states[HE_BUTTON_RIGHT] != Input_State::RELEASED && !interacting_with_imgui;
@@ -167,9 +200,6 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
     camera_controller_input.down = input->key_states[HE_KEY_Q] != Input_State::RELEASED;
     camera_controller_input.delta_x = -input->mouse_delta_x;
     camera_controller_input.delta_y = -input->mouse_delta_y;
-
-    ImGuiIO &io = ImGui::GetIO();
-    // io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
 
     if (camera_controller_input.can_control)
     {
@@ -191,39 +221,38 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
     {
         Render_Context render_context = get_render_context();
         
-        // static bool show_imgui_window = false;
-        // ImGui::ShowDemoWindow(&show_imgui_window);
-
-        draw_graphics_window();
-
-        Scene_Hierarchy_Panel::draw(editor_state.scene_asset.uuid);
-        Assets_Panel::draw();
-        Inspector_Panel::draw();
-
-        ImGui::Begin("Scene");
-
-        if (is_asset_handle_valid(editor_state.scene_asset))
+        if (editor_state.show_ui_panels)
         {
-            if (!is_asset_loaded(editor_state.scene_asset))
+            draw_graphics_window();
+            Scene_Hierarchy_Panel::draw(editor_state.scene_asset.uuid);
+            Assets_Panel::draw();
+            Inspector_Panel::draw();
+
+            ImGui::Begin("Scene");
+
+            if (is_asset_handle_valid(editor_state.scene_asset))
             {
-                aquire_asset(editor_state.scene_asset);
+                if (!is_asset_loaded(editor_state.scene_asset))
+                {
+                    aquire_asset(editor_state.scene_asset);
+                }
+                else
+                {
+                    Scene_Handle scene_handle = get_asset_handle_as<Scene>(editor_state.scene_asset);
+                    Scene* scene = renderer_get_scene(scene_handle);
+
+                    Skybox* skybox = &scene->skybox;
+
+                    ImGui::Text("Ambient");
+                    ImGui::SameLine();
+                    ImGui::ColorEdit3("##EditAmbientColor", &skybox->ambient_color.r);
+
+                    select_asset(HE_STRING_LITERAL("Skybox Material"), HE_STRING_LITERAL("material"), (Asset_Handle *)&skybox->skybox_material_asset);
+                }
             }
-            else
-            {
-                Scene_Handle scene_handle = get_asset_handle_as<Scene>(editor_state.scene_asset);
-                Scene *scene = renderer_get_scene(scene_handle);
 
-                Skybox *skybox = &scene->skybox;
-
-                ImGui::Text("Ambient");
-                ImGui::SameLine();
-                ImGui::ColorEdit3("##EditAmbientColor", &skybox->ambient_color.r);
-
-                select_asset(HE_STRING_LITERAL("Skybox Material"), HE_STRING_LITERAL("material"), (Asset_Handle *)&skybox->skybox_material_asset);
-            }
+            ImGui::End();
         }
-
-        ImGui::End();
 
         begin_rendering(camera);
 
@@ -236,6 +265,32 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
             else
             {
                 Scene_Handle scene_handle = get_asset_handle_as<Scene>(editor_state.scene_asset);
+
+                S32 node_index = Scene_Hierarchy_Panel::get_selected_node();
+                if (node_index != -1)
+                {
+                    Scene *scene = renderer_get_scene(scene_handle);
+                    Scene_Node *node = get_node(scene, node_index);
+
+                    ImGuiIO &io = ImGui::GetIO();
+                    ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+
+                    Transform &t = node->transform;
+
+                    glm::mat4 world = get_world_matrix(t);
+                    ImGuizmo::Manipulate(glm::value_ptr(camera->view), glm::value_ptr(camera->projection), editor_state.operation, editor_state.mode, glm::value_ptr(world));
+
+                    glm::vec3 position;
+                    glm::vec3 rotation;
+                    glm::vec3 scale;
+                    ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(world), glm::value_ptr(position), glm::value_ptr(rotation), glm::value_ptr(scale));
+
+                    t.position = position;
+                    t.rotation = glm::quat(glm::radians(rotation));
+                    t.euler_angles = rotation;
+                    t.scale = scale;
+                }
+
                 render_scene(scene_handle);
             }
         }

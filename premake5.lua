@@ -48,7 +48,7 @@ project "Engine"
     cppdialect "C++20"
     staticruntime "off"
 
-    files { "Engine/**.h", "Engine/**.hpp", "Engine/**.cpp" }
+    files { "Engine/**.h", "Engine/**.hpp", "Engine/**.cpp", "ThirdParty/ImGuizmo/ImGuizmo.h", "ThirdParty/ImGuizmo/ImGuizmo.cpp" }
 
     includedirs { "Engine", "ThirdParty", "ThirdParty/ExcaliburHash", "ThirdParty/ExcaliburHash/ExcaliburHash", "ThirdParty/ImGui", "ThirdParty/include" }
     libdirs { "ThirdParty/lib" }

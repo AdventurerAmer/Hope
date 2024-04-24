@@ -4,3 +4,6 @@
 [submodule "ExcaliburHash"]
 	path = ThirdParty/ExcaliburHash
 	url = https://github.com/SergeyMakeev/ExcaliburHash
+[submodule "ThirdParty/ImGuizmo"]
+	path = ThirdParty/ImGuizmo
+	url = https://github.com/CedricGuillemet/ImGuizmo
