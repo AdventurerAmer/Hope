@@ -1,7 +1,7 @@
 version 1
 ambient_color 1.000000 1.000000 1.000000
 skybox_material_asset 11193936441130767775
-node_count 7
+node_count 6
 node_name 4 main
 parent -1
 component_count 1
@@ -27,28 +27,14 @@ node_name 10 PointLight
 parent 0
 component_count 2
 component transform
-position 4.500000 2.000000 0.000000
+position 4.500000 0.520865 0.000000
 rotation 0.000000 0.000000 0.000000 1.000000
 scale 1.000000 1.000000 1.000000
 component light
 type point
 color 0.965686 0.877694 0.591719
 intensity 5.000000
-radius 5.000000
-inner_angle 30.000000
-outer_angle 45.000000
-node_name 9 SpotLight
-parent 0
-component_count 2
-component transform
-position -3.000000 2.000000 -0.500000
-rotation -0.707107 -0.000000 0.000000 0.707107
-scale 1.000000 1.000000 1.000000
-component light
-type spot
-color 0.734757 0.098712 0.774510
-intensity 3.000000
-radius 5.000000
+radius 2.000000
 inner_angle 30.000000
 outer_angle 45.000000
 node_name 6 Sponza
@@ -101,7 +87,7 @@ node_name 4 Cube
 parent 0
 component_count 2
 component transform
-position 0.491876 0.333179 -0.803758
+position 0.000088 0.364996 -1.135126
 rotation 0.000000 0.000000 0.000000 1.000000
 scale 0.250000 0.250000 0.250000
 component mesh

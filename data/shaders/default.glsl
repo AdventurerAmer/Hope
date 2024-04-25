@@ -75,6 +75,11 @@ layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_TILES_STORA
     uint light_tiles[];
 };
 
+layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_BINS_STORAGE_BUFFER_BINDING) readonly buffer Light_Bins_Buffer
+{
+    uint light_bins[];
+};
+
 layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFORM_BUFFER_BINDING) uniform Material
 {
     uint debug_texture_index;
@@ -85,5 +90,5 @@ void main()
 {
     vec3 debug_texture = srgb_to_linear(texture( u_textures[ nonuniformEXT( material.debug_texture_index ) ], frag_input.uv ).rgb, globals.gamma);
     vec3 color = debug_texture * srgb_to_linear(material.debug_color, globals.gamma);
-    out_color = vec4(linear_to_srgb(color, globals.gamma), 1.0) * NOOP(lights[0].color.x) * NOOP(float(light_tiles[0]));
+    out_color = vec4(linear_to_srgb(color, globals.gamma), 1.0) * NOOP(lights[0].color.x) * NOOP(float(light_tiles[0])) * NOOP(float(light_bins[0]));
 }

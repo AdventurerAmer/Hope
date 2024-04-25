@@ -26,6 +26,8 @@ struct Editor_State
     ImGuizmo::OPERATION operation = ImGuizmo::OPERATION::TRANSLATE;
     ImGuizmo::MODE mode = ImGuizmo::MODE::WORLD;
     bool show_ui_panels = false;
+
+    Scene_Handle light_scene = Resource_Pool< Scene >::invalid_handle;
 };
 
 static Editor_State editor_state;
@@ -34,6 +36,8 @@ void draw_graphics_window();
 
 bool hope_app_init(Engine *engine)
 {
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+
     Editor_State *state = &editor_state;
     state->engine = engine;
 
@@ -66,7 +70,6 @@ bool hope_app_init(Engine *engine)
     {
         String scene_name = HE_STRING_LITERAL("main");
         Scene_Handle scene_handle = renderer_create_scene(scene_name, 1);
-        Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
         String save_path = format_string(scratch_memory.arena, "%.*s/%.*s.hascene", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(scene_name));
         serialize_scene(scene_handle, save_path);
         renderer_destroy_scene(scene_handle);
@@ -74,6 +77,44 @@ bool hope_app_init(Engine *engine)
 
     scene_asset = import_asset(HE_STRING_LITERAL("main.hascene"));
     editor_state.scene_asset = scene_asset;
+
+    S32 x_count = 2;
+    S32 y_count = 7;
+    S32 z_count = 2;
+    U32 light_count =  2 * (x_count + 1) * y_count * 2 * (z_count + 1);
+    editor_state.light_scene = renderer_create_scene(HE_STRING_LITERAL("lights"), light_count);
+    Scene *scene = renderer_get_scene(editor_state.light_scene);
+
+    srand(time(nullptr));
+
+    auto random_float = [](float min, float max) -> F32
+    {
+        F32 result = (F32)rand() / (F32)RAND_MAX;
+        return min + result * (max - min);
+    };
+
+    for (S32 y = 0; y < y_count; y++)
+    {
+        for (S32 z = -z_count; z <= z_count; z++)
+        {
+            for (S32 x = -x_count; x <= x_count; x++)
+            {
+                U32 node_index = allocate_node(scene, format_string(scratch_memory.arena, "light_%d_%d_%d", x, y, z));
+                Scene_Node *node = get_node(scene, node_index);
+                node->transform.position = { x * 5.0f, 2.0f + y * 1.5f, z * 1.5f };
+
+                node->has_light = true;
+                Light_Component *light = &node->light;
+                light->type = Light_Type::POINT;
+                light->radius = random_float(0, 5.0f);
+                light->intensity = random_float(0, 5.0f);
+                light->color = { random_float(0.0f, 1.0f), random_float(0.0f, 1.0f), random_float(0.0f, 1.0f) };
+
+                add_child_last(scene, 0, node_index);
+            }
+        }
+    }
+
     return true;
 }
 
@@ -294,6 +335,8 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
                 render_scene(scene_handle);
             }
         }
+
+        render_scene(editor_state.light_scene);
 
         end_rendering();
     }

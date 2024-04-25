@@ -78,6 +78,11 @@ layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_TILES_STORA
     uint light_tiles[];
 };
 
+layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_BINS_STORAGE_BUFFER_BINDING) readonly buffer Light_Bins_Buffer
+{
+    uint light_bins[];
+};
+
 layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFORM_BUFFER_BINDING) uniform Material
 {
     uint albedo_texture;
@@ -169,13 +174,20 @@ void main()
     vec3 V = normalize(globals.eye - frag_input.position);
     float NdotV = max(0.0, dot(N, V));
 
+    vec4 view_space_p = globals.view * vec4(frag_input.position, 1.0);
+    float depth = (-view_space_p.z - globals.z_near) / (globals.z_far - globals.z_near);
+    uint bin_index = uint(depth * float(globals.light_bin_count));
+    uint bin_value = light_bins[bin_index];
+    uint min_light_index = bin_value & 0xffff;
+    uint max_light_index = (bin_value >> 16) & 0xffff;
+
     uvec2 tile = uvec2(gl_FragCoord.xy) / globals.light_tile_size;
     uint tile_index = tile.y * globals.light_tile_stride + tile.x;
 
     float rmin = 0.0001;
     vec3 Lo = vec3(0.0f);
 
-    for (uint light_index = 0; light_index < globals.light_count; light_index++)
+    for (uint light_index = min_light_index; light_index <= max_light_index; light_index++)
     {
         Light light = lights[light_index];
 

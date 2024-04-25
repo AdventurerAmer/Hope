@@ -31,8 +31,9 @@ enum RenderingAPI
 #define HE_MAX_SCENE_COUNT 4096
 #define HE_MAX_UPLOAD_REQUEST_COUNT 4096
 
-#define HE_MAX_LIGHT_COUNT 4096
-#define HE_LIGHT_TILE_SIZE 32
+#define HE_MAX_LIGHT_COUNT 512
+#define HE_LIGHT_TILE_SIZE 64
+#define HE_LIGHT_BIN_COUNT 64
 
 struct Renderer
 {
@@ -113,13 +114,16 @@ struct Frame_Render_Data
     Shader_Light *light_base;
     U32 *light_count;
 
-    U32 tile_count_x;
-    U32 tile_count_y;
-    U32 tile_count;
+    U32 light_tile_count_x;
+    U32 light_tile_count_y;
+    U32 light_tile_count;
     U32 max_light_word_count;
     U32 light_tiles_size;
 
     Buffer_Handle light_tiles[HE_MAX_FRAMES_IN_FLIGHT];
+
+    U32 light_bin_count;
+    Buffer_Handle light_bins[HE_MAX_FRAMES_IN_FLIGHT];
 
     Pipeline_State_Handle current_pipeline_state_handle;
     Material_Handle current_material_handle;
