@@ -20,7 +20,7 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#define HE_GRAPHICS_DEBUGGING 1
+#define HE_GRAPHICS_DEBUGGING 0
 #define HE_MAX_FRAMES_IN_FLIGHT 3
 #define HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
 #define HE_MAX_BIND_GROUP_INDEX_COUNT 4
@@ -719,6 +719,8 @@ struct Shader_Instance_Data
 struct Shader_Light
 {
     U32 type;
+    alignas(4) U32 is_full_screen;
+    alignas(16) glm::uvec4 screen_aabb;
     alignas(16) glm::vec3 direction;
     alignas(16) glm::vec3 position;
     alignas(4) F32 radius;

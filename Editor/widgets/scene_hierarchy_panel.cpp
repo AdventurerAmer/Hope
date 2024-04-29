@@ -1,5 +1,6 @@
 #include "scene_hierarchy_panel.h"
 #include "inspector_panel.h"
+#include "../editor.h"
 
 #include <core/logging.h>
 
@@ -93,7 +94,10 @@ void draw(U64 scene_asset_uuid)
                     if (ImGui::MenuItem("Delete", "Del"))
                     {
                         remove_node(scene, scene_hierarchy_state.context_menu_node_index);
-                        scene_hierarchy_state.context_menu_node_index = -1;
+                        if (scene_hierarchy_state.context_menu_node_index == scene_hierarchy_state.selected_node_index)
+                        {
+                            Editor::reset_selection();
+                        }
                     }
                 }
 

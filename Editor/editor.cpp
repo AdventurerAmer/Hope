@@ -26,6 +26,7 @@ struct Editor_State
     ImGuizmo::OPERATION operation = ImGuizmo::OPERATION::TRANSLATE;
     ImGuizmo::MODE mode = ImGuizmo::MODE::WORLD;
     bool show_ui_panels = false;
+    bool show_stats_panel = true;
 
     Scene_Handle light_scene = Resource_Pool< Scene >::invalid_handle;
 };
@@ -33,6 +34,16 @@ struct Editor_State
 static Editor_State editor_state;
 
 void draw_graphics_window();
+
+S32 x_count = 5;
+S32 y_count = 5;
+S32 z_count = 5;
+
+float random_float(float min, float max)
+{
+    F32 result = (F32)rand() / (F32)RAND_MAX;
+    return min + result * (max - min);
+}
 
 bool hope_app_init(Engine *engine)
 {
@@ -78,20 +89,10 @@ bool hope_app_init(Engine *engine)
     scene_asset = import_asset(HE_STRING_LITERAL("main.hascene"));
     editor_state.scene_asset = scene_asset;
 
-    S32 x_count = 2;
-    S32 y_count = 7;
-    S32 z_count = 2;
-    U32 light_count =  2 * (x_count + 1) * y_count * 2 * (z_count + 1);
-    editor_state.light_scene = renderer_create_scene(HE_STRING_LITERAL("lights"), light_count);
+    editor_state.light_scene = renderer_create_scene(HE_STRING_LITERAL("lights"), HE_MAX_LIGHT_COUNT);
     Scene *scene = renderer_get_scene(editor_state.light_scene);
 
     srand(time(nullptr));
-
-    auto random_float = [](float min, float max) -> F32
-    {
-        F32 result = (F32)rand() / (F32)RAND_MAX;
-        return min + result * (max - min);
-    };
 
     for (S32 y = 0; y < y_count; y++)
     {
@@ -101,13 +102,13 @@ bool hope_app_init(Engine *engine)
             {
                 U32 node_index = allocate_node(scene, format_string(scratch_memory.arena, "light_%d_%d_%d", x, y, z));
                 Scene_Node *node = get_node(scene, node_index);
-                node->transform.position = { x * 5.0f, 2.0f + y * 1.5f, z * 1.5f };
+                node->transform.position = { x * 6.0f, 2.0f + y * 4.0f, z * 2.0f };
 
                 node->has_light = true;
                 Light_Component *light = &node->light;
                 light->type = Light_Type::POINT;
-                light->radius = random_float(0, 5.0f);
-                light->intensity = random_float(0, 5.0f);
+                light->radius = random_float(2.0f, 6.0f);
+                light->intensity = random_float(3.0f, 9.0f);
                 light->color = { random_float(0.0f, 1.0f), random_float(0.0f, 1.0f), random_float(0.0f, 1.0f) };
 
                 add_child_last(scene, 0, node_index);
@@ -206,14 +207,14 @@ void hope_app_on_event(Engine *engine, Event event)
                     Render_Context render_context = get_render_context();
                     Renderer_State *renderer_state = render_context.renderer_state;
                     Frame_Render_Data *render_data = &renderer_state->render_data;
-                    Buffer* buffer = renderer_get_buffer(render_data->scene_buffers[renderer_state->current_frame_in_flight_index]);
+                    Buffer *buffer = renderer_get_buffer(render_data->scene_buffers[renderer_state->current_frame_in_flight_index]);
                     S32 node_index = *(S32*)buffer->data;
                     Editor::reset_selection();
                     if (node_index != -1)
                     {
                         Inspector_Panel::inspect(get_asset_handle_as<Scene>(editor_state.scene_asset), node_index);
+                        Scene_Hierarchy_Panel::select(node_index);
                     }
-                    Scene_Hierarchy_Panel::select(node_index);
                 }
             }
         } break;
@@ -280,9 +281,9 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
                 else
                 {
                     Scene_Handle scene_handle = get_asset_handle_as<Scene>(editor_state.scene_asset);
-                    Scene* scene = renderer_get_scene(scene_handle);
+                    Scene *scene = renderer_get_scene(scene_handle);
 
-                    Skybox* skybox = &scene->skybox;
+                    Skybox *skybox = &scene->skybox;
 
                     ImGui::Text("Ambient");
                     ImGui::SameLine();
@@ -292,6 +293,16 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
                 }
             }
 
+            ImGui::End();
+        }
+
+        if (editor_state.show_stats_panel)
+        {
+            const Frame_Render_Data *rd = &renderer_state->render_data;
+            ImGuiIO &io = ImGui::GetIO();
+            ImGui::Begin("Stats");
+            ImGui::Text("frame time: %f ms", io.DeltaTime * 1000.0f);
+            ImGui::Text("FPS: %u", (U32)io.Framerate);
             ImGui::End();
         }
 
@@ -336,8 +347,18 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
             }
         }
 
-        render_scene(editor_state.light_scene);
+        float rotation_speed_degrees = random_float(45.0f, 90.0f);
+        glm::quat rotation = glm::quat(glm::vec3(0.0f, delta_time * glm::radians(rotation_speed_degrees), 0.0f));
 
+        Scene *light_scene = renderer_get_scene(editor_state.light_scene);
+        for (U32 node_index = 1; node_index < light_scene->node_count; ++node_index)
+        {
+            Scene_Node *node = get_node(light_scene, node_index);
+            auto &p = node->transform.position;
+            p = glm::rotate(rotation, glm::vec4(p, 1.0f));
+        }
+
+        render_scene(editor_state.light_scene);
         end_rendering();
     }
 }

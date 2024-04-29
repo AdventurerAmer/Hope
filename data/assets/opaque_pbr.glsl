@@ -181,8 +181,10 @@ void main()
     uint min_light_index = bin_value & 0xffff;
     uint max_light_index = (bin_value >> 16) & 0xffff;
 
-    uvec2 tile = uvec2(gl_FragCoord.xy) / globals.light_tile_size;
-    uint tile_index = tile.y * globals.light_tile_stride + tile.x;
+    // uvec2 tile = uvec2(gl_FragCoord.xy) / globals.light_tile_size;
+    // uint tile_index = tile.y * globals.light_tile_stride + tile.x;
+
+    uvec2 coords = uvec2(gl_FragCoord.xy);
 
     float rmin = 0.0001;
     vec3 Lo = vec3(0.0f);
@@ -200,10 +202,16 @@ void main()
         }
         else
         {
-            uint word_index = light_index / 32;
-            uint bit_index = light_index % 32;
+            // uint word_index = light_index / 32;
+            // uint bit_index = light_index % 32;
 
-            if ((light_tiles[tile_index + word_index] & (1 << bit_index)) == 0)
+            // if (light.is_full_screen == 0 && (light_tiles[tile_index + word_index] & (1 << bit_index)) == 0)
+            // {
+            //     continue;
+            // }
+
+            uvec4 aabb = light.screen_aabb;
+            if (coords.x < aabb.x || coords.x > aabb.z || coords.y < aabb.y || coords.y > aabb.w)
             {
                 continue;
             }
@@ -244,5 +252,5 @@ void main()
     vec3 color = ambient + Lo;
     color = color / (color + vec3(1.0));
     color = linear_to_srgb(color, gamma);
-    out_color = vec4(color, 1.0);
+    out_color = vec4(color, 1.0) * NOOP(light_tiles[0]);
 }

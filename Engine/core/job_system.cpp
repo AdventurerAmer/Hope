@@ -10,7 +10,7 @@
 
 #include <atomic>
 
-#define JOB_COUNT_PER_THREAD 1024
+#define JOB_COUNT_PER_THREAD 4096
 
 struct Thread_State
 {
@@ -184,7 +184,7 @@ unsigned long execute_thread_work(void *params)
 bool init_job_system()
 {
     Memory_Arena *arena = get_permenent_arena();
-    bool inited = init_free_list_allocator(&job_system_state.job_data_allocator, nullptr, HE_MEGA_BYTES(32), HE_MEGA_BYTES(32));
+    bool inited = init_free_list_allocator(&job_system_state.job_data_allocator, nullptr, HE_MEGA_BYTES(64), HE_MEGA_BYTES(64));
     HE_ASSERT(inited);
 
     U32 thread_count = get_job_thread_count();
@@ -312,6 +312,10 @@ void wait_for_all_jobs_to_finish()
 {
     while (job_system_state.in_progress_job_count.load())
     {
+    }
+#if 0
+    while (job_system_state.in_progress_job_count.load())
+    {
         Thread_State *most_worked_thread_state = nullptr;
         U32 most_work_count_so_far = 0;
 
@@ -368,6 +372,7 @@ void wait_for_all_jobs_to_finish()
 
         job_system_state.in_progress_job_count.fetch_sub(1);
     }
+#endif
 }
 
 

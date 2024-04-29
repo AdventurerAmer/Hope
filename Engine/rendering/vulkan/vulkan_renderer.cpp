@@ -36,6 +36,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageS
     {
         "VUID-VkSwapchainCreateInfoKHR-imageFormat-01778",
         "VUID-VkImageViewCreateInfo-usage-02275",
+        "UNASSIGNED-Threading-MultipleThreads-Write"
     };
 
     for (U32 i = 0; i < HE_ARRAYCOUNT(black_list); i++)

@@ -33,6 +33,8 @@ struct Instance_Data
 struct Light
 {
     uint type;
+    uint is_full_screen;
+    uvec4 screen_aabb;
     vec3 direction;
     vec3 position;
     float radius;

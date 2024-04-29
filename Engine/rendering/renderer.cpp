@@ -2448,6 +2448,8 @@ void begin_rendering(const Camera *camera)
     U32 *light_count = (U32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("light_count"));
 
     U32 *light_tile_stride = (U32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("light_tile_stride"));
+    render_data->light_tile_stride = light_tile_stride;
+
     U32 *light_tile_size = (U32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("light_tile_size"));
     *light_tile_size = HE_LIGHT_TILE_SIZE;
 
@@ -2495,11 +2497,9 @@ void begin_rendering(const Camera *camera)
     render_data->light_tile_count_x = renderer_state->back_buffer_width / HE_LIGHT_TILE_SIZE + ((renderer_state->back_buffer_width % HE_LIGHT_TILE_SIZE) != 0);
     render_data->light_tile_count_y = renderer_state->back_buffer_height / HE_LIGHT_TILE_SIZE + ((renderer_state->back_buffer_height % HE_LIGHT_TILE_SIZE) != 0);
     render_data->light_tile_count = render_data->light_tile_count_x * render_data->light_tile_count_y;
-    render_data->max_light_word_count = (HE_MAX_LIGHT_COUNT / 32) + (HE_MAX_LIGHT_COUNT % 32 != 0);
-    render_data->light_tiles_size = render_data->light_tile_count * render_data->max_light_word_count * sizeof(U32);
+    U32 max_light_word_count = (HE_MAX_LIGHT_COUNT / 32) + (HE_MAX_LIGHT_COUNT % 32 != 0);
+    render_data->light_tiles_size = render_data->light_tile_count * max_light_word_count * sizeof(U32);
     render_data->light_bin_count = HE_LIGHT_BIN_COUNT;
-
-    *light_tile_stride = render_data->light_tile_count_x * render_data->max_light_word_count;
 
     Buffer_Handle light_tiles_buffer_handle = render_data->light_tiles[frame_index];
     bool recreate_light_tiles_buffer = !is_valid_handle(&renderer_state->buffers, light_tiles_buffer_handle);
@@ -2631,11 +2631,203 @@ void begin_rendering(const Camera *camera)
     renderer->set_bind_groups(SHADER_GLOBALS_BIND_GROUP, to_array_view(bind_groups));
 }
 
+static bool calc_light_aabb(Shader_Light *light, Frame_Render_Data *render_data)
+{
+    if (light->type == (U32)Light_Type::DIRECTIONAL)
+    {
+        light->screen_aabb = { 0, 0, renderer_state->back_buffer_width - 1, renderer_state->back_buffer_height - 1 };
+        return true;
+    }
+
+    glm::vec4 view_p = render_data->view * glm::vec4(light->position, 1.0f);
+    F32 len = glm::length(view_p);
+    bool camera_inside = (len - light->radius) < render_data->near_z;
+
+    if (camera_inside)
+    {
+        light->screen_aabb = { 0, 0, renderer_state->back_buffer_width - 1, renderer_state->back_buffer_height - 1 };
+        return true;
+    }
+
+    glm::vec2 aabb_min = { HE_MAX_F32, HE_MAX_F32 };
+    glm::vec2 aabb_max = { HE_MIN_F32, HE_MIN_F32 };
+
+    for (U32 corner_index = 0; corner_index < 8; corner_index++)
+    {
+        F32 cx = (corner_index % 2) ? 1.0f : -1.0f;
+        F32 cy = (corner_index & 2) ? 1.0f : -1.0f;
+        F32 cz = (corner_index & 4) ? 1.0f : -1.0f;
+        glm::vec3 corner_world_pos = glm::vec3(cx, cy, cz) * light->radius + light->position;
+        glm::vec4 corner_view_pos = render_data->view * glm::vec4(corner_world_pos, 1.0f);
+
+        if (corner_view_pos.z > -render_data->near_z)
+        {
+            corner_view_pos.z = -render_data->near_z;
+        }
+
+        glm::vec4 corner_ndc = render_data->projection * corner_view_pos;
+        corner_ndc /= corner_ndc.w;
+
+        glm::vec2 corner_ndc_xy = { corner_ndc.x, corner_ndc.y };
+        aabb_min = glm::min(aabb_min, corner_ndc_xy);
+        aabb_max = glm::max(aabb_max, corner_ndc_xy);
+    }
+
+    F32 min_y = aabb_min.y;
+    F32 max_y = aabb_max.y;
+
+    aabb_min.y = max_y * -1.0f;
+    aabb_max.y = min_y * -1.0f;
+
+    glm::vec2 aabb_size = aabb_max - aabb_min;
+
+    F32 threshold_size = 0.0001f;
+    if (aabb_min.x > 1.0f || aabb_max.x < -1.0f || aabb_min.y > 1.0f || aabb_max.y < -1.0f || aabb_size.x < threshold_size || aabb_size.y < threshold_size)
+    {
+        return false;
+    }
+
+    aabb_min = glm::clamp(aabb_min, -1.0f, 1.0f);
+    aabb_max = glm::clamp(aabb_max, -1.0f, 1.0f);
+
+    glm::vec2 half = { 0.5f, 0.5f };
+    glm::vec2 screen_size_minus_one = { renderer_state->back_buffer_width - 1 , renderer_state->back_buffer_height - 1 };
+
+    glm::vec2 screen_aabb_min = (aabb_min * 0.5f + half) * screen_size_minus_one;
+    glm::vec2 screen_aabb_max = (aabb_max * 0.5f + half) * screen_size_minus_one;
+
+    light->screen_aabb = { (U32)screen_aabb_min.x, (U32)screen_aabb_min.y, (U32)screen_aabb_max.x, (U32)screen_aabb_max.y };
+    return true;
+}
+
+static void cull_light(Shader_Light *light, U32 light_index, U32 *tiles, Frame_Render_Data *render_data)
+{
+    light->is_full_screen = false;
+
+    if (light->type == (U32)Light_Type::DIRECTIONAL)
+    {
+        light->is_full_screen = true;
+        return;
+    }
+
+    glm::vec4 view_p = render_data->view * glm::vec4(light->position, 1.0f);
+    F32 len = glm::length(view_p);
+    bool camera_inside = (len - light->radius) < render_data->near_z;
+
+    if (camera_inside)
+    {
+        light->is_full_screen = true;
+        return;
+    }
+
+    glm::vec2 aabb_min = { HE_MAX_F32, HE_MAX_F32 };
+    glm::vec2 aabb_max = { HE_MIN_F32, HE_MIN_F32 };
+
+    for (U32 corner_index = 0; corner_index < 8; corner_index++)
+    {
+        F32 cx = (corner_index % 2) ? 1.0f : -1.0f;
+        F32 cy = (corner_index & 2) ? 1.0f : -1.0f;
+        F32 cz = (corner_index & 4) ? 1.0f : -1.0f;
+        glm::vec3 corner_world_pos = glm::vec3(cx, cy, cz) * light->radius + light->position;
+        glm::vec4 corner_view_pos = render_data->view * glm::vec4(corner_world_pos, 1.0f);
+
+        if (corner_view_pos.z > -render_data->near_z)
+        {
+            corner_view_pos.z = -render_data->near_z;
+        }
+
+        glm::vec4 corner_ndc = render_data->projection * corner_view_pos;
+        corner_ndc /= corner_ndc.w;
+
+        glm::vec2 corner_ndc_xy = { corner_ndc.x, corner_ndc.y };
+        aabb_min = glm::min(aabb_min, corner_ndc_xy);
+        aabb_max = glm::max(aabb_max, corner_ndc_xy);
+    }
+
+    F32 min_y = aabb_min.y;
+    F32 max_y = aabb_max.y;
+
+    aabb_min.y = max_y * -1.0f;
+    aabb_max.y = min_y * -1.0f;
+
+    glm::vec2 aabb_size = aabb_max - aabb_min;
+
+    F32 threshold_size = 0.0001f;
+    if (aabb_min.x > 1.0f || aabb_max.x < -1.0f || aabb_min.y > 1.0f || aabb_max.y < -1.0f || aabb_size.x < threshold_size || aabb_size.y < threshold_size)
+    {
+        return;
+    }
+
+    aabb_min = glm::clamp(aabb_min, -1.0f, 1.0f);
+    aabb_max = glm::clamp(aabb_max, -1.0f, 1.0f);
+
+    glm::vec2 half = { 0.5f, 0.5f };
+    // glm::vec2 screen_size = { renderer_state->back_buffer_width, renderer_state->back_buffer_height };
+
+    glm::vec2 screen_size_minus_one = { renderer_state->back_buffer_width - 1 , renderer_state->back_buffer_height - 1 };
+
+    glm::vec2 screen_aabb_min = (aabb_min * 0.5f + half) * screen_size_minus_one;
+    glm::vec2 screen_aabb_max = (aabb_max * 0.5f + half) * screen_size_minus_one;
+
+    F32 inv_tile_size = 1.0f / HE_LIGHT_TILE_SIZE;
+
+    U32 first_tile_x = (U32)(screen_aabb_min.x * inv_tile_size);
+    U32 last_tile_x = glm::min((U32)(screen_aabb_max.x * inv_tile_size), render_data->light_tile_count_x - 1);
+
+    U32 first_tile_y = (U32)(screen_aabb_min.y * inv_tile_size);
+    U32 last_tile_y = glm::min((U32)(screen_aabb_max.y * inv_tile_size), render_data->light_tile_count_y - 1);
+
+    if (first_tile_x == 0 && last_tile_x == render_data->light_tile_count_x - 1 && first_tile_y == 0 && last_tile_y == render_data->light_tile_count_y - 1)
+    {
+        light->is_full_screen = true;
+        return;
+    }
+
+    U32 light_tile_stride = *render_data->light_tile_stride;
+
+    U32 word_index = light_index / 32;
+    U32 bit_index = light_index % 32;
+    U32 mask = (1 << bit_index);
+
+    for (U32 y = first_tile_y; y <= last_tile_y; ++y)
+    {
+        for (U32 x = first_tile_x; x <= last_tile_x; ++x)
+        {
+            U32 tile_index = y * light_tile_stride + x;
+            // std::atomic_uint32_t *word = (std::atomic_uint32_t *)&tiles[tile_index + word_index];
+            // *word |= mask;
+
+            tiles[tile_index + word_index] |= mask;
+        }
+    }
+}
+
+struct Cull_Light_Job
+{
+    Shader_Light *lights;
+    U32 *tiles;
+    U32 light_start_index;
+    U32 light_count;
+};
+
+Job_Result do_cull_light_job(const Job_Parameters &params)
+{
+    Cull_Light_Job *job_data = (Cull_Light_Job *)params.data;
+    for (U32 light_index = job_data->light_start_index; light_index < job_data->light_count + job_data->light_start_index; ++light_index)
+    {
+        Shader_Light *light = &job_data->lights[light_index];
+        cull_light(light, light_index, job_data->tiles, &renderer_state->render_data);
+    }
+    return Job_Result::SUCCEEDED;
+}
+
 void end_rendering()
 {
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
     Frame_Render_Data *render_data = &renderer_state->render_data;
+
+    U32 total_light_count = *render_data->light_count;
 
     U32 light_count = *render_data->light_count;
     Shader_Light *lights = render_data->light_base;
@@ -2654,14 +2846,16 @@ void end_rendering()
         U16 index;
     };
 
+    U32 sorted_light_count = 0;
     Sorted_Light *sorted_lights = HE_ALLOCATE_ARRAY(scratch_memory.arena, Sorted_Light, light_count + 1);
 
     F32 one_over_render_dist = 1.0f / (render_data->far_z - render_data->near_z);
 
     for (U32 light_index = 0; light_index < light_count; light_index++)
     {
-        const Shader_Light *light = &lights[light_index];
-        Sorted_Light *sorted_light = &sorted_lights[light_index];
+        Shader_Light *light = &temp_lights[light_index];
+
+        Sorted_Light *sorted_light = &sorted_lights[sorted_light_count];
         sorted_light->index = light_index;
 
         if (light->type == (U32)Light_Type::DIRECTIONAL)
@@ -2669,6 +2863,7 @@ void end_rendering()
             sorted_light->depth = 0.0f;
             sorted_light->min_depth = 0.0f;
             sorted_light->max_depth = 1.0f;
+            sorted_light_count++;
             continue;
         }
 
@@ -2678,11 +2873,25 @@ void end_rendering()
         F32 min_depth = (-view_p.z - light->radius - render_data->near_z) * one_over_render_dist;
         F32 max_depth = (-view_p.z + light->radius - render_data->near_z) * one_over_render_dist;
 
+        if (min_depth > 1.0f || max_depth < 0.0f)
+        {
+            continue;
+        }
+
+        if (!calc_light_aabb(light, render_data))
+        {
+            continue;
+        }
+
         sorted_light->depth = depth;
         sorted_light->min_depth = min_depth;
         sorted_light->max_depth = max_depth;
+        sorted_light_count++;
     }
 
+    light_count = sorted_light_count;
+    *render_data->light_count = sorted_light_count;
+    
     std::sort(sorted_lights, sorted_lights + light_count, [](const Sorted_Light &a, const Sorted_Light &b) { return a.depth < b.depth; });
 
     for (U32 i = 0; i < light_count; i++)
@@ -2727,112 +2936,71 @@ void end_rendering()
         light_bins[bin_index] = min_light_index|(max_light_index << 16);
     }
 
-    // todo(amer): we can do this in a compute shader.
-    Buffer *light_tiles_buffer = renderer_get_buffer(render_data->light_tiles[renderer_state->current_frame_in_flight_index]);
+    ImGui::Begin("Lighting");
+    ImGui::Text("total light count: %u", total_light_count);
+    ImGui::Text("submitted light count: %u", light_count);
+    ImGui::Text("culled light count: %u", total_light_count - light_count);
+    ImGui::End();
 
+#define LIGHT_TILES 0
+#if LIGHT_TILES
+    Buffer *light_tiles_buffer = renderer_get_buffer(render_data->light_tiles[renderer_state->current_frame_in_flight_index]);
     U32 *light_tiles = (U32 *)light_tiles_buffer->data;
-    
-    U32 light_word_count = (*render_data->light_count / 32) + (*render_data->light_count % 32 != 0);
-    for (U32 tile_index = 0; tile_index < render_data->light_tile_count; tile_index++)
+
+    render_data->light_word_count = (light_count / 32) + (light_count % 32 != 0);
+
+    U32 light_tile_stride = render_data->light_tile_count_x * render_data->light_word_count;
+    *render_data->light_tile_stride = light_tile_stride;
+    memset(light_tiles, 0, render_data->light_tile_count * render_data->light_word_count * sizeof(U32));
+
+#define USE_MULTI_THREADING 0
+#if USE_MULTI_THREADING
+
+    U32 thread_count = 2;
+    HE_ASSERT(thread_count >= 2);
+    U32 work_group_count = light_count / thread_count;
+
+    for (U32 worker_index = 0; worker_index < thread_count - 1; ++worker_index)
     {
-         memset(&light_tiles[tile_index * render_data->max_light_word_count], 0, light_word_count * sizeof(U32));
+        Cull_Light_Job cull_light_job =
+        {
+            .lights = lights,
+            .tiles = light_tiles,
+            .light_start_index = worker_index * work_group_count,
+            .light_count = work_group_count,
+        };
+
+        Job_Data job_data =
+        {
+            .parameters =
+            {
+                .data = &cull_light_job,
+                .size = sizeof(cull_light_job),
+                .alignment = alignof(Cull_Light_Job),
+            },
+            .proc = &do_cull_light_job
+        };
+
+        execute_job(job_data);
     }
 
-    F32 inv_tile_size = 1.0f / HE_LIGHT_TILE_SIZE;
-    U32 tile_stride = render_data->light_tile_count_x * render_data->max_light_word_count;
+    for (U32 light_index = (thread_count - 1) * work_group_count; light_index < light_count; ++light_index)
+    {
+        Shader_Light *light = &lights[light_index];
+        cull_light(light, light_index, light_tiles, render_data);
+    }
 
+    wait_for_all_jobs_to_finish();
+
+#else
     for (U32 light_index = 0; light_index < light_count; light_index++)
     {
-        const Shader_Light *light = &lights[light_index];
-
-        glm::vec4 view_p = render_data->view * glm::vec4(light->position, 1.0f);
-
-        if (light->type == (U32)Light_Type::DIRECTIONAL)
-        {
-            continue;
-        }
-
-        bool is_light_infront_of_camera = view_p.z - light->radius < render_data->near_z;
-        if (!is_light_infront_of_camera)
-        {
-            continue;
-        }
-
-        glm::vec2 aabb_min = { HE_MAX_F32, HE_MAX_F32 };
-        glm::vec2 aabb_max = { HE_MIN_F32, HE_MIN_F32 };
-
-        F32 len = glm::length(view_p);
-        bool camera_inside = (len - light->radius) < render_data->near_z;
-
-        if (camera_inside)
-        {
-            aabb_min = { -1, -1 };
-            aabb_max = { 1, 1 };
-        }
-        else
-        {
-            for (U32 corner_index = 0; corner_index < 8; corner_index++)
-            {
-                F32 cx = (corner_index % 2) ? 1.0f : -1.0f;
-                F32 cy = (corner_index & 2) ? 1.0f : -1.0f;
-                F32 cz = (corner_index & 4) ? 1.0f : -1.0f;
-                glm::vec3 corner_world_pos = glm::vec3(cx, cy, cz) * light->radius + light->position;
-                glm::vec4 corner_view_pos = render_data->view * glm::vec4(corner_world_pos, 1.0f);
-                if (corner_view_pos.z > render_data->near_z)
-                {
-                    corner_view_pos.z = render_data->near_z;
-                }
-                glm::vec4 corner_ndc = render_data->projection * corner_view_pos;
-                corner_ndc /= corner_ndc.w;
-
-                glm::vec2 corner_ndc_xy = { corner_ndc.x, corner_ndc.y };
-                aabb_min = glm::min(aabb_min, corner_ndc_xy);
-                aabb_max = glm::max(aabb_max, corner_ndc_xy);
-            }
-
-            F32 min_y = aabb_min.y;
-            F32 max_y = aabb_max.y;
-
-            aabb_min.y = max_y * -1.0f;
-            aabb_max.y = min_y * -1.0f;
-        }
-
-        glm::vec2 aabb_size = aabb_max - aabb_min;
-
-        F32 threshold_size = 0.0001f;
-        if (aabb_min.x > 1.0f || aabb_max.x < -1.0f || aabb_min.y > 1.0f || aabb_max.y < -1.0f || aabb_size.x < threshold_size || aabb_size.y < threshold_size)
-        {
-            continue;
-        }
-
-        aabb_min = glm::clamp(aabb_min, -1.0f, 1.0f);
-        aabb_max = glm::clamp(aabb_max, -1.0f, 1.0f);
-
-        glm::vec2 half = { 0.5f, 0.5f };
-        glm::vec2 screen_size = { renderer_state->back_buffer_width, renderer_state->back_buffer_height };
-
-        glm::vec2 screen_size_minus_one = { renderer_state->back_buffer_width - 1 , renderer_state->back_buffer_height - 1 };
-
-        glm::vec2 screen_aabb_min = (aabb_min * 0.5f + half) * screen_size_minus_one;
-        glm::vec2 screen_aabb_max = (aabb_max * 0.5f + half) * screen_size_minus_one;
-
-        U32 first_tile_x = (U32)(screen_aabb_min.x * inv_tile_size);
-        U32 last_tile_x = glm::min((U32)(screen_aabb_max.x * inv_tile_size), render_data->light_tile_count_x - 1);
-
-        U32 first_tile_y = (U32)(screen_aabb_min.y * inv_tile_size);
-        U32 last_tile_y = glm::min((U32)(screen_aabb_max.y * inv_tile_size), render_data->light_tile_count_y - 1);
-
-        for (U32 y = first_tile_y; y <= last_tile_y; y++)
-        {
-            for (U32 x = first_tile_x; x <= last_tile_x; x++)
-            {
-                U32 tile_index = y * tile_stride + x;
-                U32 word_index = light_index / 32;
-                U32 bit_index = light_index % 32;
-                light_tiles[tile_index + word_index] |= (1 << bit_index);
-            }
-        }
+        Shader_Light *light = &lights[light_index];
+        cull_light(light, light_index, light_tiles, render_data);
     }
+#endif
+
+#endif
 
     render(&renderer_state->render_graph, renderer, renderer_state);
     renderer->end_frame();

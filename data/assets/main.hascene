@@ -1,7 +1,7 @@
 version 1
 ambient_color 1.000000 1.000000 1.000000
 skybox_material_asset 11193936441130767775
-node_count 6
+node_count 3
 node_name 4 main
 parent -1
 component_count 1
@@ -21,20 +21,6 @@ type directional
 color 1.000000 1.000000 1.000000
 intensity 1.000000
 radius 1.000000
-inner_angle 30.000000
-outer_angle 45.000000
-node_name 10 PointLight
-parent 0
-component_count 2
-component transform
-position 4.500000 0.520865 0.000000
-rotation 0.000000 0.000000 0.000000 1.000000
-scale 1.000000 1.000000 1.000000
-component light
-type point
-color 0.965686 0.877694 0.591719
-intensity 5.000000
-radius 2.000000
 inner_angle 30.000000
 outer_angle 45.000000
 node_name 6 Sponza
@@ -72,25 +58,3 @@ material_asset 12999501450642474048
 material_asset 14508616316600532449
 material_asset 16596479098434924918
 material_asset 10415673011533898807
-node_name 6 Corset
-parent 0
-component_count 2
-component transform
-position -0.059788 -0.010705 -0.455152
-rotation -0.025594 -0.999665 0.002300 -0.003005
-scale 5.387847 5.049962 5.036954
-component mesh
-static_mesh_asset 1596034640347025962
-material_count 1
-material_asset 6161747045336294976
-node_name 4 Cube
-parent 0
-component_count 2
-component transform
-position 0.000088 0.364996 -1.135126
-rotation 0.000000 0.000000 0.000000 1.000000
-scale 0.250000 0.250000 0.250000
-component mesh
-static_mesh_asset 12725177303487466838
-material_count 1
-material_asset 9454918637899659995
