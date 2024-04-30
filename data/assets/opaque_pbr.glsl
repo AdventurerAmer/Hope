@@ -73,11 +73,6 @@ layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_STORAGE_BUF
     Light lights[];
 };
 
-layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_TILES_STORAGE_BUFFER_BINDING) readonly buffer Light_Tiles_Buffer
-{
-    uint light_tiles[];
-};
-
 layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_BINS_STORAGE_BUFFER_BINDING) readonly buffer Light_Bins_Buffer
 {
     uint light_bins[];
@@ -176,72 +171,68 @@ void main()
 
     vec4 view_space_p = globals.view * vec4(frag_input.position, 1.0);
     float depth = (-view_space_p.z - globals.z_near) / (globals.z_far - globals.z_near);
-    uint bin_index = uint(depth * float(globals.light_bin_count));
+    float bin_width = 1.0 / float(globals.light_bin_count);
+    uint bin_index = uint(depth / bin_width);
+
     uint bin_value = light_bins[bin_index];
     uint min_light_index = bin_value & 0xffff;
     uint max_light_index = (bin_value >> 16) & 0xffff;
-
-    // uvec2 tile = uvec2(gl_FragCoord.xy) / globals.light_tile_size;
-    // uint tile_index = tile.y * globals.light_tile_stride + tile.x;
 
     uvec2 coords = uvec2(gl_FragCoord.xy);
 
     float rmin = 0.0001;
     vec3 Lo = vec3(0.0f);
 
-    for (uint light_index = min_light_index; light_index <= max_light_index; light_index++)
+    for (uint light_index = min_light_index; light_index <= max_light_index; ++light_index)
     {
         Light light = lights[light_index];
+
+        uvec2 aabb = light.screen_aabb;
+
+        uint min_x = aabb.x & 0xffff;
+        uint min_y = (aabb.x >> 16) & 0xffff;
+
+        uint max_x = aabb.y & 0xfffff;
+        uint max_y = (aabb.y >> 16) & 0xffff;
+
+        if (coords.x < min_x || coords.x > max_x || coords.y < min_y || coords.y > max_y)
+        {
+            continue;
+        }
 
         float attenuation = 1.0f;
         vec3 L = vec3(0.0f);
 
-        if (light.type == LIGHT_TYPE_DIRECTIONAL)
+        switch (light.type)
         {
-            L = -light.direction;
-        }
-        else
-        {
-            // uint word_index = light_index / 32;
-            // uint bit_index = light_index % 32;
-
-            // if (light.is_full_screen == 0 && (light_tiles[tile_index + word_index] & (1 << bit_index)) == 0)
-            // {
-            //     continue;
-            // }
-
-            uvec4 aabb = light.screen_aabb;
-            if (coords.x < aabb.x || coords.x > aabb.z || coords.y < aabb.y || coords.y > aabb.w)
+            case LIGHT_TYPE_DIRECTIONAL:
             {
-                continue;
-            }
+                L = -light.direction;
+            } break;
 
-            switch (light.type)
+            case LIGHT_TYPE_POINT:
             {
-                case LIGHT_TYPE_POINT:
-                {
-                    vec3 frag_pos_to_light = light.position - frag_input.position;
-                    float r = length(frag_pos_to_light);
-                    L = frag_pos_to_light / r;
-                    attenuation = pow(light.radius / max(r, rmin), 2);
-                    attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
-                } break;
+                vec3 frag_pos_to_light = light.position - frag_input.position;
+                float r = length(frag_pos_to_light);
+                L = frag_pos_to_light / r;
+                attenuation = pow(light.radius / max(r, rmin), 2);
+                attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
+            } break;
 
-                case LIGHT_TYPE_SPOT:
-                {
-                    vec3 frag_pos_to_light = light.position - frag_input.position;
-                    float r = length(frag_pos_to_light);
-                    L = frag_pos_to_light / r;
-                    attenuation = pow(light.radius / max(r, rmin), 2);
-                    attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
+            case LIGHT_TYPE_SPOT:
+            {
+                vec3 frag_pos_to_light = light.position - frag_input.position;
+                float r = length(frag_pos_to_light);
+                L = frag_pos_to_light / r;
+                attenuation = pow(light.radius / max(r, rmin), 2);
+                attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
 
-                    float cos_theta_u = cos(light.outer_angle);
-                    float cos_theta_p = cos(light.inner_angle);
-                    float cos_theta_s = dot(light.direction, -L);
-                    float t = pow(clamp((cos_theta_s - cos_theta_u) / (cos_theta_p - cos_theta_u), 0.0, 1.0), 2.0);
-                    attenuation *= t;
-                } break;
-            }
+                float cos_theta_u = cos(light.outer_angle);
+                float cos_theta_p = cos(light.inner_angle);
+                float cos_theta_s = dot(light.direction, -L);
+                float t = pow(clamp((cos_theta_s - cos_theta_u) / (cos_theta_p - cos_theta_u), 0.0, 1.0), 2.0);
+                attenuation *= t;
+            } break;
         }
 
         vec3 radiance = light.color * attenuation; 
@@ -252,5 +243,5 @@ void main()
     vec3 color = ambient + Lo;
     color = color / (color + vec3(1.0));
     color = linear_to_srgb(color, gamma);
-    out_color = vec4(color, 1.0) * NOOP(light_tiles[0]);
+    out_color = vec4(color, 1.0);
 }

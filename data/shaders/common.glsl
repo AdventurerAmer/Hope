@@ -9,9 +9,8 @@
 
 #define SHADER_PASS_BIND_GROUP 1
 #define SHADER_LIGHT_STORAGE_BUFFER_BINDING 0
-#define SHADER_LIGHT_TILES_STORAGE_BUFFER_BINDING 1
-#define SHADER_LIGHT_BINS_STORAGE_BUFFER_BINDING 2
-#define SHADER_BINDLESS_TEXTURES_BINDING 3
+#define SHADER_LIGHT_BINS_STORAGE_BUFFER_BINDING 1
+#define SHADER_BINDLESS_TEXTURES_BINDING 2
 
 #define SHADER_OBJECT_BIND_GROUP 2
 #define SHADER_MATERIAL_UNIFORM_BUFFER_BINDING 0
@@ -32,15 +31,14 @@ struct Instance_Data
 
 struct Light
 {
-    uint type;
-    uint is_full_screen;
-    uvec4 screen_aabb;
     vec3 direction;
     vec3 position;
+    vec3 color;
+    uvec2 screen_aabb;
+    uint type;
     float radius;
     float outer_angle;
     float inner_angle;
-    vec3 color;
 };
 
 layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFORM_BINDING) uniform Globals
@@ -57,8 +55,6 @@ layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFOR
     float gamma;
 
     uint light_count;
-    uint light_tile_size;
-    uint light_tile_stride;
     uint light_bin_count;
 
 } globals;

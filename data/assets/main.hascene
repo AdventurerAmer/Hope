@@ -1,7 +1,7 @@
 version 1
 ambient_color 1.000000 1.000000 1.000000
 skybox_material_asset 11193936441130767775
-node_count 3
+node_count 2
 node_name 4 main
 parent -1
 component_count 1
@@ -9,20 +9,6 @@ component transform
 position 0.000000 0.000000 0.000000
 rotation 0.000000 0.000000 0.000000 1.000000
 scale 1.000000 1.000000 1.000000
-node_name 16 DirectionalLight
-parent 0
-component_count 2
-component transform
-position 0.000000 0.000000 0.000000
-rotation -0.319476 -0.135143 0.285618 0.893361
-scale 0.999995 0.999996 0.999996
-component light
-type directional
-color 1.000000 1.000000 1.000000
-intensity 1.000000
-radius 1.000000
-inner_angle 30.000000
-outer_angle 45.000000
 node_name 6 Sponza
 parent 0
 component_count 2

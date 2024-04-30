@@ -49,7 +49,7 @@ bool init_memory_system()
         return false;
     }
 
-    if (!init_free_list_allocator(&memory_system_state.general_purpose_allocator, nullptr, capacity, HE_MEGA_BYTES(256)))
+    if (!init_free_list_allocator(&memory_system_state.general_purpose_allocator, nullptr, capacity, HE_MEGA_BYTES(128)))
     {
         return false;
     }
@@ -512,6 +512,7 @@ void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16
     U8 *memory_node_address = (U8 *)memory - header.offset;
     U64 old_size = header.size - header.offset;
 
+#if 1
     Free_List_Node *adjacent_node_after_memory = nullptr;
     Free_List_Node *node_before_memory = &allocator->sentinal;
     
@@ -590,6 +591,8 @@ void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16
     }
 
     platform_unlock_mutex(&allocator->mutex);
+
+#endif
 
     void *new_memory = allocate(allocator, new_size, alignment);
     copy_memory(new_memory, memory, old_size);

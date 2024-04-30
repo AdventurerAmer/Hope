@@ -35,9 +35,9 @@ static Editor_State editor_state;
 
 void draw_graphics_window();
 
-S32 x_count = 5;
-S32 y_count = 5;
-S32 z_count = 5;
+S32 x_count = 4;
+S32 y_count = 7;
+S32 z_count = 4;
 
 float random_float(float min, float max)
 {
@@ -109,7 +109,7 @@ bool hope_app_init(Engine *engine)
                 light->type = Light_Type::POINT;
                 light->radius = random_float(2.0f, 6.0f);
                 light->intensity = random_float(3.0f, 9.0f);
-                light->color = { random_float(0.0f, 1.0f), random_float(0.0f, 1.0f), random_float(0.0f, 1.0f) };
+                light->color = { random_float(0.1f, 1.0f), random_float(0.1f, 1.0f), random_float(0.1f, 1.0f) };
 
                 add_child_last(scene, 0, node_index);
             }
@@ -347,7 +347,7 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
             }
         }
 
-        float rotation_speed_degrees = random_float(45.0f, 90.0f);
+        float rotation_speed_degrees = 45.0f;
         glm::quat rotation = glm::quat(glm::vec3(0.0f, delta_time * glm::radians(rotation_speed_degrees), 0.0f));
 
         Scene *light_scene = renderer_get_scene(editor_state.light_scene);
@@ -359,6 +359,7 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
         }
 
         render_scene(editor_state.light_scene);
+
         end_rendering();
     }
 }

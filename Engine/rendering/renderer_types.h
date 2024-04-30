@@ -718,15 +718,14 @@ struct Shader_Instance_Data
 
 struct Shader_Light
 {
-    U32 type;
-    alignas(4) U32 is_full_screen;
-    alignas(16) glm::uvec4 screen_aabb;
-    alignas(16) glm::vec3 direction;
+    glm::vec3 direction;
     alignas(16) glm::vec3 position;
+    alignas(16) glm::vec3 color;
+    alignas(8) glm::uvec2 screen_aabb;
+    alignas(4) U32 type;
     alignas(4) F32 radius;
     alignas(4) F32 outer_angle;
     alignas(4) F32 inner_angle;
-    alignas(16) glm::vec3 color;
 };
 
 //
