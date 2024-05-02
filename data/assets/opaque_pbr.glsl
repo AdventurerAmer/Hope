@@ -88,6 +88,8 @@ layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFOR
     uint roughness_metallic_texture;
     float roughness_factor;
     float metallic_factor;
+    float reflectance;
+    float alpha_cutoff;
 
     uint occlusion_texture;
 } material;
@@ -120,7 +122,7 @@ float geometry_smith(float NdotV, float NdotL, float roughness)
     return geometry_schlickGGX(NdotV, roughness) * geometry_schlickGGX(NdotL, roughness);
 }
 
-vec3 brdf(vec3 L, vec3 radiance, vec3 N, vec3 V, float NdotV, vec3 albedo, float roughness, float metallic)
+vec3 brdf(vec3 L, vec3 radiance, vec3 N, vec3 V, float NdotV, vec3 albedo, float roughness, float metallic, float reflectance)
 {
     vec3 H = normalize(L + V);
 
@@ -128,7 +130,7 @@ vec3 brdf(vec3 L, vec3 radiance, vec3 N, vec3 V, float NdotV, vec3 albedo, float
     float NdotH = max(0.0, dot(N, H));
     float HdotV = max(0.0, dot(H, V));
 
-    vec3 f0 = mix(vec3(0.04), albedo, metallic);
+    vec3 f0 = mix(vec3(reflectance), albedo, metallic);
     vec3 F = fresnel_schlick(clamp(dot(H, V), 0.0, 1.0), f0);
     float D = distribution_ggx(NdotH, roughness);
     float G = geometry_smith(NdotV, NdotL, roughness);
@@ -144,7 +146,14 @@ void main()
 {
     float gamma = globals.gamma;
 
-    vec3 albedo = srgb_to_linear( sample_texture( material.albedo_texture, frag_input.uv ).rgb, gamma );
+    vec4 base_color = sample_texture( material.albedo_texture, frag_input.uv );
+
+    if (base_color.a < material.alpha_cutoff)
+    {
+        discard;
+    }
+
+    vec3 albedo = srgb_to_linear( base_color.rgb, gamma );
     albedo *= srgb_to_linear( material.albedo_color, gamma );
 
     vec3 roughness_metallic = sample_texture( material.roughness_metallic_texture, frag_input.uv ).rgb;
@@ -183,6 +192,14 @@ void main()
     float rmin = 0.0001;
     vec3 Lo = vec3(0.0f);
 
+    for (uint light_index = 0; light_index < globals.directional_light_count; ++light_index)
+    {
+        Light light = lights[light_index];
+        vec3 L = -light.direction;
+        vec3 radiance = light.color;
+        Lo += brdf(L, radiance, N, V, NdotV, albedo, roughness, metallic, material.reflectance);
+    }
+
     for (uint light_index = min_light_index; light_index <= max_light_index; ++light_index)
     {
         Light light = lights[light_index];
@@ -205,11 +222,6 @@ void main()
 
         switch (light.type)
         {
-            case LIGHT_TYPE_DIRECTIONAL:
-            {
-                L = -light.direction;
-            } break;
-
             case LIGHT_TYPE_POINT:
             {
                 vec3 frag_pos_to_light = light.position - frag_input.position;
@@ -236,7 +248,7 @@ void main()
         }
 
         vec3 radiance = light.color * attenuation; 
-        Lo += brdf(L, radiance, N, V, NdotV, albedo, roughness, metallic);
+        Lo += brdf(L, radiance, N, V, NdotV, albedo, roughness, metallic, material.reflectance);
     }
 
     vec3 ambient = vec3(0.03) * albedo * occlusion;

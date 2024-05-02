@@ -97,7 +97,20 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
         return {};
     }
 
-    Material_Type type = result.value == "opaque" ? Material_Type::opaque : Material_Type::transparent;
+    Material_Type type;
+
+    if (result.value == "opaque")
+    {
+        type = Material_Type::OPAQUE;
+    }
+    else if (result.value == "alpha_cutoff")
+    {
+        type = Material_Type::ALPHA_CUTOFF;
+    }
+    else
+    {
+        type = Material_Type::TRANSPARENT;
+    }
 
     result = parse_name_value(&str, HE_STRING_LITERAL("shader"));
     if (!result.success)

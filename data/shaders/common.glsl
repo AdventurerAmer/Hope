@@ -55,6 +55,7 @@ layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFOR
     float gamma;
 
     uint light_count;
+    uint directional_light_count;
     uint light_bin_count;
 
 } globals;

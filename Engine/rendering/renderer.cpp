@@ -36,8 +36,6 @@
 
 #pragma warning(pop)
 
-#include "renderer.h"
-
 static Renderer_State *renderer_state;
 static Renderer *renderer;
 
@@ -393,7 +391,7 @@ bool init_renderer_state(Engine *engine)
         Material_Descriptor default_material_descriptor =
         {
             .name = HE_STRING_LITERAL("default"),
-            .type = Material_Type::opaque,
+            .type = Material_Type::OPAQUE,
             .shader = renderer_state->default_shader,
             .settings = settings,
         };
@@ -407,8 +405,9 @@ bool init_renderer_state(Engine *engine)
         Shader *default_shader = get(&renderer_state->shaders, renderer_state->default_shader);
 
         Frame_Render_Data *render_data = &renderer_state->render_data;
-        init(&render_data->skyboxes_commands);
+        init(&render_data->skybox_commands);
         init(&render_data->opaque_commands);
+        init(&render_data->alpha_cutoff_commands);
         init(&render_data->transparent_commands);
 
         render_data->light_bin_count = HE_LIGHT_BIN_COUNT;
@@ -1279,7 +1278,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         material->name = copy_string(descriptor.name, to_allocator(get_general_purpose_allocator()));
     }
 
-    String pass_name = HE_STRING_LITERAL("opaque");
+    String pass_name = descriptor.type == Material_Type::TRANSPARENT ? HE_STRING_LITERAL("transparent") : HE_STRING_LITERAL("opaque");
 
     Pipeline_State_Descriptor pipeline_state_desc =
     {
@@ -1346,6 +1345,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         property->is_color = ends_with(property->name, HE_STRING_LITERAL("color")) && (member->data_type == Shader_Data_Type::VECTOR3F || member->data_type == Shader_Data_Type::VECTOR4F);
     }
 
+    material->type = descriptor.type;
     material->pipeline_state_handle = pipeline_state_handle;
     material->data = HE_ALLOCATE_ARRAY(get_general_purpose_allocator(), U8, properties->size);
     material->size = properties->size;
@@ -1608,12 +1608,17 @@ static const char* material_type_to_str(Material_Type type)
 {
     switch (type)
     {
-        case Material_Type::opaque:
+        case Material_Type::OPAQUE:
         {
             return "opaque";
         } break;
 
-        case Material_Type::transparent:
+        case Material_Type::ALPHA_CUTOFF:
+        {
+            return "alpha_cutoff";
+        } break;
+
+        case Material_Type::TRANSPARENT:
         {
             return "transparent";
         } break;
@@ -2185,7 +2190,29 @@ static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_t
                         HE_ASSERT(is_valid_handle(&renderer_state->static_meshes, static_mesh_handle));
                         HE_ASSERT(is_valid_handle(&renderer_state->materials, material_handle));
 
-                        Draw_Command &draw_command = append(&render_data->opaque_commands);
+                        Material *material = renderer_get_material(material_handle);
+
+                        Dynamic_Array< Draw_Command > *command_list = nullptr;
+
+                        switch (material->type)
+                        {
+                            case Material_Type::OPAQUE:
+                            {
+                                command_list = &render_data->opaque_commands;
+                            } break;
+
+                            case Material_Type::ALPHA_CUTOFF:
+                            {
+                                command_list = &render_data->alpha_cutoff_commands;
+                            } break;
+
+                            case Material_Type::TRANSPARENT:
+                            {
+                                command_list = &render_data->transparent_commands;
+                            } break;
+                        }
+
+                        Draw_Command &draw_command = append(command_list);
                         draw_command.static_mesh = static_mesh_handle;
                         draw_command.sub_mesh_index = sub_mesh_index;
                         draw_command.material = material_handle;
@@ -2239,7 +2266,7 @@ void render_scene(Scene_Handle scene_handle)
             object_data->model = get_world_matrix(get_identity_transform());
             object_data->entity_index = -1;
 
-            Draw_Command &dc = append(&render_data->skyboxes_commands);
+            Draw_Command &dc = append(&render_data->skybox_commands);
             dc.static_mesh = renderer_state->default_static_mesh;
             dc.sub_mesh_index = 0;
             dc.material = get_asset_handle_as<Material>(skybox_material_asset);
@@ -2453,8 +2480,12 @@ void begin_rendering(const Camera *camera)
     glm::uvec2 *resolution = (glm::uvec2 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("resolution"));
     *resolution = glm::uvec2(renderer_state->back_buffer_width, renderer_state->back_buffer_height);
 
+    U32 *directional_light_count = (U32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("directional_light_count"));
+    render_data->directional_light_count = directional_light_count;
+
     U32 *light_bin_count = (U32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("light_bin_count"));
     *light_bin_count = render_data->light_bin_count;
+
 
     F32 *z_near = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("z_near"));
     F32 *z_far = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("z_far"));
@@ -2516,8 +2547,9 @@ void begin_rendering(const Camera *camera)
     render_data->current_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
     render_data->current_material_handle = Resource_Pool< Material >::invalid_handle;
     render_data->current_static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
-    reset(&render_data->skyboxes_commands);
+    reset(&render_data->skybox_commands);
     reset(&render_data->opaque_commands);
+    reset(&render_data->alpha_cutoff_commands);
     reset(&render_data->transparent_commands);
     reset(&render_data->lights);
 
@@ -2689,6 +2721,7 @@ void end_rendering()
     Sorted_Light *sorted_lights = HE_ALLOCATE_ARRAY(scratch_memory.arena, Sorted_Light, light_count + 1);
 
     F32 one_over_render_dist = 1.0f / (render_data->far_z - render_data->near_z);
+    U32 directional_light_count = 0;
 
     for (U32 light_index = 0; light_index < light_count; light_index++)
     {
@@ -2703,6 +2736,7 @@ void end_rendering()
             sorted_light->depth = 0.0f;
             sorted_light->min_depth = 0.0f;
             sorted_light->max_depth = 1.0f;
+            directional_light_count++;
             sorted_light_count++;
             continue;
         }
@@ -2713,7 +2747,7 @@ void end_rendering()
         F32 min_depth = (-view_p.z - light->radius - render_data->near_z) * one_over_render_dist;
         F32 max_depth = (-view_p.z + light->radius - render_data->near_z) * one_over_render_dist;
 
-        if (min_depth > 1.0f || max_depth < 0.0f)
+        if (min_depth > 0.9999f || max_depth < 0.0001f)
         {
             continue;
         }
@@ -2731,6 +2765,7 @@ void end_rendering()
 
     light_count = sorted_light_count;
     *render_data->light_count = sorted_light_count;
+    *render_data->directional_light_count = directional_light_count;
     
     std::sort(sorted_lights, sorted_lights + light_count, [](const Sorted_Light &a, const Sorted_Light &b) { return a.depth < b.depth; });
 
@@ -2747,17 +2782,17 @@ void end_rendering()
     U32 *light_bins = (U32 *)light_binds_buffer->data;
 
     F32 light_bin_size = 1.0f / (F32)render_data->light_bin_count;
-    U32 current_min_light_index = 0;
+    U32 current_min_light_index = directional_light_count;
 
     for (U32 bin_index = 0; bin_index < render_data->light_bin_count; bin_index++)
     {
         U32 min_light_index = light_count + 1;
         U32 max_light_index = 0;
 
-        F32 bin_min = bin_index * light_bin_size;
-        F32 bin_max = bin_min + light_bin_size;
+        F32 eps = 0.0001f;
+        F32 bin_min = (bin_index * light_bin_size) - eps;
+        F32 bin_max = (bin_index + 1) * light_bin_size + eps;
 
-        // todo(amer): we can do binary search here or two pointers.
         for (U32 light_index = current_min_light_index; light_index < light_count; light_index++)
         {
             const Sorted_Light *sorted_light = &sorted_lights[light_index];

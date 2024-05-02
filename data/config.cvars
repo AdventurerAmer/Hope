@@ -12,4 +12,4 @@
 :gamma 2.200000
 :msaa_setting 1
 :anisotropic_filtering_setting 4
-:vsync 0
+:vsync 1

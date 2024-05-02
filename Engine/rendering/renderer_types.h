@@ -20,7 +20,7 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#define HE_GRAPHICS_DEBUGGING 0
+#define HE_GRAPHICS_DEBUGGING 1
 #define HE_MAX_FRAMES_IN_FLIGHT 3
 #define HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
 #define HE_MAX_BIND_GROUP_INDEX_COUNT 4
@@ -392,7 +392,7 @@ enum class Fill_Mode : U8
     WIREFRAME
 };
 
-enum class Compare_Operation
+enum class Compare_Operation : U8
 {
     NEVER,
     LESS,
@@ -404,7 +404,7 @@ enum class Compare_Operation
     ALWAYS,
 };
 
-enum class Stencil_Operation
+enum class Stencil_Operation : U8
 {
     KEEP,
     ZERO,
@@ -463,10 +463,11 @@ using Pipeline_State_Handle = Resource_Handle< Pipeline_State >;
 // Material
 //
 
-enum class Material_Type : U8
+enum class Material_Type : U32
 {
-    opaque,
-    transparent,
+    OPAQUE,
+    ALPHA_CUTOFF,
+    TRANSPARENT,
 };
 
 struct Material_Descriptor

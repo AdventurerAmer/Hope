@@ -35,9 +35,9 @@ static Editor_State editor_state;
 
 void draw_graphics_window();
 
-S32 x_count = 4;
-S32 y_count = 7;
-S32 z_count = 4;
+S32 x_count = 2;
+S32 y_count = 3;
+S32 z_count = 2;
 
 float random_float(float min, float max)
 {
@@ -51,6 +51,22 @@ bool hope_app_init(Engine *engine)
 
     Editor_State *state = &editor_state;
     state->engine = engine;
+
+    ImGuizmo::AllowAxisFlip(false);
+    
+    ImGuizmo::Style &style = ImGuizmo::GetStyle();
+    style.CenterCircleSize = 10.0f;
+
+    style.TranslationLineArrowSize = 10.0f;
+    style.TranslationLineThickness = 5.0f;
+
+    style.ScaleLineThickness = 5.0f;
+    style.ScaleLineCircleSize = 10.0f;
+
+    style.RotationLineThickness = 5.0f;
+    style.RotationOuterLineThickness = 5.0f;
+    
+    style.HatchedAxisLineThickness = 10.0f;
 
     Assets_Panel::set_path(get_asset_path());
 
@@ -102,20 +118,20 @@ bool hope_app_init(Engine *engine)
             {
                 U32 node_index = allocate_node(scene, format_string(scratch_memory.arena, "light_%d_%d_%d", x, y, z));
                 Scene_Node *node = get_node(scene, node_index);
-                node->transform.position = { x * 6.0f, 2.0f + y * 4.0f, z * 2.0f };
+                node->transform.position = { x * 6.0f, 2.0f + y * 4.0f, z * 2.5f };
 
                 node->has_light = true;
                 Light_Component *light = &node->light;
                 light->type = Light_Type::POINT;
-                light->radius = random_float(2.0f, 6.0f);
+                light->radius = random_float(3.0f, 7.0f);
                 light->intensity = random_float(3.0f, 9.0f);
-                light->color = { random_float(0.1f, 1.0f), random_float(0.1f, 1.0f), random_float(0.1f, 1.0f) };
+                light->color = { random_float(0.2f, 1.0f), random_float(0.2f, 1.0f), random_float(0.2f, 1.0f) };
 
                 add_child_last(scene, 0, node_index);
             }
         }
     }
-
+     
     return true;
 }
 

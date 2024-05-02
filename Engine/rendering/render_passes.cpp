@@ -118,9 +118,17 @@ static void opaque_pass(Renderer *renderer, Renderer_State *renderer_state)
         renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
     }
 
-    if (render_data->skyboxes_commands.count)
+    for (U32 draw_command_index = 0; draw_command_index < render_data->alpha_cutoff_commands.count; draw_command_index++)
     {
-        const Draw_Command &dc = back(&render_data->skyboxes_commands);
+        const Draw_Command *dc = &render_data->alpha_cutoff_commands[draw_command_index];
+        renderer_use_material(dc->material);
+        renderer_use_static_mesh(dc->static_mesh);
+        renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
+    }
+
+    if (render_data->skybox_commands.count)
+    {
+        const Draw_Command &dc = back(&render_data->skybox_commands);
         renderer_use_material(dc.material);
         renderer_use_static_mesh(dc.static_mesh);
         renderer->draw_sub_mesh(dc.static_mesh, dc.instance_index, dc.sub_mesh_index);

@@ -344,7 +344,7 @@ static void create_skybox_asset_modal(bool open)
 static void create_material_asset_modal(bool open)
 {
     static Asset_Handle shader_asset = {};
-    static Material_Type type = Material_Type::opaque;
+    static Material_Type type = Material_Type::OPAQUE;
 
     if (open)
     {
@@ -355,7 +355,7 @@ static void create_material_asset_modal(bool open)
     {
         select_asset(HE_STRING_LITERAL("Shader"), HE_STRING_LITERAL("shader"), &shader_asset);
 
-        static constexpr const char *types[] = { "opaque", "transparent"};
+        static constexpr const char *types[] = { "opaque", "alpha_cutoff", "transparent"};
 
         ImGui::Text("Type");
         ImGui::SameLine();

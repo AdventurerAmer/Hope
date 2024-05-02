@@ -3,8 +3,19 @@
 #include "core/file_system.h"
 #include "core/logging.h"
 #include "core/memory.h"
+#include "core/platform.h"
 
 #include "rendering/renderer.h"
+
+#include <ExcaliburHash/ExcaliburHash.h>
+
+struct Model_Instance
+{
+    void *data;
+    U32 ref_count;
+};
+
+using Model_Cache = Excalibur::HashMap< U64,  Model_Instance>;
 
 #pragma warning(push, 0)
 
@@ -12,6 +23,9 @@
 #include <cgltf.h>
 
 #pragma warning(pop)
+
+static Model_Cache model_cache;
+static Mutex model_cache_mutex;
 
 static void* cgltf_alloc(void *user, cgltf_size size)
 {
@@ -86,6 +100,68 @@ static String get_embedded_asset_path(cgltf_data *model_data, cgltf_mesh *mesh, 
     return material_path;
 }
 
+static cgltf_data *aquire_model_from_cache(U64 asset_uuid, String path)
+{
+    cgltf_data *result = nullptr;
+
+    Free_List_Allocator *allocator = get_general_purpose_allocator();
+
+    platform_lock_mutex(&model_cache_mutex);
+
+    auto it = model_cache.find(asset_uuid);
+    if (it == model_cache.iend())
+    {
+        Read_Entire_File_Result file_result = read_entire_file(path, to_allocator(allocator));
+
+        cgltf_options options = {};
+        options.memory.user_data = allocator;
+        options.memory.alloc_func = cgltf_alloc;
+        options.memory.free_func = cgltf_free;
+
+        if (cgltf_parse(&options, file_result.data, file_result.size, &result) != cgltf_result_success)
+        {
+            HE_LOG(Resource, Fetal, "load_model -- cgltf -- unable to parse asset file: %.*s\n", HE_EXPAND_STRING(path));
+            return {};
+        }
+
+        if (cgltf_load_buffers(&options, result, path.data) != cgltf_result_success)
+        {
+            HE_LOG(Resource, Fetal, "load_model -- cgltf -- unable to load buffers from asset file: %.*s\n", HE_EXPAND_STRING(path));
+            return {};
+        }
+
+        model_cache.emplace(asset_uuid, Model_Instance { .data = (void *)result, .ref_count = 1 });
+    }
+    else
+    {
+        Model_Instance &instance = it.value();
+        result = (cgltf_data *)instance.data;
+        instance.ref_count++;
+    }
+
+    platform_unlock_mutex(&model_cache_mutex);
+
+    return result;
+}
+
+static void release_model_from_cache(U64 asset_uuid)
+{
+    platform_lock_mutex(&model_cache_mutex);
+
+    auto it = model_cache.find(asset_uuid);
+    HE_ASSERT(it != model_cache.iend());
+    Model_Instance &instance = it.value();
+    HE_ASSERT(instance.ref_count);
+    instance.ref_count--;
+
+    if (instance.ref_count == 0)
+    {
+        model_cache.erase(it);
+    }
+
+    platform_unlock_mutex(&model_cache_mutex);
+}
+
 void on_import_model(Asset_Handle asset_handle)
 {
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
@@ -94,22 +170,13 @@ void on_import_model(Asset_Handle asset_handle)
     const Asset_Registry_Entry &entry = get_asset_registry_entry(asset_handle);
     String path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
 
-    Read_Entire_File_Result file_result = read_entire_file(path, to_allocator(allocator));
+    cgltf_data *model_data = aquire_model_from_cache(asset_handle.uuid, path);
+    HE_ASSERT(model_data);
 
-    cgltf_options options = {};
-    options.memory.user_data = allocator;
-    options.memory.alloc_func = cgltf_alloc;
-    options.memory.free_func = cgltf_free;
-
-    cgltf_data *model_data = nullptr;
-
-    if (cgltf_parse(&options, file_result.data, file_result.size, &model_data) != cgltf_result_success)
+    HE_DEFER
     {
-        HE_LOG(Resource, Fetal, "on import model -- cgltf -- unable to parse asset file: %.*s\n", HE_EXPAND_STRING(path));
-        return;
-    }
-
-    HE_DEFER { cgltf_free(model_data); };
+       release_model_from_cache(asset_handle.uuid);
+    };
 
     Asset_Handle opaque_pbr_shader_asset = import_asset(HE_STRING_LITERAL("opaque_pbr.glsl"));
 
@@ -131,6 +198,11 @@ void on_import_model(Asset_Handle asset_handle)
 
 Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
 {
+    if (!model_cache_mutex.platform_mutex_state)
+    {
+        platform_create_mutex(&model_cache_mutex);
+    }
+
     Free_List_Allocator *allocator = get_general_purpose_allocator();
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
 
@@ -142,22 +214,13 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
     Render_Context render_context = get_render_context();
     Renderer_State *renderer_state = render_context.renderer_state;
 
-    Read_Entire_File_Result file_result = read_entire_file(path, to_allocator(allocator));
+    cgltf_data *model_data = aquire_model_from_cache(asset_handle.uuid, path);
+    HE_ASSERT(model_data);
 
-    cgltf_options options = {};
-    options.memory.user_data = allocator;
-    options.memory.alloc_func = cgltf_alloc;
-    options.memory.free_func = cgltf_free;
-
-    cgltf_data *model_data = nullptr;
-
-    if (cgltf_parse(&options, file_result.data, file_result.size, &model_data) != cgltf_result_success)
+    HE_DEFER
     {
-        HE_LOG(Resource, Fetal, "load_model -- cgltf -- unable to parse asset file: %.*s\n", HE_EXPAND_STRING(path));
-        return {};
-    }
-
-    HE_DEFER { cgltf_free(model_data); };
+       release_model_from_cache(asset_handle.uuid);
+    };
 
     bool embeded_material = false;
     bool embeded_static_mesh = false;
@@ -227,15 +290,37 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             .sample_shading = true,
         };
 
+        float alpha_cutoff = 0.0f;
+
+        Material_Type material_type = Material_Type::OPAQUE;
+
+        if (material->alpha_mode == cgltf_alpha_mode::cgltf_alpha_mode_mask)
+        {
+            alpha_cutoff = material->alpha_cutoff;
+            material_type = Material_Type::ALPHA_CUTOFF;
+        }
+        else if (material->alpha_mode == cgltf_alpha_mode::cgltf_alpha_mode_blend)
+        {
+            material_type = Material_Type::TRANSPARENT;
+        }
+
         Material_Descriptor material_descriptor =
         {
             .name = material_name,
-            .type = Material_Type::opaque,
+            .type =  material_type,
             .shader = opaque_pbr_shader,
             .settings = settings,
         };
 
         Material_Handle material_handle = renderer_create_material(material_descriptor);
+
+        F32 reflectance = 0.04f;
+        if (material->has_ior)
+        {
+            F32 ior = material->ior.ior;
+            F32 f = (ior - 1) / (ior + 1);
+            reflectance = f * f;
+        }
 
         set_property(material_handle, HE_STRING_LITERAL("albedo_texture"), { .u64 = albedo_texture.uuid });
         set_property(material_handle, HE_STRING_LITERAL("albedo_color"), { .v3f = *(glm::vec3 *)material->pbr_metallic_roughness.base_color_factor });
@@ -244,18 +329,14 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         set_property(material_handle, HE_STRING_LITERAL("roughness_factor"), { .f32 = material->pbr_metallic_roughness.roughness_factor });
         set_property(material_handle, HE_STRING_LITERAL("metallic_factor"), { .f32 = material->pbr_metallic_roughness.metallic_factor });
         set_property(material_handle, HE_STRING_LITERAL("occlusion_texture"), { .u64 = occlusion_texture.uuid });
+        set_property(material_handle, HE_STRING_LITERAL("alpha_cutoff"), { .f32 = alpha_cutoff });
+        set_property(material_handle, HE_STRING_LITERAL("reflectance"), { .f32 = reflectance });
 
         return { .success = true, .index = material_handle.index, .generation = material_handle.generation };
     }
 
     if (embeded_static_mesh)
     {
-        if (cgltf_load_buffers(&options, model_data, path.data) != cgltf_result_success)
-        {
-            HE_LOG(Resource, Fetal, "load_model -- cgltf -- unable to load buffers from asset file: %.*s\n", HE_EXPAND_STRING(path));
-            return {};
-        }
-
         U32 static_mesh_index = u64_to_u32(params->data_id);
         cgltf_mesh *static_mesh = &model_data->meshes[static_mesh_index];
 

@@ -14,11 +14,13 @@ depth_fail keep
 stencil_compare_mask 255
 stencil_write_mask 255
 stencil_reference_value 0
-property_count 7
+property_count 9
 albedo_texture u32 0
 albedo_color v3f 0.887255 0.000000 0.000000
 normal_texture u32 0
 roughness_metallic_texture u32 0
 roughness_factor f32 1.000000
-metallic_factor f32 0.000000
+metallic_factor f32 1.000000
+reflectance f32 0.040000
+alpha_cutoff f32 0.000000
 occlusion_texture u32 0

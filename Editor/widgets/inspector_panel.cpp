@@ -101,6 +101,8 @@ void inspect(Asset_Handle asset_handle)
 
 static void draw_transform(Transform *transform)
 {
+    ImGui::PushID(transform);
+
     ImGui::Text("Position");
     ImGui::SameLine();
     ImGui::DragFloat3("###Position Drag Float3", &transform->position.x, 0.1f);
@@ -115,6 +117,8 @@ static void draw_transform(Transform *transform)
     ImGui::Text("Scale");
     ImGui::SameLine();
     ImGui::DragFloat3("###Scale Drag Float3", &transform->scale.x, 0.1f);
+
+    ImGui::PopID();
 }
 
 static void inspect_scene_node(Scene_Node *scene_node)
@@ -319,7 +323,7 @@ static void inspect_material(Asset_Handle material_asset)
     bool shader_changed = select_asset(HE_STRING_LITERAL("Shader"), HE_STRING_LITERAL("shader"), &shader_asset, { .nullify = false });
     bool pipeline_changed = false;
 
-    static constexpr const char *types[] = { "opaque", "transparent" };
+    static constexpr const char *types[] = { "opaque", "alpha cutoff", "transparent" };
 
     ImGui::Text("Type");
     ImGui::SameLine();

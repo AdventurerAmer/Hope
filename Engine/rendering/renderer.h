@@ -32,7 +32,7 @@ enum RenderingAPI
 #define HE_MAX_UPLOAD_REQUEST_COUNT 4096
 
 #define HE_MAX_LIGHT_COUNT 1024
-#define HE_LIGHT_BIN_COUNT 128
+#define HE_LIGHT_BIN_COUNT 64
 
 struct Renderer
 {
@@ -110,6 +110,8 @@ struct Frame_Render_Data
     U32 instance_count;
 
     U32 *light_count;
+    U32 *directional_light_count;
+
     Buffer_Handle light_storage_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
     U32 light_bin_count;
@@ -119,9 +121,11 @@ struct Frame_Render_Data
     Material_Handle current_material_handle;
     Static_Mesh_Handle current_static_mesh_handle;
 
-    Dynamic_Array< Draw_Command > skyboxes_commands;
+    Dynamic_Array< Draw_Command > skybox_commands;
     Dynamic_Array< Draw_Command > opaque_commands;
+    Dynamic_Array< Draw_Command > alpha_cutoff_commands;
     Dynamic_Array< Draw_Command > transparent_commands;
+
     Counted_Array< Shader_Light, HE_MAX_LIGHT_COUNT > lights;
 
     Buffer_Handle scene_buffers[HE_MAX_FRAMES_IN_FLIGHT];

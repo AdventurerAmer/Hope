@@ -1,3 +1,15 @@
+#include "core/platform.h"
+#include "core/memory.h"
+#include "core/engine.h"
+#include "core/cvars.h"
+
+#include "core/logging.h"
+
+#define VK_USE_PLATFORM_WIN32_KHR
+#include <vulkan/vulkan.h>
+
+#include "ImGui/backends/imgui_impl_win32.cpp"
+
 #ifndef VC_EXTRALEAN
 #define VC_EXTRALEAN 1
 #endif
@@ -10,18 +22,6 @@
 #include <strsafe.h>
 #include <windows.h>
 #pragma warning(pop)
-
-#define VK_USE_PLATFORM_WIN32_KHR
-#include <vulkan/vulkan.h>
-
-#include "core/platform.h"
-#include "core/memory.h"
-#include "core/engine.h"
-#include "core/cvars.h"
-
-#include "core/logging.h"
-
-#include "ImGui/backends/imgui_impl_win32.cpp"
 
 struct Win32_Window_State
 {
