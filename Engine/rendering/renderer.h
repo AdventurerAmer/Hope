@@ -31,8 +31,8 @@ enum RenderingAPI
 #define HE_MAX_SCENE_COUNT 4096
 #define HE_MAX_UPLOAD_REQUEST_COUNT 4096
 
-#define HE_MAX_LIGHT_COUNT 1024
-#define HE_LIGHT_BIN_COUNT 64
+#define HE_MAX_LIGHT_COUNT 512
+#define HE_LIGHT_BIN_COUNT 32
 
 struct Renderer
 {
@@ -112,6 +112,8 @@ struct Frame_Render_Data
     U32 *light_count;
     U32 *directional_light_count;
 
+    glm::vec3 *ambient;
+
     Buffer_Handle light_storage_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
     U32 light_bin_count;
@@ -125,6 +127,9 @@ struct Frame_Render_Data
     Dynamic_Array< Draw_Command > opaque_commands;
     Dynamic_Array< Draw_Command > alpha_cutoff_commands;
     Dynamic_Array< Draw_Command > transparent_commands;
+    Dynamic_Array< Draw_Command > outline_commands;
+
+    S32 selected_node_index;
 
     Counted_Array< Shader_Light, HE_MAX_LIGHT_COUNT > lights;
 
@@ -192,8 +197,12 @@ struct Renderer_State
 
     Frame_Render_Data render_data;
 
-    Shader_Handle geometry_shader;
-    Pipeline_State_Handle geometry_pipeline;
+    Shader_Handle depth_prepass_shader;
+    Pipeline_State_Handle depth_prepass_pipeline;
+
+    Shader_Handle outline_shader;
+    Material_Handle outline_first_pass;
+    Material_Handle outline_second_pass;
 
     bool imgui_docking;
 };

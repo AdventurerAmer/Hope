@@ -22,9 +22,10 @@ out Fragment_Input
 
 void main()
 {
-    mat4 local_to_world = instances[gl_InstanceIndex].local_to_world;
+    Instance_Data instance = instances[gl_InstanceIndex];
+    mat4 local_to_world = instance.local_to_world;
     gl_Position = globals.projection * globals.view * local_to_world * vec4(in_position, 1.0);
-    frag_input.entity_index = instances[gl_InstanceIndex].entity_index;
+    frag_input.entity_index = instance.entity_index;
 }
 
 #type fragment

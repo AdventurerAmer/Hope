@@ -154,7 +154,6 @@ bool init_renderer_state(Engine *engine)
     // default settings
     back_buffer_width = 1280;
     back_buffer_height = 720;
-    msaa_setting = (U8)MSAA_Setting::X4;
     anisotropic_filtering_setting = (U8)Anisotropic_Filtering_Setting::X16;
     triple_buffering = true;
     vsync = false;
@@ -167,6 +166,8 @@ bool init_renderer_state(Engine *engine)
     HE_DECLARE_CVAR("renderer", msaa_setting, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", anisotropic_filtering_setting, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", vsync, CVarFlag_None);
+
+    msaa_setting = (U8)MSAA_Setting::NONE;
 
     renderer_state->current_frame_in_flight_index = 0;
     HE_ASSERT(renderer_state->frames_in_flight <= HE_MAX_FRAMES_IN_FLIGHT);
@@ -409,6 +410,7 @@ bool init_renderer_state(Engine *engine)
         init(&render_data->opaque_commands);
         init(&render_data->alpha_cutoff_commands);
         init(&render_data->transparent_commands);
+        init(&render_data->outline_commands);
 
         render_data->light_bin_count = HE_LIGHT_BIN_COUNT;
 
@@ -466,7 +468,7 @@ bool init_renderer_state(Engine *engine)
 
     {
         Allocator allocator = to_allocator(scratch_memory.arena);
-        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/geometry.glsl"), allocator);
+        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/depth_prepass.glsl"), allocator);
         String shader_source = { .count = result.size, .data = (const char *)result.data };
 
         Shader_Compilation_Result compilation_result = renderer_compile_shader(shader_source, HE_STRING_LITERAL("shaders"));
@@ -474,12 +476,12 @@ bool init_renderer_state(Engine *engine)
 
         Shader_Descriptor shader_descriptor =
         {
-            .name = HE_STRING_LITERAL("geometry"),
+            .name = HE_STRING_LITERAL("depth_prepass"),
             .compilation_result = &compilation_result
         };
 
-        renderer_state->geometry_shader = renderer_create_shader(shader_descriptor);
-        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->geometry_shader));
+        renderer_state->depth_prepass_shader = renderer_create_shader(shader_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->depth_prepass_shader));
         renderer_destroy_shader_compilation_result(&compilation_result);
 
         Pipeline_State_Descriptor pipeline_state_descriptor =
@@ -505,12 +507,99 @@ bool init_renderer_state(Engine *engine)
 
                 .sample_shading = false,
             },
-            .shader = renderer_state->geometry_shader,
-            .render_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("geometry")), // todo(amer): we should not depend on the render graph here...
+            .shader = renderer_state->depth_prepass_shader,
+            .render_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("depth_prepass")), // todo(amer): we should not depend on the render graph here...
         };
 
-        renderer_state->geometry_pipeline = renderer_create_pipeline_state(pipeline_state_descriptor);
-        HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, renderer_state->geometry_pipeline));
+        renderer_state->depth_prepass_pipeline = renderer_create_pipeline_state(pipeline_state_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, renderer_state->depth_prepass_pipeline));
+    }
+
+    {
+        Allocator allocator = to_allocator(scratch_memory.arena);
+        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/outline.glsl"), allocator);
+        String shader_source = { .count = result.size, .data = (const char *)result.data };
+
+        Shader_Compilation_Result compilation_result = renderer_compile_shader(shader_source, HE_STRING_LITERAL("shaders"));
+        HE_ASSERT(compilation_result.success);
+
+        Shader_Descriptor shader_descriptor =
+        {
+            .name = HE_STRING_LITERAL("outline"),
+            .compilation_result = &compilation_result
+        };
+
+        renderer_state->outline_shader = renderer_create_shader(shader_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->outline_shader));
+        renderer_destroy_shader_compilation_result(&compilation_result);
+
+        Material_Descriptor first_pass_outline_material =
+        {
+            .name = HE_STRING_LITERAL("outline_first_pass"),
+            .type = Material_Type::OPAQUE,
+            .shader = renderer_state->outline_shader,
+            .settings =
+            {
+                .cull_mode = Cull_Mode::BACK,
+                .front_face = Front_Face::COUNTER_CLOCKWISE,
+                .fill_mode = Fill_Mode::SOLID,
+
+                .depth_operation = Compare_Operation::LESS,
+                .depth_testing = false,
+                .depth_writing = false,
+
+                .stencil_operation = Compare_Operation::ALWAYS,
+                .stencil_fail = Stencil_Operation::KEEP,
+                .stencil_pass = Stencil_Operation::REPLACE,
+                .depth_fail = Stencil_Operation::KEEP,
+                .stencil_compare_mask = 0xFF,
+                .stencil_write_mask = 0xFF,
+                .stencil_reference_value = 1,
+                .stencil_testing = true,
+
+                .sample_shading = true,
+                .color_mask = (Color_Write_Mask)0,
+            }
+        };
+
+        Material_Descriptor second_pass_outline_material =
+        {
+            .name = HE_STRING_LITERAL("outline_second_pass"),
+            .type = Material_Type::OPAQUE,
+            .shader = renderer_state->outline_shader,
+            .settings =
+            {
+                .cull_mode = Cull_Mode::BACK,
+                .front_face = Front_Face::COUNTER_CLOCKWISE,
+                .fill_mode = Fill_Mode::SOLID,
+
+                .depth_operation = Compare_Operation::LESS,
+                .depth_testing = false,
+                .depth_writing = false,
+
+                .stencil_operation = Compare_Operation::NOT_EQUAL,
+                .stencil_fail = Stencil_Operation::KEEP,
+                .stencil_pass = Stencil_Operation::KEEP,
+                .depth_fail = Stencil_Operation::KEEP,
+                .stencil_compare_mask = 0xFF,
+                .stencil_write_mask = 0xFF,
+                .stencil_reference_value = 1,
+                .stencil_testing = true,
+
+                .sample_shading = true,
+            }
+        };
+
+        glm::vec3 outline_color = srgb_to_linear(glm::vec3 { 1.0f, 1.0f, 0.2f }, renderer_state->gamma);
+
+        renderer_state->outline_first_pass = renderer_create_material(first_pass_outline_material);
+        set_property(renderer_state->outline_first_pass, HE_STRING_LITERAL("scale_factor"), { .f32 = 1.0f });
+        set_property(renderer_state->outline_first_pass, HE_STRING_LITERAL("outline_color"), { .v3f = outline_color });
+
+        renderer_state->outline_second_pass = renderer_create_material(second_pass_outline_material);
+
+        set_property(renderer_state->outline_second_pass, HE_STRING_LITERAL("scale_factor"), { .f32 = 1.01f });
+        set_property(renderer_state->outline_second_pass, HE_STRING_LITERAL("outline_color"), { .v3f = outline_color });
     }
 
     return true;
@@ -2217,6 +2306,16 @@ static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_t
                         draw_command.sub_mesh_index = sub_mesh_index;
                         draw_command.material = material_handle;
                         draw_command.instance_index = instance_index;
+
+                        if (node_index == render_data->selected_node_index)
+                        {
+                            Dynamic_Array< Draw_Command > *outlines = &render_data->outline_commands;
+                            Draw_Command &draw_command = append(outlines);
+                            draw_command.static_mesh = static_mesh_handle;
+                            draw_command.sub_mesh_index = sub_mesh_index;
+                            draw_command.material = renderer_state->default_material;
+                            draw_command.instance_index = instance_index;
+                        }
                     }
                 }
             }
@@ -2271,6 +2370,8 @@ void render_scene(Scene_Handle scene_handle)
             dc.sub_mesh_index = 0;
             dc.material = get_asset_handle_as<Material>(skybox_material_asset);
             dc.instance_index = instance_index;
+
+            *render_data->ambient = srgb_to_linear(skybox->ambient_color, renderer_state->gamma);
         }
     }
 
@@ -2477,6 +2578,9 @@ void begin_rendering(const Camera *camera)
     F32 *gamma = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("gamma"));
     U32 *light_count = (U32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("light_count"));
 
+    glm::vec3 *ambient = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("ambient"));
+    render_data->ambient = ambient;
+
     glm::uvec2 *resolution = (glm::uvec2 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("resolution"));
     *resolution = glm::uvec2(renderer_state->back_buffer_width, renderer_state->back_buffer_height);
 
@@ -2485,7 +2589,6 @@ void begin_rendering(const Camera *camera)
 
     U32 *light_bin_count = (U32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("light_bin_count"));
     *light_bin_count = render_data->light_bin_count;
-
 
     F32 *z_near = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("z_near"));
     F32 *z_far = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("z_far"));
@@ -2551,6 +2654,7 @@ void begin_rendering(const Camera *camera)
     reset(&render_data->opaque_commands);
     reset(&render_data->alpha_cutoff_commands);
     reset(&render_data->transparent_commands);
+    reset(&render_data->outline_commands);
     reset(&render_data->lights);
 
     U32 texture_count = renderer_state->textures.capacity;
@@ -2733,7 +2837,7 @@ void end_rendering()
         if (light->type == (U32)Light_Type::DIRECTIONAL)
         {
             light->screen_aabb = { 0, (width - 1) | ((height - 1) << 16) };
-            sorted_light->depth = 0.0f;
+            sorted_light->depth = -HE_MAX_F32;
             sorted_light->min_depth = 0.0f;
             sorted_light->max_depth = 1.0f;
             directional_light_count++;
@@ -2747,7 +2851,7 @@ void end_rendering()
         F32 min_depth = (-view_p.z - light->radius - render_data->near_z) * one_over_render_dist;
         F32 max_depth = (-view_p.z + light->radius - render_data->near_z) * one_over_render_dist;
 
-        if (min_depth > 0.9999f || max_depth < 0.0001f)
+        if (min_depth > 1.0f || max_depth < 0.0f)
         {
             continue;
         }

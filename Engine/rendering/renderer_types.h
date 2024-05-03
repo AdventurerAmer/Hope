@@ -20,7 +20,7 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#define HE_GRAPHICS_DEBUGGING 1
+#define HE_GRAPHICS_DEBUGGING 0
 #define HE_MAX_FRAMES_IN_FLIGHT 3
 #define HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
 #define HE_MAX_BIND_GROUP_INDEX_COUNT 4
@@ -416,6 +416,14 @@ enum class Stencil_Operation : U8
     DECREMENT_AND_WRAP,
 };
 
+enum Color_Write_Mask : U32
+{
+    COLOR_MASK_R = 1,
+    COLOR_MASK_G = 1 << 1,
+    COLOR_MASK_B = 1 << 2,
+    COLOR_MASK_A = 1 << 3
+};
+
 struct Pipeline_State_Settings
 {
     Cull_Mode cull_mode = Cull_Mode::BACK;
@@ -437,6 +445,9 @@ struct Pipeline_State_Settings
     bool stencil_testing = false;
 
     bool sample_shading = false;
+
+    Color_Write_Mask color_mask = Color_Write_Mask(COLOR_MASK_R|COLOR_MASK_G|COLOR_MASK_B|COLOR_MASK_A);
+    bool alpha_blending = false;
 };
 
 struct Pipeline_State_Descriptor

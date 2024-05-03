@@ -24,9 +24,10 @@ struct Editor_State
     Asset_Handle scene_asset;
 
     ImGuizmo::OPERATION operation = ImGuizmo::OPERATION::TRANSLATE;
-    ImGuizmo::MODE mode = ImGuizmo::MODE::WORLD;
+    ImGuizmo::MODE guizmo_mode = ImGuizmo::MODE::WORLD;
     bool show_ui_panels = false;
     bool show_stats_panel = true;
+    bool render_light_scene = false;
 
     Scene_Handle light_scene = Resource_Pool< Scene >::invalid_handle;
 };
@@ -175,7 +176,7 @@ void hope_app_on_event(Engine *engine, Event event)
 
                 ImGuiHoveredFlags hover_flags = ImGuiHoveredFlags_AnyWindow|ImGuiHoveredFlags_AllowWhenBlockedByPopup;
                 bool interacting_with_imgui = ImGui::IsWindowHovered(hover_flags) || ImGui::IsAnyItemHovered();
-                if (engine->input.button_states[HE_BUTTON_RIGHT] == Input_State::RELEASED || interacting_with_imgui)
+                if (engine->input.button_states[HE_BUTTON_RIGHT] == Input_State::RELEASED && !interacting_with_imgui)
                 {
                     if (event.key == HE_KEY_Q)
                     {
@@ -193,7 +194,46 @@ void hope_app_on_event(Engine *engine, Event event)
                     {
                         editor_state.operation = ImGuizmo::OPERATION::SCALE;
                     }
+                    else if (event.key == HE_KEY_T)
+                    {
+                        if (editor_state.guizmo_mode == ImGuizmo::MODE::WORLD)
+                        {
+                            editor_state.guizmo_mode = ImGuizmo::MODE::LOCAL;
+                        }
+                        else
+                        {
+                            editor_state.guizmo_mode = ImGuizmo::MODE::WORLD;
+                        }
+                    }
                 }
+
+                if (event.is_control_down && event.key == HE_KEY_N)
+                {
+                    Scene_Handle scene_handle = get_asset_handle_as<Scene>(editor_state.scene_asset);
+                    Scene *scene = renderer_get_scene(scene_handle);
+                    Scene_Hierarchy_Panel::new_node(scene);
+                }
+
+                S32 selected_node_index = Scene_Hierarchy_Panel::get_selected_node();
+                if (selected_node_index != -1)
+                {
+                    Scene_Handle scene_handle = get_asset_handle_as<Scene>(editor_state.scene_asset);
+                    Scene *scene = renderer_get_scene(scene_handle);
+
+                    if (event.key == HE_KEY_F2)
+                    {
+                        Scene_Hierarchy_Panel::rename_node(scene, selected_node_index);
+                    }
+                    else if (event.key == HE_KEY_DELETE)
+                    {
+                        Scene_Hierarchy_Panel::delete_node(scene, (U32)selected_node_index);
+                    }
+                    else if (event.is_control_down && event.key == HE_KEY_D)
+                    {
+                        Scene_Hierarchy_Panel::duplicate_node(scene, (U32)selected_node_index);
+                    }
+                }
+
 			}
 		} break;
 
@@ -322,6 +362,10 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
             ImGui::End();
         }
 
+        S32 selected_node_index = Scene_Hierarchy_Panel::get_selected_node();
+        Frame_Render_Data *rd = &renderer_state->render_data;
+        rd->selected_node_index = selected_node_index;
+
         begin_rendering(camera);
 
         if (is_asset_handle_valid(editor_state.scene_asset))
@@ -346,7 +390,7 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
                     Transform &t = node->transform;
 
                     glm::mat4 world = get_world_matrix(t);
-                    ImGuizmo::Manipulate(glm::value_ptr(camera->view), glm::value_ptr(camera->projection), editor_state.operation, editor_state.mode, glm::value_ptr(world));
+                    ImGuizmo::Manipulate(glm::value_ptr(camera->view), glm::value_ptr(camera->projection), editor_state.operation, editor_state.guizmo_mode, glm::value_ptr(world));
 
                     glm::vec3 position;
                     glm::vec3 rotation;
@@ -374,7 +418,10 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
             p = glm::rotate(rotation, glm::vec4(p, 1.0f));
         }
 
-        render_scene(editor_state.light_scene);
+        if (editor_state.render_light_scene)
+        {
+            render_scene(editor_state.light_scene);
+        }
 
         end_rendering();
     }

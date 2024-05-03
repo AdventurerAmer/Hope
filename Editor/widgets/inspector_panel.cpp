@@ -123,6 +123,8 @@ static void draw_transform(Transform *transform)
 
 static void inspect_scene_node(Scene_Node *scene_node)
 {
+    ImGui::PushID(scene_node);
+
     ImGui::Text("Node");
     ImGui::SameLine();
 
@@ -305,6 +307,8 @@ static void inspect_scene_node(Scene_Node *scene_node)
 
         ImGui::EndPopup();
     }
+
+    ImGui::PopID();
 }
 
 static void inspect_material(Asset_Handle material_asset)
@@ -605,7 +609,7 @@ static void inspect_material(Asset_Handle material_asset)
             {
                 if (property->is_color)
                 {
-                    property_changed |= ImGui::ColorEdit3("##MaterialPropertyColorEdit3", &data.v4f.x);
+                    property_changed |= ImGui::ColorEdit4("##MaterialPropertyColorEdit4", &data.v4f.x);
                 }
                 else
                 {

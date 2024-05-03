@@ -52,6 +52,8 @@ void main()
 #extension GL_EXT_scalar_block_layout : enable
 
 #include "../shaders/common.glsl"
+#include "../shaders/pbr.glsl"
+#include "../shaders/lighting.glsl"
 
 in Fragment_Input
 {
@@ -81,7 +83,7 @@ layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_BINS_STORAG
 layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFORM_BUFFER_BINDING) uniform Material
 {
     uint albedo_texture;
-    vec3 albedo_color;
+    vec4 albedo_color;
 
     uint normal_texture;
 
@@ -96,65 +98,20 @@ layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFOR
 
 layout(location = 0) out vec4 out_color;
 
-vec3 fresnel_schlick(float NdotL, vec3 f0)
-{
-    return f0 + (vec3(1.0) - f0) * pow(clamp(1.0 - NdotL, 0.0, 1.0), 5.0);
-}
-
-float distribution_ggx(float NdotH, float roughness)
-{
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NdotH2 = NdotH * NdotH;
-    float b = NdotH2 * (a2 - 1.0) + 1.0;
-    return a2 / (PI * b * b);
-}
-
-float geometry_schlickGGX(float d, float roughness)
-{
-    float r = (roughness + 1.0);
-    float k = (r * r) / 8.0;
-    return d / (d * (1.0 - k) + k);
-}
-
-float geometry_smith(float NdotV, float NdotL, float roughness)
-{
-    return geometry_schlickGGX(NdotV, roughness) * geometry_schlickGGX(NdotL, roughness);
-}
-
-vec3 brdf(vec3 L, vec3 radiance, vec3 N, vec3 V, float NdotV, vec3 albedo, float roughness, float metallic, float reflectance)
-{
-    vec3 H = normalize(L + V);
-
-    float NdotL = max(0.0, dot(N, L));
-    float NdotH = max(0.0, dot(N, H));
-    float HdotV = max(0.0, dot(H, V));
-
-    vec3 f0 = mix(vec3(reflectance), albedo, metallic);
-    vec3 F = fresnel_schlick(clamp(dot(H, V), 0.0, 1.0), f0);
-    float D = distribution_ggx(NdotH, roughness);
-    float G = geometry_smith(NdotV, NdotL, roughness);
-
-    vec3 specular = (F * D * G) / ((4.0 * NdotV * NdotL) + 0.0001);
-    vec3 Ks = F;
-    vec3 Kd = (1.0 - metallic) * (vec3(1.0) - Ks);
-    vec3 diffuse = Kd * albedo / PI;
-    return (diffuse + specular) * radiance * NdotL;
-}
-
 void main()
 {
     float gamma = globals.gamma;
 
     vec4 base_color = sample_texture( material.albedo_texture, frag_input.uv );
+    float alpha = base_color.a * material.albedo_color.a;
 
-    if (base_color.a < material.alpha_cutoff)
+    if (alpha < material.alpha_cutoff)
     {
         discard;
     }
 
     vec3 albedo = srgb_to_linear( base_color.rgb, gamma );
-    albedo *= srgb_to_linear( material.albedo_color, gamma );
+    albedo *= srgb_to_linear( material.albedo_color.rgb, gamma );
 
     vec3 roughness_metallic = sample_texture( material.roughness_metallic_texture, frag_input.uv ).rgb;
 
@@ -224,26 +181,14 @@ void main()
         {
             case LIGHT_TYPE_POINT:
             {
-                vec3 frag_pos_to_light = light.position - frag_input.position;
-                float r = length(frag_pos_to_light);
-                L = frag_pos_to_light / r;
-                attenuation = pow(light.radius / max(r, rmin), 2);
-                attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
+                // NOTE: L is an out param
+                attenuation = calc_point_light_attenuation(light.position, light.radius, frag_input.position, L);
             } break;
 
             case LIGHT_TYPE_SPOT:
             {
-                vec3 frag_pos_to_light = light.position - frag_input.position;
-                float r = length(frag_pos_to_light);
-                L = frag_pos_to_light / r;
-                attenuation = pow(light.radius / max(r, rmin), 2);
-                attenuation *= pow(max(1 - pow(r / light.radius, 4), 0.0), 2);
-
-                float cos_theta_u = cos(light.outer_angle);
-                float cos_theta_p = cos(light.inner_angle);
-                float cos_theta_s = dot(light.direction, -L);
-                float t = pow(clamp((cos_theta_s - cos_theta_u) / (cos_theta_p - cos_theta_u), 0.0, 1.0), 2.0);
-                attenuation *= t;
+                // NOTE: L is an out param
+                attenuation = calc_spot_light_attenuation(light.position, light.radius, light.direction, light.outer_angle, light.inner_angle, frag_input.position, L); // L is an out param
             } break;
         }
 
@@ -251,7 +196,7 @@ void main()
         Lo += brdf(L, radiance, N, V, NdotV, albedo, roughness, metallic, material.reflectance);
     }
 
-    vec3 ambient = vec3(0.03) * albedo * occlusion;
+    vec3 ambient = globals.ambient * albedo * occlusion;
     vec3 color = ambient + Lo;
     color = color / (color + vec3(1.0));
     color = linear_to_srgb(color, gamma);

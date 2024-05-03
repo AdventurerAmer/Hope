@@ -673,9 +673,31 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     multisampling_state_create_info.minSampleShading = 0.2f;
     multisampling_state_create_info.pSampleMask = nullptr;
 
+    U32 color_mask = 0;
+
+    if (descriptor.settings.color_mask & COLOR_MASK_R)
+    {
+        color_mask |= VK_COLOR_COMPONENT_R_BIT;
+    }
+
+    if (descriptor.settings.color_mask & COLOR_MASK_G)
+    {
+        color_mask |= VK_COLOR_COMPONENT_G_BIT;
+    }
+
+    if (descriptor.settings.color_mask & COLOR_MASK_B)
+    {
+        color_mask |= VK_COLOR_COMPONENT_B_BIT;
+    }
+
+    if (descriptor.settings.color_mask & COLOR_MASK_A)
+    {
+        color_mask |= VK_COLOR_COMPONENT_A_BIT;
+    }
+
     VkPipelineColorBlendAttachmentState color_blend_attachment_state = {};
-    color_blend_attachment_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT;
-    color_blend_attachment_state.blendEnable = VK_FALSE;
+    color_blend_attachment_state.colorWriteMask = color_mask;
+    color_blend_attachment_state.blendEnable = descriptor.settings.alpha_blending ? VK_TRUE : VK_FALSE;
     color_blend_attachment_state.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
     color_blend_attachment_state.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
     color_blend_attachment_state.colorBlendOp = VK_BLEND_OP_ADD;

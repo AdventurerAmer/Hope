@@ -34,6 +34,50 @@ enum class Add_Scene_Node_Operation
 void draw_scene_node(Scene_Handle scene_handle, Scene *scene, S32 node_index);
 void add_model_to_scene(Scene *scene, U32 node_index, Asset_Handle asset_handle, Add_Scene_Node_Operation op);
 
+void new_node(Scene *scene, U32 parent_index)
+{
+    U32 node_index = allocate_node(scene, HE_STRING_LITERAL("Node"));
+    add_child_last(scene, parent_index, node_index);
+}
+
+void rename_node(Scene *scene, U32 node_index)
+{
+    Scene_Node *node = get_node(scene, node_index);
+    memset(scene_hierarchy_state.rename_buffer, 0, sizeof(scene_hierarchy_state.rename_buffer));
+    memcpy(scene_hierarchy_state.rename_buffer, node->name.data, node->name.count);
+    scene_hierarchy_state.rename_node_index = node_index;
+}
+
+void delete_node(Scene *scene, U32 node_index)
+{
+    Scene_Node *node = get_node(scene, node_index);
+    remove_node(scene, node_index);
+    if (node_index == scene_hierarchy_state.selected_node_index)
+    {
+        Editor::reset_selection();
+    }
+}
+
+void duplicate_node(Scene *scene, U32 node_index)
+{
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+
+    Scene_Node *node = get_node(scene, node_index);
+    U32 duplicated_node_index = allocate_node(scene, format_string(scratch_memory.arena, "%.*s_", HE_EXPAND_STRING(node->name)));
+    add_child_after(scene, node_index, duplicated_node_index);
+
+    node = get_node(scene, node_index);
+
+    Scene_Node *duplicated_node = get_node(scene, duplicated_node_index);
+    duplicated_node->transform = node->transform;
+
+    duplicated_node->has_mesh = node->has_mesh;
+    duplicated_node->mesh = node->mesh;
+
+    duplicated_node->has_light = node->has_light;
+    duplicated_node->light = node->light;
+}
+
 void draw(U64 scene_asset_uuid)
 {
     Asset_Handle scene_asset = { .uuid = scene_asset_uuid };
@@ -68,36 +112,33 @@ void draw(U64 scene_asset_uuid)
             {
                 is_context_window_open = true;
 
-                const char* label = "Create Child Node";
+                const char *label = "Create Child Node";
                 if (scene_hierarchy_state.context_menu_node_index == -1)
                 {
                     label = "Create Node";
                 }
 
-                if (ImGui::MenuItem(label, "Ctrl + N"))
+                if (ImGui::MenuItem(label, "Ctrl+N"))
                 {
-                    U32 node_index = allocate_node(scene, HE_STRING_LITERAL("Node"));
-                    add_child_last(scene, scene_hierarchy_state.context_menu_node_index == -1 ? 0 : scene_hierarchy_state.context_menu_node_index, node_index);
+                    U32 parent = scene_hierarchy_state.context_menu_node_index == -1 ? 0 : scene_hierarchy_state.context_menu_node_index;
+                    new_node(scene, parent);
                 }
 
                 if (scene_hierarchy_state.context_menu_node_index != -1)
                 {
-                    Scene_Node *node = get_node(scene, scene_hierarchy_state.context_menu_node_index);
-
                     if (ImGui::MenuItem("Rename", "F2"))
                     {
-                        memset(scene_hierarchy_state.rename_buffer, 0, sizeof(scene_hierarchy_state.rename_buffer));
-                        memcpy(scene_hierarchy_state.rename_buffer, node->name.data, node->name.count);
-                        scene_hierarchy_state.rename_node_index = scene_hierarchy_state.context_menu_node_index;
+                        rename_node(scene, (U32)scene_hierarchy_state.context_menu_node_index);
                     }
 
                     if (ImGui::MenuItem("Delete", "Del"))
                     {
-                        remove_node(scene, scene_hierarchy_state.context_menu_node_index);
-                        if (scene_hierarchy_state.context_menu_node_index == scene_hierarchy_state.selected_node_index)
-                        {
-                            Editor::reset_selection();
-                        }
+                        delete_node(scene, (U32)scene_hierarchy_state.context_menu_node_index);
+                    }
+
+                    if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
+                    {
+                        duplicate_node(scene, (U32)scene_hierarchy_state.context_menu_node_index);
                     }
                 }
 

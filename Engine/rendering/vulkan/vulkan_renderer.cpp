@@ -36,7 +36,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageS
     {
         "VUID-VkSwapchainCreateInfoKHR-imageFormat-01778",
         "VUID-VkImageViewCreateInfo-usage-02275",
-        "UNASSIGNED-Threading-MultipleThreads-Write"
+        "UNASSIGNED-Threading-MultipleThreads-Write",
     };
 
     for (U32 i = 0; i < HE_ARRAYCOUNT(black_list); i++)
@@ -69,6 +69,11 @@ static bool is_physical_device_supports_all_features(VkPhysicalDevice physical_d
     }
 
     if (!features2.features.sampleRateShading)
+    {
+        return false;
+    }
+
+    if (!features2.features.fragmentStoresAndAtomics)
     {
         return false;
     }
@@ -335,6 +340,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     physical_device_features2.features.samplerAnisotropy = VK_TRUE;
     physical_device_features2.features.sampleRateShading = VK_TRUE;
     physical_device_features2.features.robustBufferAccess = VK_TRUE;
+    physical_device_features2.features.fragmentStoresAndAtomics = VK_TRUE;
     physical_device_features2.pNext = &physical_device_sync2_features;
 
     context->physical_device = pick_physical_device(context->instance, context->surface);
@@ -723,7 +729,7 @@ void vulkan_renderer_begin_frame()
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
-    U32 current_frame_in_flight_index = renderer_state->current_frame_in_flight_index;
+    U32 frame_index = renderer_state->current_frame_in_flight_index;
 
     U64 wait_value = context->timeline_value - (renderer_state->frames_in_flight - 1);
     VkSemaphoreWaitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
@@ -732,11 +738,10 @@ void vulkan_renderer_begin_frame()
     wait_info.pValues = &wait_value;
     vkWaitSemaphores(context->logical_device, &wait_info, UINT64_MAX);
 
-    Vulkan_Descriptor_Pool_Allocator *descriptor_pool_allocator = &context->descriptor_pool_allocators[current_frame_in_flight_index];
+    Vulkan_Descriptor_Pool_Allocator *descriptor_pool_allocator = &context->descriptor_pool_allocators[frame_index];
 
     // @Bug(amer): we are getting a memory leak here it seems vkResetDescriptorPool doesn't reset descriptor set handles but allocates a new one.
 #define VK_RESET_DESCRIPTOR_POOL_BUG 1
-
 #if VK_RESET_DESCRIPTOR_POOL_BUG
     
     for (U32 i = 0; i < descriptor_pool_allocator->ready_pools.count; i++)
@@ -771,9 +776,9 @@ void vulkan_renderer_begin_frame()
     reset(&descriptor_pool_allocator->full_pools);
 #endif
 
-    VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[current_frame_in_flight_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);
+    VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[frame_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);
 
-    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[frame_index];
     vkResetCommandBuffer(command_buffer, 0);
 
     VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };

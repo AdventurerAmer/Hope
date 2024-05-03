@@ -43,16 +43,18 @@ struct Light
 
 layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFORM_BINDING) uniform Globals
 {
+    mat4 view;
+    mat4 projection;
+
+    vec3 eye;
+    vec3 ambient;
+
     uvec2 resolution;
+
+    float gamma;
 
     float z_near;
     float z_far;
-
-    mat4 view;
-    mat4 projection;
-    vec3 eye;
-
-    float gamma;
 
     uint light_count;
     uint directional_light_count;
