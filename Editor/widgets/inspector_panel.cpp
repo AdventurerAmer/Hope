@@ -313,6 +313,8 @@ static void inspect_scene_node(Scene_Node *scene_node)
 
 static void inspect_material(Asset_Handle material_asset)
 {
+    ImGui::PushID(material_asset.uuid);
+
     const Asset_Registry_Entry &entry = get_asset_registry_entry(material_asset);
     Asset_Handle shader_asset = entry.parent;
 
@@ -547,6 +549,63 @@ static void inspect_material(Asset_Handle material_asset)
         pipeline_changed |= ImGui::DragInt("##Stencil Reference Value", (int*)&settings.stencil_reference_value, 1.0f, 0, 255);
     }
 
+    if (ImGui::CollapsingHeader("Blending"))
+    {
+        ImGui::Text("Write Color Mask");
+        ImGui::SameLine();
+
+        bool r = settings.color_mask & COLOR_MASK_R;
+        bool g = settings.color_mask & COLOR_MASK_G;
+        bool b = settings.color_mask & COLOR_MASK_B;
+        bool a = settings.color_mask & COLOR_MASK_A;
+
+        ImGui::Text("R");
+        ImGui::SameLine();
+        pipeline_changed |= ImGui::Checkbox("##R", &r);
+        ImGui::SameLine();
+
+        ImGui::Text("G");
+        ImGui::SameLine();
+        pipeline_changed |= ImGui::Checkbox("##G", &g);
+        ImGui::SameLine();
+
+        ImGui::Text("B");
+        ImGui::SameLine();
+        pipeline_changed |= ImGui::Checkbox("##B", &b);
+        ImGui::SameLine();
+
+        ImGui::Text("A");
+        ImGui::SameLine();
+        pipeline_changed |= ImGui::Checkbox("##A", &a);
+
+        settings.color_mask = (Color_Write_Mask)0;
+
+        if (r)
+        {
+            settings.color_mask = (Color_Write_Mask)(settings.color_mask|COLOR_MASK_R);
+        }
+
+        if (g)
+        {
+            settings.color_mask = (Color_Write_Mask)(settings.color_mask|COLOR_MASK_G);
+        }
+
+        if (b)
+        {
+            settings.color_mask = (Color_Write_Mask)(settings.color_mask|COLOR_MASK_B);
+        }
+
+        if (a)
+        {
+            settings.color_mask = (Color_Write_Mask)(settings.color_mask|COLOR_MASK_A);
+        }
+
+        ImGui::Text("Alpha Blending");
+        ImGui::SameLine();
+
+        pipeline_changed |= ImGui::Checkbox("##Alpha Blending", &settings.alpha_blending);
+    }
+
     bool property_changed = false;
 
     if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
@@ -682,6 +741,8 @@ static void inspect_material(Asset_Handle material_asset)
             HE_LOG(Assets, Error, "failed to save material asset: %.*s\n", HE_EXPAND_STRING(entry.path));
         }
     }
+
+    ImGui::PopID();
 }
 
 static void inspect_asset(Asset_Handle asset_handle)

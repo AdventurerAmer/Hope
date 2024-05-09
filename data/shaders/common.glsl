@@ -10,7 +10,10 @@
 #define SHADER_PASS_BIND_GROUP 1
 #define SHADER_LIGHT_STORAGE_BUFFER_BINDING 0
 #define SHADER_LIGHT_BINS_STORAGE_BUFFER_BINDING 1
-#define SHADER_BINDLESS_TEXTURES_BINDING 2
+#define SHADER_HEAD_INDEX_STORAGE_IMAGE_BINDING 2
+#define SHADER_NODE_STORAGE_BUFFER_BINDING 3
+#define SHADER_NODE_COUNT_STORAGE_BUFFER_BINDING 4
+#define SHADER_BINDLESS_TEXTURES_BINDING 5
 
 #define SHADER_OBJECT_BIND_GROUP 2
 #define SHADER_MATERIAL_UNIFORM_BUFFER_BINDING 0
@@ -18,6 +21,11 @@
 #define NOOP(x) step(0.0, clamp((x), 0.0, 1.0))
 
 #ifndef __cplusplus
+
+
+#define MATERIAL_TYPE_OPAQUE 0
+#define MATERIAL_TYPE_ALPHA_CUTOFF 1
+#define MATERIAL_TYPE_TRANSPARENT 2
 
 struct Instance_Data
 {
@@ -41,6 +49,13 @@ struct Light
     float inner_angle;
 };
 
+struct Node
+{
+    vec4 color;
+    float depth;
+    uint next;
+};
+
 layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFORM_BINDING) uniform Globals
 {
     mat4 view;
@@ -60,11 +75,18 @@ layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFOR
     uint directional_light_count;
     uint light_bin_count;
 
+    int max_node_count;
+
 } globals;
 
 vec3 srgb_to_linear(vec3 color, float gamma)
 {
     return pow(color, vec3(gamma));
+}
+
+vec4 srgb_to_linear(vec4 color, float gamma)
+{
+    return pow(color, vec4(gamma));
 }
 
 vec3 linear_to_srgb(vec3 color, float gamma)

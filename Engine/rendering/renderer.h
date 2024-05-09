@@ -10,11 +10,6 @@
 
 #include <atomic>
 
-enum RenderingAPI
-{
-    RenderingAPI_Vulkan
-};
-
 #define HE_MAX_BUFFER_COUNT 4096
 #define HE_MAX_TEXTURE_COUNT 4096
 #define HE_MAX_SAMPLER_COUNT 4096
@@ -34,6 +29,11 @@ enum RenderingAPI
 #define HE_MAX_LIGHT_COUNT 512
 #define HE_LIGHT_BIN_COUNT 32
 
+enum RenderingAPI
+{
+    RenderingAPI_Vulkan
+};
+
 struct Renderer
 {
     bool (*init)(struct Engine *engine, struct Renderer_State *renderer_state);
@@ -51,6 +51,9 @@ struct Renderer
     void (*set_bind_groups)(U32 first_bind_group, const Array_View< Bind_Group_Handle > &bind_group_handles);
     void (*draw_static_mesh)(Static_Mesh_Handle static_mesh_handle, U32 first_instance);
     void (*draw_sub_mesh)(Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index);
+    void (*draw_fullscreen_triangle)();
+    void (*fill_buffer)(Buffer_Handle buffer_handle, U32 value);
+    void (*clear_image)(Texture_Handle texture_handle, S32 value);
     void (*end_frame)();
 
     bool (*create_buffer)(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor);
@@ -118,6 +121,10 @@ struct Frame_Render_Data
 
     U32 light_bin_count;
     Buffer_Handle light_bins[HE_MAX_FRAMES_IN_FLIGHT];
+
+    Texture_Handle head_index_textures[HE_MAX_FRAMES_IN_FLIGHT];
+    Buffer_Handle node_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    Buffer_Handle node_count_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
     Pipeline_State_Handle current_pipeline_state_handle;
     Material_Handle current_material_handle;
@@ -200,6 +207,9 @@ struct Renderer_State
     Shader_Handle depth_prepass_shader;
     Pipeline_State_Handle depth_prepass_pipeline;
 
+    Shader_Handle transparent_shader;
+    Pipeline_State_Handle transparent_pipeline;
+
     Shader_Handle outline_shader;
     Material_Handle outline_first_pass;
     Material_Handle outline_second_pass;
@@ -248,8 +258,10 @@ void renderer_destroy_sampler(Sampler_Handle &sampler_handle);
 // Shaders
 //
 
-Shader_Compilation_Result renderer_compile_shader(String source, String path = HE_STRING_LITERAL(""));
+Shader_Compilation_Result renderer_compile_shader(String source, String include_path = HE_STRING_LITERAL(""));
 void renderer_destroy_shader_compilation_result(Shader_Compilation_Result *result);
+
+Shader_Handle load_shader(String path);
 
 Shader_Handle renderer_create_shader(const Shader_Descriptor &descriptor);
 Shader* renderer_get_shader(Shader_Handle shader_handle);

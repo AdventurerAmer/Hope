@@ -421,7 +421,11 @@ static_assert(sizeof(Free_List_Allocation_Header) == sizeof(Free_List_Node));
 void* allocate(Free_List_Allocator *allocator, U64 size, U16 alignment)
 {
     HE_ASSERT(allocator);
-    HE_ASSERT(size);
+    // HE_ASSERT(size);
+    if (size == 0)
+    {
+        return nullptr;
+    }
 
     platform_lock_mutex(&allocator->mutex);
 

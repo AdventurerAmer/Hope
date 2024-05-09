@@ -20,17 +20,18 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#define HE_GRAPHICS_DEBUGGING 0
-#define HE_MAX_FRAMES_IN_FLIGHT 3
-#define HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
-#define HE_MAX_BIND_GROUP_INDEX_COUNT 4
-#define HE_MAX_ATTACHMENT_COUNT 16
-#define HE_MAX_SHADER_COUNT_PER_PIPELINE 8
+#define HE_GRAPHICS_DEBUGGING 1
 
 #ifdef HE_SHIPPING
 #undef HE_GRAPHICS_DEBUGGING
 #define HE_GRAPHICS_DEBUGGING 0
 #endif
+
+#define HE_MAX_FRAMES_IN_FLIGHT 3
+#define HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT UINT16_MAX
+#define HE_MAX_BIND_GROUP_INDEX_COUNT 4
+#define HE_MAX_ATTACHMENT_COUNT 16
+#define HE_MAX_SHADER_COUNT_PER_PIPELINE 8
 
 struct Memory_Requirements
 {
@@ -103,7 +104,10 @@ enum class Texture_Format
     R8G8B8A8_SRGB,
     B8G8R8A8_SRGB,
     B8G8R8A8_UNORM,
+    R32G32B32A32_SFLOAT,
+    R32G32B32_SFLOAT,
     R32_SINT,
+    R32_UINT,
     DEPTH_F32_STENCIL_U8,
     COUNT
 };
@@ -123,6 +127,7 @@ struct Texture
     
     bool is_attachment;
     bool is_cubemap;
+    bool is_storage;
     bool is_uploaded_to_gpu;
     Resource_Handle< Texture > alias;
 };
@@ -141,6 +146,7 @@ struct Texture_Descriptor
     U32 sample_count = 1;
     bool is_attachment = false;
     bool is_cubemap = false;
+    bool is_storage = false;
     Texture_Handle alias = Resource_Pool< Texture >::invalid_handle; 
 };
 
@@ -738,6 +744,13 @@ struct Shader_Light
     alignas(4) F32 radius;
     alignas(4) F32 outer_angle;
     alignas(4) F32 inner_angle;
+};
+
+struct Shader_Node
+{
+    glm::vec4 color;
+    alignas(4) F32 depth;
+    alignas(4) S32 next;
 };
 
 //

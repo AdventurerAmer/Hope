@@ -19,7 +19,7 @@ void init(Render_Graph *render_graph)
     render_graph->presentable_resource = nullptr; 
 }
 
-Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const Array_View< Render_Target_Info > &render_targets, render_proc render)
+Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const Array_View< Render_Target_Info > &render_targets, render_proc render, render_proc before, render_proc after)
 {
     HE_ASSERT(!is_valid(find(&render_graph->node_cache, HE_STRING(name))));
     
@@ -91,7 +91,9 @@ Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const 
     }
 
     node.name = HE_STRING(name);
+    node.before = before;
     node.render = render;
+    node.after = after;
     node.clear_values.count = render_targets.count;
     return node;
 }
@@ -341,9 +343,19 @@ void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *rend
         Frame_Buffer *frame_buffer = renderer_get_frame_buffer(node.frame_buffers[renderer_state->current_frame_in_flight_index]);
         renderer->set_viewport(frame_buffer->width, frame_buffer->height);
 
+        if (node.before)
+        {
+            node.render(renderer, renderer_state);
+        }
+
         renderer->begin_render_pass(node.render_pass, node.frame_buffers[renderer_state->current_frame_in_flight_index], to_array_view(node.clear_values));
         node.render(renderer, renderer_state);
         renderer->end_render_pass(node.render_pass);
+
+        if (node.after)
+        {
+            node.after(renderer, renderer_state);
+        }
     }
 }
 

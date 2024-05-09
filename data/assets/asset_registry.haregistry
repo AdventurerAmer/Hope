@@ -1,5 +1,5 @@
 version 1
-entry_count 137
+entry_count 160
 
 asset 62636994909288842
 parent 0
@@ -24,6 +24,10 @@ path 31 sponza/12501374198249454378.jpg
 asset 838273896857189170
 parent 0
 path 30 sponza/7645212358685992005.jpg
+
+asset 989203901741616135
+parent 8015345852571305201
+path 40 @9770807792522373384-0/matbed.hamaterial
 
 asset 1218245937320479653
 parent 0
@@ -56,6 +60,10 @@ path 46 @7356666216630384374-15/material_15.hamaterial
 asset 2199361210014870906
 parent 0
 path 30 sponza/9916269861720640319.jpg
+
+asset 2250824472457792722
+parent 0
+path 52 @9770807792522373384-1/testcutoff75mesh.hastaticmesh
 
 asset 2259222809987788695
 parent 0
@@ -101,9 +109,17 @@ asset 3038700182390986010
 parent 0
 path 30 sponza/6667038893015345571.jpg
 
+asset 3154200429867416261
+parent 8015345852571305201
+path 42 @9770807792522373384-1/matblend.hamaterial
+
 asset 3244898225665951552
 parent 0
 path 60 flighthelmet/flighthelmet_materials_metalpartsmat_normal.png
+
+asset 3892937471265145910
+parent 8015345852571305201
+path 43 @9770807792522373384-5/matopaque.hamaterial
 
 asset 4081248235208194876
 parent 0
@@ -120,6 +136,10 @@ path 62 flighthelmet/flighthelmet_materials_leatherpartsmat_normal.png
 asset 4616202591534216497
 parent 0
 path 31 sponza/14267839433702832875.jpg
+
+asset 4631150335493291018
+parent 0
+path 52 @9770807792522373384-0/testcutoff25mesh.hastaticmesh
 
 asset 4757095566624441645
 parent 8015345852571305201
@@ -209,6 +229,10 @@ asset 7056638684453626189
 parent 0
 path 75 flighthelmet/flighthelmet_materials_leatherpartsmat_occlusionroughmetal.png
 
+asset 7213917854495828532
+parent 0
+path 47 alphatest/matbed_occlusionroughnessmetallic.jpg
+
 asset 7356666216630384374
 parent 0
 path 18 sponza/sponza.gltf
@@ -237,6 +261,10 @@ asset 8165342927083170180
 parent 0
 path 11 skybox.glsl
 
+asset 8229898394157980959
+parent 0
+path 51 @9770807792522373384-4/greenarrowsmesh.hastaticmesh
+
 asset 8511563891712690352
 parent 0
 path 65 flighthelmet/flighthelmet_materials_leatherpartsmat_basecolor.png
@@ -249,9 +277,17 @@ asset 8562793866600164516
 parent 0
 path 31 sponza/10381718147657362067.jpg
 
+asset 8645366296665119235
+parent 0
+path 30 alphatest/matbed_basecolor.jpg
+
 asset 8703712129371289246
 parent 0
 path 29 sponza/755318871556304029.jpg
+
+asset 8717310569931951559
+parent 0
+path 12 box/box.gltf
 
 asset 8930565855077807393
 parent 0
@@ -260,6 +296,10 @@ path 16 sponza/white.png
 asset 8956290061029911134
 parent 0
 path 16 skybox/right.jpg
+
+asset 8974320423326970516
+parent 0
+path 50 @9770807792522373384-6/testopaquemesh.hastaticmesh
 
 asset 9092432160110521802
 parent 0
@@ -280,6 +320,10 @@ path 42 @7356666216630384374-0/sponza.hastaticmesh
 asset 9745211643176234536
 parent 0
 path 63 flighthelmet/flighthelmet_materials_metalpartsmat_basecolor.png
+
+asset 9770807792522373384
+parent 0
+path 33 alphatest/alphablendmodetest.gltf
 
 asset 9841935891203517085
 parent 8015345852571305201
@@ -333,6 +377,10 @@ asset 11006192681211403832
 parent 0
 path 29 sponza/715093869573992647.jpg
 
+asset 11154135374231199016
+parent 8015345852571305201
+path 37 @8717310569931951559-0/red.hamaterial
+
 asset 11193936441130767775
 parent 8165342927083170180
 path 28 skybox/skybox_mat.hamaterial
@@ -364,6 +412,14 @@ path 31 sponza/13196865903111448057.jpg
 asset 12073274582355000325
 parent 0
 path 63 flighthelmet/flighthelmet_materials_rubberwoodmat_basecolor.png
+
+asset 12182689722498211310
+parent 0
+path 49 @9770807792522373384-3/testblendmesh.hastaticmesh
+
+asset 12330453863243145301
+parent 0
+path 40 @8717310569931951559-0/mesh.hastaticmesh
 
 asset 12438951073060705066
 parent 0
@@ -425,6 +481,10 @@ asset 14313089425438485138
 parent 0
 path 30 sponza/4477655471536070370.jpg
 
+asset 14352176439212576655
+parent 8015345852571305201
+path 45 @9770807792522373384-2/matcutoff25.hamaterial
+
 asset 14437952861905001179
 parent 0
 path 31 sponza/11968150294050148237.jpg
@@ -453,9 +513,17 @@ asset 15054953919755052540
 parent 0
 path 31 sponza/14118779221266351425.jpg
 
+asset 15671134324778876631
+parent 0
+path 27 alphatest/matbed_normal.jpg
+
 asset 15726027973580394537
 parent 0
 path 16 skybox/front.jpg
+
+asset 15890191851345845317
+parent 8015345852571305201
+path 50 @9770807792522373384-4/matcutoffdefault.hamaterial
 
 asset 16100182631515934415
 parent 0
@@ -465,9 +533,17 @@ asset 16113869882062232887
 parent 0
 path 73 flighthelmet/flighthelmet_materials_metalpartsmat_occlusionroughmetal.png
 
+asset 16306991298944523000
+parent 0
+path 30 alphatest/alphablendlabels.png
+
 asset 16313714981842005780
 parent 0
 path 15 skybox/back.jpg
+
+asset 16382431776745144380
+parent 0
+path 43 @9770807792522373384-2/bedmesh.hastaticmesh
 
 asset 16422886232839313457
 parent 8015345852571305201
@@ -492,6 +568,10 @@ path 29 sponza/332936164838540657.jpg
 asset 16870145038460440800
 parent 0
 path 30 sponza/8114461559286000061.jpg
+
+asset 16944760079330843920
+parent 0
+path 51 @9770807792522373384-5/decalopaquemesh.hastaticmesh
 
 asset 17052849345131950459
 parent 0
@@ -521,6 +601,10 @@ asset 17503357348022033327
 parent 0
 path 27 corset/corset_basecolor.png
 
+asset 17651245420790079341
+parent 0
+path 57 @9770807792522373384-8/testcutoffdefaultmesh.hastaticmesh
+
 asset 17704958554211029977
 parent 0
 path 23 cube/cube_basecolor.png
@@ -528,6 +612,10 @@ path 23 cube/cube_basecolor.png
 asset 17854286579452636849
 parent 0
 path 30 sponza/8006627369776289000.png
+
+asset 17867319842521519642
+parent 0
+path 50 @9770807792522373384-7/decalblendmesh.hastaticmesh
 
 asset 17957276830666177284
 parent 8015345852571305201
@@ -540,6 +628,10 @@ path 31 sponza/15722799267630235092.jpg
 asset 18060137150482840628
 parent 0
 path 30 flighthelmet/flighthelmet.gltf
+
+asset 18131571919129144723
+parent 8015345852571305201
+path 45 @9770807792522373384-3/matcutoff75.hamaterial
 
 asset 18143047514799041325
 parent 8015345852571305201

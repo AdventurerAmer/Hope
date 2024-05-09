@@ -241,9 +241,13 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
         if (stage == Shader_Stage::VERTEX)
         {
             vertex_shader_input_count = u64_to_u32(resources.stage_inputs.size());
-            vertex_input_binding_descriptions = HE_ALLOCATE_ARRAY(allocator, VkVertexInputBindingDescription, vertex_shader_input_count);
-            vertex_input_attribute_descriptions = HE_ALLOCATE_ARRAY(allocator, VkVertexInputAttributeDescription, vertex_shader_input_count);
             
+            if (vertex_shader_input_count)
+            {
+                vertex_input_binding_descriptions = HE_ALLOCATE_ARRAY(allocator, VkVertexInputBindingDescription, vertex_shader_input_count);
+                vertex_input_attribute_descriptions = HE_ALLOCATE_ARRAY(allocator, VkVertexInputAttributeDescription, vertex_shader_input_count);
+            }
+
             U32 input_index = 0;
 
             for (auto &input : resources.stage_inputs)
@@ -274,6 +278,29 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
             const auto &type = compiler.get_type(resource.type_id);
             VkDescriptorSetLayoutBinding &binding = find_or_add_binding(sets[set_index], binding_number);
             binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            binding.stageFlags |= get_shader_stage(stage);
+            
+            U32 descriptor_count = 1;
+            if (!type.array.empty())
+            {
+                descriptor_count = type.array[0];
+                if (!descriptor_count)
+                {
+                    descriptor_count = HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT;
+                }
+            }
+
+            binding.descriptorCount = descriptor_count;
+        }
+
+        for (auto &resource : resources.storage_images)
+        {
+            U32 set_index = compiler.get_decoration(resource.id, spv::DecorationDescriptorSet);
+            U32 binding_number = compiler.get_decoration(resource.id, spv::DecorationBinding);
+            
+            const auto &type = compiler.get_type(resource.type_id);
+            VkDescriptorSetLayoutBinding &binding = find_or_add_binding(sets[set_index], binding_number);
+            binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             binding.stageFlags |= get_shader_stage(stage);
             
             U32 descriptor_count = 1;
@@ -695,21 +722,27 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
         color_mask |= VK_COLOR_COMPONENT_A_BIT;
     }
 
-    VkPipelineColorBlendAttachmentState color_blend_attachment_state = {};
-    color_blend_attachment_state.colorWriteMask = color_mask;
-    color_blend_attachment_state.blendEnable = descriptor.settings.alpha_blending ? VK_TRUE : VK_FALSE;
-    color_blend_attachment_state.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-    color_blend_attachment_state.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
-    color_blend_attachment_state.colorBlendOp = VK_BLEND_OP_ADD;
-    color_blend_attachment_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    color_blend_attachment_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    color_blend_attachment_state.alphaBlendOp = VK_BLEND_OP_ADD;
+    VkPipelineColorBlendAttachmentState *blend_states = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkPipelineColorBlendAttachmentState, render_pass->color_attachments.count);
+    for (U32 i = 0; i < render_pass->color_attachments.count; i++)
+    {
+        VkPipelineColorBlendAttachmentState &blend_state = blend_states[i];
+        blend_state.colorWriteMask = color_mask;
+        blend_state.blendEnable = descriptor.settings.alpha_blending ? VK_TRUE : VK_FALSE;
 
+        blend_state.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blend_state.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend_state.colorBlendOp = VK_BLEND_OP_ADD;
+
+        blend_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        blend_state.alphaBlendOp = VK_BLEND_OP_ADD;
+    }
+    
     VkPipelineColorBlendStateCreateInfo color_blend_state_create_info = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
     color_blend_state_create_info.logicOpEnable = VK_FALSE;
     color_blend_state_create_info.logicOp = VK_LOGIC_OP_COPY;
-    color_blend_state_create_info.attachmentCount = 1;
-    color_blend_state_create_info.pAttachments = &color_blend_attachment_state;
+    color_blend_state_create_info.attachmentCount = render_pass->color_attachments.count;
+    color_blend_state_create_info.pAttachments = blend_states;
     color_blend_state_create_info.blendConstants[0] = 0.0f;
     color_blend_state_create_info.blendConstants[1] = 0.0f;
     color_blend_state_create_info.blendConstants[2] = 0.0f;

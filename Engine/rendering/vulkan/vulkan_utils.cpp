@@ -111,9 +111,24 @@ VkFormat get_texture_format(Texture_Format texture_format)
             return VK_FORMAT_B8G8R8A8_UNORM;
         } break;
 
+        case Texture_Format::R32G32B32A32_SFLOAT:
+        {
+            return VK_FORMAT_R32G32B32A32_SFLOAT;
+        } break;
+
+        case Texture_Format::R32G32B32_SFLOAT:
+        {
+            return VK_FORMAT_R32G32B32_SFLOAT;
+        } break;
+
         case Texture_Format::R32_SINT:
         {
             return VK_FORMAT_R32_SINT;
+        } break;
+
+        case Texture_Format::R32_UINT:
+        {
+            return VK_FORMAT_R32_UINT;
         } break;
 
         case Texture_Format::DEPTH_F32_STENCIL_U8:
@@ -195,6 +210,9 @@ void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U3
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
         destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     }
+    else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_GENERAL)
+    {
+    }
     else
     {
         HE_ASSERT(false);
@@ -219,9 +237,10 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
     command_buffer_allocate_info.commandBufferCount = 1;
     command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-    VkCommandBuffer command_buffer = {};
+    VkCommandBuffer command_buffer = {}; // todo(amer): @Leak
     vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
     vkResetCommandBuffer(command_buffer, 0);
+
 
     Vulkan_Upload_Request *vulkan_upload_request = &context->upload_requests[upload_request_handle.index];
     vulkan_upload_request->graphics_command_pool = thread_state->graphics_command_pool;
@@ -236,6 +255,7 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
 
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
     transtion_image_to_layout(command_buffer, image->handle, mip_levels, layer_count, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
 
     // todo(amer): only supporting RGBA for now.
     U64 size = (U64)width * (U64)height * sizeof(U32);
@@ -350,6 +370,7 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
     submit_info.pSignalSemaphoreInfos = &semaphore_submit_info;
 
     context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+
 }
 
 Vulkan_Thread_State *get_thread_state(Vulkan_Context *context)

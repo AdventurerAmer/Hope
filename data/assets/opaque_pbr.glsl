@@ -31,13 +31,13 @@ void main()
     mat4 local_to_world = instances[gl_InstanceIndex].local_to_world;
 
     vec4 world_position = local_to_world * vec4(in_position, 1.0);
-    frag_input.position = world_position.xyz;
     gl_Position = globals.projection * globals.view * world_position;
 
     mat3 normal_matrix = transpose(inverse(mat3(local_to_world)));
     vec3 normal = normalize(normal_matrix * in_normal);
     vec4 tangent = vec4(normalize(normal_matrix * in_tangent.xyz), in_tangent.w);
 
+    frag_input.position = world_position.xyz;
     frag_input.uv = in_uv;
     frag_input.normal = normal;
     frag_input.tangent = tangent;
@@ -46,6 +46,8 @@ void main()
 #type fragment
 
 #version 450
+
+layout (early_fragment_tests) in;
 
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_nonuniform_qualifier : enable
@@ -80,6 +82,18 @@ layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_BINS_STORAG
     uint light_bins[];
 };
 
+layout (set = SHADER_PASS_BIND_GROUP, binding = SHADER_HEAD_INDEX_STORAGE_IMAGE_BINDING, r32ui) uniform coherent uimage2D head_index_image;
+
+layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_NODE_STORAGE_BUFFER_BINDING) writeonly buffer Node_Buffer
+{
+    Node nodes[];
+};
+
+layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_NODE_COUNT_STORAGE_BUFFER_BINDING) writeonly buffer Node_Count_Buffer
+{
+    int node_count;
+};
+
 layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFORM_BUFFER_BINDING) uniform Material
 {
     uint albedo_texture;
@@ -94,6 +108,7 @@ layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFOR
     float alpha_cutoff;
 
     uint occlusion_texture;
+    uint type;
 } material;
 
 layout(location = 0) out vec4 out_color;
@@ -102,17 +117,15 @@ void main()
 {
     float gamma = globals.gamma;
 
-    vec4 base_color = sample_texture( material.albedo_texture, frag_input.uv );
+    vec4 base_color = srgb_to_linear( sample_texture( material.albedo_texture, frag_input.uv ), gamma );
     float alpha = base_color.a * material.albedo_color.a;
 
-    if (alpha < material.alpha_cutoff)
+    if (material.type == MATERIAL_TYPE_ALPHA_CUTOFF && alpha < material.alpha_cutoff)
     {
         discard;
     }
 
-    vec3 albedo = srgb_to_linear( base_color.rgb, gamma );
-    albedo *= srgb_to_linear( material.albedo_color.rgb, gamma );
-
+    vec3 albedo = base_color.rgb * material.albedo_color.rgb;
     vec3 roughness_metallic = sample_texture( material.roughness_metallic_texture, frag_input.uv ).rgb;
 
     float roughness = roughness_metallic.g;
@@ -146,7 +159,6 @@ void main()
 
     uvec2 coords = uvec2(gl_FragCoord.xy);
 
-    float rmin = 0.0001;
     vec3 Lo = vec3(0.0f);
 
     for (uint light_index = 0; light_index < globals.directional_light_count; ++light_index)
@@ -188,7 +200,7 @@ void main()
             case LIGHT_TYPE_SPOT:
             {
                 // NOTE: L is an out param
-                attenuation = calc_spot_light_attenuation(light.position, light.radius, light.direction, light.outer_angle, light.inner_angle, frag_input.position, L); // L is an out param
+                attenuation = calc_spot_light_attenuation(light.position, light.radius, light.direction, light.outer_angle, light.inner_angle, frag_input.position, L);
             } break;
         }
 
@@ -196,9 +208,32 @@ void main()
         Lo += brdf(L, radiance, N, V, NdotV, albedo, roughness, metallic, material.reflectance);
     }
 
-    vec3 ambient = globals.ambient * albedo * occlusion;
-    vec3 color = ambient + Lo;
-    color = color / (color + vec3(1.0));
-    color = linear_to_srgb(color, gamma);
-    out_color = vec4(color, 1.0);
+    // vec3 ambient = globals.ambient * albedo * occlusion;
+    // vec3 color = ambient + Lo;
+    vec3 color = globals.ambient * albedo * occlusion + Lo;
+
+    // if (material.type == MATERIAL_TYPE_TRANSPARENT)
+    // {
+    //     int node_index = atomicAdd(node_count, 1);
+    //     if (node_index < globals.max_node_count)
+    //     {
+    //         uint prev_head_index = imageAtomicExchange( head_index_image, ivec2(coords), node_index );
+    //         nodes[node_index].color = vec4(color, alpha);
+    //         nodes[node_index].depth = gl_FragCoord.z;
+    //         nodes[node_index].next = prev_head_index;
+    //     }
+    // }
+
+    int node_index = atomicAdd(node_count, 1);
+    if (node_index < globals.max_node_count)
+    {
+        uint prev_head_index = imageAtomicExchange( head_index_image, ivec2(coords), node_index );
+        nodes[node_index].color = vec4(color, alpha);
+        nodes[node_index].depth = gl_FragCoord.z;
+        nodes[node_index].next = prev_head_index;
+    }
+
+    // color = color / (color + vec3(1.0));
+    // color = linear_to_srgb(color, gamma);
+    out_color = vec4(color, 1.0f);
 }

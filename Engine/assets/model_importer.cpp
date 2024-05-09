@@ -6,6 +6,7 @@
 #include "core/platform.h"
 
 #include "rendering/renderer.h"
+#include "rendering/renderer_utils.h" 
 
 #include <ExcaliburHash/ExcaliburHash.h>
 
@@ -288,6 +289,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             .fill_mode = Fill_Mode::SOLID,
             .depth_testing = true,
             .sample_shading = true,
+            .color_mask = (Color_Write_Mask)0
         };
 
         float alpha_cutoff = 0.0f;
@@ -322,8 +324,11 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             reflectance = f * f;
         }
 
+        glm::vec4 base_color = *(glm::vec4 *)material->pbr_metallic_roughness.base_color_factor;
+        base_color = linear_to_srgb(base_color, renderer_state->gamma);
+
         set_property(material_handle, HE_STRING_LITERAL("albedo_texture"), { .u64 = albedo_texture.uuid });
-        set_property(material_handle, HE_STRING_LITERAL("albedo_color"), { .v4f = *(glm::vec4 *)material->pbr_metallic_roughness.base_color_factor });
+        set_property(material_handle, HE_STRING_LITERAL("albedo_color"), { .v4f = base_color });
         set_property(material_handle, HE_STRING_LITERAL("normal_texture"), { .u64 = normal_texture.uuid });
         set_property(material_handle, HE_STRING_LITERAL("roughness_metallic_texture"), { .u64 = roughness_metallic_texture.uuid });
         set_property(material_handle, HE_STRING_LITERAL("roughness_factor"), { .f32 = material->pbr_metallic_roughness.roughness_factor });
@@ -331,6 +336,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         set_property(material_handle, HE_STRING_LITERAL("occlusion_texture"), { .u64 = occlusion_texture.uuid });
         set_property(material_handle, HE_STRING_LITERAL("alpha_cutoff"), { .f32 = alpha_cutoff });
         set_property(material_handle, HE_STRING_LITERAL("reflectance"), { .f32 = reflectance });
+        set_property(material_handle, HE_STRING_LITERAL("type"), { .u32 = (U32)material_type });
 
         return { .success = true, .index = material_handle.index, .generation = material_handle.generation };
     }
@@ -355,8 +361,8 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             HE_ASSERT(primitive->type == cgltf_primitive_type_triangles);
 
             HE_ASSERT(primitive->indices->type == cgltf_type_scalar);
-            HE_ASSERT(primitive->indices->component_type == cgltf_component_type_r_16u);
-            HE_ASSERT(primitive->indices->stride == sizeof(U16));
+            HE_ASSERT(primitive->indices->component_type == cgltf_component_type_r_16u || primitive->indices->component_type == cgltf_component_type_r_8u);
+            HE_ASSERT(primitive->indices->stride == sizeof(U16) || primitive->indices->stride == sizeof(U8));
 
             sub_meshes[sub_mesh_index].vertex_offset = u64_to_u32(total_vertex_count);
             sub_meshes[sub_mesh_index].index_offset = u64_to_u32(total_index_count);
@@ -436,7 +442,19 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             const auto *accessor = primitive->indices;
             const auto *view = accessor->buffer_view;
             U8 *data = (U8 *)view->buffer->data + view->offset + accessor->offset;
-            copy_memory(indices + sub_meshes[sub_mesh_index].index_offset, data, primitive->indices->count * sizeof(U16));
+            if (primitive->indices->stride == sizeof(U8))
+            {
+                U16 *ind = indices + sub_meshes[sub_mesh_index].index_offset;
+
+                for (U32 i = 0; i < primitive->indices->count; i++)
+                {
+                    ind[i] = data[i];
+                }
+            }
+            else
+            {
+                copy_memory(indices + sub_meshes[sub_mesh_index].index_offset, data, primitive->indices->count * sizeof(U16));
+            }
 
             for (U32 attribute_index = 0; attribute_index < primitive->attributes_count; attribute_index++)
             {
@@ -551,9 +569,6 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             .scale = *(glm::vec3*)&node->scale
         };
 
-        S64 mesh_index = (S64)(node->mesh - model_data->meshes);
-        HE_ASSERT(mesh_index >= 0 && (S64)model_data->meshes_count);
-
         Scene_Node *scene_node = &nodes[node_index];
         scene_node->name = copy_string(node_name, to_allocator(allocator));
         scene_node->transform = transform;
@@ -561,6 +576,9 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
 
         if (node->mesh)
         {
+            S64 mesh_index = (S64)(node->mesh - model_data->meshes);
+            HE_ASSERT(mesh_index >= 0 && (S64)model_data->meshes_count);
+
             cgltf_mesh *static_mesh = node->mesh;
             String static_mesh_path = get_embedded_asset_path(model_data, static_mesh, asset_handle, scratch_memory.arena);
             scene_node->has_mesh = true;

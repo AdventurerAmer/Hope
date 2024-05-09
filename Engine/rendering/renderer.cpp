@@ -81,6 +81,8 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->set_index_buffer = &vulkan_renderer_set_index_buffer;
             renderer->set_pipeline_state = &vulkan_renderer_set_pipeline_state;
             renderer->draw_sub_mesh = &vulkan_renderer_draw_sub_mesh;
+            renderer->draw_fullscreen_triangle = &vulkan_renderer_draw_fullscreen_triangle;
+            renderer->fill_buffer = &vulkan_renderer_fill_buffer;
             renderer->end_frame = &vulkan_renderer_end_frame;
             renderer->set_vsync = &vulkan_renderer_set_vsync;
             renderer->get_texture_memory_requirements = &vulkan_renderer_get_texture_memory_requirements;
@@ -463,10 +465,21 @@ bool init_renderer_state(Engine *engine)
                 .usage = Buffer_Usage::TRANSFER,
             };
             render_data->scene_buffers[frame_index] = renderer_create_buffer(scene_buffer_descriptor);
+
+            render_data->head_index_textures[frame_index] = Resource_Pool< Texture >::invalid_handle;
+            render_data->node_buffers[frame_index] = Resource_Pool< Buffer >::invalid_handle;
+
+            Buffer_Descriptor node_count_buffer_descriptor =
+            {
+                .size = sizeof(S32),
+                .usage = Buffer_Usage::STORAGE_GPU_SIDE,
+            };
+            render_data->node_count_buffers[frame_index] = renderer_create_buffer(node_count_buffer_descriptor);
         }
     }
 
     {
+#if 0
         Allocator allocator = to_allocator(scratch_memory.arena);
         Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/depth_prepass.glsl"), allocator);
         String shader_source = { .count = result.size, .data = (const char *)result.data };
@@ -483,6 +496,9 @@ bool init_renderer_state(Engine *engine)
         renderer_state->depth_prepass_shader = renderer_create_shader(shader_descriptor);
         HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->depth_prepass_shader));
         renderer_destroy_shader_compilation_result(&compilation_result);
+#else
+        renderer_state->depth_prepass_shader = load_shader(HE_STRING_LITERAL("depth_prepass"));
+#endif
 
         Pipeline_State_Descriptor pipeline_state_descriptor =
         {
@@ -516,6 +532,60 @@ bool init_renderer_state(Engine *engine)
     }
 
     {
+#if 0
+        Allocator allocator = to_allocator(scratch_memory.arena);
+        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/transparent.glsl"), allocator);
+        String shader_source = { .count = result.size, .data = (const char *)result.data };
+
+        Shader_Compilation_Result compilation_result = renderer_compile_shader(shader_source, HE_STRING_LITERAL("shaders"));
+        HE_ASSERT(compilation_result.success);
+
+        Shader_Descriptor shader_descriptor =
+        {
+            .name = HE_STRING_LITERAL("transparent"),
+            .compilation_result = &compilation_result
+        };
+
+        renderer_state->transparent_shader = renderer_create_shader(shader_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->transparent_shader));
+        renderer_destroy_shader_compilation_result(&compilation_result);
+#else
+        renderer_state->transparent_shader = load_shader(HE_STRING_LITERAL("transparent"));
+#endif
+
+        Pipeline_State_Descriptor transparent_pipeline_descriptor =
+        {
+            .settings =
+            {
+                .cull_mode = Cull_Mode::NONE,
+                .front_face = Front_Face::COUNTER_CLOCKWISE,
+                .fill_mode = Fill_Mode::SOLID,
+
+                .depth_operation = Compare_Operation::LESS_OR_EQUAL,
+                .depth_testing = true,
+                .depth_writing = false,
+
+                .stencil_operation = Compare_Operation::ALWAYS,
+                .stencil_fail = Stencil_Operation::KEEP,
+                .stencil_pass = Stencil_Operation::KEEP,
+                .depth_fail = Stencil_Operation::KEEP,
+                .stencil_compare_mask = 0xFF,
+                .stencil_write_mask = 0xFF,
+                .stencil_reference_value = 0,
+                .stencil_testing = false,
+
+                .sample_shading = false,
+                .alpha_blending = false
+            },
+            .shader = renderer_state->transparent_shader,
+            .render_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("transparent")), // todo(amer): we should not depend on the render graph here...
+        };
+
+        renderer_state->transparent_pipeline = renderer_create_pipeline_state(transparent_pipeline_descriptor);
+    }
+
+    {
+#if 0
         Allocator allocator = to_allocator(scratch_memory.arena);
         Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/outline.glsl"), allocator);
         String shader_source = { .count = result.size, .data = (const char *)result.data };
@@ -532,6 +602,8 @@ bool init_renderer_state(Engine *engine)
         renderer_state->outline_shader = renderer_create_shader(shader_descriptor);
         HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->outline_shader));
         renderer_destroy_shader_compilation_result(&compilation_result);
+#endif
+        renderer_state->outline_shader = load_shader(HE_STRING_LITERAL("outline"));
 
         Material_Descriptor first_pass_outline_material =
         {
@@ -544,7 +616,7 @@ bool init_renderer_state(Engine *engine)
                 .front_face = Front_Face::COUNTER_CLOCKWISE,
                 .fill_mode = Fill_Mode::SOLID,
 
-                .depth_operation = Compare_Operation::LESS,
+                .depth_operation = Compare_Operation::LESS_OR_EQUAL,
                 .depth_testing = false,
                 .depth_writing = false,
 
@@ -573,7 +645,7 @@ bool init_renderer_state(Engine *engine)
                 .front_face = Front_Face::COUNTER_CLOCKWISE,
                 .fill_mode = Fill_Mode::SOLID,
 
-                .depth_operation = Compare_Operation::LESS,
+                .depth_operation = Compare_Operation::LESS_OR_EQUAL,
                 .depth_testing = false,
                 .depth_writing = false,
 
@@ -761,6 +833,7 @@ Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
     texture->is_cubemap = descriptor.is_cubemap;
     texture->format = descriptor.format;
     texture->sample_count = descriptor.sample_count;
+    texture->is_storage = descriptor.is_storage;
     texture->alias = descriptor.alias;
     return texture_handle;
 }
@@ -899,7 +972,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
     shaderc_compile_options_set_include_callbacks(options, shaderc_include_resolve, shaderc_include_result_release, shaderc_userdata);
     shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
     shaderc_compile_options_set_generate_debug_info(options);
-    shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_performance);
+    shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_zero); // todo(amer): shaderc_optimization_level_performance
     shaderc_compile_options_set_auto_map_locations(options, true);
 
     static String shader_stage_signature[(U32)Shader_Stage::COUNT];
@@ -999,6 +1072,30 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
 
     compilation_result.success = true;
     return compilation_result;
+}
+
+Shader_Handle load_shader(String name)
+{
+    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+
+    Allocator allocator = to_allocator(scratch_memory.arena);
+    Read_Entire_File_Result result = read_entire_file( format_string(scratch_memory.arena, "shaders/%.*s.glsl", HE_EXPAND_STRING(name)), allocator);
+    String shader_source = { .count = result.size, .data = (const char *)result.data };
+
+    Shader_Compilation_Result compilation_result = renderer_compile_shader(shader_source, HE_STRING_LITERAL("shaders"));
+    HE_ASSERT(compilation_result.success);
+
+    Shader_Descriptor shader_descriptor =
+    {
+        .name = name,
+        .compilation_result = &compilation_result
+    };
+
+    Shader_Handle shader = renderer_create_shader(shader_descriptor);
+    HE_ASSERT(is_valid_handle(&renderer_state->shaders, shader));
+    renderer_destroy_shader_compilation_result(&compilation_result);
+
+    return shader;
 }
 
 void renderer_destroy_shader_compilation_result(Shader_Compilation_Result *result)
@@ -1367,7 +1464,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         material->name = copy_string(descriptor.name, to_allocator(get_general_purpose_allocator()));
     }
 
-    String pass_name = descriptor.type == Material_Type::TRANSPARENT ? HE_STRING_LITERAL("transparent") : HE_STRING_LITERAL("opaque");
+    String pass_name = HE_STRING_LITERAL("opaque");
 
     Pipeline_State_Descriptor pipeline_state_desc =
     {
@@ -1514,6 +1611,25 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
     {
         U32 *texture_index = (U32 *)&material->data[property->offset_in_buffer];
         *texture_index = (U32)renderer_state->white_pixel_texture.index;
+    }
+    else if (property->is_color)
+    {
+        switch (property->data_type)
+        {
+            case Shader_Data_Type::VECTOR3F:
+            {
+                // srgb to linear
+                glm::vec3 *color = (glm::vec3 *)&material->data[property->offset_in_buffer];
+                *color = srgb_to_linear(property->data.v3f, renderer_state->gamma);
+            } break;
+
+            case Shader_Data_Type::VECTOR4F:
+            {
+                // srgb to linear
+                glm::vec4 *color = (glm::vec4 *)&material->data[property->offset_in_buffer];
+                *color = srgb_to_linear(property->data.v4f, renderer_state->gamma);
+            } break;
+        }
     }
     else
     {
@@ -2593,6 +2709,9 @@ void begin_rendering(const Camera *camera)
     F32 *z_near = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("z_near"));
     F32 *z_far = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("z_far"));
 
+    S32 *max_node_count = (S32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("max_node_count"));
+    *max_node_count = renderer_state->back_buffer_width * renderer_state->back_buffer_height * 20;
+
     *view = glm::mat4(1.0f);
     *projection = glm::mat4(1.0f);
     *eye = glm::vec3(0.0f);
@@ -2647,9 +2766,64 @@ void begin_rendering(const Camera *camera)
         render_data->light_bins[frame_index] = renderer_create_buffer(light_bins_buffer_descriptor);
     }
 
+    Texture_Handle head_index_texture_handle = render_data->head_index_textures[frame_index];
+    bool recreate_head_index_buffer = !is_valid_handle(&renderer_state->textures, head_index_texture_handle);
+
+    if (is_valid_handle(&renderer_state->textures, head_index_texture_handle))
+    {
+        Texture *head_index_texture = renderer_get_texture(head_index_texture_handle);
+        if (head_index_texture->width != renderer_state->back_buffer_width || head_index_texture->height != renderer_state->back_buffer_height)
+        {
+            recreate_head_index_buffer = true;
+            renderer_destroy_texture(head_index_texture_handle);
+        }
+    }
+
+    if (recreate_head_index_buffer)
+    {
+        Texture_Descriptor head_index_texture_descriptor =
+        {
+            .name = HE_STRING_LITERAL("head_index"),
+            .width = renderer_state->back_buffer_width,
+            .height = renderer_state->back_buffer_height,
+            .format = Texture_Format::R32_UINT,
+            .layer_count = 1,
+            .is_storage = true,
+        };
+        render_data->head_index_textures[frame_index] = renderer_create_texture(head_index_texture_descriptor);
+    }
+
+    Buffer_Handle node_buffer_handle = render_data->node_buffers[frame_index];
+    bool recreate_node_buffer = !is_valid_handle(&renderer_state->buffers, node_buffer_handle);
+
+    if (is_valid_handle(&renderer_state->buffers, node_buffer_handle))
+    {
+        Buffer *node_buffer = renderer_get_buffer(node_buffer_handle);
+        if (node_buffer->size != renderer_state->back_buffer_width * renderer_state->back_buffer_height * sizeof(Shader_Node) * 20)
+        {
+            recreate_node_buffer = true;
+            renderer_destroy_buffer(node_buffer_handle);
+        }
+    }
+
+    if (recreate_node_buffer)
+    {
+        Buffer_Descriptor node_buffer_descriptor =
+        {
+            .size = renderer_state->back_buffer_width * renderer_state->back_buffer_height * sizeof(Shader_Node) * 20,
+            .usage = Buffer_Usage::STORAGE_GPU_SIDE
+        };
+        render_data->node_buffers[frame_index] = renderer_create_buffer(node_buffer_descriptor);
+    }
+
+    vulkan_renderer_fill_image(render_data->head_index_textures[frame_index], HE_MAX_U32);
+    renderer->fill_buffer(render_data->node_count_buffers[frame_index], 0);
+    renderer->fill_buffer(render_data->node_buffers[frame_index], -1);
+
     render_data->current_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
     render_data->current_material_handle = Resource_Pool< Material >::invalid_handle;
     render_data->current_static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
+
     reset(&render_data->skybox_commands);
     reset(&render_data->opaque_commands);
     reset(&render_data->alpha_cutoff_commands);
@@ -2665,7 +2839,7 @@ void begin_rendering(const Camera *camera)
     {
         Texture *texture = get(&renderer_state->textures, it);
 
-        if (texture->is_attachment || !texture->is_uploaded_to_gpu)
+        if (texture->is_attachment || !texture->is_uploaded_to_gpu || texture->is_storage)
         {
             textures[it.index] = renderer_state->white_pixel_texture;
         }
@@ -2707,6 +2881,24 @@ void begin_rendering(const Camera *camera)
             .element_index = 0,
             .count = 1,
             .buffers = &render_data->light_bins[frame_index]
+        },
+        {
+            .binding_number = SHADER_HEAD_INDEX_STORAGE_IMAGE_BINDING,
+            .element_index = 0,
+            .count = 1,
+            .textures = &render_data->head_index_textures[frame_index]
+        },
+        {
+            .binding_number = SHADER_NODE_STORAGE_BUFFER_BINDING,
+            .element_index = 0,
+            .count = 1,
+            .buffers = &render_data->node_buffers[frame_index]
+        },
+        {
+            .binding_number = SHADER_NODE_COUNT_STORAGE_BUFFER_BINDING,
+            .element_index = 0,
+            .count = 1,
+            .buffers = &render_data->node_count_buffers[frame_index]
         },
         {
             .binding_number = SHADER_BINDLESS_TEXTURES_BINDING,
@@ -2752,7 +2944,7 @@ static bool calc_light_aabb(Shader_Light *light, const glm::vec3 &view_p, Frame_
         glm::vec3 corner_world_pos = glm::vec3(cx, cy, cz) * light->radius + light->position;
         glm::vec4 corner_view_pos = render_data->view * glm::vec4(corner_world_pos, 1.0f);
 
-        if (corner_view_pos.z > -render_data->near_z)
+        if (corner_view_pos.z > -render_data->near_z + 0.0001f)
         {
             corner_view_pos.z = -render_data->near_z;
         }
@@ -2790,11 +2982,11 @@ static bool calc_light_aabb(Shader_Light *light, const glm::vec3 &view_p, Frame_
     glm::vec2 screen_aabb_min = (aabb_min * 0.5f + half) * screen_size_minus_one;
     glm::vec2 screen_aabb_max = (aabb_max * 0.5f + half) * screen_size_minus_one;
 
-    U16 min_x = (U16)screen_aabb_min.x;
-    U16 min_y = (U16)screen_aabb_min.y;
+    U32 min_x = (U32)screen_aabb_min.x;
+    U32 min_y = (U32)screen_aabb_min.y;
 
-    U16 max_x = (U16)screen_aabb_max.x;
-    U16 max_y = (U16)screen_aabb_max.y;
+    U32 max_x = (U32)screen_aabb_max.x;
+    U32 max_y = (U32)screen_aabb_max.y;
 
     light->screen_aabb = { min_x | (min_y << 16), max_x | (max_y << 16) };
     return true;
@@ -2893,7 +3085,7 @@ void end_rendering()
         U32 min_light_index = light_count + 1;
         U32 max_light_index = 0;
 
-        F32 eps = 0.0001f;
+        F32 eps = 0.001f;
         F32 bin_min = (bin_index * light_bin_size) - eps;
         F32 bin_max = (bin_index + 1) * light_bin_size + eps;
 

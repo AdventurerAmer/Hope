@@ -3,10 +3,10 @@
 #version 450
 
 #extension GL_GOOGLE_include_directive : enable
-#extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_nonuniform_qualifier : enable
 
-#include "common.glsl"
+#include "../shaders/common.glsl"
 
 layout (location = 0) in vec3 in_position;
 
@@ -15,19 +15,11 @@ layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_INSTANCE_STORA
     Instance_Data instances[];
 };
 
-layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFORM_BUFFER_BINDING) uniform Material
-{
-    vec3 outline_color;
-    uint outline_texture_index;
-    float scale_factor;
-} material;
-
 void main()
 {
-    mat4 local_to_world = instances[gl_InstanceIndex].local_to_world;
-
-    vec4 world_position = local_to_world * vec4(in_position * material.scale_factor, 1.0);
-    gl_Position = globals.projection * globals.view * world_position;
+    vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+    float noop = NOOP(in_position.x) * NOOP(float(instances[gl_InstanceIndex].entity_index)) * NOOP(globals.gamma);
+    gl_Position = vec4(uv * 2.0f + -1.0f, 0.0f, 1.0f) * noop;
 }
 
 #type fragment
@@ -38,9 +30,7 @@ void main()
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
 
-#include "common.glsl"
-
-layout(location = 0) out vec4 out_color;
+#include "../shaders/common.glsl"
 
 layout(set = SHADER_PASS_BIND_GROUP, binding = SHADER_BINDLESS_TEXTURES_BINDING) uniform sampler2D u_textures[];
 
@@ -71,17 +61,49 @@ layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_NODE_COUNT_STORAG
     int node_count;
 };
 
-layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFORM_BUFFER_BINDING) uniform Material
-{
-    vec3 outline_color;
-    uint outline_texture_index;
-    float scale_factor;
-} material;
+layout(location = 0) out vec4 out_color;
+
+#define MAX_FRAGMENT_COUNT 128
 
 void main()
 {
-    vec3 outline_texture = srgb_to_linear( sample_texture( material.outline_texture_index, vec2(0.0, 0.0)).rgb, globals.gamma );
+    Node fragments[MAX_FRAGMENT_COUNT];
+    int count = 0;
 
-    float noop = NOOP(float(nodes[0].color.r)) * NOOP(float(node_count)) * NOOP(lights[0].color.x) * NOOP(float(light_bins[0]));
-    out_color = vec4(linear_to_srgb(material.outline_color, globals.gamma), 1.0) * noop;
+    ivec2 coords = ivec2(gl_FragCoord.xy);
+    uint node_index = imageLoad(head_index_image, coords).r;
+
+    while (node_index != 0xffffffff && count < MAX_FRAGMENT_COUNT)
+    {
+        fragments[count] = nodes[node_index];
+        node_index = fragments[count].next;
+        ++count;
+    }
+
+    // Do the insertion sort
+    for (uint i = 1; i < count; ++i)
+    {
+        Node insert = fragments[i];
+        uint j = i;
+        while (j > 0 && insert.depth > fragments[j - 1].depth)
+        {
+            fragments[j] = fragments[j - 1];
+            --j;
+        }
+        fragments[j] = insert;
+    }
+
+    vec4 color = fragments[0].color;
+
+    for (int i = 1; i < count; ++i)
+    {
+        color = mix(color, fragments[i].color, fragments[i].color.a);
+    }
+
+    float noop = NOOP(lights[0].color.r) * NOOP(float(light_bins[0])) * NOOP(float(node_count));
+
+    vec3 c = color.rgb;
+    c = c / (c + vec3(1.0));
+    c = linear_to_srgb(c, globals.gamma);
+    out_color = vec4(c * noop, 1.0);
 }

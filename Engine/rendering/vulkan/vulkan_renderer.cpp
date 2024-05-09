@@ -36,7 +36,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageS
     {
         "VUID-VkSwapchainCreateInfoKHR-imageFormat-01778",
         "VUID-VkImageViewCreateInfo-usage-02275",
-        "UNASSIGNED-Threading-MultipleThreads-Write",
+        "UNASSIGNED-Threading-MultipleThreads-Write"
     };
 
     for (U32 i = 0; i < HE_ARRAYCOUNT(black_list); i++)
@@ -864,6 +864,60 @@ void vulkan_renderer_draw_sub_mesh(Static_Mesh_Handle static_mesh_handle, U32 fi
     vkCmdDrawIndexed(context->command_buffer, sub_mesh->index_count, instance_count, first_index, first_vertex, first_instance);
 }
 
+void vulkan_renderer_draw_fullscreen_triangle()
+{
+    Vulkan_Context *context = &vulkan_context;
+    vkCmdDraw(context->command_buffer, 3, 1, 0, 0);
+}
+
+void vulkan_renderer_fill_buffer(Buffer_Handle buffer_handle, U32 value)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Buffer *vulkan_buffer = &context->buffers[buffer_handle.index];
+    vkCmdFillBuffer(context->command_buffer, vulkan_buffer->handle, 0, VK_WHOLE_SIZE, value);
+
+    VkMemoryBarrier barrier { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+}
+
+void vulkan_renderer_fill_image(Texture_Handle texture_handle, U32 value)
+{
+
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Image *vulkan_image = &context->textures[texture_handle.index];
+
+    VkImageSubresourceRange sub_resource_range = {};
+	sub_resource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	sub_resource_range.levelCount = 1;
+	sub_resource_range.layerCount = 1;
+
+    VkClearColorValue clear_value = {};
+    clear_value.uint32[0] = value;
+    vkCmdClearColorImage(context->command_buffer, vulkan_image->handle, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1, &sub_resource_range);
+
+    VkMemoryBarrier barrier { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
+
+    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+}
+
+void vulkan_renderer_barrier()
+{
+    Vulkan_Context *context = &vulkan_context;
+
+    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 0, nullptr);
+
+    // We need a barrier to make sure all writes are finished before starting to write again
+    VkMemoryBarrier barrier { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+    barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+
+}
+
 void vulkan_renderer_end_frame()
 {
     Vulkan_Context *context = &vulkan_context;
@@ -1024,6 +1078,10 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
         {
             usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         }
+        else if (descriptor.is_storage)
+        {
+            usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_STORAGE_BIT;
+        }
         else
         {
             usage = VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
@@ -1095,6 +1153,37 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
         Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
         VkFormat format = get_texture_format(descriptor.format);
         copy_data_to_image(context, image, descriptor.width, descriptor.height, mip_levels, descriptor.layer_count, format, descriptor.data_array, upload_request_handle);
+    }
+    else if (descriptor.is_storage)
+    {
+        Vulkan_Thread_State *thread_state = get_thread_state(context);
+
+        VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+        command_buffer_allocate_info.commandPool = thread_state->graphics_command_pool;
+        command_buffer_allocate_info.commandBufferCount = 1;
+        command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+        VkCommandBuffer command_buffer = {};
+        vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
+        vkResetCommandBuffer(command_buffer, 0);
+
+        VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+        command_buffer_begin_info.flags = 0;
+        command_buffer_begin_info.pInheritanceInfo = 0;
+
+        vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
+        transtion_image_to_layout(command_buffer, image->handle, mip_levels, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        vkEndCommandBuffer(command_buffer);
+
+        VkCommandBufferSubmitInfo command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+        command_buffer_submit_info.commandBuffer = command_buffer;
+
+        VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
+        submit_info.commandBufferInfoCount = 1;
+        submit_info.pCommandBufferInfos = &command_buffer_submit_info;
+
+        context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+        vkQueueWaitIdle(context->graphics_queue);
     }
     
     texture->size = image->allocation_info.size;
@@ -1360,19 +1449,39 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
             write_descriptor_set->pBufferInfo = buffer_infos;
         }
 
-        if (binding->textures && binding->samplers)
+        if (binding->textures)
         {
-            write_descriptor_set->descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             VkDescriptorImageInfo *image_infos = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkDescriptorImageInfo, binding->count);
+
+            {
+                Texture_Handle texture_handle = binding->textures[0];
+                Texture *texture = renderer_get_texture(texture_handle);
+                if (texture->is_storage)
+                {
+                    write_descriptor_set->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                }
+                else
+                {
+                    write_descriptor_set->descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                }
+            }
 
             for (U32 image_index = 0; image_index < binding->count; image_index++)
             {
+                Texture *texture = renderer_get_texture(binding->textures[image_index]);
                 Vulkan_Image *vulkan_image = &context->textures[ binding->textures[image_index].index ];
-                Vulkan_Sampler *vulkan_sampler = &context->samplers[ binding->samplers[image_index].index ];
+
                 VkDescriptorImageInfo *image_info = &image_infos[image_index];
-                image_info->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                *image_info = {};
+
+                image_info->imageLayout = texture->is_storage ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 image_info->imageView = vulkan_image->view;
-                image_info->sampler = vulkan_sampler->handle;
+
+                if (binding->samplers)
+                {
+                    Vulkan_Sampler *vulkan_sampler = &context->samplers[ binding->samplers[image_index].index ];
+                    image_info->sampler = vulkan_sampler->handle;
+                }
             }
 
             write_descriptor_set->pImageInfo = image_infos;
@@ -1743,9 +1852,13 @@ static VkBufferUsageFlags get_buffer_usage_flags(Buffer_Usage usage)
         } break;
         
         case Buffer_Usage::STORAGE_CPU_SIDE:
-        case Buffer_Usage::STORAGE_GPU_SIDE:
         {
             return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        } break;
+
+        case Buffer_Usage::STORAGE_GPU_SIDE:
+        {
+            return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         } break;
         
         default:
@@ -2121,6 +2234,7 @@ Memory_Requirements vulkan_renderer_get_texture_memory_requirements(const Textur
         if (descriptor.is_attachment)
         {
             usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         }
         else
         {

@@ -9,7 +9,10 @@ bool is_color_format(Texture_Format format)
         case Texture_Format::B8G8R8A8_UNORM:
         case Texture_Format::R8G8B8A8_SRGB:
         case Texture_Format::B8G8R8A8_SRGB:
+        case Texture_Format::R32G32B32A32_SFLOAT:
+        case Texture_Format::R32G32B32_SFLOAT:
         case Texture_Format::R32_SINT:
+        case Texture_Format::R32_UINT:
         {
             return true;
         } break;
@@ -22,10 +25,7 @@ bool is_color_format_int(Texture_Format format)
 {
     switch (format)
     {
-        case Texture_Format::R32_SINT:
-        {
-            return true;
-        } break;
+        case Texture_Format::R32_SINT: return true;
     }
 
     return false;
@@ -33,6 +33,11 @@ bool is_color_format_int(Texture_Format format)
 
 bool is_color_format_uint(Texture_Format format)
 {
+    switch (format)
+    {
+        case Texture_Format::R32_UINT: return true;
+    }
+
     return false;
 }
 
@@ -110,6 +115,21 @@ U32 get_anisotropic_filtering_value(Anisotropic_Filtering_Setting anisotropic_fi
 glm::vec3 srgb_to_linear(const glm::vec3 &color, F32 gamma)
 {
     return glm::pow(color, glm::vec3(gamma));
+}
+
+glm::vec4 srgb_to_linear(const glm::vec4 &color, F32 gamma)
+{
+    return glm::pow(color, glm::vec4(gamma));
+}
+
+glm::vec3 linear_to_srgb(const glm::vec3 &color, F32 gamma)
+{
+    return glm::pow(color, glm::vec3(1.0f / gamma));
+}
+
+glm::vec4 linear_to_srgb(const glm::vec4 &color, F32 gamma)
+{
+    return glm::pow(color, glm::vec4(1.0f / gamma));
 }
 
 String shader_data_type_to_str(Shader_Data_Type type)
