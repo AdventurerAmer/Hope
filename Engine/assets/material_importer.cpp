@@ -406,8 +406,12 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
         .stencil_reference_value = stencil_reference_value,
         .stencil_testing = stencil_testing,
         .sample_shading = true,
-        .color_mask = Color_Write_Mask(0)
     };
+
+    if (type == Material_Type::TRANSPARENT)
+    {
+        settings.color_mask = Color_Write_Mask(0);
+    }
 
     Material_Descriptor material_descriptor =
     {

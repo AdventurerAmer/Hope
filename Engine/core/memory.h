@@ -135,25 +135,23 @@ Temprary_Memory_Arena_Janitor make_temprary_memory_arena_janitor(Memory_Arena *a
 
 struct Free_List_Node
 {
-    // note(amer): if we are going to have no more then 4 giga bytes of memory in the allocator
-    // could we use relative pointers or u32 offsets to reduce the node size...
-    Free_List_Node *next;
-    Free_List_Node *prev;
     U64 size;
+    Free_List_Node *next;
 };
 
 struct Free_List_Allocator
 {
+    const char *debug_name;
     U8 *base;
     U64 capacity;
-    U64 min_allocation_size;
     U64 size;
     U64 used;
-    Free_List_Node sentinal;
+    U64 min_allocation_size;
+    Free_List_Node *head;
     Mutex mutex;
 };
 
-bool init_free_list_allocator(Free_List_Allocator *allocator, void *memory, U64 capacity, U64 size);
+bool init_free_list_allocator(Free_List_Allocator *allocator, void *memory, U64 capacity, U64 size, const char *name);
 
 void* allocate(Free_List_Allocator *allocator, U64 size, U16 alignment);
 void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16 alignment);
@@ -181,8 +179,6 @@ HE_FORCE_INLINE Allocator to_allocator(Free_List_Allocator *allocator)
 
 bool init_memory_system();
 void deinit_memory_system();
-
-void imgui_draw_memory_system();
 
 struct Thread_Memory_State
 {

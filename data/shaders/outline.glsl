@@ -59,18 +59,6 @@ layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_BINS_STORAG
     uint light_bins[];
 };
 
-layout (set = SHADER_PASS_BIND_GROUP, binding = SHADER_HEAD_INDEX_STORAGE_IMAGE_BINDING, r32ui) uniform uimage2D head_index_image;
-
-layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_NODE_STORAGE_BUFFER_BINDING) readonly buffer Node_Buffer
-{
-    Node nodes[];
-};
-
-layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_NODE_COUNT_STORAGE_BUFFER_BINDING) readonly buffer Node_Count_Buffer
-{
-    int node_count;
-};
-
 layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFORM_BUFFER_BINDING) uniform Material
 {
     vec3 outline_color;
@@ -82,6 +70,6 @@ void main()
 {
     vec3 outline_texture = srgb_to_linear( sample_texture( material.outline_texture_index, vec2(0.0, 0.0)).rgb, globals.gamma );
 
-    float noop = NOOP(float(nodes[0].color.r)) * NOOP(float(node_count)) * NOOP(lights[0].color.x) * NOOP(float(light_bins[0]));
+    float noop = NOOP(lights[0].color.x) * NOOP(float(light_bins[0]));
     out_color = vec4(linear_to_srgb(material.outline_color, globals.gamma), 1.0) * noop;
 }

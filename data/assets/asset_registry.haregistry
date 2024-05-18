@@ -1,5 +1,5 @@
 version 1
-entry_count 160
+entry_count 163
 
 asset 62636994909288842
 parent 0
@@ -133,6 +133,10 @@ asset 4213844486902225131
 parent 0
 path 62 flighthelmet/flighthelmet_materials_leatherpartsmat_normal.png
 
+asset 4260716688899567956
+parent 8015345852571305201
+path 46 @8307312701857016074-0/m_basicglass.hamaterial
+
 asset 4616202591534216497
 parent 0
 path 31 sponza/14267839433702832875.jpg
@@ -209,6 +213,10 @@ asset 6363036135609845283
 parent 0
 path 31 sponza/14170708867020035030.jpg
 
+asset 6388750915018620212
+parent 0
+path 44 @8307312701857016074-0/cylinder.hastaticmesh
+
 asset 6504116704931758889
 parent 0
 path 30 sponza/3455394979645218238.jpg
@@ -264,6 +272,10 @@ path 11 skybox.glsl
 asset 8229898394157980959
 parent 0
 path 51 @9770807792522373384-4/greenarrowsmesh.hastaticmesh
+
+asset 8307312701857016074
+parent 0
+path 14 wine_glass.glb
 
 asset 8511563891712690352
 parent 0

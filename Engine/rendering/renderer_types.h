@@ -112,6 +112,17 @@ enum class Texture_Format
     COUNT
 };
 
+enum class Resource_State
+{
+    UNDEFINED,
+    GENERAL,
+    COPY_SRC,
+    COPY_DST,
+    RENDER_TARGET,
+    SHADER_READ_ONLY,
+    PRESENT
+};
+
 struct Texture
 {
     String name;
@@ -129,6 +140,12 @@ struct Texture
     bool is_cubemap;
     bool is_storage;
     bool is_uploaded_to_gpu;
+
+    U32 layer_count;
+    U32 mip_levels;
+
+    Resource_State state = Resource_State::UNDEFINED;
+
     Resource_Handle< Texture > alias;
 };
 
@@ -220,7 +237,6 @@ struct Render_Pass_Descriptor
     
     Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > color_attachments;
     Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > depth_stencil_attachments;
-    Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > resolve_attachments;
 };
 
 struct Render_Pass
@@ -229,7 +245,6 @@ struct Render_Pass
 
     Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > color_attachments;
     Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > depth_stencil_attachments;
-    Counted_Array< Attachment_Info, HE_MAX_ATTACHMENT_COUNT > resolve_attachments;
 };
 
 using Render_Pass_Handle = Resource_Handle< Render_Pass >;
@@ -485,6 +500,7 @@ enum class Material_Type : U32
     OPAQUE,
     ALPHA_CUTOFF,
     TRANSPARENT,
+    UI
 };
 
 struct Material_Descriptor
@@ -750,7 +766,8 @@ struct Shader_Node
 {
     glm::vec4 color;
     alignas(4) F32 depth;
-    alignas(4) S32 next;
+    alignas(4) U32 next;
+    alignas(4) S32 entity_index;
 };
 
 //

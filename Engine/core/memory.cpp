@@ -2,6 +2,7 @@
 #include "platform.h"
 #include "rendering/renderer.h"
 #include "containers/hash_map.h"
+#include "core/logging.h"
 
 #include <string.h>
 
@@ -49,7 +50,7 @@ bool init_memory_system()
         return false;
     }
 
-    if (!init_free_list_allocator(&memory_system_state.general_purpose_allocator, nullptr, capacity, HE_MEGA_BYTES(128)))
+    if (!init_free_list_allocator(&memory_system_state.general_purpose_allocator, nullptr, capacity, HE_MEGA_BYTES(256), "general_purpose_allocator"))
     {
         return false;
     }
@@ -91,57 +92,6 @@ Thread_Memory_State *get_thread_memory_state(U32 thread_id)
     }
     
     return thread_memory_state;
-}
-
-void imgui_draw_arena(Memory_Arena *arena, const char *name)
-{
-    float bytes_to_mega = 1.0f / (1024.0f * 1024.0f);
-    ImGui::Text(name);
-    ImGui::Text("capacity: %.2f mb", arena->capacity * bytes_to_mega);
-    ImGui::Text("min allocation size: %.2f mb", arena->min_allocation_size * bytes_to_mega);
-    ImGui::Text("size: %.2f mb", arena->size * bytes_to_mega);
-    ImGui::Text("offset: %.2f mb", arena->offset * bytes_to_mega);
-    ImGui::Text("temp count: %llu", arena->temp_count);
-    ImGui::Separator();
-}
-
-void imgui_draw_free_list_allocator(Free_List_Allocator *allocator, const char *name)
-{
-    float bytes_to_mega = 1.0f / (1024.0f * 1024.0f);
-
-    ImGui::Text(name);
-    ImGui::Text("capacity: %.2f mb", allocator->capacity * bytes_to_mega);
-    ImGui::Text("min allocation size: %.2f mb", allocator->min_allocation_size * bytes_to_mega);
-    ImGui::Text("size: %.2f mb", allocator->size * bytes_to_mega);
-    ImGui::Text("used: %.2f mb", allocator->used * bytes_to_mega);
-
-    ImGui::Text("base: 0x%p", allocator->base);
-    ImGui::Text("free nodes: ");
-
-    platform_lock_mutex(&allocator->mutex);
-
-    for (Free_List_Node *node = allocator->sentinal.next; node != &allocator->sentinal; node = node->next)
-    {
-        ImGui::Text("0x%p --- %llu bytes", node, node->size);
-    }
-
-    platform_unlock_mutex(&allocator->mutex);
-
-    ImGui::Separator();
-}
-
-void imgui_draw_memory_system()
-{
-    ImGui::Begin("Memory");
-
-    imgui_draw_arena(&memory_system_state.permenent_arena, "Permenent Arena");
-    imgui_draw_arena(&memory_system_state.debug_arena, "Debug Arena");
-    imgui_draw_free_list_allocator(&memory_system_state.general_purpose_allocator, "General Purpose Allocator");
-
-    Render_Context render_context = get_render_context();
-    imgui_draw_free_list_allocator(&render_context.renderer_state->transfer_allocator, "Transfer Allocator");
-
-    ImGui::End();
 }
 
 Memory_Arena *get_permenent_arena()
@@ -338,37 +288,89 @@ Temprary_Memory_Arena_Janitor make_temprary_memory_arena_janitor(Memory_Arena *a
 // Free List Allocator
 //
 
-HE_FORCE_INLINE static void insert_after(Free_List_Node *node, Free_List_Node *before)
+static size_t calc_padding_with_header(uintptr_t ptr, uintptr_t alignment, uintptr_t header_size)
 {
-    node->next = before->next;
-    node->prev = before;
+    HE_ASSERT(is_power_of_2((U16)alignment));
+    uintptr_t modulo = ptr & (alignment - 1); // same as ptr % alignment
 
-    before->next->prev = node;
-    before->next = node;
-}
-
-HE_FORCE_INLINE static void remove_node(Free_List_Node *node)
-{
-    HE_ASSERT(node->next);
-    HE_ASSERT(node->prev);
-
-    node->prev->next = node->next;
-    node->next->prev = node->prev;
-}
-
-static bool merge(Free_List_Node *left, Free_List_Node *right)
-{
-    if ((U8 *)left + left->size == (U8 *)right)
+    uintptr_t padding = 0;
+    if (modulo != 0)
     {
-        left->size += right->size;
-        remove_node(right);
-        return true;
+        padding = alignment - modulo;
     }
 
-    return false;
+    uintptr_t needed = header_size;
+    if (padding < needed)
+    {
+        needed -= padding;
+        if ((needed & (alignment - 1)) == 0)
+        {
+            padding += alignment * (needed / alignment);
+        }
+        else
+        {
+            padding += alignment * (1 + (needed / alignment));
+        }
+    }
+    return padding;
 }
 
-bool init_free_list_allocator(Free_List_Allocator *allocator, void *memory, U64 capacity, U64 size)
+static void insert_node(Free_List_Allocator *allocator, Free_List_Node *prev_node, Free_List_Node *new_node)
+{
+    if (prev_node)
+    {
+        if (prev_node->next)
+        {
+            new_node->next = prev_node->next;
+            prev_node->next = new_node;
+        }
+        else
+        {
+            prev_node->next = new_node;
+            new_node->next = nullptr;
+        }
+    }
+    else
+    {
+        new_node->next = allocator->head;
+        allocator->head = new_node;
+    }
+
+    HE_ASSERT(allocator->head->size);
+}
+
+static void remove_node(Free_List_Allocator *allocator, Free_List_Node *prev_node, Free_List_Node *node)
+{
+    if (prev_node)
+    {
+        prev_node->next = node->next;
+    }
+    else
+    {
+        allocator->head = node->next;
+    }
+
+    HE_ASSERT(allocator->head->size);
+}
+
+static void merge(Free_List_Allocator *allocator, Free_List_Node *prev_node, Free_List_Node *node)
+{
+    if (node->next && (U8 *)node + node->size == (U8 *)node->next)
+    {
+        node->size += node->next->size;
+        remove_node(allocator, node, node->next);
+    }
+
+    if (prev_node && prev_node->next && (U8 *)prev_node + prev_node->size == (U8 *)node)
+    {
+        prev_node->size += node->size;
+        remove_node(allocator, prev_node, node);
+    }
+
+    HE_ASSERT(allocator->head->size);
+}
+
+bool init_free_list_allocator(Free_List_Allocator *allocator, void *memory, U64 capacity, U64 size, const char *debug_name)
 {
     HE_ASSERT(allocator);
     HE_ASSERT(size >= sizeof(Free_List_Node));
@@ -394,266 +396,153 @@ bool init_free_list_allocator(Free_List_Allocator *allocator, void *memory, U64 
     allocator->min_allocation_size = size;
     allocator->size = size;
     allocator->used = 0;
+    allocator->debug_name = debug_name;
 
-    allocator->sentinal.next = &allocator->sentinal;
-    allocator->sentinal.prev = &allocator->sentinal;
-    allocator->sentinal.size = 0;
+    Free_List_Node *first_free_node = (Free_List_Node *)allocator->base;
+    first_free_node->size = size;
+    first_free_node->next = nullptr;
+    allocator->head = first_free_node;
 
     bool mutex_created = platform_create_mutex(&allocator->mutex);
     HE_ASSERT(mutex_created);
 
-    Free_List_Node *first_free_node = (Free_List_Node *)allocator->base;
-    first_free_node->size = size;
-
-    insert_after(first_free_node, &allocator->sentinal);
     return true;
 }
 
 struct Free_List_Allocation_Header
 {
     U64 size;
-    U64 offset;
-    U64 reserved;
+    U64 padding;
 };
 
 static_assert(sizeof(Free_List_Allocation_Header) == sizeof(Free_List_Node));
 
-void* allocate(Free_List_Allocator *allocator, U64 size, U16 alignment)
+static void* allocate_internal(Free_List_Allocator *allocator, U64 size, U16 alignment)
 {
     HE_ASSERT(allocator);
-    // HE_ASSERT(size);
-    if (size == 0)
+    HE_ASSERT(size);
+
+    Free_List_Node *alloc_node = nullptr;
+    Free_List_Node *prev_node = nullptr;
+    U64 padding = 0;
+    U64 required_size = 0;
+
+    for (Free_List_Node *node = allocator->head; node; node = node->next)
     {
-        return nullptr;
-    }
+        padding = calc_padding_with_header((uintptr_t)node, (uintptr_t)alignment, sizeof(Free_List_Allocation_Header));
+        required_size = size + padding;
 
-    platform_lock_mutex(&allocator->mutex);
-
-    void *result = nullptr;
-
-    for (Free_List_Node *node = allocator->sentinal.next; node != &allocator->sentinal; node = node->next)
-    {
-        U64 node_address = (U64)node;
-        U64 offset = get_number_of_bytes_to_align_address(node_address, alignment);
-        if (offset < sizeof(Free_List_Allocation_Header))
+        if (node->size >= required_size)
         {
-            node_address += sizeof(Free_List_Allocation_Header);
-            offset = sizeof(Free_List_Allocation_Header) + get_number_of_bytes_to_align_address(node_address, alignment);
-        }
-
-        U64 allocation_size = offset + size;
-        if (node->size >= allocation_size)
-        {
-            U64 remaining_size = node->size - allocation_size;
-
-            Free_List_Allocation_Header allocation_header = {};
-            allocation_header.offset = offset;
-
-            if (remaining_size > sizeof(Free_List_Node))
-            {
-                allocation_header.size = allocation_size;
-
-                Free_List_Node *new_node = (Free_List_Node *)((U8 *)node + allocation_size);
-                new_node->size = remaining_size;
-                insert_after(new_node, node->prev);
-            }
-            else
-            {
-                allocation_header.size = node->size;
-            }
-
-            remove_node(node);
-            result = (U8*)node + offset;
-            ((Free_List_Allocation_Header *)result)[-1] = allocation_header;
-
-            allocator->used += allocation_header.size;
+            alloc_node = node;
             break;
         }
-        else if (node->next == &allocator->sentinal) // last node
-        {
-            // todo(amer): do more testing here i don't trust this...
-            U64 commit_size = HE_MAX(allocation_size, allocator->min_allocation_size);
-            if (allocator->size + commit_size <= allocator->capacity)
-            {
-                bool commited = platform_commit_memory(allocator->base + allocator->size, commit_size);
-                HE_ASSERT(commited);
-                Free_List_Node *new_node = (Free_List_Node *)(allocator->base + allocator->size);
-                new_node->size = commit_size;
-                allocator->size += commit_size;
-                insert_after(new_node, node);
-                merge(node, new_node);
-                node = node->prev;
-            }
-        }
+
+        prev_node = node;
     }
 
-    platform_unlock_mutex(&allocator->mutex);
+    HE_ASSERT(alloc_node);
 
-    HE_ASSERT(result);
+    U64 remaining = alloc_node->size - required_size;
+    if (remaining > sizeof(Free_List_Node))
+    {
+        Free_List_Node *new_node = (Free_List_Node *)((U8 *)alloc_node + required_size);
+        new_node->size = remaining;
+        insert_node(allocator, alloc_node, new_node);
+    }
+
+    remove_node(allocator, prev_node, alloc_node);
+
+    Free_List_Allocation_Header *header = (Free_List_Allocation_Header *)((U8 *)alloc_node + padding - sizeof(Free_List_Allocation_Header));
+    header->size = required_size;
+    header->padding = padding;
+
+    allocator->used += required_size;
+
+    void *result = (void *)((U8 *)alloc_node + padding);
     zero_memory(result, size);
     return result;
+}
+
+void* allocate(Free_List_Allocator *allocator, U64 size, U16 alignment)
+{
+    platform_lock_mutex(&allocator->mutex);
+    void *result = allocate_internal(allocator, size, alignment);
+    platform_unlock_mutex(&allocator->mutex);
+    return result;
+}
+
+static void deallocate_internal(Free_List_Allocator *allocator, void *memory)
+{
+    if (!memory)
+    {
+        return;
+    }
+
+    HE_ASSERT((U8*)memory >= allocator->base && (U8*)memory <= allocator->base + allocator->size);
+
+    Free_List_Allocation_Header *header = (Free_List_Allocation_Header *)((U8*)memory - sizeof(Free_List_Allocation_Header));
+
+    HE_ASSERT(header->padding >= sizeof(Free_List_Allocation_Header));
+    HE_ASSERT(header->size > 0);
+
+    U64 size = header->size;
+    U64 padding = header->padding;
+
+    Free_List_Node *free_node = (Free_List_Node *)((U8 *)memory - padding);
+    free_node->size = size;
+    free_node->next = nullptr;
+
+    Free_List_Node *prev_node = nullptr;
+    for (Free_List_Node *node = allocator->head; node; node = node->next)
+    {
+        if ((U8 *)memory < (U8 *)node)
+        {
+            insert_node(allocator, prev_node, free_node);
+            break;
+        }
+        prev_node = node;
+    }
+
+    allocator->used -= size;
+    merge(allocator, prev_node, free_node);
+}
+
+void deallocate(Free_List_Allocator *allocator, void *memory)
+{
+    platform_lock_mutex(&allocator->mutex);
+    deallocate_internal(allocator, memory);
+    platform_unlock_mutex(&allocator->mutex);
 }
 
 void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16 alignment)
 {
     if (!memory)
     {
-        return allocate(allocator, new_size, alignment);
+        platform_lock_mutex(&allocator->mutex);
+        void *result = allocate_internal(allocator, new_size, alignment);
+        platform_unlock_mutex(&allocator->mutex);
+        return result;
     }
+
+    platform_lock_mutex(&allocator->mutex);
 
     HE_ASSERT(allocator);
     HE_ASSERT(memory >= allocator->base && memory <= allocator->base + allocator->size);
     HE_ASSERT(new_size);
 
-    Free_List_Allocation_Header &header = ((Free_List_Allocation_Header *)memory)[-1];
+    Free_List_Allocation_Header header = ((Free_List_Allocation_Header *)memory)[-1];
     HE_ASSERT(header.size >= 0);
-    HE_ASSERT(header.offset >= 0);
-    HE_ASSERT(header.offset < allocator->size);
+    HE_ASSERT(header.padding >= 0);
+    HE_ASSERT(header.padding < allocator->size);
     HE_ASSERT(new_size != header.size);
 
-    platform_lock_mutex(&allocator->mutex);
-
-    U8 *memory_node_address = (U8 *)memory - header.offset;
-    U64 old_size = header.size - header.offset;
-
-#if 1
-    Free_List_Node *adjacent_node_after_memory = nullptr;
-    Free_List_Node *node_before_memory = &allocator->sentinal;
-    
-    for (Free_List_Node *node = allocator->sentinal.next; node != &allocator->sentinal; node = node->next)
-    {
-        if ((U8 *)node < memory_node_address)
-        {
-            node_before_memory = node;
-        }
-
-        if (memory_node_address + header.size == (U8 *)node)
-        {
-            adjacent_node_after_memory = node;
-            break;
-        }
-    }
-
-    if (new_size < old_size)
-    {
-        U64 amount = old_size - new_size;
-
-        if (adjacent_node_after_memory)
-        {
-            header.size = new_size + sizeof(Free_List_Allocation_Header);
-
-            U64 adjacent_node_after_memory_size = adjacent_node_after_memory->size;
-            remove_node(adjacent_node_after_memory);
-
-            Free_List_Node *new_node = (Free_List_Node *)((U8 *)memory + new_size);
-            new_node->size = adjacent_node_after_memory_size + amount;
-
-            insert_after(new_node, node_before_memory);
-        }
-        else
-        {
-            if (amount >= sizeof(Free_List_Node))
-            {
-                header.size = new_size + sizeof(Free_List_Allocation_Header);
-
-                Free_List_Node *new_node = (Free_List_Node *)((U8 *)memory_node_address + header.size);
-                new_node->size = amount;
-
-                insert_after(new_node, node_before_memory);
-            }
-        }
-
-        platform_unlock_mutex(&allocator->mutex);
-        return memory;
-    }
-    else
-    {
-        if (adjacent_node_after_memory)
-        {
-            if (new_size <= old_size + adjacent_node_after_memory->size)
-            {
-                U64 remaining = (old_size + adjacent_node_after_memory->size) - new_size;
-                if (remaining >= sizeof(Free_List_Node))
-                {
-                    header.size = new_size + sizeof(Free_List_Allocation_Header);
-                    remove_node(adjacent_node_after_memory);
-
-                    Free_List_Node *new_node = (Free_List_Node *)(memory_node_address + header.size);
-                    new_node->size = remaining;
-                    insert_after(new_node, node_before_memory);
-                }
-                else
-                {
-                    header.size += adjacent_node_after_memory->size;
-                    remove_node(adjacent_node_after_memory);
-                }
-
-                platform_unlock_mutex(&allocator->mutex);
-                return memory;
-            }
-        }
-    }
+    U64 old_size = header.size - header.padding;
+    void *new_memory = allocate_internal(allocator, new_size, alignment);
+    copy_memory(new_memory, memory, old_size);
+    deallocate_internal(allocator, memory);
 
     platform_unlock_mutex(&allocator->mutex);
 
-#endif
-
-    void *new_memory = allocate(allocator, new_size, alignment);
-    copy_memory(new_memory, memory, old_size);
-    deallocate(allocator, memory);
-
     return new_memory;
-}
-
-void deallocate(Free_List_Allocator *allocator, void *memory)
-{
-    if (!memory)
-    {
-        return;
-    }
-
-    platform_lock_mutex(&allocator->mutex);
-    HE_DEFER { platform_unlock_mutex(&allocator->mutex); };
-
-    HE_ASSERT(allocator);
-    HE_ASSERT(memory >= allocator->base && memory <= allocator->base + allocator->size);
-
-    Free_List_Allocation_Header header = ((Free_List_Allocation_Header *)memory)[-1];
-    HE_ASSERT(header.size >= 0);
-    HE_ASSERT(header.offset >= 0);
-
-    allocator->used -= header.size;
-
-    Free_List_Node *new_node = (Free_List_Node *)((U8 *)memory - header.offset);
-    new_node->size = header.size;
-
-    if (allocator->sentinal.next == &allocator->sentinal)
-    {
-        insert_after(new_node, &allocator->sentinal);
-        return;
-    }
-
-    for (Free_List_Node *node = allocator->sentinal.next; node != &allocator->sentinal; node = node->next)
-    {
-        bool inserted = false;
-
-        if ((new_node < node) && (new_node > node->prev || node->prev == &allocator->sentinal))
-        {
-            insert_after(new_node, node->prev);
-            inserted = true;
-        }
-
-        if ((new_node > node) && (new_node < node->next || node->next == &allocator->sentinal))
-        {
-            insert_after(new_node, node);
-            inserted = true;
-        }
-
-        if (inserted)
-        {
-            merge(new_node, new_node->next);
-            merge(new_node->prev, new_node);
-            break;
-        }
-    }
 }

@@ -213,16 +213,19 @@ void main()
 
     vec3 color = globals.ambient * albedo * occlusion + Lo;
 
-    int node_index = atomicAdd(node_count, 1);
-    if (node_index < globals.max_node_count)
+    if (material.type == MATERIAL_TYPE_TRANSPARENT)
     {
-        uint prev_head_index = imageAtomicExchange( head_index_image, ivec2( coords ), node_index );
-        Node node;
-        node.color = vec4(color, alpha);
-        node.depth = gl_FragCoord.z;
-        node.next = prev_head_index;
-        node.entity_index = frag_input.entity_index;
-        nodes[node_index] = node;
+        int node_index = atomicAdd(node_count, 1);
+        if (node_index < globals.max_node_count)
+        {
+            uint prev_head_index = imageAtomicExchange( head_index_image, ivec2( coords ), node_index );
+            Node node;
+            node.color = vec4(Lo, alpha);
+            node.depth = gl_FragCoord.z;
+            node.next = prev_head_index;
+            node.entity_index = frag_input.entity_index;
+            nodes[node_index] = node;
+        }
     }
 
     out_color = vec4(color, 1.0f);

@@ -83,6 +83,8 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->draw_sub_mesh = &vulkan_renderer_draw_sub_mesh;
             renderer->draw_fullscreen_triangle = &vulkan_renderer_draw_fullscreen_triangle;
             renderer->fill_buffer = &vulkan_renderer_fill_buffer;
+            renderer->clear_texture = &vulkan_renderer_clear_texture;
+            renderer->change_texture_state = &vulkan_renderer_change_texture_state;
             renderer->end_frame = &vulkan_renderer_end_frame;
             renderer->set_vsync = &vulkan_renderer_set_vsync;
             renderer->get_texture_memory_requirements = &vulkan_renderer_get_texture_memory_requirements;
@@ -213,7 +215,7 @@ bool init_renderer_state(Engine *engine)
     renderer_state->transfer_buffer = renderer_create_buffer(transfer_buffer_descriptor);
 
     Buffer *transfer_buffer = get(&renderer_state->buffers, renderer_state->transfer_buffer);
-    init_free_list_allocator(&renderer_state->transfer_allocator, transfer_buffer->data, transfer_buffer->size, transfer_buffer->size);
+    init_free_list_allocator(&renderer_state->transfer_allocator, transfer_buffer->data, transfer_buffer->size, transfer_buffer->size, "transfer_allocator");
 
     // default resources
     Renderer_Semaphore_Descriptor semaphore_descriptor =
@@ -479,26 +481,7 @@ bool init_renderer_state(Engine *engine)
     }
 
     {
-#if 0
-        Allocator allocator = to_allocator(scratch_memory.arena);
-        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/depth_prepass.glsl"), allocator);
-        String shader_source = { .count = result.size, .data = (const char *)result.data };
-
-        Shader_Compilation_Result compilation_result = renderer_compile_shader(shader_source, HE_STRING_LITERAL("shaders"));
-        HE_ASSERT(compilation_result.success);
-
-        Shader_Descriptor shader_descriptor =
-        {
-            .name = HE_STRING_LITERAL("depth_prepass"),
-            .compilation_result = &compilation_result
-        };
-
-        renderer_state->depth_prepass_shader = renderer_create_shader(shader_descriptor);
-        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->depth_prepass_shader));
-        renderer_destroy_shader_compilation_result(&compilation_result);
-#else
         renderer_state->depth_prepass_shader = load_shader(HE_STRING_LITERAL("depth_prepass"));
-#endif
 
         Pipeline_State_Descriptor pipeline_state_descriptor =
         {
@@ -532,26 +515,12 @@ bool init_renderer_state(Engine *engine)
     }
 
     {
-#if 0
-        Allocator allocator = to_allocator(scratch_memory.arena);
-        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/transparent.glsl"), allocator);
-        String shader_source = { .count = result.size, .data = (const char *)result.data };
+        renderer_state->world_shader = load_shader(HE_STRING_LITERAL("world"));
+        set_shader(&renderer_state->render_graph, get_node(&renderer_state->render_graph, HE_STRING_LITERAL("world")), renderer_state->world_shader, 3);
+    }
 
-        Shader_Compilation_Result compilation_result = renderer_compile_shader(shader_source, HE_STRING_LITERAL("shaders"));
-        HE_ASSERT(compilation_result.success);
-
-        Shader_Descriptor shader_descriptor =
-        {
-            .name = HE_STRING_LITERAL("transparent"),
-            .compilation_result = &compilation_result
-        };
-
-        renderer_state->transparent_shader = renderer_create_shader(shader_descriptor);
-        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->transparent_shader));
-        renderer_destroy_shader_compilation_result(&compilation_result);
-#else
+    {
         renderer_state->transparent_shader = load_shader(HE_STRING_LITERAL("transparent"));
-#endif
 
         Pipeline_State_Descriptor transparent_pipeline_descriptor =
         {
@@ -575,40 +544,23 @@ bool init_renderer_state(Engine *engine)
                 .stencil_testing = false,
 
                 .sample_shading = false,
-                .alpha_blending = false
+                .alpha_blending = false,
             },
             .shader = renderer_state->transparent_shader,
             .render_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("transparent")), // todo(amer): we should not depend on the render graph here...
         };
 
         renderer_state->transparent_pipeline = renderer_create_pipeline_state(transparent_pipeline_descriptor);
+        set_shader(&renderer_state->render_graph, get_node(&renderer_state->render_graph, HE_STRING_LITERAL("transparent")), renderer_state->transparent_shader);
     }
 
     {
-#if 0
-        Allocator allocator = to_allocator(scratch_memory.arena);
-        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/outline.glsl"), allocator);
-        String shader_source = { .count = result.size, .data = (const char *)result.data };
-
-        Shader_Compilation_Result compilation_result = renderer_compile_shader(shader_source, HE_STRING_LITERAL("shaders"));
-        HE_ASSERT(compilation_result.success);
-
-        Shader_Descriptor shader_descriptor =
-        {
-            .name = HE_STRING_LITERAL("outline"),
-            .compilation_result = &compilation_result
-        };
-
-        renderer_state->outline_shader = renderer_create_shader(shader_descriptor);
-        HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->outline_shader));
-        renderer_destroy_shader_compilation_result(&compilation_result);
-#endif
         renderer_state->outline_shader = load_shader(HE_STRING_LITERAL("outline"));
 
         Material_Descriptor first_pass_outline_material =
         {
             .name = HE_STRING_LITERAL("outline_first_pass"),
-            .type = Material_Type::OPAQUE,
+            .type = Material_Type::UI,
             .shader = renderer_state->outline_shader,
             .settings =
             {
@@ -637,7 +589,7 @@ bool init_renderer_state(Engine *engine)
         Material_Descriptor second_pass_outline_material =
         {
             .name = HE_STRING_LITERAL("outline_second_pass"),
-            .type = Material_Type::OPAQUE,
+            .type = Material_Type::UI,
             .shader = renderer_state->outline_shader,
             .settings =
             {
@@ -824,6 +776,7 @@ Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
 
     if (descriptor.data_array.count)
     {
+        texture->state = Resource_State::SHADER_READ_ONLY;
         renderer_add_pending_upload_request(upload_request_handle);
     }
 
@@ -1236,6 +1189,10 @@ void renderer_destroy_pipeline_state(Pipeline_State_Handle &pipeline_state_handl
 Render_Pass_Handle renderer_create_render_pass(const Render_Pass_Descriptor &descriptor)
 {
     Render_Pass_Handle render_pass_handle = aquire_handle(&renderer_state->render_passes);
+
+    Render_Pass *render_pass = renderer_get_render_pass(render_pass_handle);
+    render_pass->name = copy_string(descriptor.name, to_allocator(get_general_purpose_allocator()));
+
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_render_pass(render_pass_handle, descriptor);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
@@ -1464,7 +1421,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
         material->name = copy_string(descriptor.name, to_allocator(get_general_purpose_allocator()));
     }
 
-    String pass_name = HE_STRING_LITERAL("opaque");
+    String pass_name = descriptor.type == Material_Type::UI ? HE_STRING_LITERAL("ui") : HE_STRING_LITERAL("world");
 
     Pipeline_State_Descriptor pipeline_state_desc =
     {
@@ -2555,9 +2512,9 @@ void renderer_handle_upload_requests()
 {
     platform_lock_mutex(&renderer_state->pending_upload_requests_mutex);
 
-    for (U32 i = 0; i < renderer_state->pending_upload_requests.count; i++)
+    for (S32 index = 0; index < (S32)renderer_state->pending_upload_requests.count; index++)
     {
-        Upload_Request_Handle upload_request_handle = renderer_state->pending_upload_requests[i];
+        Upload_Request_Handle upload_request_handle = renderer_state->pending_upload_requests[index];
         Upload_Request *upload_request = get(&renderer_state->upload_requests, upload_request_handle);
         U64 semaphore_value = renderer_get_semaphore_value(upload_request->semaphore);
         if (upload_request->target_value == semaphore_value)
@@ -2572,8 +2529,8 @@ void renderer_handle_upload_requests()
                 platform_unlock_mutex(&renderer_state->render_commands_mutex);
             }
             renderer_destroy_upload_request(upload_request_handle);
-            remove_and_swap_back(&renderer_state->pending_upload_requests, i);
-            i--;
+            remove_and_swap_back(&renderer_state->pending_upload_requests, index);
+            index--;
         }
     }
 
@@ -2766,59 +2723,60 @@ void begin_rendering(const Camera *camera)
         render_data->light_bins[frame_index] = renderer_create_buffer(light_bins_buffer_descriptor);
     }
 
-    Texture_Handle head_index_texture_handle = render_data->head_index_textures[frame_index];
-    bool recreate_head_index_buffer = !is_valid_handle(&renderer_state->textures, head_index_texture_handle);
+    // Texture_Handle head_index_texture_handle = render_data->head_index_textures[frame_index];
+    // bool recreate_head_index_buffer = !is_valid_handle(&renderer_state->textures, head_index_texture_handle);
 
-    if (is_valid_handle(&renderer_state->textures, head_index_texture_handle))
-    {
-        Texture *head_index_texture = renderer_get_texture(head_index_texture_handle);
-        if (head_index_texture->width != renderer_state->back_buffer_width || head_index_texture->height != renderer_state->back_buffer_height)
-        {
-            recreate_head_index_buffer = true;
-            renderer_destroy_texture(head_index_texture_handle);
-        }
-    }
+    // if (is_valid_handle(&renderer_state->textures, head_index_texture_handle))
+    // {
+    //     Texture *head_index_texture = renderer_get_texture(head_index_texture_handle);
+    //     if (head_index_texture->width != renderer_state->back_buffer_width || head_index_texture->height != renderer_state->back_buffer_height)
+    //     {
+    //         recreate_head_index_buffer = true;
+    //         renderer_destroy_texture(head_index_texture_handle);
+    //     }
+    // }
 
-    if (recreate_head_index_buffer)
-    {
-        Texture_Descriptor head_index_texture_descriptor =
-        {
-            .name = HE_STRING_LITERAL("head_index"),
-            .width = renderer_state->back_buffer_width,
-            .height = renderer_state->back_buffer_height,
-            .format = Texture_Format::R32_UINT,
-            .layer_count = 1,
-            .is_storage = true,
-        };
-        render_data->head_index_textures[frame_index] = renderer_create_texture(head_index_texture_descriptor);
-    }
+    // if (recreate_head_index_buffer)
+    // {
+    //     Texture_Descriptor head_index_texture_descriptor =
+    //     {
+    //         .name = HE_STRING_LITERAL("head_index"),
+    //         .width = renderer_state->back_buffer_width,
+    //         .height = renderer_state->back_buffer_height,
+    //         .format = Texture_Format::R32_UINT,
+    //         .layer_count = 1,
+    //         .is_storage = true,
+    //     };
+    //     render_data->head_index_textures[frame_index] = renderer_create_texture(head_index_texture_descriptor);
+    // }
 
-    Buffer_Handle node_buffer_handle = render_data->node_buffers[frame_index];
-    bool recreate_node_buffer = !is_valid_handle(&renderer_state->buffers, node_buffer_handle);
+    // Buffer_Handle node_buffer_handle = render_data->node_buffers[frame_index];
+    // bool recreate_node_buffer = !is_valid_handle(&renderer_state->buffers, node_buffer_handle);
 
-    if (is_valid_handle(&renderer_state->buffers, node_buffer_handle))
-    {
-        Buffer *node_buffer = renderer_get_buffer(node_buffer_handle);
-        if (node_buffer->size != renderer_state->back_buffer_width * renderer_state->back_buffer_height * sizeof(Shader_Node) * 20)
-        {
-            recreate_node_buffer = true;
-            renderer_destroy_buffer(node_buffer_handle);
-        }
-    }
+    // if (is_valid_handle(&renderer_state->buffers, node_buffer_handle))
+    // {
+    //     Buffer *node_buffer = renderer_get_buffer(node_buffer_handle);
+    //     if (node_buffer->size != renderer_state->back_buffer_width * renderer_state->back_buffer_height * sizeof(Shader_Node) * 20)
+    //     {
+    //         recreate_node_buffer = true;
+    //         renderer_destroy_buffer(node_buffer_handle);
+    //     }
+    // }
 
-    if (recreate_node_buffer)
-    {
-        Buffer_Descriptor node_buffer_descriptor =
-        {
-            .size = renderer_state->back_buffer_width * renderer_state->back_buffer_height * sizeof(Shader_Node) * 20,
-            .usage = Buffer_Usage::STORAGE_GPU_SIDE
-        };
-        render_data->node_buffers[frame_index] = renderer_create_buffer(node_buffer_descriptor);
-    }
+    // if (recreate_node_buffer)
+    // {
+    //     Buffer_Descriptor node_buffer_descriptor =
+    //     {
+    //         .size = renderer_state->back_buffer_width * renderer_state->back_buffer_height * sizeof(Shader_Node) * 20,
+    //         .usage = Buffer_Usage::STORAGE_GPU_SIDE
+    //     };
+    //     render_data->node_buffers[frame_index] = renderer_create_buffer(node_buffer_descriptor);
+    // }
 
-    vulkan_renderer_fill_image(render_data->head_index_textures[frame_index], HE_MAX_U32);
-    renderer->fill_buffer(render_data->node_count_buffers[frame_index], 0);
-    renderer->fill_buffer(render_data->node_buffers[frame_index], -1);
+    // vulkan_renderer_fill_image(render_data->head_index_textures[frame_index], HE_MAX_U32);
+
+    // renderer->fill_buffer(render_data->node_count_buffers[frame_index], 0);
+    // renderer->fill_buffer(render_data->node_buffers[frame_index], -1);
 
     render_data->current_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
     render_data->current_material_handle = Resource_Pool< Material >::invalid_handle;
@@ -2881,24 +2839,6 @@ void begin_rendering(const Camera *camera)
             .element_index = 0,
             .count = 1,
             .buffers = &render_data->light_bins[frame_index]
-        },
-        {
-            .binding_number = SHADER_HEAD_INDEX_STORAGE_IMAGE_BINDING,
-            .element_index = 0,
-            .count = 1,
-            .textures = &render_data->head_index_textures[frame_index]
-        },
-        {
-            .binding_number = SHADER_NODE_STORAGE_BUFFER_BINDING,
-            .element_index = 0,
-            .count = 1,
-            .buffers = &render_data->node_buffers[frame_index]
-        },
-        {
-            .binding_number = SHADER_NODE_COUNT_STORAGE_BUFFER_BINDING,
-            .element_index = 0,
-            .count = 1,
-            .buffers = &render_data->node_count_buffers[frame_index]
         },
         {
             .binding_number = SHADER_BINDLESS_TEXTURES_BINDING,

@@ -49,19 +49,22 @@ layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_BINS_STORAG
     uint light_bins[];
 };
 
-layout (set = SHADER_PASS_BIND_GROUP, binding = SHADER_HEAD_INDEX_STORAGE_IMAGE_BINDING, r32ui) uniform uimage2D head_index_image;
+layout (set = 2, binding = 0) uniform sampler2D rt0;
 
-layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_NODE_STORAGE_BUFFER_BINDING) readonly buffer Node_Buffer
+layout (set = 2, binding = 1, r32ui) uniform uimage2D head_index_image;
+
+layout (std430, set = 2, binding = 2) readonly buffer Node_Buffer
 {
     Node nodes[];
 };
 
-layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_NODE_COUNT_STORAGE_BUFFER_BINDING) readonly buffer Node_Count_Buffer
+layout (std430, set = 2, binding = 3) readonly buffer Node_Count_Buffer
 {
     int node_count;
 };
 
-layout(location = 0) out vec4 out_color;
+layout(location = 0) out int out_entity_index;
+layout(location = 1) out vec4 out_color;
 
 #define MAX_FRAGMENT_COUNT 128
 
@@ -80,7 +83,6 @@ void main()
         ++count;
     }
 
-    // Do the insertion sort
     for (uint i = 1; i < count; ++i)
     {
         Node insert = fragments[i];
@@ -93,7 +95,7 @@ void main()
         fragments[j] = insert;
     }
 
-    vec4 color = fragments[0].color;
+    vec4 color = texelFetch(rt0, coords, 0);
 
     for (int i = 1; i < count; ++i)
     {
@@ -101,9 +103,11 @@ void main()
     }
 
     float noop = NOOP(lights[0].color.r) * NOOP(float(light_bins[0])) * NOOP(float(node_count));
-
-    vec3 c = color.rgb;
-    c = c / (c + vec3(1.0));
-    c = linear_to_srgb(c, globals.gamma);
-    out_color = vec4(c * noop, 1.0);
+    vec3 final_color = color.rgb;
+    final_color = final_color / (final_color + vec3(1.0));
+    final_color = linear_to_srgb(final_color, globals.gamma);
+    out_color = vec4(final_color, 1.0);
+    int mask0 = int(step(0.0, count));
+    int mask1 = int(step(1.0, count));
+    out_entity_index = fragments[count - 1].entity_index;
 }

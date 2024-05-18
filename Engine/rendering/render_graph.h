@@ -19,49 +19,65 @@
 typedef S32 Render_Graph_Node_Handle;
 typedef S32 Render_Graph_Resource_Handle;
 
-struct Render_Graph_Resource_Info
+struct Render_Target_Info
 {
     Texture_Format format;
 
-    bool resizable_sample = false;
-    U32 sample_count = 1;
-    
-    U32 width = 0;
+    U32 width  = 0;
     U32 height = 0;
 
+    bool resizable = true;
+    F32 scale_x = 1.0f;
+    F32 scale_y = 1.0f;
+};
+
+struct Buffer_Info
+{
+    U32 size = 1;
+    Buffer_Usage usage = Buffer_Usage::STORAGE_GPU_SIDE;
     bool resizable = false;
     F32 scale_x = 1.0f;
     F32 scale_y = 1.0f;
-
-    Texture_Handle handles[HE_MAX_FRAMES_IN_FLIGHT] = 
-    { 
-        Resource_Pool< Texture >::invalid_handle,
-        Resource_Pool< Texture >::invalid_handle,
-        Resource_Pool< Texture >::invalid_handle
-    };
-};
-
-struct Render_Target_Info
-{
-    const char *name;
-    Attachment_Operation operation = Attachment_Operation::CLEAR;
-    Render_Graph_Resource_Info info;
 };
 
 struct Render_Graph_Resource
 {
     String name;
-    Render_Graph_Resource_Info info;
+
+    Render_Target_Info render_target_info;
+    Texture_Handle textures[HE_MAX_FRAMES_IN_FLIGHT];
+
+    Buffer_Info buffer_info;
+    Buffer_Handle buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
     Render_Graph_Node_Handle node_handle;
-
-    Render_Graph_Resource_Handle resolver_handle;
-
-    U32 ref_count;
 };
 
 typedef std::function< void(struct Renderer *renderer, struct Renderer_State *renderer_state) > render_proc;
 
+enum Render_Graph_Resource_Usage
+{
+    RENDER_TARGET,
+    SAMPLED_TEXTURE,
+    STORAGE_TEXTURE,
+    STORAGE_BUFFER
+};
+
+struct Render_Graph_Node_Input
+{
+    Render_Graph_Resource_Handle resource_handle;
+    Render_Graph_Resource_Usage usage;
+    Attachment_Operation op;
+    Clear_Value clear_value;
+};
+
+struct Render_Graph_Node_Output
+{
+    Render_Graph_Resource_Handle resource_handle;
+    Render_Graph_Resource_Usage usage;
+    Attachment_Operation op;
+    Clear_Value clear_value;
+};
 
 struct Render_Graph_Node
 {
@@ -69,22 +85,21 @@ struct Render_Graph_Node
 
     bool enabled;
 
+    Counted_Array< Render_Graph_Node_Input, HE_MAX_ATTACHMENT_COUNT > inputs;
+    Counted_Array< Render_Graph_Node_Output, HE_MAX_ATTACHMENT_COUNT > outputs;
+
     Counted_Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT > clear_values;
-
-    Render_Pass_Handle render_pass;
-    Frame_Buffer_Handle frame_buffers[HE_MAX_FRAMES_IN_FLIGHT];
-
-    Counted_Array< Render_Graph_Resource_Handle, HE_MAX_ATTACHMENT_COUNT > original_render_targets;
-    Counted_Array< Render_Graph_Resource_Handle, HE_MAX_ATTACHMENT_COUNT > render_targets;
-    Counted_Array< Attachment_Operation, HE_MAX_ATTACHMENT_COUNT > render_target_operations;
-
-    Counted_Array< Render_Graph_Resource_Handle, HE_MAX_ATTACHMENT_COUNT > resolve_render_targets;
 
     Dynamic_Array< Render_Graph_Node_Handle > edges;
 
+    render_proc before_render;
     render_proc render;
-    render_proc before;
-    render_proc after;
+
+    Shader_Handle shader;
+    Bind_Group_Handle bind_group;
+
+    Render_Pass_Handle render_pass;
+    Frame_Buffer_Handle frame_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 };
 
 struct Render_Graph
@@ -98,23 +113,35 @@ struct Render_Graph
     Counted_Array< U8, HE_MAX_RENDER_GRAPH_NODE_COUNT > visited;
     Counted_Array< Render_Graph_Node_Handle, HE_MAX_RENDER_GRAPH_NODE_COUNT > node_stack;
     Counted_Array< Render_Graph_Node_Handle, HE_MAX_RENDER_GRAPH_NODE_COUNT > topologically_sorted_nodes;
-    
-    Counted_Array< Texture_Handle, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT > texture_free_list;
 
     Render_Graph_Resource *presentable_resource;
 };
 
 void init(Render_Graph *render_graph);
-void reset(Render_Graph *render_graph);
 
-Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, const Array_View< Render_Target_Info > &render_targets, render_proc render, render_proc before = nullptr, render_proc after = nullptr);
-void add_resolve_color_attachment(Render_Graph *render_graph, Render_Graph_Node *node, const char *render_target, const char *resolve_render_target);
+Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, render_proc before_render, render_proc render);
+void set_shader(Render_Graph *render_graph, Render_Graph_Node_Handle node_handle, Shader_Handle shader, U32 bind_group_index = 2);
+
+void add_render_target(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name, Render_Target_Info info, Attachment_Operation op, Clear_Value clear_value = {});
+
+void add_storage_texture(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name, Render_Target_Info info, Clear_Value clear_value = {});
+void add_storage_buffer(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name, Buffer_Info buffer_info, U32 clear_value = 0);
+
+void add_render_target_input(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name, Attachment_Operation op, Clear_Value clear_value = {});
+void add_texture_input(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name);
+void add_storage_texture_input(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name);
+void add_storage_buffer_input(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name);
+
+void add_depth_stencil_target(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name, Render_Target_Info info, Attachment_Operation op, Clear_Value clear_value = {});
+
+void set_depth_stencil_target(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name, Attachment_Operation op, Clear_Value clear_value = {});
 
 void set_presentable_attachment(Render_Graph *render_graph, const char *render_target);
 
 bool compile(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
 void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
 void render(Render_Graph *render_graph, struct Renderer *renderer, struct Renderer_State *renderer_state);
+
 Texture_Handle get_presentable_attachment(Render_Graph *render_graph, struct Renderer_State *renderer_state);
 Texture_Handle get_texture_resource(Render_Graph *render_graph, struct Renderer_State *renderer_state, String name);
 

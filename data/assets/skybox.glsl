@@ -56,18 +56,6 @@ layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_BINS_STORAG
     uint light_bins[];
 };
 
-layout (set = SHADER_PASS_BIND_GROUP, binding = SHADER_HEAD_INDEX_STORAGE_IMAGE_BINDING, r32ui) uniform coherent uimage2D head_index_image;
-
-layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_NODE_STORAGE_BUFFER_BINDING) writeonly buffer Node_Buffer
-{
-    Node nodes[];
-};
-
-layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_NODE_COUNT_STORAGE_BUFFER_BINDING) writeonly buffer Node_Count_Buffer
-{
-    int node_count;
-};
-
 layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFORM_BUFFER_BINDING) uniform Material
 {
     uint skybox_cubemap;
@@ -78,18 +66,8 @@ void main()
 {
     float noop = NOOP(lights[0].color.r) * NOOP(float(light_bins[0]));
 
-    vec3 color = srgb_to_linear( sample_cubemap( material.skybox_cubemap, in_cubemap_uv ).rgb, globals.gamma ) * noop;
+    vec3 color = srgb_to_linear( sample_cubemap( material.skybox_cubemap, in_cubemap_uv ).rgb, globals.gamma );
     color *= srgb_to_linear( material.sky_color, globals.gamma );
 
-    int node_index = atomicAdd( node_count, 1 );
-    if (node_index < globals.max_node_count)
-    {
-        ivec2 coords = ivec2(gl_FragCoord.xy);
-        uint prev_head_index = imageAtomicExchange( head_index_image, ivec2(coords), node_index );
-        nodes[node_index].color = vec4(color, 1.0);
-        nodes[node_index].depth = 1.0;
-        nodes[node_index].next = prev_head_index;
-    }
-
-    out_color = vec4(color, 1.0);
+    out_color = vec4(color * noop, 1.0);
 }

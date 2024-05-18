@@ -184,7 +184,7 @@ unsigned long execute_thread_work(void *params)
 bool init_job_system()
 {
     Memory_Arena *arena = get_permenent_arena();
-    bool inited = init_free_list_allocator(&job_system_state.job_data_allocator, nullptr, HE_MEGA_BYTES(64), HE_MEGA_BYTES(64));
+    bool inited = init_free_list_allocator(&job_system_state.job_data_allocator, nullptr, HE_MEGA_BYTES(64), HE_MEGA_BYTES(64), "job_allocator");
     HE_ASSERT(inited);
 
     U32 thread_count = get_job_thread_count();

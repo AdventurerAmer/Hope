@@ -119,7 +119,7 @@ void game_loop(Engine *engine, F32 delta_time)
     Render_Context render_context = get_render_context();
     Renderer *renderer = render_context.renderer;
     Renderer_State *renderer_state = render_context.renderer_state;
-    
+
     renderer_handle_upload_requests();
 
     if (!engine->is_minimized)

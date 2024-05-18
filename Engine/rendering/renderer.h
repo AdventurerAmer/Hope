@@ -54,6 +54,9 @@ struct Renderer
     void (*draw_fullscreen_triangle)();
     void (*fill_buffer)(Buffer_Handle buffer_handle, U32 value);
     void (*clear_image)(Texture_Handle texture_handle, S32 value);
+
+    void (*clear_texture)(Texture_Handle texture_handle, Clear_Value clear_value);
+    void (*change_texture_state)(Texture_Handle texture_handle, Resource_State resource_state);
     void (*end_frame)();
 
     bool (*create_buffer)(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor);
@@ -206,6 +209,8 @@ struct Renderer_State
 
     Shader_Handle depth_prepass_shader;
     Pipeline_State_Handle depth_prepass_pipeline;
+
+    Shader_Handle world_shader;
 
     Shader_Handle transparent_shader;
     Pipeline_State_Handle transparent_pipeline;

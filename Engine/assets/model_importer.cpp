@@ -211,10 +211,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
     String relative_path = sub_string(path, asset_path.count + 1);
 
     Asset_Handle asset_handle = get_asset_handle(relative_path);
-
-    Render_Context render_context = get_render_context();
-    Renderer_State *renderer_state = render_context.renderer_state;
-
+    
     cgltf_data *model_data = aquire_model_from_cache(asset_handle.uuid, path);
     HE_ASSERT(model_data);
 
@@ -289,7 +286,6 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             .fill_mode = Fill_Mode::SOLID,
             .depth_testing = true,
             .sample_shading = true,
-            .color_mask = (Color_Write_Mask)0
         };
 
         float alpha_cutoff = 0.0f;
@@ -304,6 +300,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         else if (material->alpha_mode == cgltf_alpha_mode::cgltf_alpha_mode_blend)
         {
             material_type = Material_Type::TRANSPARENT;
+            settings.color_mask = Color_Write_Mask(0);
         }
 
         Material_Descriptor material_descriptor =
@@ -325,6 +322,8 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         }
 
         glm::vec4 base_color = *(glm::vec4 *)material->pbr_metallic_roughness.base_color_factor;
+        Render_Context render_context = get_render_context();
+        Renderer_State *renderer_state = render_context.renderer_state;
         base_color = linear_to_srgb(base_color, renderer_state->gamma);
 
         set_property(material_handle, HE_STRING_LITERAL("albedo_texture"), { .u64 = albedo_texture.uuid });
@@ -425,6 +424,9 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         U64 index_size = sizeof(U16) * total_index_count;
         U64 vertex_size = (sizeof(glm::vec3) + sizeof(glm::vec3) + sizeof(glm::vec2) + sizeof(glm::vec4)) * total_vertex_count;
         U64 total_size = index_size + vertex_size;
+
+        Render_Context render_context = get_render_context();
+        Renderer_State *renderer_state = render_context.renderer_state;
         U8 *static_mesh_data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, U8, total_size);
 
         U16 *indices = (U16 *)static_mesh_data;

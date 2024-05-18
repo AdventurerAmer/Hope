@@ -10,6 +10,8 @@
 #include "core/engine.h"
 #include "core/memory.h"
 
+#include "rendering/renderer_utils.h"
+
 S32 find_memory_type_index(VkMemoryRequirements memory_requirements, VkMemoryPropertyFlags memory_property_flags, Vulkan_Context *context)
 {
     S32 result = -1;
@@ -145,6 +147,112 @@ VkFormat get_texture_format(Texture_Format texture_format)
     return VK_FORMAT_UNDEFINED;
 }
 
+VkImageLayout get_image_layout(Resource_State resource_state, Texture_Format format)
+{
+    using enum Resource_State;
+
+    bool is_color = is_color_format(format);
+
+    switch (resource_state)
+    {
+        case UNDEFINED: return VK_IMAGE_LAYOUT_UNDEFINED;
+        case GENERAL: return VK_IMAGE_LAYOUT_GENERAL;
+        case COPY_SRC: return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        case COPY_DST: return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        case RENDER_TARGET: return is_color ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        case SHADER_READ_ONLY: return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        case PRESENT: return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported resource state");
+        } break;
+    }
+
+    return VK_IMAGE_LAYOUT_UNDEFINED;
+}
+
+VkAccessFlags get_access_flags(Resource_State resource_state, Texture_Format format)
+{
+    using enum Resource_State;
+
+    bool is_color = is_color_format(format);
+
+    switch (resource_state)
+    {
+        case UNDEFINED:
+        case GENERAL:
+            return 0;
+
+        case COPY_SRC: return VK_ACCESS_TRANSFER_READ_BIT;
+        case COPY_DST: return VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        case RENDER_TARGET:
+        {
+            if (is_color)
+            {
+                return VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            }
+            else
+            {
+                return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            }
+        } break;
+
+        case SHADER_READ_ONLY: return VK_ACCESS_SHADER_READ_BIT;
+        case PRESENT: return VK_ACCESS_MEMORY_READ_BIT;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported resource state");
+        } break;
+    }
+
+    return 0;
+}
+
+VkPipelineStageFlags get_pipeline_stage_flags(VkAccessFlags access_flags)
+{
+    VkPipelineStageFlags result = 0;
+
+    if ((access_flags & (VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT)) != 0)
+    {
+        result |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    
+    if ((access_flags & (VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)) != 0)
+    {
+        result |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    }
+
+    if ((access_flags & (VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)) != 0)
+    {
+        result |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    }
+
+    if ((access_flags & VK_ACCESS_INDIRECT_COMMAND_READ_BIT) != 0)
+    {
+        result |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+    }
+
+    if ((access_flags & (VK_ACCESS_TRANSFER_READ_BIT|VK_ACCESS_TRANSFER_WRITE_BIT)) != 0)
+    {
+        result |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+
+    if ((access_flags & (VK_ACCESS_HOST_READ_BIT | VK_ACCESS_HOST_WRITE_BIT)) != 0)
+    {
+        result |= VK_PIPELINE_STAGE_HOST_BIT;
+    }
+
+    if (result == 0)
+    {
+        result = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    }
+
+    return result;
+}
+
 void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U32 mip_levels, U32 layer_count, VkImageLayout old_layout, VkImageLayout new_layout)
 {
     VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
@@ -211,6 +319,9 @@ void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U3
         destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     }
     else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_GENERAL)
+    {
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
     {
     }
     else
@@ -370,7 +481,6 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
     submit_info.pSignalSemaphoreInfos = &semaphore_submit_info;
 
     context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-
 }
 
 Vulkan_Thread_State *get_thread_state(Vulkan_Context *context)

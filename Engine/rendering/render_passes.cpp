@@ -6,116 +6,54 @@
 #include "rendering/vulkan/vulkan_renderer.h"
 
 void depth_prepass(Renderer *renderer, Renderer_State *renderer_state);
-void opaque_pass(Renderer *renderer, Renderer_State *renderer_state);
+
+void world_pass(Renderer *renderer, Renderer_State *renderer_state);
+
+void before_transparent_pass(Renderer *renderer, Renderer_State *renderer_state);
 void transparent_pass(Renderer *renderer, Renderer_State *renderer_state);
-void after_transparent_pass(Renderer *renderer, Renderer_State *renderer_state);
-void color_pass(Renderer *renderer, Renderer_State *renderer_state);
-void outline_pass(Renderer *renderer, Renderer_State *renderer_state);
+
 void ui_pass(Renderer *renderer, Renderer_State *renderer_state);
 
 void setup_render_passes(Render_Graph *render_graph, Renderer_State *renderer_state)
 {
+    using enum Attachment_Operation;
+    using enum Texture_Format;
+
     // depth prepass
     {
-        Render_Target_Info render_targets[] =
-        {
-            {
-                .name = "scene",
-                .operation = Attachment_Operation::CLEAR,
-                .info =
-                {
-                    .format = Texture_Format::R32_SINT,
-                    .resizable = true,
-                    .scale_x = 1.0f,
-                    .scale_y = 1.0f,
-                },
-            },
-            {
-                .name = "depth",
-                .operation = Attachment_Operation::CLEAR,
-                .info =
-                {
-                    .format = Texture_Format::DEPTH_F32_STENCIL_U8,
-                    .resizable = true,
-                    .scale_x = 1.0f,
-                    .scale_y = 1.0f,
-                }
-            }
-        };
-
-        Render_Graph_Node &node = add_node(render_graph, "depth_prepass", to_array_view(render_targets), &depth_prepass);
-        node.clear_values[0].icolor = { -1, -1, -1, -1 };
-        node.clear_values[1] = { .depth = 1.0f, .stencil = 0 };
+        Render_Graph_Node &depth = add_node(render_graph, "depth_prepass", nullptr, &depth_prepass);
+        add_render_target(render_graph, &depth, "scene", { .format = R32_SINT }, CLEAR, { .icolor = { -1, -1, -1, -1 } });
+        add_depth_stencil_target(render_graph, &depth, "depth", { .format = DEPTH_F32_STENCIL_U8 }, CLEAR, { .depth = 1.0f, .stencil = 0 });
     }
 
-    // opaque pass
+    // world pass
     {
-        Render_Target_Info render_targets[] =
-        {
-            {
-                .name = "main",
-                .operation = Attachment_Operation::CLEAR,
-                .info =
-                {
-                    .format = Texture_Format::R8G8B8A8_UNORM,
-                    .resizable = true,
-                    .scale_x = 1.0f,
-                    .scale_y = 1.0f,
-                }
-            },
-            {
-                .name = "depth",
-                .operation = Attachment_Operation::LOAD,
-            }
-        };
+        Render_Graph_Node &world = add_node(render_graph, "world", nullptr, &world_pass);
+        add_render_target(render_graph, &world, "rt0", { .format = R32G32B32A32_SFLOAT }, CLEAR, { .color = { 1.0f, 0.0f, 1.0f, 1.0f } });
+        set_depth_stencil_target(render_graph, &world, "depth", LOAD);
+        add_storage_texture(render_graph, &world, "head_index_image", { .format = R32_UINT }, { .ucolor = { HE_MAX_U32, HE_MAX_U32, HE_MAX_U32, HE_MAX_U32 } });
 
-        Render_Graph_Node &node = add_node(render_graph, "opaque", to_array_view(render_targets), &opaque_pass, nullptr, &after_transparent_pass);
-        node.clear_values[0].color = { 1.0f, 0.0f, 1.0f, 1.0f };
+        add_storage_buffer(render_graph, &world, "nodes", { .size = sizeof(Shader_Node) * 20, .resizable = true }, HE_MAX_U32);
+        add_storage_buffer(render_graph, &world, "node_count", { .size = sizeof(U32) }, 0);
     }
 
     // transparent pass
     {
-        Render_Target_Info render_targets[] =
-        {
-            {
-                .name = "main",
-                .operation = Attachment_Operation::LOAD,
-            },
-        };
+        Render_Graph_Node &transparent = add_node(render_graph, "transparent", &before_transparent_pass, &transparent_pass);
+        add_render_target_input(render_graph, &transparent, "scene", LOAD);
+        add_render_target(render_graph, &transparent, "main", { .format = R8G8B8A8_UNORM }, CLEAR, { .color = { 1.0f, 0.0f, 1.0f, 1.0f } });
 
-        Render_Graph_Node &node = add_node(render_graph, "transparent", to_array_view(render_targets), &transparent_pass);
+        add_texture_input(render_graph, &transparent, "rt0");
+        add_storage_texture_input(render_graph, &transparent, "head_index_image");
+        add_storage_buffer_input(render_graph, &transparent, "nodes");
+        add_storage_buffer_input(render_graph, &transparent, "node_count");
     }
-
-    // outline pass
-    // {
-    //     Render_Target_Info render_targets[] =
-    //     {
-    //         {
-    //             .name = "main",
-    //             .operation = Attachment_Operation::LOAD,
-    //         },
-    //         {
-    //             .name = "depth",
-    //             .operation = Attachment_Operation::CLEAR,
-    //         }
-    //     };
-
-    //     Render_Graph_Node &node = add_node(render_graph, "outline", to_array_view(render_targets), &outline_pass);
-    //     node.clear_values[1] = { .depth = 1.0f, .stencil = 0 };
-    // }
-
 
     // ui pass
     {
-        Render_Target_Info render_targets[] =
-        {
-            {
-                .name = "main",
-                .operation = Attachment_Operation::LOAD,
-            },
-        };
-
-        Render_Graph_Node &node = add_node(render_graph, "ui", to_array_view(render_targets), &ui_pass);
+        Render_Graph_Node &ui = add_node(render_graph, "ui", nullptr, &ui_pass);
+        add_render_target_input(render_graph, &ui, "main", LOAD);
+        set_depth_stencil_target(render_graph, &ui, "depth", CLEAR, { .depth = 1.0f, .stencil = 0 });
     }
 
     set_presentable_attachment(render_graph, "main");
@@ -125,7 +63,7 @@ static void depth_prepass(Renderer *renderer, Renderer_State *renderer_state)
 {
     Frame_Render_Data *render_data = &renderer_state->render_data;
     renderer->set_pipeline_state(renderer_state->depth_prepass_pipeline);
-    
+
     for (U32 draw_command_index = 0; draw_command_index < render_data->opaque_commands.count; draw_command_index++)
     {
         const Draw_Command *dc = &render_data->opaque_commands[draw_command_index];
@@ -134,7 +72,7 @@ static void depth_prepass(Renderer *renderer, Renderer_State *renderer_state)
     }
 }
 
-static void opaque_pass(Renderer *renderer, Renderer_State *renderer_state)
+static void world_pass(Renderer *renderer, Renderer_State *renderer_state)
 {
     Frame_Render_Data *render_data = &renderer_state->render_data;
 
@@ -171,55 +109,40 @@ static void opaque_pass(Renderer *renderer, Renderer_State *renderer_state)
     }
 }
 
+void before_transparent_pass(Renderer *renderer, Renderer_State *renderer_state)
+{
+    vulkan_renderer_barrier();
+}
+
 void transparent_pass(Renderer *renderer, Renderer_State *renderer_state)
 {
-    // Frame_Render_Data *render_data = &renderer_state->render_data;
-
-    // for (U32 draw_command_index = 0; draw_command_index < render_data->transparent_commands.count; draw_command_index++)
-    // {
-    //     const Draw_Command *dc = &render_data->transparent_commands[draw_command_index];
-    //     renderer_use_material(dc->material);
-    //     renderer_use_static_mesh(dc->static_mesh);
-    //     renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
-    // }
-
-
-    // vulkan_renderer_barrier();
     renderer->set_pipeline_state(renderer_state->transparent_pipeline);
 
     renderer_use_static_mesh(renderer_state->default_static_mesh);
     renderer->draw_fullscreen_triangle();
 }
 
-void after_transparent_pass(Renderer *renderer, Renderer_State *renderer_state)
-{
-    vulkan_renderer_barrier();
-}
-
-static void outline_pass(Renderer *renderer, Renderer_State *renderer_state)
-{
-    // Frame_Render_Data *render_data = &renderer_state->render_data;
-
-    // renderer_use_material(renderer_state->outline_first_pass);
-
-    // for (U32 draw_command_index = 0; draw_command_index < render_data->outline_commands.count; draw_command_index++)
-    // {
-    //     const Draw_Command *dc = &render_data->outline_commands[draw_command_index];
-    //     renderer_use_static_mesh(dc->static_mesh);
-    //     renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
-    // }
-
-    // renderer_use_material(renderer_state->outline_second_pass);
-
-    // for (U32 draw_command_index = 0; draw_command_index < render_data->outline_commands.count; draw_command_index++)
-    // {
-    //     const Draw_Command *dc = &render_data->outline_commands[draw_command_index];
-    //     renderer_use_static_mesh(dc->static_mesh);
-    //     renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
-    // }
-}
-
 static void ui_pass(Renderer *renderer, Renderer_State *renderer_state)
 {
+    Frame_Render_Data *render_data = &renderer_state->render_data;
+
+    renderer_use_material(renderer_state->outline_first_pass);
+
+    for (U32 draw_command_index = 0; draw_command_index < render_data->outline_commands.count; draw_command_index++)
+    {
+        const Draw_Command *dc = &render_data->outline_commands[draw_command_index];
+        renderer_use_static_mesh(dc->static_mesh);
+        renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
+    }
+
+    renderer_use_material(renderer_state->outline_second_pass);
+
+    for (U32 draw_command_index = 0; draw_command_index < render_data->outline_commands.count; draw_command_index++)
+    {
+        const Draw_Command *dc = &render_data->outline_commands[draw_command_index];
+        renderer_use_static_mesh(dc->static_mesh);
+        renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
+    }
+
     renderer->imgui_render();
 }

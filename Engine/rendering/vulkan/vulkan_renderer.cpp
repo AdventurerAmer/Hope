@@ -341,6 +341,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     physical_device_features2.features.sampleRateShading = VK_TRUE;
     physical_device_features2.features.robustBufferAccess = VK_TRUE;
     physical_device_features2.features.fragmentStoresAndAtomics = VK_TRUE;
+    physical_device_features2.features.independentBlend = VK_TRUE;
     physical_device_features2.pNext = &physical_device_sync2_features;
 
     context->physical_device = pick_physical_device(context->instance, context->surface);
@@ -884,14 +885,15 @@ void vulkan_renderer_fill_buffer(Buffer_Handle buffer_handle, U32 value)
 
 void vulkan_renderer_fill_image(Texture_Handle texture_handle, U32 value)
 {
-
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Image *vulkan_image = &context->textures[texture_handle.index];
 
     VkImageSubresourceRange sub_resource_range = {};
-	sub_resource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	sub_resource_range.levelCount = 1;
-	sub_resource_range.layerCount = 1;
+    sub_resource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    sub_resource_range.baseMipLevel = 0;
+    sub_resource_range.levelCount = 1;
+    sub_resource_range.baseArrayLayer = 0;
+    sub_resource_range.layerCount = 1;
 
     VkClearColorValue clear_value = {};
     clear_value.uint32[0] = value;
@@ -900,8 +902,93 @@ void vulkan_renderer_fill_image(Texture_Handle texture_handle, U32 value)
     VkMemoryBarrier barrier { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
-
     vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+}
+
+void vulkan_renderer_clear_texture(Texture_Handle texture_handle, Clear_Value clear_value)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Texture *texture = renderer_get_texture(texture_handle);
+    Vulkan_Image *vulkan_image = &context->textures[texture_handle.index];
+
+    VkImageSubresourceRange sub_resource_range = {};
+    sub_resource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    sub_resource_range.baseMipLevel = 0;
+    sub_resource_range.levelCount = texture->mip_levels;
+    sub_resource_range.baseArrayLayer = 0;
+    sub_resource_range.layerCount = texture->layer_count;
+
+    VkImageLayout image_layout = get_image_layout(texture->state, texture->format);
+
+    if (is_color_format(texture->format))
+    {
+        VkClearColorValue color_clear_value = {};
+
+        if (is_color_format_int(texture->format))
+        {
+            for (U32 i = 0; i < 4; i++)
+            {
+                color_clear_value.int32[i] = clear_value.icolor[i];
+            }
+        }
+        else if (is_color_format_uint(texture->format))
+        {
+            for (U32 i = 0; i < 4; i++)
+            {
+                color_clear_value.uint32[i] = clear_value.ucolor[i];
+            }
+        }
+        else
+        {
+            for (U32 i = 0; i < 4; i++)
+            {
+                color_clear_value.float32[i] = clear_value.color[i];
+            }
+        }
+
+        vkCmdClearColorImage(context->command_buffer, vulkan_image->handle, image_layout, &color_clear_value, 1, &sub_resource_range);
+    }
+    else
+    {
+        VkClearDepthStencilValue depth_stencil_clear_value = {};
+        depth_stencil_clear_value.depth = clear_value.depth;
+        depth_stencil_clear_value.stencil = clear_value.stencil;
+        vkCmdClearDepthStencilImage(context->command_buffer, vulkan_image->handle, image_layout, &depth_stencil_clear_value, 1, &sub_resource_range);
+    }
+}
+
+void vulkan_renderer_change_texture_state(Texture_Handle texture_handle, Resource_State new_resource_state)
+{
+    Vulkan_Context *context = &vulkan_context;
+
+    Texture *texture = renderer_get_texture(texture_handle);
+
+    Vulkan_Image *vulkan_image = &context->textures[texture_handle.index];
+
+    VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    barrier.image = vulkan_image->handle;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+    barrier.subresourceRange.aspectMask = is_color_format(texture->format) ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = texture->mip_levels;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = texture->layer_count;
+
+    Resource_State old_resource_state = texture->state;
+
+    barrier.oldLayout = get_image_layout(old_resource_state, texture->format);
+    barrier.newLayout = get_image_layout(new_resource_state, texture->format);
+
+    barrier.srcAccessMask = get_access_flags(old_resource_state, texture->format);
+    barrier.dstAccessMask = get_access_flags(new_resource_state, texture->format);
+
+    VkPipelineStageFlags src_stage = get_pipeline_stage_flags(barrier.srcAccessMask);
+    VkPipelineStageFlags dst_stage = get_pipeline_stage_flags(barrier.dstAccessMask);
+    vkCmdPipelineBarrier(context->command_buffer, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+    texture->state = new_resource_state;
 }
 
 void vulkan_renderer_barrier()
@@ -910,12 +997,10 @@ void vulkan_renderer_barrier()
 
     vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 0, nullptr);
 
-    // We need a barrier to make sure all writes are finished before starting to write again
     VkMemoryBarrier barrier { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
     barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
     vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
-
 }
 
 void vulkan_renderer_end_frame()
@@ -946,14 +1031,14 @@ void vulkan_renderer_end_frame()
     Vulkan_Image *vulkan_presentable_attachment = &context->textures[presentable_attachment.index];
     
     transtion_image_to_layout(context->command_buffer, vulkan_presentable_attachment->handle, 1, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
     vkCmdCopyImage(context->command_buffer, vulkan_presentable_attachment->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     transtion_image_to_layout(context->command_buffer, swapchain_image, 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-
+    transtion_image_to_layout(context->command_buffer, vulkan_presentable_attachment->handle, 1, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     Texture_Handle scene_texture = get_texture_resource(&renderer_state->render_graph, renderer_state, HE_STRING_LITERAL("scene"));
 
     Vulkan_Image *scene_image = &context->textures[scene_texture.index];
-
-    transtion_image_to_layout(context->command_buffer, scene_image->handle, 1, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transtion_image_to_layout(context->command_buffer, scene_image->handle, 1, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
     Buffer_Handle scene_buffer = renderer_state->render_data.scene_buffers[renderer_state->current_frame_in_flight_index];
     Vulkan_Buffer *vulkan_scene_buffer = &context->buffers[scene_buffer.index];
@@ -978,6 +1063,8 @@ void vulkan_renderer_end_frame()
     };
 
     vkCmdCopyImageToBuffer(context->command_buffer, scene_image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vulkan_scene_buffer->handle, 1, &buffer_image_copy);
+    transtion_image_to_layout(context->command_buffer, scene_image->handle, 1, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
     vkEndCommandBuffer(context->command_buffer);
 
     VkSemaphoreSubmitInfoKHR wait_semaphore_infos[] = 
@@ -1076,7 +1163,7 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
 
         if (descriptor.is_attachment)
         {
-            usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            usage = VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         }
         else if (descriptor.is_storage)
         {
@@ -1093,7 +1180,7 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
         
         if (descriptor.is_attachment)
         {
-            usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+            usage = VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         }
         else
         {
@@ -1188,6 +1275,8 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     
     texture->size = image->allocation_info.size;
     texture->alignment = image->allocation->GetAlignment();
+    texture->layer_count = descriptor.layer_count;
+    texture->mip_levels = mip_levels;
     return true;
 }
 
@@ -1516,7 +1605,7 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     Vulkan_Context *context = &vulkan_context;
 
     Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
-    HE_DEFER{ end_temprary_memory(&temprary_memory); };
+    HE_DEFER { end_temprary_memory(&temprary_memory); };
 
     Render_Pass *render_pass = get(&context->renderer_state->render_passes, render_pass_handle);
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
@@ -1530,15 +1619,6 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
         reset(&render_pass->color_attachments);
     }
 
-    if (descriptor.resolve_attachments.count)
-    {
-        copy(&render_pass->resolve_attachments, &descriptor.resolve_attachments);
-    }
-    else
-    {
-        reset(&render_pass->resolve_attachments);
-    }
-
     if (descriptor.depth_stencil_attachments.count)
     {
         copy(&render_pass->depth_stencil_attachments, &descriptor.depth_stencil_attachments);
@@ -1548,7 +1628,7 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
         reset(&render_pass->depth_stencil_attachments);
     }
 
-    U32 attachment_count = descriptor.color_attachments.count + descriptor.resolve_attachments.count + descriptor.depth_stencil_attachments.count;
+    U32 attachment_count = descriptor.color_attachments.count + descriptor.depth_stencil_attachments.count;
     VkAttachmentDescription *attachments = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkAttachmentDescription, attachment_count);
     VkAttachmentReference *attachment_refs = HE_ALLOCATE_ARRAY(temprary_memory.arena, VkAttachmentReference, attachment_count);
     U32 attachment_index = 0;
@@ -1597,6 +1677,7 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
         VkAttachmentDescription *attachment = &attachments[attachment_index];
         attachment->format = get_texture_format(attachment_info.format);
         attachment->samples = get_sample_count(attachment_info.sample_count);
+
         attachment->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         attachment->stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -1633,45 +1714,6 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
         attachment_index++;
     }
 
-    for (const Attachment_Info &attachment_info : descriptor.resolve_attachments)
-    {
-        VkAttachmentDescription *attachment = &attachments[attachment_index];
-        attachment->format = get_texture_format(attachment_info.format);
-        attachment->samples = get_sample_count(attachment_info.sample_count);
-        attachment->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        switch (attachment_info.operation)
-        {
-            case Attachment_Operation::DONT_CARE:
-            {
-                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-                attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            } break;
-
-            case Attachment_Operation::LOAD:
-            {
-                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                attachment->initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            } break;
-
-            case Attachment_Operation::CLEAR:
-            {
-                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                attachment->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            } break;
-        }
-
-        attachment->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        attachment->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        attachment->finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        VkAttachmentReference *attachment_ref = &attachment_refs[attachment_index];
-        attachment_ref->attachment = attachment_index;
-        attachment_ref->layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        attachment_index++;
-    }
-
     VkSubpassDescription subpass = {};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 
@@ -1685,11 +1727,6 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     {
         subpass.pDepthStencilAttachment = &attachment_refs[descriptor.color_attachments.count];
     }
-    
-    if (descriptor.resolve_attachments.count)
-    {
-        subpass.pResolveAttachments = &attachment_refs[descriptor.color_attachments.count + descriptor.depth_stencil_attachments.count];
-    }
 
     VkRenderPassCreateInfo render_pass_create_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
     render_pass_create_info.attachmentCount = attachment_count;
@@ -1699,9 +1736,6 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     render_pass_create_info.pSubpasses = &subpass;
 
     HE_CHECK_VKRESULT(vkCreateRenderPass(context->logical_device, &render_pass_create_info, &context->allocation_callbacks, &vulkan_render_pass->handle));
-
-    render_pass->name = descriptor.name;
-     
     return true;
 }
 
@@ -2156,12 +2190,22 @@ bool vulkan_renderer_init_imgui()
     imgui_impl_vulkan_init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     imgui_impl_vulkan_init_info.PipelineCache = context->pipeline_cache;
     
+    // todo(amer): we should refer to the ui pass from the render graph
     Render_Pass_Descriptor render_pass_descriptor =
     {
+        .name = HE_STRING_LITERAL("imgui_pass"),
         .color_attachments =
         {{
             {
                 .format = Texture_Format::R8G8B8A8_UNORM,
+                .sample_count = 1,
+                .operation = Attachment_Operation::LOAD
+            },
+        }},
+        .depth_stencil_attachments =
+        {{
+            {
+                .format = Texture_Format::DEPTH_F32_STENCIL_U8,
                 .sample_count = 1,
                 .operation = Attachment_Operation::CLEAR
             }
@@ -2233,8 +2277,7 @@ Memory_Requirements vulkan_renderer_get_texture_memory_requirements(const Textur
 
         if (descriptor.is_attachment)
         {
-            usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-            usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
         }
         else
         {

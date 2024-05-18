@@ -420,9 +420,9 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
     {
         if (!sets[set_index].count)
         {
-            set_count = set_index;
             break;
         }
+        set_count++;
         const auto &set = sets[set_index];
 
         VkDescriptorBindingFlags *bindings_flags = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkDescriptorBindingFlags, set.count);
@@ -725,10 +725,19 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     VkPipelineColorBlendAttachmentState *blend_states = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkPipelineColorBlendAttachmentState, render_pass->color_attachments.count);
     for (U32 i = 0; i < render_pass->color_attachments.count; i++)
     {
+        const Attachment_Info &info = render_pass->color_attachments[i];
+        
         VkPipelineColorBlendAttachmentState &blend_state = blend_states[i];
         blend_state.colorWriteMask = color_mask;
-        blend_state.blendEnable = descriptor.settings.alpha_blending ? VK_TRUE : VK_FALSE;
 
+        if (is_color_format_int(info.format) || is_color_format_uint(info.format))
+        {
+        }
+        else
+        {
+            blend_state.blendEnable = descriptor.settings.alpha_blending ? VK_TRUE : VK_FALSE;
+        }
+        
         blend_state.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
         blend_state.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
         blend_state.colorBlendOp = VK_BLEND_OP_ADD;
