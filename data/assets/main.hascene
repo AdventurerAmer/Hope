@@ -14,8 +14,8 @@ parent 0
 component_count 2
 component transform
 position 0.000000 0.000000 0.000000
-rotation -0.707106 -0.000000 0.000000 0.707107
-scale 0.999986 1.000519 0.999873
+rotation -0.707106 -0.000000 0.000000 0.707108
+scale 0.999986 1.000514 0.999870
 component light
 type directional
 color 1.000000 1.000000 1.000000
@@ -43,7 +43,7 @@ component_count 2
 component transform
 position -5.151625 1.559388 -0.500000
 rotation -0.707107 -0.000000 0.000000 0.707107
-scale 1.000000 0.999988 0.999988
+scale 1.000000 0.999989 0.999989
 component light
 type spot
 color 0.665157 0.111015 0.808824
@@ -90,7 +90,7 @@ node_name 9 WineGlass
 parent 0
 component_count 2
 component transform
-position 1.656842 0.545264 -0.020001
+position 2.262774 0.545264 -0.020001
 rotation 0.000000 0.000000 0.000000 1.000000
 scale 0.200000 0.200000 0.200000
 component mesh

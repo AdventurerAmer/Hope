@@ -877,32 +877,15 @@ void vulkan_renderer_fill_buffer(Buffer_Handle buffer_handle, U32 value)
     Vulkan_Buffer *vulkan_buffer = &context->buffers[buffer_handle.index];
     vkCmdFillBuffer(context->command_buffer, vulkan_buffer->handle, 0, VK_WHOLE_SIZE, value);
 
-    VkMemoryBarrier barrier { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+    VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+    barrier.buffer = vulkan_buffer->handle;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.offset = 0;
+    barrier.size = VK_WHOLE_SIZE;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
-    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
-}
-
-void vulkan_renderer_fill_image(Texture_Handle texture_handle, U32 value)
-{
-    Vulkan_Context *context = &vulkan_context;
-    Vulkan_Image *vulkan_image = &context->textures[texture_handle.index];
-
-    VkImageSubresourceRange sub_resource_range = {};
-    sub_resource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    sub_resource_range.baseMipLevel = 0;
-    sub_resource_range.levelCount = 1;
-    sub_resource_range.baseArrayLayer = 0;
-    sub_resource_range.layerCount = 1;
-
-    VkClearColorValue clear_value = {};
-    clear_value.uint32[0] = value;
-    vkCmdClearColorImage(context->command_buffer, vulkan_image->handle, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1, &sub_resource_range);
-
-    VkMemoryBarrier barrier { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
-    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
 }
 
 void vulkan_renderer_clear_texture(Texture_Handle texture_handle, Clear_Value clear_value)
@@ -955,6 +938,17 @@ void vulkan_renderer_clear_texture(Texture_Handle texture_handle, Clear_Value cl
         depth_stencil_clear_value.stencil = clear_value.stencil;
         vkCmdClearDepthStencilImage(context->command_buffer, vulkan_image->handle, image_layout, &depth_stencil_clear_value, 1, &sub_resource_range);
     }
+
+    VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    barrier.image = vulkan_image->handle;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.oldLayout = image_layout;
+    barrier.newLayout = image_layout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.subresourceRange = sub_resource_range;
+    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
 void vulkan_renderer_change_texture_state(Texture_Handle texture_handle, Resource_State new_resource_state)
@@ -991,16 +985,20 @@ void vulkan_renderer_change_texture_state(Texture_Handle texture_handle, Resourc
     texture->state = new_resource_state;
 }
 
-void vulkan_renderer_barrier()
+void vulkan_renderer_invalidate_buffer(Buffer_Handle buffer_handle)
 {
     Vulkan_Context *context = &vulkan_context;
+    Vulkan_Buffer *vulkan_buffer = &context->buffers[buffer_handle.index];
 
-    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 0, nullptr);
-
-    VkMemoryBarrier barrier { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+    VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+    barrier.buffer = vulkan_buffer->handle;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.offset = 0;
+    barrier.size = VK_WHOLE_SIZE;
     barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
-    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
 }
 
 void vulkan_renderer_end_frame()

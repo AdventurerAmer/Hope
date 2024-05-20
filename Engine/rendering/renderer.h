@@ -53,8 +53,7 @@ struct Renderer
     void (*draw_sub_mesh)(Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index);
     void (*draw_fullscreen_triangle)();
     void (*fill_buffer)(Buffer_Handle buffer_handle, U32 value);
-    void (*clear_image)(Texture_Handle texture_handle, S32 value);
-
+    void (*invalidate_buffer)(Buffer_Handle buffer_handle);
     void (*clear_texture)(Texture_Handle texture_handle, Clear_Value clear_value);
     void (*change_texture_state)(Texture_Handle texture_handle, Resource_State resource_state);
     void (*end_frame)();

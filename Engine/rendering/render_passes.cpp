@@ -9,7 +9,6 @@ void depth_prepass(Renderer *renderer, Renderer_State *renderer_state);
 
 void world_pass(Renderer *renderer, Renderer_State *renderer_state);
 
-void before_transparent_pass(Renderer *renderer, Renderer_State *renderer_state);
 void transparent_pass(Renderer *renderer, Renderer_State *renderer_state);
 
 void ui_pass(Renderer *renderer, Renderer_State *renderer_state);
@@ -39,7 +38,7 @@ void setup_render_passes(Render_Graph *render_graph, Renderer_State *renderer_st
 
     // transparent pass
     {
-        Render_Graph_Node &transparent = add_node(render_graph, "transparent", &before_transparent_pass, &transparent_pass);
+        Render_Graph_Node &transparent = add_node(render_graph, "transparent", nullptr, &transparent_pass);
         add_render_target_input(render_graph, &transparent, "scene", LOAD);
         add_render_target(render_graph, &transparent, "main", { .format = R8G8B8A8_UNORM }, CLEAR, { .color = { 1.0f, 0.0f, 1.0f, 1.0f } });
 
@@ -107,11 +106,6 @@ static void world_pass(Renderer *renderer, Renderer_State *renderer_state)
         renderer_use_static_mesh(dc->static_mesh);
         renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
     }
-}
-
-void before_transparent_pass(Renderer *renderer, Renderer_State *renderer_state)
-{
-    vulkan_renderer_barrier();
 }
 
 void transparent_pass(Renderer *renderer, Renderer_State *renderer_state)

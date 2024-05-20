@@ -85,6 +85,7 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->fill_buffer = &vulkan_renderer_fill_buffer;
             renderer->clear_texture = &vulkan_renderer_clear_texture;
             renderer->change_texture_state = &vulkan_renderer_change_texture_state;
+            renderer->invalidate_buffer = &vulkan_renderer_invalidate_buffer;
             renderer->end_frame = &vulkan_renderer_end_frame;
             renderer->set_vsync = &vulkan_renderer_set_vsync;
             renderer->get_texture_memory_requirements = &vulkan_renderer_get_texture_memory_requirements;

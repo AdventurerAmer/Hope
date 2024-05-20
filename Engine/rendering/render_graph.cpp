@@ -447,6 +447,7 @@ void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *rend
                 case Render_Graph_Resource_Usage::STORAGE_BUFFER:
                 {
                     Buffer_Handle buffer_handle = resource->buffers[frame_index];
+                    renderer->invalidate_buffer(buffer_handle);
                 } break;
             }
 
@@ -496,7 +497,6 @@ void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *rend
                     Texture_Handle texture_handle = resource->textures[frame_index];
                     renderer->change_texture_state(texture_handle, Resource_State::GENERAL);
                     renderer->clear_texture(texture_handle, output.clear_value);
-                    renderer->change_texture_state(texture_handle, Resource_State::GENERAL);
                 } break;
 
                 case Render_Graph_Resource_Usage::STORAGE_BUFFER:
