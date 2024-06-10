@@ -530,51 +530,7 @@ static void draw_graphics_window()
                 ImGui::EndCombo();
             }
         }
-
-        //
-        // MSAA
-        //
-        {
-            const char* msaa_text[] =
-            {
-                "NONE",
-                "X2  ",
-                "X4  ",
-                "X8  "
-            };
-
-            ImGui::Text("MSAA");
-            ImGui::SameLine();
-
-            const char *selected_msaa = nullptr;
-            for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
-            {
-                if ((U32)renderer_state->msaa_setting == msaa_setting_index)
-                {
-                    selected_msaa = msaa_text[msaa_setting_index];
-                    break;
-                }
-            }
-
-            if (ImGui::BeginCombo("##MSAA", selected_msaa))
-            {
-                for (U32 msaa_setting_index = 0; msaa_setting_index < HE_ARRAYCOUNT(msaa_text); msaa_setting_index++)
-                {
-                    bool is_selected = (U32)renderer_state->msaa_setting == msaa_setting_index;
-                    if (ImGui::Selectable(msaa_text[msaa_setting_index], is_selected))
-                    {
-                        renderer_set_msaa((MSAA_Setting)msaa_setting_index);
-                    }
-
-                    if (is_selected)
-                    {
-                        ImGui::SetItemDefaultFocus();
-                    }
-                }
-                ImGui::EndCombo();
-            }
-        }
-
+        
         ImGui::End();
     }
 }

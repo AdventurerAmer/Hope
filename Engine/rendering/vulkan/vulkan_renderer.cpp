@@ -236,6 +236,17 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     context->semaphores = HE_ALLOCATE_ARRAY(arena, Vulkan_Semaphore, HE_MAX_SEMAPHORE_COUNT);
     context->upload_requests = HE_ALLOCATE_ARRAY(arena, Vulkan_Upload_Request, HE_MAX_UPLOAD_REQUEST_COUNT);
 
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        init(&context->pending_delete_buffers[frame_index], 0, HE_MAX_BUFFER_COUNT);
+        init(&context->pending_delete_textures[frame_index], 0, HE_MAX_TEXTURE_COUNT);
+        init(&context->pending_delete_samplers[frame_index], 0, HE_MAX_SAMPLER_COUNT);
+        init(&context->pending_delete_shaders[frame_index], 0, HE_MAX_SHADER_COUNT);
+        init(&context->pending_delete_pipeline_states[frame_index], 0, HE_MAX_PIPELINE_STATE_COUNT);
+        init(&context->pending_delete_render_passes[frame_index], 0, HE_MAX_RENDER_PASS_COUNT);
+        init(&context->pending_delete_frame_buffers[frame_index], 0, HE_MAX_FRAME_BUFFER_COUNT);
+    }
+
     Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
     HE_DEFER { end_temprary_memory(&temprary_memory); };
 
@@ -642,6 +653,8 @@ void deinit_vulkan(Vulkan_Context *context)
         {
             vkDestroyDescriptorPool(context->logical_device, descriptor_pool_allocator->full_pools[i], &context->allocation_callbacks);
         }
+
+        vulkan_renderer_destroy_resources_at_frame(frame_index);
     }
 
     vkDestroyDescriptorPool(context->logical_device, context->imgui_descriptor_pool, &context->allocation_callbacks);
@@ -716,6 +729,90 @@ void vulkan_renderer_deinit()
     deinit_vulkan(&vulkan_context);
 }
 
+
+void vulkan_renderer_destroy_resources_at_frame(U32 frame_index)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Renderer_State *renderer_state = context->renderer_state;
+    
+    Dynamic_Array<Vulkan_Buffer> &buffers = context->pending_delete_buffers[frame_index];
+
+    for (U32 buffer_index = 0; buffer_index < buffers.count; buffer_index++)
+    {
+        Vulkan_Buffer &buffer = buffers[buffer_index];
+        vmaDestroyBuffer(context->allocator, buffer.handle, buffer.allocation);
+    }
+    
+    reset(&buffers);
+
+    Dynamic_Array<Vulkan_Image> &images = context->pending_delete_textures[frame_index];
+
+    for (U32 image_index = 0; image_index < images.count; image_index++)
+    {
+        Vulkan_Image &image = images[image_index];
+        
+        vkDestroyImageView(context->logical_device, image.view, &context->allocation_callbacks);
+        vmaDestroyImage(context->allocator, image.handle, image.allocation);
+
+        if (image.imgui_handle != VK_NULL_HANDLE)
+        {
+            ImGui_ImplVulkan_RemoveTexture(image.imgui_handle);
+        }
+    }
+
+    reset(&images);
+
+    Dynamic_Array<Vulkan_Shader> &shaders = context->pending_delete_shaders[frame_index];
+    
+    for (U32 shader_index = 0; shader_index < shaders.count; shader_index++)
+    {
+        Vulkan_Shader *vulkan_shader = &shaders[shader_index];
+        destroy_shader(vulkan_shader, context);
+    }
+
+    reset(&shaders);
+
+    Dynamic_Array<Vulkan_Pipeline_State> &pipeline_states = context->pending_delete_pipeline_states[frame_index];
+
+    for (U32 pipeline_state_index = 0; pipeline_state_index < pipeline_states.count; pipeline_state_index++)
+    {
+        Vulkan_Pipeline_State *pipeline_state = &pipeline_states[pipeline_state_index];
+        destroy_pipeline(pipeline_state, context);
+    }
+
+    reset(&pipeline_states);
+
+    Dynamic_Array<Vulkan_Sampler> &samplers = context->pending_delete_samplers[frame_index];
+
+    for (U32 sampler_index = 0; sampler_index < samplers.count; sampler_index++)
+    {
+        Vulkan_Sampler &sampler = samplers[sampler_index];
+        vkDestroySampler(context->logical_device, sampler.handle, &context->allocation_callbacks);
+    }
+
+    reset(&samplers);
+
+    Dynamic_Array<Vulkan_Render_Pass> &render_passes = context->pending_delete_render_passes[frame_index];
+    
+    for (U32 render_pass_index = 0; render_pass_index < render_passes.count; render_pass_index++)
+    {
+        Vulkan_Render_Pass &render_pass = render_passes[render_pass_index];
+        vkDestroyRenderPass(context->logical_device, render_pass.handle, &context->allocation_callbacks);
+    }
+
+    reset(&render_passes);
+
+    Dynamic_Array<Vulkan_Frame_Buffer> &frame_buffers = context->pending_delete_frame_buffers[frame_index];
+    
+    for (U32 frame_buffer_index = 0; frame_buffer_index < frame_buffers.count; frame_buffer_index++)
+    {
+        Vulkan_Frame_Buffer &frame_buffer = frame_buffers[frame_buffer_index];
+        vkDestroyFramebuffer(context->logical_device, frame_buffer.handle, &context->allocation_callbacks);
+    }
+
+    reset(&frame_buffers);
+}
+
 void vulkan_renderer_on_resize(U32 width, U32 height)
 {
     Vulkan_Context *context = &vulkan_context;
@@ -776,12 +873,12 @@ void vulkan_renderer_begin_frame()
     
     reset(&descriptor_pool_allocator->full_pools);
 #endif
-
+    
     VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[frame_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);
 
     VkCommandBuffer command_buffer = context->graphics_command_buffers[frame_index];
     vkResetCommandBuffer(command_buffer, 0);
-
+    
     VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     command_buffer_begin_info.flags = 0;
     command_buffer_begin_info.pInheritanceInfo = 0;
@@ -789,6 +886,8 @@ void vulkan_renderer_begin_frame()
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
 
     context->command_buffer = command_buffer;
+    
+    vulkan_renderer_destroy_resources_at_frame((frame_index + 1) % HE_MAX_FRAMES_IN_FLIGHT);
 }
 
 void vulkan_renderer_set_viewport(U32 width, U32 height)
@@ -1294,19 +1393,25 @@ ImTextureID vulkan_renderer_imgui_get_texture_id(Texture_Handle texture)
     return (ImTextureID)image->imgui_handle;
 }
 
-void vulkan_renderer_destroy_texture(Texture_Handle texture_handle)
+void vulkan_renderer_destroy_texture(Texture_Handle texture_handle, bool immediate)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Image *vulkan_image = &context->textures[texture_handle.index];
-    vkDestroyImageView(context->logical_device, vulkan_image->view, &context->allocation_callbacks);
-    vmaDestroyImage(context->allocator, vulkan_image->handle, vulkan_image->allocation);
-
-    vulkan_image->handle = VK_NULL_HANDLE;
-    vulkan_image->view = VK_NULL_HANDLE;
-
-    if (vulkan_image->imgui_handle != VK_NULL_HANDLE)
+    
+    Vulkan_Image &image = context->textures[texture_handle.index];
+    if (immediate)
     {
-        ImGui_ImplVulkan_RemoveTexture(vulkan_image->imgui_handle);
+        vkDestroyImageView(context->logical_device, image.view, &context->allocation_callbacks);
+        vmaDestroyImage(context->allocator, image.handle, image.allocation);
+
+        if (image.imgui_handle != VK_NULL_HANDLE)
+        {
+            ImGui_ImplVulkan_RemoveTexture(image.imgui_handle);
+        }
+    }
+    else
+    {
+        U32 frame_index = context->renderer_state->current_frame_in_flight_index; 
+        append(&context->pending_delete_textures[frame_index], image);
     }
 }
 
@@ -1391,12 +1496,19 @@ bool vulkan_renderer_create_sampler(Sampler_Handle sampler_handle, const Sampler
     return true;
 }
 
-void vulkan_renderer_destroy_sampler(Sampler_Handle sampler_handle)
+void vulkan_renderer_destroy_sampler(Sampler_Handle sampler_handle, bool immediate)
 {
     Vulkan_Context *context = &vulkan_context;
-    Sampler *sampler = get(&context->renderer_state->samplers, sampler_handle);
-    Vulkan_Sampler *vulkan_sampler = &context->samplers[sampler_handle.index];
-    vkDestroySampler(context->logical_device, vulkan_sampler->handle, &context->allocation_callbacks);
+    Vulkan_Sampler &sampler = context->samplers[sampler_handle.index]; 
+    if (immediate)
+    {
+        vkDestroySampler(context->logical_device, sampler.handle, &context->allocation_callbacks);
+    }
+    else
+    {
+        U32 frame_index = context->renderer_state->current_frame_in_flight_index;
+        append(&context->pending_delete_samplers[frame_index], sampler);
+    }
 }
 
 bool vulkan_renderer_create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descriptor)
@@ -1406,10 +1518,19 @@ bool vulkan_renderer_create_shader(Shader_Handle shader_handle, const Shader_Des
     return loaded;
 }
 
-void vulkan_renderer_destroy_shader(Shader_Handle shader_handle)
+void vulkan_renderer_destroy_shader(Shader_Handle shader_handle, bool immediate)
 {
     Vulkan_Context *context = &vulkan_context;
-    destroy_shader(shader_handle, context);
+    Vulkan_Shader &shader = context->shaders[shader_handle.index];
+    if (immediate)
+    {
+        destroy_shader(&shader, context);
+    }
+    else
+    {
+        U32 frame_index = context->renderer_state->current_frame_in_flight_index;
+        append(&context->pending_delete_shaders[frame_index], shader);
+    }
 }
 
 bool vulkan_renderer_create_pipeline_state(Pipeline_State_Handle pipeline_state_handle, const Pipeline_State_Descriptor &descriptor)
@@ -1418,10 +1539,19 @@ bool vulkan_renderer_create_pipeline_state(Pipeline_State_Handle pipeline_state_
     return create_graphics_pipeline(pipeline_state_handle, descriptor, context);
 }
 
-void vulkan_renderer_destroy_pipeline_state(Pipeline_State_Handle pipeline_state_handle)
+void vulkan_renderer_destroy_pipeline_state(Pipeline_State_Handle pipeline_state_handle, bool immediate)
 {
     Vulkan_Context *context = &vulkan_context;
-    destroy_pipeline(pipeline_state_handle, context);
+    Vulkan_Pipeline_State &pipeline_state = context->pipeline_states[pipeline_state_handle.index];
+    if (immediate)
+    {
+        destroy_pipeline(&pipeline_state, context);
+    }
+    else
+    {
+        U32 frame_index = context->renderer_state->current_frame_in_flight_index;
+        append(&context->pending_delete_pipeline_states[frame_index], pipeline_state);
+    }
 }
 
 static VkDescriptorType get_descriptor_type(Buffer_Usage usage)
@@ -1806,11 +1936,19 @@ void vulkan_renderer_end_render_pass(Render_Pass_Handle render_pass_handle)
     vkCmdEndRenderPass(context->command_buffer);
 }
 
-void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle)
+void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle, bool immediate)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
-    vkDestroyRenderPass(context->logical_device, vulkan_render_pass->handle, &context->allocation_callbacks);
+    Vulkan_Render_Pass &render_pass = context->render_passes[render_pass_handle.index];
+    if (immediate)
+    {
+        vkDestroyRenderPass(context->logical_device, render_pass.handle, &context->allocation_callbacks);
+    }
+    else
+    {
+        U32 frame_index = context->renderer_state->current_frame_in_flight_index;
+        append(&context->pending_delete_render_passes[frame_index], render_pass);
+    }
 }
 
 bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor)
@@ -1851,12 +1989,19 @@ bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle
     return true;
 }
 
-void vulkan_renderer_destroy_frame_buffer(Frame_Buffer_Handle frame_buffer_handle)
+void vulkan_renderer_destroy_frame_buffer(Frame_Buffer_Handle frame_buffer_handle, bool immediate)
 {
     Vulkan_Context *context = &vulkan_context;
-    Frame_Buffer *frame_buffer = get(&context->renderer_state->frame_buffers, frame_buffer_handle);
-    Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
-    vkDestroyFramebuffer(context->logical_device, vulkan_frame_buffer->handle, &context->allocation_callbacks);
+    Vulkan_Frame_Buffer &frame_buffer = context->frame_buffers[frame_buffer_handle.index];
+    if (immediate)
+    {
+        vkDestroyFramebuffer(context->logical_device, frame_buffer.handle, &context->allocation_callbacks);
+    }
+    else
+    {
+        U32 frame_index = context->renderer_state->current_frame_in_flight_index;
+        append(&context->pending_delete_frame_buffers[frame_index], frame_buffer);
+    }
 }
 
 static VkBufferUsageFlags get_buffer_usage_flags(Buffer_Usage usage)
@@ -1965,11 +2110,19 @@ bool vulkan_renderer_create_buffer(Buffer_Handle buffer_handle, const Buffer_Des
     return true;
 }
 
-void vulkan_renderer_destroy_buffer(Buffer_Handle buffer_handle)
+void vulkan_renderer_destroy_buffer(Buffer_Handle buffer_handle, bool immediate)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Buffer *vulkan_buffer = &context->buffers[buffer_handle.index];
-    vmaDestroyBuffer(context->allocator, vulkan_buffer->handle, vulkan_buffer->allocation);
+    Vulkan_Buffer &vulkan_buffer = context->buffers[buffer_handle.index];
+    if (immediate)
+    {
+        vmaDestroyBuffer(context->allocator, vulkan_buffer.handle, vulkan_buffer.allocation);
+    }
+    else
+    {
+        U32 frame_index = context->renderer_state->current_frame_in_flight_index;
+        append(&context->pending_delete_buffers[frame_index], vulkan_buffer);
+    }
 }
 
 bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor, Upload_Request_Handle upload_request_handle)

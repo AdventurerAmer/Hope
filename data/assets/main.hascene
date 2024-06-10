@@ -90,7 +90,7 @@ node_name 9 WineGlass
 parent 0
 component_count 2
 component transform
-position 2.262774 0.545264 -0.020001
+position 4.106018 0.545264 -0.020001
 rotation 0.000000 0.000000 0.000000 1.000000
 scale 0.200000 0.200000 0.200000
 component mesh

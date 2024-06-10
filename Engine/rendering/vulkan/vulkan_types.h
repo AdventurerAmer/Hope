@@ -199,8 +199,17 @@ struct Vulkan_Context
     
     Vulkan_Render_Pass *render_passes;
     Vulkan_Frame_Buffer *frame_buffers;
+
     Vulkan_Semaphore *semaphores;
     Vulkan_Upload_Request *upload_requests;
+    
+    Dynamic_Array<Vulkan_Buffer>         pending_delete_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    Dynamic_Array<Vulkan_Image>          pending_delete_textures[HE_MAX_FRAMES_IN_FLIGHT];
+    Dynamic_Array<Vulkan_Sampler>        pending_delete_samplers[HE_MAX_FRAMES_IN_FLIGHT];
+    Dynamic_Array<Vulkan_Shader>         pending_delete_shaders[HE_MAX_FRAMES_IN_FLIGHT];
+    Dynamic_Array<Vulkan_Pipeline_State> pending_delete_pipeline_states[HE_MAX_FRAMES_IN_FLIGHT];
+    Dynamic_Array<Vulkan_Render_Pass>    pending_delete_render_passes[HE_MAX_FRAMES_IN_FLIGHT];
+    Dynamic_Array<Vulkan_Frame_Buffer>   pending_delete_frame_buffers[HE_MAX_FRAMES_IN_FLIGHT];
     
     VkDescriptorPool imgui_descriptor_pool;
 

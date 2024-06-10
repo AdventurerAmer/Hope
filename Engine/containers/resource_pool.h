@@ -115,6 +115,7 @@ Resource_Handle< T > aquire_handle(Resource_Pool< T > *resource_pool)
     Resource_Handle< T > handle = { index, resource_pool->generations[index] };
 
     platform_unlock_mutex(&resource_pool->mutex);
+    
     return handle;
 }
 

@@ -152,7 +152,6 @@ bool init_renderer_state(Engine *engine)
     U32 &back_buffer_height = renderer_state->back_buffer_height;
     bool &triple_buffering = renderer_state->triple_buffering;
     bool &vsync = renderer_state->vsync;
-    U8 &msaa_setting = (U8&)renderer_state->msaa_setting;
     U8 &anisotropic_filtering_setting = (U8&)renderer_state->anisotropic_filtering_setting;
     F32 &gamma = renderer_state->gamma;
 
@@ -168,11 +167,8 @@ bool init_renderer_state(Engine *engine)
     HE_DECLARE_CVAR("renderer", back_buffer_height, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", triple_buffering, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", gamma, CVarFlag_None);
-    HE_DECLARE_CVAR("renderer", msaa_setting, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", anisotropic_filtering_setting, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", vsync, CVarFlag_None);
-
-    msaa_setting = (U8)MSAA_Setting::NONE;
 
     renderer_state->current_frame_in_flight_index = 0;
     HE_ASSERT(renderer_state->frames_in_flight <= HE_MAX_FRAMES_IN_FLIGHT);
@@ -636,37 +632,37 @@ void deinit_renderer_state()
 
     for (auto it = iterator(&renderer_state->buffers); next(&renderer_state->buffers, it);)
     {
-        renderer->destroy_buffer(it);
+        renderer->destroy_buffer(it, true);
     }
 
     for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
     {
-        renderer->destroy_texture(it);
+        renderer->destroy_texture(it, true);
     }
 
     for (auto it = iterator(&renderer_state->samplers); next(&renderer_state->samplers, it);)
     {
-        renderer->destroy_sampler(it);
+        renderer->destroy_sampler(it, true);
     }
 
     for (auto it = iterator(&renderer_state->shaders); next(&renderer_state->shaders, it);)
     {
-        renderer->destroy_shader(it);
+        renderer->destroy_shader(it, true);
     }
 
     for (auto it = iterator(&renderer_state->frame_buffers); next(&renderer_state->frame_buffers, it);)
     {
-        renderer->destroy_frame_buffer(it);
+        renderer->destroy_frame_buffer(it, true);
     }
 
     for (auto it = iterator(&renderer_state->render_passes); next(&renderer_state->render_passes, it);)
     {
-        renderer->destroy_render_pass(it);
+        renderer->destroy_render_pass(it, true);
     }
 
     for (auto it = iterator(&renderer_state->pipeline_states); next(&renderer_state->pipeline_states, it);)
     {
-        renderer->destroy_pipeline_state(it);
+        renderer->destroy_pipeline_state(it, true);
     }
 
     for (auto it = iterator(&renderer_state->semaphores); next(&renderer_state->semaphores, it);)
@@ -732,7 +728,7 @@ Buffer* renderer_get_buffer(Buffer_Handle buffer_handle)
 
 void renderer_destroy_buffer(Buffer_Handle &buffer_handle)
 {
-    renderer->destroy_buffer(buffer_handle);
+    renderer->destroy_buffer(buffer_handle, false);
     release_handle(&renderer_state->buffers, buffer_handle);
     buffer_handle = Resource_Pool< Buffer >::invalid_handle;
 }
@@ -820,7 +816,7 @@ void renderer_destroy_texture(Texture_Handle &texture_handle)
     texture->alias = Resource_Pool<Texture>::invalid_handle;
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
-    renderer->destroy_texture(texture_handle);
+    renderer->destroy_texture(texture_handle, false);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
     release_handle(&renderer_state->textures, texture_handle);
@@ -851,7 +847,7 @@ Sampler* renderer_get_sampler(Sampler_Handle sampler_handle)
 
 void renderer_destroy_sampler(Sampler_Handle &sampler_handle)
 {
-    renderer->destroy_sampler(sampler_handle);
+    renderer->destroy_sampler(sampler_handle, false);
     release_handle(&renderer_state->samplers, sampler_handle);
     sampler_handle = Resource_Pool< Sampler >::invalid_handle;
 }
@@ -1114,7 +1110,7 @@ void renderer_destroy_shader(Shader_Handle &shader_handle)
     deallocate(allocator, shader->structs);
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
-    renderer->destroy_shader(shader_handle);
+    renderer->destroy_shader(shader_handle, false);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
     release_handle(&renderer_state->shaders, shader_handle);
@@ -1178,7 +1174,7 @@ Pipeline_State* renderer_get_pipeline_state(Pipeline_State_Handle pipeline_state
 
 void renderer_destroy_pipeline_state(Pipeline_State_Handle &pipeline_state_handle)
 {
-    renderer->destroy_pipeline_state(pipeline_state_handle);
+    renderer->destroy_pipeline_state(pipeline_state_handle, false);
     release_handle(&renderer_state->pipeline_states, pipeline_state_handle);
     pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
 }
@@ -1207,7 +1203,7 @@ Render_Pass *renderer_get_render_pass(Render_Pass_Handle render_pass_handle)
 
 void renderer_destroy_render_pass(Render_Pass_Handle &render_pass_handle)
 {
-    renderer->destroy_render_pass(render_pass_handle);
+    renderer->destroy_render_pass(render_pass_handle, false);
     release_handle(&renderer_state->render_passes, render_pass_handle);
     render_pass_handle = Resource_Pool< Render_Pass >::invalid_handle;
 }
@@ -1232,7 +1228,7 @@ Frame_Buffer *renderer_get_frame_buffer(Frame_Buffer_Handle frame_buffer_handle)
 
 void renderer_destroy_frame_buffer(Frame_Buffer_Handle &frame_buffer_handle)
 {
-    renderer->destroy_frame_buffer(frame_buffer_handle);
+    renderer->destroy_frame_buffer(frame_buffer_handle, false);
     release_handle(&renderer_state->frame_buffers, frame_buffer_handle);
     frame_buffer_handle = Resource_Pool< Frame_Buffer >::invalid_handle;
 }
@@ -2512,7 +2508,7 @@ void renderer_destroy_upload_request(Upload_Request_Handle upload_request_handle
 void renderer_handle_upload_requests()
 {
     platform_lock_mutex(&renderer_state->pending_upload_requests_mutex);
-
+    
     for (S32 index = 0; index < (S32)renderer_state->pending_upload_requests.count; index++)
     {
         Upload_Request_Handle upload_request_handle = renderer_state->pending_upload_requests[index];
@@ -2567,24 +2563,11 @@ void renderer_set_anisotropic_filtering(Anisotropic_Filtering_Setting anisotropi
 
     if (is_valid_handle(&renderer_state->samplers, renderer_state->default_texture_sampler))
     {
-        renderer->destroy_sampler(renderer_state->default_texture_sampler);
+        renderer->destroy_sampler(renderer_state->default_texture_sampler, true);
     }
 
     renderer->create_sampler(renderer_state->default_texture_sampler, default_sampler_descriptor);
     renderer_state->anisotropic_filtering_setting = anisotropic_filtering_setting;
-}
-
-void renderer_set_msaa(MSAA_Setting msaa_setting)
-{
-    if (renderer_state->msaa_setting == msaa_setting)
-    {
-        return;
-    }
-
-    renderer->wait_for_gpu_to_finish_all_work();
-    renderer_state->msaa_setting = msaa_setting;
-    compile(&renderer_state->render_graph, renderer, renderer_state);
-    invalidate(&renderer_state->render_graph, renderer, renderer_state);
 }
 
 void renderer_set_vsync(bool enabled)

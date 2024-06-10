@@ -767,7 +767,7 @@ void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Re
 
         if (is_valid_handle(&renderer_state->render_passes, node.render_pass))
         {
-            renderer->destroy_render_pass(node.render_pass);
+            renderer->destroy_render_pass(node.render_pass, true);
             renderer->create_render_pass(node.render_pass, render_pass_descriptor);
         }
         else
@@ -783,7 +783,7 @@ void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Re
 
             if (is_valid_handle(&renderer_state->frame_buffers, node.frame_buffers[frame_index]))
             {
-                renderer->destroy_frame_buffer(node.frame_buffers[frame_index]);
+                renderer->destroy_frame_buffer(node.frame_buffers[frame_index], true);
                 renderer->create_frame_buffer(node.frame_buffers[frame_index], frame_buffer_descriptors[frame_index]);
             }
             else

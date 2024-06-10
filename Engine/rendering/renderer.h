@@ -59,32 +59,32 @@ struct Renderer
     void (*end_frame)();
 
     bool (*create_buffer)(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor);
-    void (*destroy_buffer)(Buffer_Handle buffer_handle);
+    void (*destroy_buffer)(Buffer_Handle buffer_handle, bool immediate);
 
     bool (*create_texture)(Texture_Handle texture_handle, const Texture_Descriptor &descriptor, Upload_Request_Handle upload_request_handle);
-    void (*destroy_texture)(Texture_Handle texture_handle);
+    void (*destroy_texture)(Texture_Handle texture_handle, bool immediate);
 
     bool (*create_sampler)(Sampler_Handle sampler_handle, const Sampler_Descriptor &descriptor);
-    void (*destroy_sampler)(Sampler_Handle sampler_handle);
+    void (*destroy_sampler)(Sampler_Handle sampler_handle, bool immediate);
 
     bool (*create_shader)(Shader_Handle shader_handle, const Shader_Descriptor &descriptor);
-    void (*destroy_shader)(Shader_Handle shader_handle);
+    void (*destroy_shader)(Shader_Handle shader_handle, bool immediate);
 
     bool (*create_pipeline_state)(Pipeline_State_Handle pipeline_state_handle, const Pipeline_State_Descriptor &descriptor);
-    void (*destroy_pipeline_state)(Pipeline_State_Handle pipeline_state_handle);
+    void (*destroy_pipeline_state)(Pipeline_State_Handle pipeline_state_handle, bool immediate);
     
     void (*update_bind_group)(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors);
 
     bool (*create_render_pass)(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor);
     void (*begin_render_pass)(Render_Pass_Handle render_pass_handle, Frame_Buffer_Handle frame_buffer_handle, const Array_View< Clear_Value > &clear_views);
     void (*end_render_pass)(Render_Pass_Handle render_pass_handle);
-    void (*destroy_render_pass)(Render_Pass_Handle render_pass_handle);
+    void (*destroy_render_pass)(Render_Pass_Handle render_pass_handle, bool immediate);
 
     bool (*create_frame_buffer)(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor);
-    void (*destroy_frame_buffer)(Frame_Buffer_Handle frame_buffer_handle);
+    void (*destroy_frame_buffer)(Frame_Buffer_Handle frame_buffer_handle, bool immediate);
 
     bool (*create_static_mesh)(Static_Mesh_Handle static_mesh_handle, const Static_Mesh_Descriptor &descriptor, Upload_Request_Handle upload_request_handle);
-    void (*destroy_static_mesh)(Static_Mesh_Handle static_mesh_handle);
+    void (*destroy_static_mesh)(Static_Mesh_Handle static_mesh_handle, bool immediate);
 
     bool (*create_semaphore)(Semaphore_Handle semaphore_handle, const Renderer_Semaphore_Descriptor &descriptor);
     U64 (*get_semaphore_value)(Semaphore_Handle semaphore_handle);
@@ -177,11 +177,10 @@ struct Renderer_State
 
     Mutex pending_upload_requests_mutex;
     Counted_Array< Upload_Request_Handle, HE_MAX_UPLOAD_REQUEST_COUNT > pending_upload_requests;
-
+    
     F32 gamma;
     bool triple_buffering;
     bool vsync;
-    MSAA_Setting msaa_setting;
     Anisotropic_Filtering_Setting anisotropic_filtering_setting;
 
     Buffer_Handle transfer_buffer;

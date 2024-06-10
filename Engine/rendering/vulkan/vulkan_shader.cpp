@@ -452,10 +452,8 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
     return true;
 }
 
-void destroy_shader(Shader_Handle shader_handle, Vulkan_Context *context)
+void destroy_shader(Vulkan_Shader *vulkan_shader, Vulkan_Context *context)
 {
-    Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
-
     for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
     {
         if (vulkan_shader->handles[stage_index] == VK_NULL_HANDLE)
@@ -798,9 +796,8 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     return true;
 }
 
-void destroy_pipeline(Pipeline_State_Handle pipeline_state_handle, Vulkan_Context *context)
+void destroy_pipeline(Vulkan_Pipeline_State *pipeline, Vulkan_Context *context)
 {
     HE_ASSERT(context);
-    Vulkan_Pipeline_State *pipeline = &context->pipeline_states[pipeline_state_handle.index];
     vkDestroyPipeline(context->logical_device, pipeline->handle, &context->allocation_callbacks);
 }

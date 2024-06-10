@@ -720,7 +720,7 @@ static void inspect_material(Asset_Handle material_asset)
         }
 
         // todo(amer): we should destroy this material handle after 3 frames instead of waiting...
-        renderer_wait_for_gpu_to_finish_all_work();
+        // renderer_wait_for_gpu_to_finish_all_work();
         renderer_destroy_material(material_handle);
         
         material_handle = new_material_handle;
