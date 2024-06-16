@@ -859,6 +859,7 @@ void vulkan_renderer_begin_frame()
     append(&descriptor_pool_allocator->ready_pools, descriptor_pool);
 
 #else
+    
     for (U32 i = 0; i < descriptor_pool_allocator->ready_pools.count; i++)
     {
         VkResult result = vkResetDescriptorPool(context->logical_device, descriptor_pool_allocator->ready_pools[i], 0);
@@ -872,6 +873,7 @@ void vulkan_renderer_begin_frame()
     }
     
     reset(&descriptor_pool_allocator->full_pools);
+
 #endif
     
     VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[frame_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);

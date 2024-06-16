@@ -113,6 +113,18 @@ bool platform_write_data_to_file(const Open_File_Result *open_file_result, U64 o
 
 bool platform_close_file(Open_File_Result *open_file_result);
 
+enum class Watch_Directory_Result
+{
+    FILE_CREATED,
+    FILE_RENAMED,
+    FILE_MODIFIED,
+    FILE_DELETED
+};
+
+typedef void(*on_watch_directory_proc)(Watch_Directory_Result result, String old_path, String new_path);
+
+bool platform_watch_directory(const char *path, on_watch_directory_proc on_watch_directory);
+
 //
 // dynamic library
 //

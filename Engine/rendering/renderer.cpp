@@ -3052,7 +3052,7 @@ void end_rendering()
 
     render(&renderer_state->render_graph, renderer, renderer_state);
     renderer->end_frame();
-
+    
     renderer_state->current_frame_in_flight_index++;
     if (renderer_state->current_frame_in_flight_index >= renderer_state->frames_in_flight)
     {
@@ -3099,7 +3099,7 @@ void imgui_new_frame()
     renderer->imgui_new_frame();
     ImGui::NewFrame();
     ImGuizmo::BeginFrame();
-
+    
     if (renderer_state->imgui_docking)
     {
         static bool opt_fullscreen_persistant = true;

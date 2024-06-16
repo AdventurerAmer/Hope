@@ -388,6 +388,8 @@ INT WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance, PSTR command
 
     while (engine->is_running)
     {
+        SleepEx(0, TRUE);
+
         LARGE_INTEGER current_counter;
         HE_ASSERT(QueryPerformanceCounter(&current_counter));
 
@@ -794,6 +796,134 @@ bool platform_close_file(Open_File_Result *open_file_result)
     bool result = CloseHandle(open_file_result->handle) != 0;
     open_file_result->handle = nullptr;
     return result;
+}
+
+struct Watch_Directory_Info
+{
+    HANDLE                  directory_handle;
+    void                   *buffer;
+    U64                     buffer_size;
+    on_watch_directory_proc on_watch_directory;
+};
+
+static void overlapped_completion(DWORD error_code, DWORD number_of_bytes_transfered, LPOVERLAPPED overlapped)
+{
+    if (!number_of_bytes_transfered)
+    {
+        win32_log_last_error();
+        return;
+    }
+
+    Watch_Directory_Info *watch_directory_info = (Watch_Directory_Info *)overlapped->Pointer;
+
+    U64 offset = 0;
+    FILE_NOTIFY_INFORMATION *file_info = nullptr;
+
+    char filename[256] = {};
+    S32 filename_length = 0;
+
+    char new_filename[256] = {};
+    S32 new_filename_length = 0;
+
+    do
+    {
+        file_info = (FILE_NOTIFY_INFORMATION *)((U8 *)watch_directory_info->buffer + offset);
+        offset += file_info->NextEntryOffset;
+        
+        switch (file_info->Action)
+        {
+            case FILE_ACTION_ADDED:
+            {
+                WideCharToMultiByte(CP_ACP, 0, file_info->FileName, file_info->FileNameLength, filename, file_info->FileNameLength / 2, NULL, NULL);
+                filename_length = file_info->FileNameLength / 2;
+
+                String path = { .count = (U64)filename_length, .data = filename };
+                watch_directory_info->on_watch_directory(Watch_Directory_Result::FILE_CREATED, path, path);
+            } break;
+
+            case FILE_ACTION_REMOVED:
+            {
+                WideCharToMultiByte(CP_ACP, 0, file_info->FileName, file_info->FileNameLength, filename, file_info->FileNameLength / 2, NULL, NULL);
+                filename_length = file_info->FileNameLength / 2;
+
+                String path = { .count = (U64)filename_length, .data = filename };
+                watch_directory_info->on_watch_directory(Watch_Directory_Result::FILE_DELETED, path, path);
+            } break;
+
+            case FILE_ACTION_MODIFIED:
+            {
+                WideCharToMultiByte(CP_ACP, 0, file_info->FileName, file_info->FileNameLength, filename, file_info->FileNameLength / 2, NULL, NULL);
+                filename_length = file_info->FileNameLength / 2;
+
+                String path = { .count = (U64)filename_length, .data = filename };
+                watch_directory_info->on_watch_directory(Watch_Directory_Result::FILE_MODIFIED, path, path);
+            } break;
+
+            case FILE_ACTION_RENAMED_OLD_NAME:
+            {
+                WideCharToMultiByte(CP_ACP, 0, file_info->FileName, file_info->FileNameLength, filename, file_info->FileNameLength / 2, NULL, NULL);
+                filename_length = file_info->FileNameLength / 2;
+            } break;
+
+            case FILE_ACTION_RENAMED_NEW_NAME:
+            {
+                WideCharToMultiByte(CP_ACP, 0, file_info->FileName, file_info->FileNameLength, new_filename, file_info->FileNameLength / 2, NULL, NULL);
+                new_filename_length = file_info->FileNameLength / 2;
+
+                String old_path = { .count = (U64)filename_length,     .data = filename };
+                String new_path = { .count = (U64)new_filename_length, .data = new_filename };
+                watch_directory_info->on_watch_directory(Watch_Directory_Result::FILE_RENAMED, old_path, new_path);
+            } break;
+        }
+    }
+    while (file_info->NextEntryOffset);
+    
+    DWORD filters = FILE_NOTIFY_CHANGE_FILE_NAME|FILE_NOTIFY_CHANGE_DIR_NAME|FILE_NOTIFY_CHANGE_LAST_WRITE;
+    if (!ReadDirectoryChangesW(watch_directory_info->directory_handle, watch_directory_info->buffer, u64_to_u32(watch_directory_info->buffer_size), TRUE, filters, 0, overlapped, &overlapped_completion))
+    {
+        win32_log_last_error();
+    }
+}
+
+bool platform_watch_directory(const char *path, on_watch_directory_proc on_watch_directory)
+{
+    HANDLE handle = CreateFile(path, GENERIC_READ|FILE_LIST_DIRECTORY, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, 0, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OVERLAPPED, 0);
+    
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        win32_log_last_error();
+        return false;
+    }
+    
+    U64 buffer_size = 4096;
+    U64 total_size = buffer_size + sizeof(Watch_Directory_Info) + sizeof(OVERLAPPED);
+    
+    void *memory = VirtualAlloc(NULL, total_size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+    if (!memory)
+    {
+        win32_log_last_error();
+        return false;
+    }
+
+    void *buffer = memory;
+    Watch_Directory_Info *info = (Watch_Directory_Info *)((U8 *)memory + buffer_size);
+    info->directory_handle = handle;
+    info->buffer = buffer;
+    info->buffer_size = buffer_size;
+    info->on_watch_directory = on_watch_directory;
+    
+    DWORD filters = FILE_NOTIFY_CHANGE_FILE_NAME|FILE_NOTIFY_CHANGE_DIR_NAME|FILE_NOTIFY_CHANGE_LAST_WRITE;
+    
+    OVERLAPPED *overlapped = (OVERLAPPED *)((U8*)memory + buffer_size + sizeof(Watch_Directory_Info));
+    overlapped->Pointer = info;
+    
+    if (!ReadDirectoryChangesW(handle, buffer, u64_to_u32(buffer_size), TRUE, filters, 0, overlapped, &overlapped_completion))
+    {
+        win32_log_last_error();
+        return false;
+    }
+    
+    return true;
 }
 
 //

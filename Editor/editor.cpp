@@ -27,23 +27,41 @@ struct Editor_State
     ImGuizmo::MODE guizmo_mode = ImGuizmo::MODE::WORLD;
     bool show_ui_panels = false;
     bool show_stats_panel = true;
-    bool render_light_scene = false;
-
-    Scene_Handle light_scene = Resource_Pool< Scene >::invalid_handle;
 };
 
 static Editor_State editor_state;
 
 void draw_graphics_window();
 
-S32 x_count = 2;
-S32 y_count = 3;
-S32 z_count = 2;
-
-float random_float(float min, float max)
+static void on_dir(Watch_Directory_Result result, String old_path, String new_path)
 {
-    F32 result = (F32)rand() / (F32)RAND_MAX;
-    return min + result * (max - min);
+    using enum Watch_Directory_Result;
+
+    sanitize_path(old_path);
+    sanitize_path(new_path);
+    
+    switch (result)
+    {
+        case FILE_CREATED:
+        {
+            HE_LOG(Core, Trace, "[Created]: %.*s\n", HE_EXPAND_STRING(old_path));
+        } break;
+
+        case FILE_RENAMED:
+        {
+            HE_LOG(Core, Trace, "[Rename]: old: %.*s, new: %.*s\n", HE_EXPAND_STRING(old_path), HE_EXPAND_STRING(new_path));
+        } break;
+
+        case FILE_MODIFIED:
+        {
+            HE_LOG(Core, Trace, "[Modified]: %.*s\n", HE_EXPAND_STRING(old_path));
+        } break;
+
+        case FILE_DELETED:
+        {
+            HE_LOG(Core, Trace, "[Deleted]: %.*s\n", HE_EXPAND_STRING(old_path));
+        } break;
+    }
 }
 
 bool hope_app_init(Engine *engine)
@@ -69,7 +87,8 @@ bool hope_app_init(Engine *engine)
     
     style.HatchedAxisLineThickness = 10.0f;
 
-    Assets_Panel::set_path(get_asset_path());
+    String asset_path = get_asset_path();
+    Assets_Panel::set_path(asset_path);
 
     Render_Context render_context = get_render_context();
     Renderer_State *renderer_state = render_context.renderer_state;
@@ -105,34 +124,8 @@ bool hope_app_init(Engine *engine)
 
     scene_asset = import_asset(HE_STRING_LITERAL("main.hascene"));
     editor_state.scene_asset = scene_asset;
-
-    editor_state.light_scene = renderer_create_scene(HE_STRING_LITERAL("lights"), HE_MAX_LIGHT_COUNT);
-    Scene *scene = renderer_get_scene(editor_state.light_scene);
-
-    srand(time(nullptr));
-
-    for (S32 y = 0; y < y_count; y++)
-    {
-        for (S32 z = -z_count; z <= z_count; z++)
-        {
-            for (S32 x = -x_count; x <= x_count; x++)
-            {
-                U32 node_index = allocate_node(scene, format_string(scratch_memory.arena, "light_%d_%d_%d", x, y, z));
-                Scene_Node *node = get_node(scene, node_index);
-                node->transform.position = { x * 6.0f, 2.0f + y * 4.0f, z * 2.5f };
-
-                node->has_light = true;
-                Light_Component *light = &node->light;
-                light->type = Light_Type::POINT;
-                light->radius = random_float(3.0f, 7.0f);
-                light->intensity = random_float(3.0f, 9.0f);
-                light->color = { random_float(0.2f, 1.0f), random_float(0.2f, 1.0f), random_float(0.2f, 1.0f) };
-
-                add_child_last(scene, 0, node_index);
-            }
-        }
-    }
-     
+    
+    platform_watch_directory(asset_path.data, &on_dir);
     return true;
 }
 
@@ -405,22 +398,6 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
 
                 render_scene(scene_handle);
             }
-        }
-
-        float rotation_speed_degrees = 45.0f;
-        glm::quat rotation = glm::quat(glm::vec3(0.0f, delta_time * glm::radians(rotation_speed_degrees), 0.0f));
-
-        Scene *light_scene = renderer_get_scene(editor_state.light_scene);
-        for (U32 node_index = 1; node_index < light_scene->node_count; ++node_index)
-        {
-            Scene_Node *node = get_node(light_scene, node_index);
-            auto &p = node->transform.position;
-            p = glm::rotate(rotation, glm::vec4(p, 1.0f));
-        }
-
-        if (editor_state.render_light_scene)
-        {
-            render_scene(editor_state.light_scene);
         }
 
         end_rendering();
