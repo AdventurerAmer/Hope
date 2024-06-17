@@ -800,7 +800,7 @@ void renderer_destroy_texture(Texture_Handle &texture_handle)
 
     Texture *texture = renderer_get_texture(texture_handle);
 
-    if (texture->name.data)
+    if (texture->name.count && texture->name.data)
     {
         deallocate(get_general_purpose_allocator(), (void *)texture->name.data);
     }
@@ -886,7 +886,7 @@ shaderc_include_result *shaderc_include_resolve(void *user_data, const char *req
     String path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(ud->include_path), HE_EXPAND_STRING(source));
     Read_Entire_File_Result file_result = read_entire_file(path, ud->allocator);
     HE_ASSERT(file_result.success);
-    shaderc_include_result *result = HE_ALLOCATOR_ALLOCATE(&ud->allocator, shaderc_include_result);
+    shaderc_include_result *result = HE_ALLOCATOR_ALLOCATE(ud->allocator, shaderc_include_result);
     result->source_name = requested_source;
     result->source_name_length = string_length(requested_source);
     result->user_data = ud;
@@ -898,8 +898,8 @@ shaderc_include_result *shaderc_include_resolve(void *user_data, const char *req
 void shaderc_include_result_release(void *user_data, shaderc_include_result *include_result)
 {
     Shaderc_UserData *ud = (Shaderc_UserData *)user_data;
-    HE_ALLOCATOR_DEALLOCATE(&ud->allocator, (void *)include_result->content);
-    HE_ALLOCATOR_DEALLOCATE(&ud->allocator, include_result);
+    HE_ALLOCATOR_DEALLOCATE(ud->allocator, (void *)include_result->content);
+    HE_ALLOCATOR_DEALLOCATE(ud->allocator, include_result);
 }
 
 Shader_Compilation_Result renderer_compile_shader(String source, String include_path)

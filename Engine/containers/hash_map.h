@@ -49,7 +49,7 @@ void init(Hash_Map< Key_Type, Value_Type > *hash_map, U32 capacity, Allocator al
     }
 
     U64 total_size = (sizeof(Slot_State) + sizeof(Key_Type) + sizeof(Value_Type)) * capacity;
-    U8 *memory = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, U8, total_size);
+    U8 *memory = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, U8, total_size);
     
     hash_map->memory = memory;
     hash_map->states = (Slot_State*)memory;
@@ -63,7 +63,7 @@ void init(Hash_Map< Key_Type, Value_Type > *hash_map, U32 capacity, Allocator al
 template< typename Key_Type, typename Value_Type >
 void deinit(Hash_Map< Key_Type, Value_Type > *hash_map)
 {
-    HE_ALLOCATOR_DEALLOCATE(&hash_map->allocator, hash_map->memory);
+    HE_ALLOCATOR_DEALLOCATE(hash_map->allocator, hash_map->memory);
 }
 
 template< typename Value_Type >

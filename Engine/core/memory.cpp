@@ -50,7 +50,7 @@ bool init_memory_system()
         return false;
     }
 
-    if (!init_free_list_allocator(&memory_system_state.general_purpose_allocator, nullptr, capacity, HE_MEGA_BYTES(256), "general_purpose_allocator"))
+    if (!init_free_list_allocator(&memory_system_state.general_purpose_allocator, nullptr, capacity, HE_MEGA_BYTES(512), "general_purpose_allocator"))
     {
         return false;
     }

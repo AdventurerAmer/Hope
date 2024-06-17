@@ -45,6 +45,7 @@ Load_Asset_Result load_texture(String path, const Embeded_Asset_Params *params)
 
     Texture_Descriptor texture_descriptor =
     {
+        .name = get_name(path),
         .width = (U32)width,
         .height = (U32)height,
         .format = Texture_Format::R8G8B8A8_UNORM,

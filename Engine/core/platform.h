@@ -115,7 +115,7 @@ bool platform_close_file(Open_File_Result *open_file_result);
 
 enum class Watch_Directory_Result
 {
-    FILE_CREATED,
+    FILE_ADDED,
     FILE_RENAMED,
     FILE_MODIFIED,
     FILE_DELETED

@@ -41,26 +41,26 @@ struct Allocator
     void (*deallocate)(void *data, void *memory);
 };
 
-#define HE_ALLOCATOR_ALLOCATE(allocator_pointer, type)\
-(type *)(allocator_pointer)->allocate((allocator_pointer)->data, sizeof(type), HE_DEFAULT_ALIGNMENT)
+#define HE_ALLOCATOR_ALLOCATE(allocator, type)\
+(type *)(allocator).allocate((allocator).data, sizeof(type), HE_DEFAULT_ALIGNMENT)
 
-#define HE_ALLOCATOR_ALLOCATE_ALIGNED(allocator_pointer, type)\
-(type *)(allocator_pointer)->allocate((allocator_pointer)->data, sizeof(type), alignof(type))
+#define HE_ALLOCATOR_ALLOCATE_ALIGNED(allocator, type)\
+(type *)(allocator).allocate((allocator).data, sizeof(type), alignof(type))
 
-#define HE_ALLOCATOR_ALLOCATE_ARRAY(allocator_pointer, type, count)\
-(type *)(allocator_pointer)->allocate((allocator_pointer)->data, sizeof(type) * (count), alignof(type))
+#define HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, type, count)\
+(type *)(allocator).allocate((allocator).data, sizeof(type) * (count), alignof(type))
 
-#define HE_ALLOCATOR_REALLOCATE(allocator_pointer, memory, type)\
-(type *)(allocator_pointer)->reallocate((allocator_pointer)->data, (memory), sizeof(type), HE_DEFAULT_ALIGNMENT)
+#define HE_ALLOCATOR_REALLOCATE(allocator, memory, type)\
+(type *)(allocator).reallocate((allocator).data, (memory), sizeof(type), HE_DEFAULT_ALIGNMENT)
 
-#define HE_ALLOCATOR_REALLOCATE_ALIGNED(allocator_pointer, type)\
-(type *)(allocator_pointer)->reallocate((allocator_pointer)->data, sizeof(type), alignof(type))
+#define HE_ALLOCATOR_REALLOCATE_ALIGNED(allocator, type)\
+(type *)(allocator).reallocate((allocator).data, sizeof(type), alignof(type))
 
-#define HE_ALLOCATOR_REALLOCATE_ARRAY(allocator_pointer, memory, type, count)\
-(type *)(allocator_pointer)->reallocate((allocator_pointer)->data, memory, sizeof(type) * (count), alignof(type))
+#define HE_ALLOCATOR_REALLOCATE_ARRAY(allocator, memory, type, count)\
+(type *)(allocator).reallocate((allocator).data, memory, sizeof(type) * (count), alignof(type))
 
-#define HE_ALLOCATOR_DEALLOCATE(allocator_pointer, memory)\
-(allocator_pointer)->deallocate((allocator_pointer)->data, memory)
+#define HE_ALLOCATOR_DEALLOCATE(allocator, memory)\
+(allocator).deallocate((allocator).data, memory)
 
 //
 // Memory Arena

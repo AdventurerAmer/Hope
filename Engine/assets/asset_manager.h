@@ -73,9 +73,13 @@ struct Asset_Registry_Entry
     U16 type_info_index;
     Asset_Handle parent;
 
+    U64 last_write_time;
+    
     U32 ref_count;
     Asset_State state;
     Job_Handle job;
+
+    bool is_deleted;
 };
 
 bool init_asset_manager(String asset_path);

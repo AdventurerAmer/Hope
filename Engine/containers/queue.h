@@ -29,7 +29,7 @@ void init(Ring_Queue< T > *queue, U32 capacity, Allocator allocator)
         capacity = new_capacity;
     }
 
-    queue->data = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, T, capacity);
+    queue->data = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, T, capacity);
     queue->capacity = capacity;
     queue->mask = capacity - 1;
     queue->write = 0;

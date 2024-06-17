@@ -838,7 +838,7 @@ static void overlapped_completion(DWORD error_code, DWORD number_of_bytes_transf
                 filename_length = file_info->FileNameLength / 2;
 
                 String path = { .count = (U64)filename_length, .data = filename };
-                watch_directory_info->on_watch_directory(Watch_Directory_Result::FILE_CREATED, path, path);
+                watch_directory_info->on_watch_directory(Watch_Directory_Result::FILE_ADDED, path, path);
             } break;
 
             case FILE_ACTION_REMOVED:

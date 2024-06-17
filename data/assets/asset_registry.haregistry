@@ -1,5 +1,5 @@
 version 1
-entry_count 163
+entry_count 166
 
 asset 62636994909288842
 parent 0
@@ -24,6 +24,10 @@ path 31 sponza/12501374198249454378.jpg
 asset 838273896857189170
 parent 0
 path 30 sponza/7645212358685992005.jpg
+
+asset 982158289828369780
+parent 0
+path 17 test_texture2.jpg
 
 asset 989203901741616135
 parent 8015345852571305201
@@ -261,6 +265,10 @@ asset 8015345852571305201
 parent 0
 path 15 opaque_pbr.glsl
 
+asset 8060311948467178955
+parent 0
+path 23 skybox/test_texture.jpg
+
 asset 8135393980672748181
 parent 8015345852571305201
 path 44 @7356666216630384374-8/material_9.hamaterial
@@ -348,6 +356,10 @@ path 62 flighthelmet/flighthelmet_materials_glassplasticmat_normal.png
 asset 10086302852330984034
 parent 0
 path 30 sponza/8481240838833932244.jpg
+
+asset 10296917428753877704
+parent 0
+path 24 skybox/test_texture2.jpg
 
 asset 10332835908850748313
 parent 0

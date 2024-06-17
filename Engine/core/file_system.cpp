@@ -98,7 +98,7 @@ String get_current_working_directory(Allocator allocator)
 {
     U64 size = 0;
     platform_get_current_working_directory(nullptr, &size);
-    char *data = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, char, size);
+    char *data = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, char, size);
     platform_get_current_working_directory(data, &size);
     return { size - 1, data };
 }
@@ -148,6 +148,21 @@ String get_name(String path)
     return sub_string(path, start_index, end_index - start_index + 1);
 }
 
+String get_name_with_extension(String path)
+{
+    S64 start_index = find_first_char_from_right(path, HE_STRING_LITERAL("\\/"));
+    if (start_index == -1)
+    {
+        start_index = 0;
+    }
+    else
+    {
+        start_index++;
+    }
+    
+    return sub_string(path, start_index); 
+}
+
 Read_Entire_File_Result read_entire_file(String path, Allocator allocator)
 {
     Open_File_Result open_file_result = platform_open_file(path.data, OpenFileFlag_Read);
@@ -162,11 +177,11 @@ Read_Entire_File_Result read_entire_file(String path, Allocator allocator)
         return { .success = false, .data = nullptr, .size = 0 };
     }
 
-    U8 *data = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, U8, open_file_result.size);
+    U8 *data = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, U8, open_file_result.size);
     bool read = platform_read_data_from_file(&open_file_result, 0, data, open_file_result.size);
     if (!read)
     {
-        HE_ALLOCATOR_DEALLOCATE(&allocator, data);
+        HE_ALLOCATOR_DEALLOCATE(allocator, data);
         return { .success = false, .data = nullptr, .size = open_file_result.size };
     }
     platform_close_file(&open_file_result);

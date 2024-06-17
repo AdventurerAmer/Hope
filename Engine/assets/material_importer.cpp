@@ -415,7 +415,7 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
 
     Material_Descriptor material_descriptor =
     {
-        .name = path,
+        .name = get_name(path),
         .type = type,
         .shader = get_asset_handle_as<Shader>(shader_asset),
         .settings = settings

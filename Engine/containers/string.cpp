@@ -36,10 +36,10 @@ String copy_string(const char *str, U64 count, Allocator allocator)
 {
     HE_ASSERT(str);
     HE_ASSERT(count);
-    char *data = HE_ALLOCATOR_ALLOCATE_ARRAY(&allocator, char, count + 1);
+    char *data = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, char, count + 1);
     copy_memory(data, str, count);
     data[count] = 0;
-    return { count, data };
+    return { .count = count, .data = data };
 }
 
 // todo(amer): SIMD Version

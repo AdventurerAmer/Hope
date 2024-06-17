@@ -33,37 +33,6 @@ static Editor_State editor_state;
 
 void draw_graphics_window();
 
-static void on_dir(Watch_Directory_Result result, String old_path, String new_path)
-{
-    using enum Watch_Directory_Result;
-
-    sanitize_path(old_path);
-    sanitize_path(new_path);
-    
-    switch (result)
-    {
-        case FILE_CREATED:
-        {
-            HE_LOG(Core, Trace, "[Created]: %.*s\n", HE_EXPAND_STRING(old_path));
-        } break;
-
-        case FILE_RENAMED:
-        {
-            HE_LOG(Core, Trace, "[Rename]: old: %.*s, new: %.*s\n", HE_EXPAND_STRING(old_path), HE_EXPAND_STRING(new_path));
-        } break;
-
-        case FILE_MODIFIED:
-        {
-            HE_LOG(Core, Trace, "[Modified]: %.*s\n", HE_EXPAND_STRING(old_path));
-        } break;
-
-        case FILE_DELETED:
-        {
-            HE_LOG(Core, Trace, "[Deleted]: %.*s\n", HE_EXPAND_STRING(old_path));
-        } break;
-    }
-}
-
 bool hope_app_init(Engine *engine)
 {
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
@@ -125,7 +94,6 @@ bool hope_app_init(Engine *engine)
     scene_asset = import_asset(HE_STRING_LITERAL("main.hascene"));
     editor_state.scene_asset = scene_asset;
     
-    platform_watch_directory(asset_path.data, &on_dir);
     return true;
 }
 
@@ -315,9 +283,14 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
         if (editor_state.show_ui_panels)
         {
             draw_graphics_window();
-            Scene_Hierarchy_Panel::draw(editor_state.scene_asset.uuid);
+            
             Assets_Panel::draw();
-            Inspector_Panel::draw();
+            
+            if (is_asset_handle_valid(editor_state.scene_asset) && is_asset_loaded(editor_state.scene_asset))
+            {                
+                Scene_Hierarchy_Panel::draw(editor_state.scene_asset.uuid);
+                Inspector_Panel::draw();
+            }
 
             ImGui::Begin("Scene");
 

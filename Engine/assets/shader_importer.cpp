@@ -34,7 +34,7 @@ Load_Asset_Result load_shader(String path, const Embeded_Asset_Params *params)
 
     Shader_Descriptor shader_descriptor =
     {
-        .name = path,
+        .name = get_name(path),
         .compilation_result = &compilation_result
     };
 

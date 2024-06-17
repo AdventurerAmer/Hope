@@ -80,6 +80,7 @@
         "codecvt": "cpp",
         "condition_variable": "cpp",
         "unordered_set": "cpp",
-        "shared_mutex": "cpp"
+        "shared_mutex": "cpp",
+        "*.glsl": "cpp"
     }
 }

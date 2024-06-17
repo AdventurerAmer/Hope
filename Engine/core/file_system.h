@@ -16,6 +16,7 @@ String get_current_working_directory(Allocator allocator);
 String get_parent_path(String path);
 String get_extension(String path);
 String get_name(String path);
+String get_name_with_extension(String path);
 
 struct Read_Entire_File_Result
 {
