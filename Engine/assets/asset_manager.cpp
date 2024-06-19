@@ -69,6 +69,9 @@ struct Reload_Asset_Job_Data
     Asset_Handle asset_handle;
 };
 
+Asset_Registry_Entry& internal_get_asset_registry_entry(Asset_Handle asset_handle);
+bool internal_is_asset_handle_valid(Asset_Handle asset_handle);
+
 static Job_Result reload_asset_job(const Job_Parameters &params)
 {
     const Reload_Asset_Job_Data *job_data = (Reload_Asset_Job_Data *)params.data;
@@ -77,10 +80,7 @@ static Job_Result reload_asset_job(const Job_Parameters &params)
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
     
-    auto registry_it = asset_manager_state->asset_registry.find(asset_handle.uuid);
-    HE_ASSERT(registry_it != asset_manager_state->asset_registry.iend());
-
-    Asset_Registry_Entry &entry = registry_it.value();
+    Asset_Registry_Entry &entry = internal_get_asset_registry_entry(asset_handle);
     HE_ASSERT(entry.state != Asset_State::PENDING);
     
     const Asset_Info *info = get_asset_info(entry.type_info_index);
@@ -117,13 +117,8 @@ static Job_Result reload_asset_job(const Job_Parameters &params)
     Load_Asset_Result load_result = load(path, is_embeded ? &embeded_params : nullptr);
     if (!load_result.success)
     {
-        HE_LOG(Assets, Error, "load_asset_job -- failed to load asset: %.*s\n", HE_EXPAND_STRING(entry.path));
-        
-        auto entry_it = asset_manager_state->asset_registry.find(job_data->asset_handle.uuid);
-        HE_ASSERT(entry_it != asset_manager_state->asset_registry.iend());
-        Asset_Registry_Entry &entry = entry_it.value();
         entry.state = Asset_State::UNLOADED;
-        
+        HE_LOG(Assets, Error, "load_asset_job -- failed to reload asset: %.*s\n", HE_EXPAND_STRING(entry.path));
         return Job_Result::FAILED;
     }
     
@@ -133,34 +128,43 @@ static Job_Result reload_asset_job(const Job_Parameters &params)
     return Job_Result::SUCCEEDED;
 }
 
-static void reload_asset_internal(Asset_Handle asset_handle, Job_Handle parent_job = Resource_Pool< Job >::invalid_handle)
+static String internal_get_asset_absolute_path(const Asset_Registry_Entry &entry, Memory_Arena *arena)
 {
-    auto it = asset_manager_state->asset_registry.find(asset_handle.uuid);
-    HE_ASSERT(it != asset_manager_state->asset_registry.iend());
+    String result = {};
 
-    Asset_Registry_Entry &entry = it.value();
+    Asset_Handle embeder_handle = {};
+    if (is_asset_embeded(entry.path, &embeder_handle))
+    {
+        Asset_Registry_Entry &embeder_entry = internal_get_asset_registry_entry(embeder_handle);   
+        result = format_string(arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(embeder_entry.path));
+    }
+    else
+    {
+        result = format_string(arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
+    }
+
+    return result;
+}
+
+static void internal_reload_asset(Asset_Handle asset_handle, Job_Handle parent_job = Resource_Pool< Job >::invalid_handle)
+{
+    if (!internal_is_asset_handle_valid(asset_handle))
+    {
+        return;
+    }
+
+    Asset_Registry_Entry &entry = internal_get_asset_registry_entry(asset_handle);
+    
     if (entry.state == Asset_State::UNLOADED)
     {
         return;
     }
 
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    Asset_Handle parent = {};
-    U64 data_id = 0;
-    String absloute_path = {};
-    if (is_asset_embeded(entry.path, &parent, &data_id))
-    {
-        auto parent_it = asset_manager_state->asset_registry.find(parent.uuid);
-        HE_ASSERT(parent_it != asset_manager_state->asset_registry.iend());
-        Asset_Registry_Entry &parent_entry = parent_it.value();
-        absloute_path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(parent_entry.path));
-    }
-    else
-    {
-        absloute_path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
-    }
     
-    U64 last_write_time = platform_get_file_last_write_time(absloute_path.data);
+    String absolute_path = internal_get_asset_absolute_path(entry, scratch_memory.arena);
+
+    U64 last_write_time = platform_get_file_last_write_time(absolute_path.data);
     if (entry.last_write_time == last_write_time)
     {
         return;
@@ -194,22 +198,22 @@ static void reload_asset_internal(Asset_Handle asset_handle, Job_Handle parent_j
         for (U32 i = 0; i < children.count; i++)
         {
             Asset_Handle child_asset_handle = { .uuid = children[i] };
-            reload_asset_internal(child_asset_handle, entry.job);
+            internal_reload_asset(child_asset_handle, entry.job);
         }
     }
 }
 
 static void reload_asset(Asset_Handle asset_handle)
 {
-    if (!is_asset_handle_valid(asset_handle))
+    platform_lock_mutex(&asset_manager_state->asset_mutex);
+    HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+    
+    if (!internal_is_asset_handle_valid(asset_handle))
     {
         return;
     }
 
-    platform_lock_mutex(&asset_manager_state->asset_mutex);
-    HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
-    
-    reload_asset_internal(asset_handle);
+    internal_reload_asset(asset_handle);
 }
 
 static void on_file_changes(Watch_Directory_Result result, String old_path, String new_path)
@@ -238,22 +242,17 @@ static void on_file_changes(Watch_Directory_Result result, String old_path, Stri
 
         case FILE_RENAMED:
         {
+            platform_lock_mutex(&asset_manager_state->asset_mutex);
+            HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+            
             Asset_Handle asset_handle = get_asset_handle(old_path);
             if (!is_asset_handle_valid(asset_handle))
             {
                 return;
             }
-            
-            platform_lock_mutex(&asset_manager_state->asset_mutex);
-            HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
 
-            auto it = asset_manager_state->asset_registry.find(asset_handle.uuid);
-            if (it == asset_manager_state->asset_registry.iend())
-            {
-                return;
-            }
+            Asset_Registry_Entry &entry = internal_get_asset_registry_entry(asset_handle);
 
-            Asset_Registry_Entry &entry = it.value();
             Allocator allocator = to_allocator(get_general_purpose_allocator());
             HE_ALLOCATOR_DEALLOCATE(allocator, (void *)entry.path.data);
             entry.path = copy_string(new_path, allocator);
@@ -266,10 +265,6 @@ static void on_file_changes(Watch_Directory_Result result, String old_path, Stri
         {
             HE_LOG(Assets, Trace, "[Modified]: %.*s\n", HE_EXPAND_STRING(old_path));
             Asset_Handle asset_handle = get_asset_handle(old_path);
-            if (!is_asset_handle_valid(asset_handle))
-            {
-                return;
-            }
             reload_asset(asset_handle);
         } break;
 
@@ -277,22 +272,16 @@ static void on_file_changes(Watch_Directory_Result result, String old_path, Stri
         {
             HE_LOG(Assets, Trace, "[Deleted]: %.*s\n", HE_EXPAND_STRING(old_path));
 
+            platform_lock_mutex(&asset_manager_state->asset_mutex);
+            HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+            
             Asset_Handle asset_handle = get_asset_handle(old_path);
             if (!is_asset_handle_valid(asset_handle))
             {
                 return;
             }
             
-            platform_lock_mutex(&asset_manager_state->asset_mutex);
-            HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
-
-            auto it = asset_manager_state->asset_registry.find(asset_handle.uuid);
-            if (it == asset_manager_state->asset_registry.iend())
-            {
-                return;
-            }
-
-            Asset_Registry_Entry &entry = it.value();
+            Asset_Registry_Entry &entry = internal_get_asset_registry_entry(asset_handle);
             entry.is_deleted = true;
 
             serialize_asset_registry();
@@ -317,8 +306,6 @@ bool init_asset_manager(String asset_path)
     Memory_Context cxt = use_memory_context();
     asset_manager_state = HE_ALLOCATE(cxt.permenent, Asset_Manager);
     asset_manager_state->asset_path = copy_string(asset_path, to_allocator(cxt.permenent));
-
-    asset_manager_state->asset_registry_path = format_string(cxt.permenent, "%.*s/%s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_ASSET_REGISTRY_FILE_NAME);
 
     init(&asset_manager_state->asset_infos);
 
@@ -394,6 +381,8 @@ bool init_asset_manager(String asset_path)
         register_asset(HE_STRING_LITERAL("scene"), to_array_view(extensions), &load_scene, &unload_scene);
     }
 
+    asset_manager_state->asset_registry_path = format_string(cxt.permenent, "%.*s/%s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_ASSET_REGISTRY_FILE_NAME);
+
     if (file_exists(asset_manager_state->asset_registry_path))
     {
         bool success = deserialize_asset_registry();
@@ -461,6 +450,12 @@ bool register_asset(String name, Array_View< String > extensions, load_asset_pro
     return true;
 }
 
+static bool internal_is_asset_handle_valid(Asset_Handle asset_handle)
+{
+    auto it = asset_manager_state->asset_registry.find(asset_handle.uuid);
+    return it != asset_manager_state->asset_registry.iend() && !it.value().is_deleted;
+}
+
 bool is_asset_handle_valid(Asset_Handle asset_handle)
 {
     if (asset_handle.uuid == 0)
@@ -469,22 +464,26 @@ bool is_asset_handle_valid(Asset_Handle asset_handle)
     }
 
     platform_lock_mutex(&asset_manager_state->asset_mutex);
-    auto it = asset_manager_state->asset_registry.find(asset_handle.uuid);
-    bool result = it != asset_manager_state->asset_registry.iend() && !it.value().is_deleted;
-    platform_unlock_mutex(&asset_manager_state->asset_mutex);
-    return result;
+    HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+
+    return internal_is_asset_handle_valid(asset_handle);
+}
+
+static bool internal_is_asset_loaded(Asset_Handle asset_handle)
+{
+    auto it = asset_manager_state->asset_cache.find(asset_handle.uuid);
+    return it != asset_manager_state->asset_cache.iend();
 }
 
 bool is_asset_loaded(Asset_Handle asset_handle)
 {
     platform_lock_mutex(&asset_manager_state->asset_mutex);
-    auto it = asset_manager_state->asset_cache.find(asset_handle.uuid);
-    bool result = it != asset_manager_state->asset_cache.iend();
-    platform_unlock_mutex(&asset_manager_state->asset_mutex);
-    return result;
+    HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+
+    return internal_is_asset_loaded(asset_handle);
 }
 
-static Job_Handle aquire_asset_internal(Asset_Handle asset_handle)
+static Job_Handle internal_aquire_asset(Asset_Handle asset_handle)
 {
     Asset_Registry &asset_registry = asset_manager_state->asset_registry;
 
@@ -497,9 +496,9 @@ static Job_Handle aquire_asset_internal(Asset_Handle asset_handle)
         entry.state = Asset_State::PENDING;
 
         Job_Handle parent_job = Resource_Pool< Job >::invalid_handle;
-        if (is_asset_handle_valid(entry.parent))
+        if (internal_is_asset_handle_valid(entry.parent))
         {
-            parent_job = aquire_asset_internal(entry.parent);
+            parent_job = internal_aquire_asset(entry.parent);
         }
         
         String path = entry.path;
@@ -532,9 +531,8 @@ static Job_Handle aquire_asset_internal(Asset_Handle asset_handle)
 Job_Handle aquire_asset(Asset_Handle asset_handle)
 {
     platform_lock_mutex(&asset_manager_state->asset_mutex);
-    Job_Handle result = aquire_asset_internal(asset_handle);
-    platform_unlock_mutex(&asset_manager_state->asset_mutex);
-    return result;
+    HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+    return internal_aquire_asset(asset_handle);
 }
 
 Load_Asset_Result get_asset(Asset_Handle asset_handle)
@@ -581,12 +579,12 @@ void release_asset(Asset_Handle asset_handle)
     }
 }
 
-Asset_Handle get_asset_handle_internal(String path)
+static Asset_Handle internal_get_asset_handle(String path)
 {
     for (auto it = asset_manager_state->asset_registry.ibegin(); it != asset_manager_state->asset_registry.iend(); it++)
     {
         const Asset_Registry_Entry &entry = it.value();
-        if (entry.path == path)
+        if (entry.path == path && !entry.is_deleted)
         {
             return { .uuid = it.key() };
         }
@@ -599,7 +597,51 @@ Asset_Handle get_asset_handle(String path)
 {
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
-    return get_asset_handle_internal(path);
+    return internal_get_asset_handle(path);
+}
+
+static void internal_add_embeded_asset(Asset_Handle embeder_asset_handle, Asset_Handle asset_handle)
+{
+    auto &embeded_cache = asset_manager_state->embeded_cache;
+    
+    auto it = embeded_cache.find(embeder_asset_handle.uuid);
+    if (it == embeded_cache.iend())
+    {
+        Dynamic_Array<U64> embeded;
+        init(&embeded);
+        append(&embeded, asset_handle.uuid);
+        embeded_cache.emplace(embeder_asset_handle.uuid, embeded);
+    }
+    else
+    {
+        Dynamic_Array<U64> &embeded = it.value();
+        if (find(&embeded, asset_handle.uuid) == -1)
+        {
+            append(&embeded, asset_handle.uuid);
+        }
+    }
+}
+
+static void internal_add_asset_dependency(Asset_Handle parent_handle, Asset_Handle asset_handle)
+{
+    Asset_Dependency &dependency = asset_manager_state->asset_dependency;
+    
+    auto it = dependency.find(parent_handle.uuid);
+    if (it == dependency.iend())
+    {
+        Dynamic_Array<U64> children;
+        init(&children);
+        append(&children, asset_handle.uuid);
+        dependency.emplace(parent_handle.uuid, children);
+    }
+    else
+    {
+        Dynamic_Array<U64> &children = it.value();
+        if (find(&children, asset_handle.uuid) == -1)
+        {
+            append(&children, asset_handle.uuid);
+        }
+    }
 }
 
 Asset_Handle import_asset(String path)
@@ -618,7 +660,6 @@ Asset_Handle import_asset(String path)
     sanitize_path(path);
 
     auto &registry = asset_manager_state->asset_registry;
-    auto &embeded_cache = asset_manager_state->embeded_cache;
 
     String name_with_extension = get_name_with_extension(path);
 
@@ -646,20 +687,21 @@ Asset_Handle import_asset(String path)
         }
     }
 
-    Asset_Handle parent = {};
-    bool is_embeded = is_asset_embeded(path, &parent);
+    Asset_Handle embeder = {};
+    bool is_embeded = is_asset_embeded(path, &embeder);
     
     if (is_embeded)
     {
-        if (!is_asset_handle_valid(parent))
+        if (!internal_is_asset_handle_valid(embeder))
         {
-            HE_LOG(Assets, Error, "import_asset -- failed to import emdeded asset file: %.*s --> parent %llu is invalid\n", HE_EXPAND_STRING(path), parent.uuid);
+            HE_LOG(Assets, Error, "import_asset -- failed to import emdeded asset file: %.*s --> embeder %llu is invalid\n", HE_EXPAND_STRING(path), embeder.uuid);
             return {};
         }
     }
     else
     {
         String absolute_path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(path));
+        
         if (!file_exists(absolute_path))
         {
             HE_LOG(Assets, Error, "import_asset -- failed to import asset file: %.*s --> filepath doesn't exist\n", HE_EXPAND_STRING(path));
@@ -681,7 +723,7 @@ Asset_Handle import_asset(String path)
     {
         .path = copy_string(path, to_allocator(get_general_purpose_allocator())),
         .type_info_index = u32_to_u16(type_info_index),
-        .parent = parent,
+        .parent = {},
         .last_write_time = 0,
         .ref_count = 0,
         .state = Asset_State::UNLOADED,
@@ -692,39 +734,10 @@ Asset_Handle import_asset(String path)
     Asset_Handle asset_handle = { .uuid = generate_uuid() };
     registry.emplace(asset_handle.uuid, entry);
 
-    if (is_embeded)
-    {
-        auto it = embeded_cache.find(parent.uuid);
-        if (it == embeded_cache.iend())
-        {
-            Dynamic_Array<U64> embeded;
-            init(&embeded);
-            append(&embeded, asset_handle.uuid);
-            embeded_cache.emplace(parent.uuid, embeded);
-        }
-        else
-        {
-            Dynamic_Array<U64> &embeded = it.value();
-            append(&embeded, asset_handle.uuid);
-        }
-    }
-
-    Asset_Dependency &dependency = asset_manager_state->asset_dependency;
-    if (is_asset_handle_valid(parent))
-    {
-        auto it = dependency.find(parent.uuid);
-        if (it == dependency.iend())
-        {
-            Dynamic_Array<U64> children;
-            init(&children);
-            append(&children, asset_handle.uuid);
-            dependency.emplace(parent.uuid, children);
-        }
-        else
-        {
-            Dynamic_Array<U64> &children = it.value();
-            append(&children, parent.uuid);
-        }
+    if (is_embeded && internal_is_asset_handle_valid(embeder))
+    {   
+        internal_add_embeded_asset(embeder, asset_handle);
+        internal_add_asset_dependency(embeder, asset_handle);
     }
 
     if (asset_info->on_import)
@@ -763,19 +776,7 @@ void set_parent(Asset_Handle asset, Asset_Handle parent)
 
     if (parent_it != registry.iend())
     {
-        auto dependency_it = dependency.find(parent.uuid);
-        if (dependency_it == dependency.iend())
-        {
-            Dynamic_Array< U64 > children;
-            init(&children);
-            append(&children, asset.uuid);
-            dependency.emplace(parent.uuid, children);
-        }
-        else
-        {
-            Dynamic_Array< U64 > &children = dependency_it.value();
-            append(&children, asset.uuid);
-        }
+        internal_add_asset_dependency(parent, asset);
     }
 
     if (parent.uuid == 0 || parent_it != registry.iend())
@@ -788,16 +789,16 @@ void set_parent(Asset_Handle asset, Asset_Handle parent)
     }
 }
 
-bool is_asset_embeded(String path, Asset_Handle *out_parent, U64 *out_data_id)
+bool is_asset_embeded(String path, Asset_Handle *out_embeder, U64 *out_data_id)
 {
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    Asset_Handle parent = {};
+    Asset_Handle embeder = {};
     U64 data_id = 0;
     char *name = HE_ALLOCATE_ARRAY(scratch_memory.arena, char, 128);
-    S32 count = sscanf(path.data, "@%llu-%llu/%s", &parent.uuid, &data_id, name);
-    if (out_parent)
+    S32 count = sscanf(path.data, "@%llu-%llu/%s", &embeder.uuid, &data_id, name);
+    if (out_embeder)
     {
-        *out_parent = parent;
+        *out_embeder = embeder;
     }
     if (out_data_id)
     {
@@ -822,14 +823,18 @@ Array_View< U64 > get_embeded_assets(Asset_Handle asset_handle)
     return to_array_view(it.value());
 }
 
+static Asset_Registry_Entry& internal_get_asset_registry_entry(Asset_Handle asset_handle)
+{
+    auto it = asset_manager_state->asset_registry.find(asset_handle.uuid);
+    HE_ASSERT(it != asset_manager_state->asset_registry.iend());
+    return it.value();
+}
+
 const Asset_Registry_Entry& get_asset_registry_entry(Asset_Handle asset_handle)
 {
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
-
-    auto it = asset_manager_state->asset_registry.find(asset_handle.uuid);
-    HE_ASSERT(it != asset_manager_state->asset_registry.iend());
-    return it.value();
+    return internal_get_asset_registry_entry(asset_handle);
 }
 
 const Asset_Info* get_asset_info(Asset_Handle asset_handle)
@@ -837,10 +842,8 @@ const Asset_Info* get_asset_info(Asset_Handle asset_handle)
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
 
-    auto it = asset_manager_state->asset_registry.find(asset_handle.uuid);
-    HE_ASSERT(it != asset_manager_state->asset_registry.iend());
-
-    return &asset_manager_state->asset_infos[it.value().type_info_index];
+    const Asset_Registry_Entry &entry = internal_get_asset_registry_entry(asset_handle);
+    return &asset_manager_state->asset_infos[entry.type_info_index];
 }
 
 const Asset_Info *get_asset_info(String name)
@@ -862,7 +865,6 @@ const Asset_Info *get_asset_info(U16 type_info_index)
     HE_ASSERT(type_info_index >= 0 && type_info_index < asset_manager_state->asset_infos.count);
     return &asset_manager_state->asset_infos[type_info_index];
 }
-
 
 Load_Asset_Result *get_asset_load_result(Asset_Handle asset)
 {
@@ -910,6 +912,7 @@ static Job_Result load_asset_job(const Job_Parameters &params)
         relative_path = embedder_entry.path;
         load = asset_manager_state->asset_infos[embedder_entry.type_info_index].load;
     }
+
     HE_ASSERT(load);
 
     String path = format_string(params.arena, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(relative_path));
@@ -922,28 +925,22 @@ static Job_Result load_asset_job(const Job_Parameters &params)
     };
 
     Load_Asset_Result load_result = load(path, is_embeded ? &embeded_params : nullptr);
-    if (!load_result.success)
-    {
-        HE_LOG(Assets, Error, "load_asset_job -- failed to load asset: %.*s\n", HE_EXPAND_STRING(asset_entry.path));
-
-        platform_lock_mutex(&asset_manager_state->asset_mutex);
-        auto entry_it = asset_manager_state->asset_registry.find(job_data->asset_handle.uuid);
-        HE_ASSERT(entry_it != asset_manager_state->asset_registry.iend());
-        Asset_Registry_Entry &entry = entry_it.value();
-        entry.state = Asset_State::UNLOADED;
-        platform_unlock_mutex(&asset_manager_state->asset_mutex);
-
-        return Job_Result::FAILED;
-    }
 
     platform_lock_mutex(&asset_manager_state->asset_mutex);
-    auto entry_it = asset_manager_state->asset_registry.find(job_data->asset_handle.uuid);
-    HE_ASSERT(entry_it != asset_manager_state->asset_registry.iend());
-    Asset_Registry_Entry &entry = entry_it.value();
+    HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+    
+    Asset_Registry_Entry &entry = internal_get_asset_registry_entry(job_data->asset_handle);
+        
+    if (!load_result.success)
+    {
+        entry.state = Asset_State::UNLOADED;
+        HE_LOG(Assets, Error, "load_asset_job -- failed to load asset: %.*s\n", HE_EXPAND_STRING(asset_entry.path));
+        return Job_Result::FAILED;
+    }
+    
     entry.state = Asset_State::LOADED;
     asset_manager_state->asset_cache.emplace(job_data->asset_handle.uuid, Asset { .load_result = load_result });
-    platform_unlock_mutex(&asset_manager_state->asset_mutex);
-
+    
     HE_LOG(Assets, Trace, "loaded asset: %.*s\n", HE_EXPAND_STRING(asset_entry.path));
     return Job_Result::SUCCEEDED;
 
@@ -957,17 +954,54 @@ static bool serialize_asset_registry()
     Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
     
     Asset_Registry &registry = asset_manager_state->asset_registry;
-    
+    Asset_Dependency &dependency = asset_manager_state->asset_dependency;
+
     Asset_Handle *handles = HE_ALLOCATE_ARRAY(scratch_memory.arena, Asset_Handle, registry.size());
-    U32 i = 0;
-    for (auto it = registry.ibegin(); it != registry.iend(); ++it)
+    
     {
-        handles[i++] = { .uuid = it.key() };
+        U32 handle_index = 0;
+        for (auto it = registry.ibegin(); it != registry.iend(); ++it)
+        {
+            handles[handle_index++] = { .uuid = it.key() };
+        }
+
+        std::sort(handles, handles + registry.size(), [&dependency](Asset_Handle a, Asset_Handle b)
+        {
+            U32 a_count = 0;
+            U32 b_count = 0;
+
+            {
+                const Asset_Registry_Entry &a_entry = internal_get_asset_registry_entry(a);
+                if (a_entry.parent.uuid != 0)
+                {
+                    a_count++;
+                }
+                if (is_asset_embeded(a))
+                {
+                    a_count++;
+                }
+            }
+
+            {
+                const Asset_Registry_Entry &b_entry = internal_get_asset_registry_entry(b);
+                if (b_entry.parent.uuid != 0)
+                {
+                    b_count++;
+                }
+                if (is_asset_embeded(b))
+                {
+                    b_count++;
+                }
+            }
+
+            if (a_count != b_count)
+            {
+                return a_count < b_count;
+            }
+
+            return a.uuid < b.uuid;
+        });
     }
-    std::sort(handles, handles + registry.size(), [](Asset_Handle a, Asset_Handle b)
-    {
-        return a.uuid < b.uuid;
-    });
     
     String_Builder builder = {};
     begin_string_builder(&builder, scratch_memory.arena);
@@ -975,7 +1009,7 @@ static bool serialize_asset_registry()
     append(&builder, "version 1\n");
     append(&builder, "entry_count %u\n", registry.size());
 
-    for (i = 0; i < registry.size(); i++)
+    for (U32 i = 0; i < registry.size(); i++)
     {
         const Asset_Registry_Entry &entry = registry[handles[i].uuid];
         append(&builder, "\nasset %llu\n", handles[i].uuid);
@@ -1078,7 +1112,10 @@ static bool deserialize_asset_registry()
         String extension = get_extension(path);
         const Asset_Info *asset_info = get_asset_info_from_extension(extension);
         HE_ASSERT(asset_info);
-        
+
+        Asset_Handle asset_handle = { .uuid = asset_uuid };
+        Asset_Handle parent_handle = { .uuid = parent_uuid };
+
         Asset_Registry_Entry entry = {};
         entry.path = copy_string(path, to_allocator(get_general_purpose_allocator()));
         entry.type_info_index = index_of(&asset_manager_state->asset_infos, asset_info);
@@ -1087,39 +1124,23 @@ static bool deserialize_asset_registry()
         entry.ref_count = 0;
         entry.state = Asset_State::UNLOADED;
         entry.job = Resource_Pool< Job >::invalid_handle;
+        
+        String absolute_path = internal_get_asset_absolute_path(entry, scratch_memory.arena);
+        entry.is_deleted = !file_exists(absolute_path);
+
         registry.emplace(asset_uuid, entry);
-
-        Asset_Handle parent = {};
-        bool is_embeded = is_asset_embeded(path, &parent);
-        if (is_embeded)
+        
+        Asset_Handle embeder_handle = {};
+        bool is_embeded = is_asset_embeded(path, &embeder_handle);
+        if (is_embeded && internal_is_asset_handle_valid(embeder_handle))
         {
-            auto it = embeded_cache.find(parent.uuid);
-            if (it == embeded_cache.iend())
-            {
-                Dynamic_Array<U64> embeded;
-                init(&embeded);
-                append(&embeded, asset_uuid);
-                embeded_cache.emplace(parent.uuid, embeded);
-            }
-            else
-            {
-                Dynamic_Array<U64> &embeded = it.value();
-                append(&embeded, asset_uuid);
-            }
+            internal_add_embeded_asset(embeder_handle, asset_handle);
+            internal_add_asset_dependency(embeder_handle, asset_handle);
         }
 
-        auto it = dependency.find(parent_uuid);
-        if (it == dependency.iend())
+        if (internal_is_asset_handle_valid(parent_handle))
         {
-            Dynamic_Array<U64> children;
-            init(&children);
-            append(&children, asset_uuid);
-            dependency.emplace(parent_uuid, children);
-        }
-        else
-        {
-            Dynamic_Array<U64> &children = it.value();
-            append(&children, asset_uuid);
+            internal_add_asset_dependency(parent_handle, asset_handle);
         }
     }
 
