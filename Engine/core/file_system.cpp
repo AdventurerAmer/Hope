@@ -31,67 +31,65 @@ bool directory_exists(String path)
 
 String open_file_dialog(String title, String filter, Array_View< String > extensions)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    Memory_Arena *scratch_arena = scratch_memory.arena;
-
+    Memory_Context memory_context = get_memory_context();
+    String working_path = get_current_working_directory(memory_context.temp);
+    
     const char **_extensions = nullptr;
 
     if (extensions.count)
     {
-        _extensions = HE_ALLOCATE_ARRAY(scratch_arena, const char*, extensions.count);
+        _extensions = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, const char*, extensions.count);
         for (U32 i = 0; i < extensions.count; i++)
         {
             _extensions[i] = extensions[i].data;
         }
     }
 
-    char *buffer = (char *)&scratch_arena->base[scratch_arena->offset];
-    U64 count = scratch_arena->size - scratch_arena->offset;
-    bool success = platform_open_file_dialog(buffer, count, title.data, title.count, filter.data, filter.count, _extensions, extensions.count);
+    // todo(amer): @Hardcoding
+    U64 count = 256;
+    char *absolute_path_buffer = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, char, count);
+    bool success = platform_open_file_dialog(absolute_path_buffer, count, title.data, title.count, filter.data, filter.count, _extensions, extensions.count);
     if (!success)
     {
         return HE_STRING_LITERAL("");
     }
-    String result = HE_STRING(buffer);
-    sanitize_path(result);
-
-    scratch_arena->offset += result.count + 1;
-    String working_path = get_current_working_directory(to_allocator(scratch_memory.arena));
-    String path = sub_string(result, working_path.count + 1);
-    return copy_string(path, to_allocator(get_general_purpose_allocator()));
+    
+    String absolute_path = HE_STRING(absolute_path_buffer);    
+    String relative_path = sub_string(absolute_path, working_path.count + 1);
+    sanitize_path(relative_path);
+    return copy_string(relative_path, memory_context.general);
 }
 
 String save_file_dialog(String title, String filter, Array_View< String > extensions)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    Memory_Arena *scratch_arena = scratch_memory.arena;
-
+    Memory_Context memory_context = get_memory_context();
+    String working_path = get_current_working_directory(memory_context.temp);
+    
     const char **_extensions = nullptr;
 
     if (extensions.count)
     {
-        _extensions = HE_ALLOCATE_ARRAY(scratch_arena, const char*, extensions.count);
+        _extensions = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, const char*, extensions.count);
         for (U32 i = 0; i < extensions.count; i++)
         {
             _extensions[i] = extensions[i].data;
         }
     }
 
-    char *buffer = (char *)&scratch_arena->base[scratch_arena->offset];
-    U64 count = scratch_arena->size - scratch_arena->offset;
-    bool success = platform_save_file_dialog(buffer, count, title.data, title.count, filter.data, filter.count, _extensions, extensions.count);
+    // todo(amer): @Hardcoding
+    U64 count = 256;
+    char *absolute_path_buffer = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, char, count);
+
+    bool success = platform_save_file_dialog(absolute_path_buffer, count, title.data, title.count, filter.data, filter.count, _extensions, extensions.count);
     if (!success)
     {
         return HE_STRING_LITERAL("");
     }
 
-    String result = HE_STRING(buffer);
-    scratch_arena->offset += result.count + 1;
-
-    sanitize_path(result);
-    String working_path = get_current_working_directory(to_allocator(scratch_memory.arena));
-    String path = sub_string(result, working_path.count + 1);
-    return copy_string(path, to_allocator(get_general_purpose_allocator()));
+    String absolute_path = HE_STRING(absolute_path_buffer);
+    String relative_path = sub_string(absolute_path, working_path.count + 1);
+    sanitize_path(relative_path);
+    return copy_string(relative_path, memory_context.general);
 }
 
 String get_current_working_directory(Allocator allocator)

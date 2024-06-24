@@ -7,11 +7,12 @@
 
 Load_Asset_Result load_shader(String path, const Embeded_Asset_Params *params)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Memory_Context memory_context = get_memory_context();
+
     Render_Context render_context = get_render_context();
     Renderer_State *renderer_state = render_context.renderer_state;
 
-    Read_Entire_File_Result file_result = read_entire_file(path, to_allocator(scratch_memory.arena));
+    Read_Entire_File_Result file_result = read_entire_file(path, memory_context.temp);
     if (!file_result.success)
     {
         HE_LOG(Assets, Error, "load_shader -- failed to read asset file: %.*s\n", HE_EXPAND_STRING(path));

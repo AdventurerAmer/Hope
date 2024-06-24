@@ -19,13 +19,14 @@ bool select_asset(String name, String type, Asset_Handle* asset_handle, const Se
 
     if (ImGui::Button(name.data))
     {
-        Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+        Memory_Context memory_context = get_memory_context();
+        
         String title = HE_STRING_LITERAL("Pick Asset");
         String filter = name;
         String absolute_path = open_file_dialog(title, filter, { .count = info->extension_count, .data = info->extensions });
         if (absolute_path.count)
         {
-            HE_DEFER { deallocate(get_general_purpose_allocator(), (void *)absolute_path.data); };
+            HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)absolute_path.data); };
 
             String asset_path = get_asset_path();
             String path = sub_string(absolute_path, asset_path.count + 1);

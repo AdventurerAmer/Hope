@@ -35,6 +35,8 @@ static CVars_State cvars_state;
 
 static CVar_Category* find_or_append_category(const String &name, bool should_append = true)
 {
+    Memory_Context memory_context = get_memory_context();
+
     auto &categories = cvars_state.categories;
 
     for (U32 category_index = 0; category_index < categories.count; category_index++)
@@ -48,7 +50,7 @@ static CVar_Category* find_or_append_category(const String &name, bool should_ap
     if (should_append)
     {
         CVar_Category category = {};
-        category.name = copy_string(name, to_allocator(get_permenent_arena()));
+        category.name = copy_string(name, memory_context.permenent);
         init(&category.vars);
 
         append(&categories, category);
@@ -60,6 +62,8 @@ static CVar_Category* find_or_append_category(const String &name, bool should_ap
 
 static CVar* find_or_append_cvar(CVar_Category *category, const String &name, bool should_append = true)
 {
+    Memory_Context memory_context = get_memory_context();
+
     auto &vars = category->vars;
 
     for (U32 var_index = 0; var_index < vars.count; var_index++)
@@ -73,7 +77,7 @@ static CVar* find_or_append_cvar(CVar_Category *category, const String &name, bo
     if (should_append)
     {
         CVar var = {};
-        var.name = copy_string(name, to_allocator(get_permenent_arena()));
+        var.name = copy_string(name, memory_context.permenent);
         append(&vars, var);
         return &back(&vars);
     }
@@ -83,15 +87,14 @@ static CVar* find_or_append_cvar(CVar_Category *category, const String &name, bo
 
 bool init_cvars(String filepath)
 {
+    Memory_Context memory_context = get_memory_context();
+
     cvars_state.filepath = filepath;
 
     auto &categories = cvars_state.categories;
     init(&categories);
-
-    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
-    HE_DEFER { end_temprary_memory(&temprary_memory); };
-
-    Read_Entire_File_Result result = read_entire_file(filepath, to_allocator(temprary_memory.arena));
+    
+    Read_Entire_File_Result result = read_entire_file(filepath, memory_context.temp);
     CVar_Category *category = nullptr;
 
     if (result.success)
@@ -123,7 +126,7 @@ bool init_cvars(String filepath)
                 String value = sub_string(cvar_name_value_pair, space + 1);
 
                 CVar *var = find_or_append_cvar(category, name);
-                var->value = copy_string(value, to_allocator(get_permenent_arena()));
+                var->value = copy_string(value, memory_context.permenent);
             }
 
             str.data += new_line_index + 1;
@@ -138,13 +141,12 @@ bool init_cvars(String filepath)
 
 void deinit_cvars()
 {
+    Memory_Context memory_context = get_memory_context();
+
     auto &categories = cvars_state.categories;
-
-    Temprary_Memory_Arena temprary_memory = begin_scratch_memory();
-    HE_DEFER { end_temprary_memory(&temprary_memory); };
-
+    
     String_Builder string_builder = {};
-    begin_string_builder(&string_builder, temprary_memory.arena);
+    begin_string_builder(&string_builder, memory_context.temprary_memory.arena);
 
     for (U32 category_index = 0; category_index < categories.count; category_index++)
     {

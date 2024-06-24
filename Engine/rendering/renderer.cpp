@@ -108,11 +108,9 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
 
 bool init_renderer_state(Engine *engine)
 {
-    Memory_Arena *arena = get_permenent_arena();
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
+    Memory_Context memory_context = get_memory_context();
 
-    renderer_state = HE_ALLOCATE(arena, Renderer_State);
+    renderer_state = HE_ALLOCATOR_ALLOCATE(memory_context.permenent, Renderer_State);
     renderer_state->engine = engine;
 
     bool renderer_requested = request_renderer(RenderingAPI_Vulkan, &renderer_state->renderer);
@@ -126,24 +124,20 @@ bool init_renderer_state(Engine *engine)
 
     bool render_commands_mutex_created = platform_create_mutex(&renderer_state->render_commands_mutex);
     HE_ASSERT(render_commands_mutex_created);
-
-
-    {
-        Allocator allocator = to_allocator(arena);
-        init(&renderer_state->buffers, HE_MAX_BUFFER_COUNT, allocator);
-        init(&renderer_state->textures, HE_MAX_TEXTURE_COUNT, allocator);
-        init(&renderer_state->samplers, HE_MAX_SAMPLER_COUNT, allocator);
-        init(&renderer_state->shaders, HE_MAX_SHADER_COUNT, allocator);
-        init(&renderer_state->pipeline_states, HE_MAX_PIPELINE_STATE_COUNT, allocator);
-        init(&renderer_state->bind_groups, HE_MAX_BIND_GROUP_COUNT, allocator);
-        init(&renderer_state->render_passes, HE_MAX_RENDER_PASS_COUNT, allocator);
-        init(&renderer_state->frame_buffers, HE_MAX_FRAME_BUFFER_COUNT, allocator);
-        init(&renderer_state->semaphores, HE_MAX_SEMAPHORE_COUNT, allocator);
-        init(&renderer_state->materials, HE_MAX_MATERIAL_COUNT, allocator);
-        init(&renderer_state->static_meshes, HE_MAX_STATIC_MESH_COUNT, allocator);
-        init(&renderer_state->scenes, HE_MAX_SCENE_COUNT, allocator);
-        init(&renderer_state->upload_requests, HE_MAX_UPLOAD_REQUEST_COUNT, allocator);
-    }
+    
+    init(&renderer_state->buffers, HE_MAX_BUFFER_COUNT, memory_context.permenent);
+    init(&renderer_state->textures, HE_MAX_TEXTURE_COUNT, memory_context.permenent);
+    init(&renderer_state->samplers, HE_MAX_SAMPLER_COUNT, memory_context.permenent);
+    init(&renderer_state->shaders, HE_MAX_SHADER_COUNT, memory_context.permenent);
+    init(&renderer_state->pipeline_states, HE_MAX_PIPELINE_STATE_COUNT, memory_context.permenent);
+    init(&renderer_state->bind_groups, HE_MAX_BIND_GROUP_COUNT, memory_context.permenent);
+    init(&renderer_state->render_passes, HE_MAX_RENDER_PASS_COUNT, memory_context.permenent);
+    init(&renderer_state->frame_buffers, HE_MAX_FRAME_BUFFER_COUNT, memory_context.permenent);
+    init(&renderer_state->semaphores, HE_MAX_SEMAPHORE_COUNT, memory_context.permenent);
+    init(&renderer_state->materials, HE_MAX_MATERIAL_COUNT, memory_context.permenent);
+    init(&renderer_state->static_meshes, HE_MAX_STATIC_MESH_COUNT, memory_context.permenent);
+    init(&renderer_state->scenes, HE_MAX_SCENE_COUNT, memory_context.permenent);
+    init(&renderer_state->upload_requests, HE_MAX_UPLOAD_REQUEST_COUNT, memory_context.permenent);
 
     platform_create_mutex(&renderer_state->pending_upload_requests_mutex);
     reset(&renderer_state->pending_upload_requests);
@@ -362,8 +356,9 @@ bool init_renderer_state(Engine *engine)
     renderer_state->default_cubemap_sampler = renderer_create_sampler(default_cubemap_sampler_descriptor);
 
     {
-        Allocator allocator = to_allocator(scratch_memory.arena);
-        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/default.glsl"), allocator);
+        // Allocator allocator = to_allocator(scratch_memory.arena);
+
+        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/default.glsl"), memory_context.temp);
         String default_shader_source = { .count = result.size, .data = (const char *)result.data };
 
         Shader_Compilation_Result default_shader_compilation_result = renderer_compile_shader(default_shader_source, HE_STRING_LITERAL("shaders"));
@@ -740,12 +735,14 @@ Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
 {
     HE_ASSERT(descriptor.data_array.count <= HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT);
 
+    Memory_Context memory_context = get_memory_context();
+
     Texture_Handle texture_handle = aquire_handle(&renderer_state->textures);
     Texture *texture = renderer_get_texture(texture_handle);
 
     if (descriptor.name.data)
     {
-        texture->name = copy_string(descriptor.name, to_allocator(get_general_purpose_allocator()));
+        texture->name = copy_string(descriptor.name, memory_context.general);
     }
 
     Upload_Request_Handle upload_request_handle = Resource_Pool< Upload_Request >::invalid_handle;
@@ -797,12 +794,14 @@ void renderer_destroy_texture(Texture_Handle &texture_handle)
 {
     HE_ASSERT(texture_handle != renderer_state->white_pixel_texture);
     HE_ASSERT(texture_handle != renderer_state->normal_pixel_texture);
+    
+    Memory_Context memory_context = get_memory_context();
 
     Texture *texture = renderer_get_texture(texture_handle);
 
     if (texture->name.count && texture->name.data)
     {
-        deallocate(get_general_purpose_allocator(), (void *)texture->name.data);
+        HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)texture->name.data);
     }
 
     texture->name = HE_STRING_LITERAL("");
@@ -881,9 +880,11 @@ struct Shaderc_UserData
 shaderc_include_result *shaderc_include_resolve(void *user_data, const char *requested_source, int type, const char *requesting_source, size_t include_depth)
 {
     Shaderc_UserData *ud = (Shaderc_UserData *)user_data;
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    
+    Memory_Context memory_context = get_memory_context();
+    
     String source = HE_STRING(requested_source);
-    String path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(ud->include_path), HE_EXPAND_STRING(source));
+    String path = format_string(memory_context.temprary_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(ud->include_path), HE_EXPAND_STRING(source));
     Read_Entire_File_Result file_result = read_entire_file(path, ud->allocator);
     HE_ASSERT(file_result.success);
     shaderc_include_result *result = HE_ALLOCATOR_ALLOCATE(ud->allocator, shaderc_include_result);
@@ -907,17 +908,13 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
     static shaderc_compiler_t compiler = shaderc_compiler_initialize();
     static shaderc_compile_options_t options = shaderc_compile_options_initialize();
 
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Memory_Context memory_context = get_memory_context();
 
-    Shaderc_UserData *shaderc_userdata = HE_ALLOCATE(allocator, Shaderc_UserData);
-    shaderc_userdata->allocator = to_allocator(allocator);
+    Shaderc_UserData *shaderc_userdata = HE_ALLOCATOR_ALLOCATE(memory_context.general, Shaderc_UserData);
+    shaderc_userdata->allocator = memory_context.general;
     shaderc_userdata->include_path = include_path;
 
-    HE_DEFER
-    {
-        deallocate(allocator, shaderc_userdata);
-    };
+    HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general, shaderc_userdata); };
 
     shaderc_compile_options_set_include_callbacks(options, shaderc_include_resolve, shaderc_include_result_release, shaderc_userdata);
     shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
@@ -988,15 +985,12 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
         }
 
         // shaderc requires a string to be null-terminated
-        String source = format_string(scratch_memory.arena, "%.*s", HE_EXPAND_STRING(sources[stage_index]));
+        String source = format_string(memory_context.temprary_memory.arena, "%.*s", HE_EXPAND_STRING(sources[stage_index]));
 
         shaderc_shader_kind kind = shader_stage_to_shaderc_kind((Shader_Stage)stage_index);
         shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, source.data, source.count, kind, include_path.data, "main", options);
 
-        HE_DEFER
-        {
-            shaderc_result_release(result);
-        };
+        HE_DEFER { shaderc_result_release(result); };
 
         shaderc_compilation_status status = shaderc_result_get_compilation_status(result);
         if (status != shaderc_compilation_status_success)
@@ -1007,7 +1001,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
             {
                 if (compilation_result.stages[stage_index].count)
                 {
-                    deallocate(allocator, (void *)compilation_result.stages[stage_index].data);
+                    HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)compilation_result.stages[stage_index].data);
                 }
             }
 
@@ -1017,7 +1011,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
         const char *data = shaderc_result_get_bytes(result);
         U64 size = shaderc_result_get_length(result);
         String blob = { .count = size, .data = data };
-        compilation_result.stages[stage_index] = copy_string(blob, to_allocator(allocator));
+        compilation_result.stages[stage_index] = copy_string(blob, memory_context.general);
     }
 
     compilation_result.success = true;
@@ -1026,10 +1020,9 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
 
 Shader_Handle load_shader(String name)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-
-    Allocator allocator = to_allocator(scratch_memory.arena);
-    Read_Entire_File_Result result = read_entire_file( format_string(scratch_memory.arena, "shaders/%.*s.glsl", HE_EXPAND_STRING(name)), allocator);
+    Memory_Context memory_context = get_memory_context();
+    
+    Read_Entire_File_Result result = read_entire_file( format_string(memory_context.temprary_memory.arena, "shaders/%.*s.glsl", HE_EXPAND_STRING(name)), memory_context.temp);
     String shader_source = { .count = result.size, .data = (const char *)result.data };
 
     Shader_Compilation_Result compilation_result = renderer_compile_shader(shader_source, HE_STRING_LITERAL("shaders"));
@@ -1050,7 +1043,7 @@ Shader_Handle load_shader(String name)
 
 void renderer_destroy_shader_compilation_result(Shader_Compilation_Result *result)
 {
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
+    Memory_Context memory_context = get_memory_context();
 
     for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
     {
@@ -1059,7 +1052,7 @@ void renderer_destroy_shader_compilation_result(Shader_Compilation_Result *resul
             continue;
         }
 
-        deallocate(allocator, (void *)result->stages[stage_index].data);
+        HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)result->stages[stage_index].data);
         result->stages[stage_index] = {};
     }
 }
@@ -1096,18 +1089,18 @@ Shader_Struct *renderer_find_shader_struct(Shader_Handle shader_handle, String n
 void renderer_destroy_shader(Shader_Handle &shader_handle)
 {
     HE_ASSERT(shader_handle != renderer_state->default_shader);
+    Memory_Context memory_context = get_memory_context();
 
     // todo(amer): can we make the shader reflection data a one memory block to free it in one step...
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
     Shader *shader = renderer_get_shader(shader_handle);
 
     for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
     {
         Shader_Struct *shader_struct = &shader->structs[struct_index];
-        deallocate(allocator, shader_struct->members);
+        HE_ALLOCATOR_DEALLOCATE(memory_context.general, shader_struct->members);
     }
 
-    deallocate(allocator, shader->structs);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general, shader->structs);
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->destroy_shader(shader_handle, false);
@@ -1185,10 +1178,12 @@ void renderer_destroy_pipeline_state(Pipeline_State_Handle &pipeline_state_handl
 
 Render_Pass_Handle renderer_create_render_pass(const Render_Pass_Descriptor &descriptor)
 {
+    Memory_Context memory_context = get_memory_context();
+
     Render_Pass_Handle render_pass_handle = aquire_handle(&renderer_state->render_passes);
 
     Render_Pass *render_pass = renderer_get_render_pass(render_pass_handle);
-    render_pass->name = copy_string(descriptor.name, to_allocator(get_general_purpose_allocator()));
+    render_pass->name = copy_string(descriptor.name, memory_context.general);
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_render_pass(render_pass_handle, descriptor);
@@ -1273,12 +1268,14 @@ void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle)
 
 Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &descriptor)
 {
+    Memory_Context memory_context = get_memory_context();
+
     Static_Mesh_Handle static_mesh_handle = aquire_handle(&renderer_state->static_meshes);
     Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
     if (descriptor.name.data)
     {
-        static_mesh->name = copy_string(descriptor.name, to_allocator(get_general_purpose_allocator()));
+        static_mesh->name = copy_string(descriptor.name, memory_context.general);
     }
 
     Buffer_Descriptor position_buffer_descriptor =
@@ -1382,11 +1379,13 @@ void renderer_use_static_mesh(Static_Mesh_Handle static_mesh_handle)
 
 void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle)
 {
+    Memory_Context memory_context = get_memory_context();
+
     Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
     if (static_mesh->name.data)
     {
-        deallocate(get_general_purpose_allocator(), (void *)static_mesh->name.data);
+        HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)static_mesh->name.data);
     }
 
     renderer_destroy_buffer(static_mesh->positions_buffer);
@@ -1410,12 +1409,14 @@ void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle)
 
 Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 {
+    Memory_Context memory_context = get_memory_context();
+
     Material_Handle material_handle = aquire_handle(&renderer_state->materials);
     Material *material = get(&renderer_state->materials, material_handle);
 
     if (descriptor.name.count)
     {
-        material->name = copy_string(descriptor.name, to_allocator(get_general_purpose_allocator()));
+        material->name = copy_string(descriptor.name, memory_context.general);
     }
 
     String pass_name = descriptor.type == Material_Type::UI ? HE_STRING_LITERAL("ui") : HE_STRING_LITERAL("world");
@@ -1487,7 +1488,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 
     material->type = descriptor.type;
     material->pipeline_state_handle = pipeline_state_handle;
-    material->data = HE_ALLOCATE_ARRAY(get_general_purpose_allocator(), U8, properties->size);
+    material->data = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.general, U8, properties->size);
     material->size = properties->size;
     material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
 
@@ -1501,11 +1502,13 @@ Material *renderer_get_material(Material_Handle material_handle)
 
 void renderer_destroy_material(Material_Handle &material_handle)
 {
+    Memory_Context memory_context = get_memory_context();
+
     Material *material = get(&renderer_state->materials, material_handle);
 
     if (material->name.data)
     {
-        deallocate(get_general_purpose_allocator(), (void *)material->name.data);
+        HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)material->name.data);
     }
 
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle);
@@ -1517,7 +1520,7 @@ void renderer_destroy_material(Material_Handle &material_handle)
         renderer_destroy_bind_group(material->bind_groups[frame_index]);
     }
 
-    deallocate(get_general_purpose_allocator(), material->data);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general, material->data);
     release_handle(&renderer_state->materials, material_handle);
 
     material_handle = Resource_Pool< Material >::invalid_handle;
@@ -1793,15 +1796,15 @@ static const char* material_type_to_str(Material_Type type)
 
 bool serialize_material(Material_Handle material_handle, U64 shader_asset_uuid, String path)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-
+    Memory_Context memory_context = get_memory_context();
+    
     Material *material = renderer_get_material(material_handle);
     Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
 
     const Pipeline_State_Settings &settings = pipeline_state->settings;
 
     String_Builder builder = {};
-    begin_string_builder(&builder, scratch_memory.arena);
+    begin_string_builder(&builder, memory_context.temprary_memory.arena);
 
     append(&builder, "version 1\n");
     append(&builder, "type %s\n", material_type_to_str(material->type));
@@ -2070,25 +2073,25 @@ void serialize_scene_node(Scene_Node *node, S32 parent_index, String_Builder *bu
 
 bool serialize_scene(Scene_Handle scene_handle, String path)
 {
+    Memory_Context memory_context = get_memory_context();
+
     struct Serialized_Scene_Node
     {
         U32 node_index;
         S32 serialized_parent_index;
     };
 
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-
     Scene *scene = get(&renderer_state->scenes, scene_handle);
     Skybox *skybox = &scene->skybox;
 
     Ring_Queue< Serialized_Scene_Node > queue;
-    init(&queue, scene->node_count, to_allocator(scratch_memory.arena));
+    init(&queue, scene->node_count, memory_context.temp);
 
     U32 serialized_node_index = 0;
     push(&queue, { .node_index = 0, .serialized_parent_index = -1 });
 
     String_Builder builder = {};
-    begin_string_builder(&builder, scratch_memory.arena);
+    begin_string_builder(&builder, memory_context.temprary_memory.arena);
 
     append(&builder, "version 1\n");
 
@@ -2136,6 +2139,8 @@ Scene_Node *get_node(Scene *scene, S32 node_index)
 
 U32 allocate_node(Scene *scene, String name)
 {
+    Memory_Context memory_context = get_memory_context();
+
     U32 node_index = 0;
 
     if (scene->first_free_node_index == -1)
@@ -2150,7 +2155,7 @@ U32 allocate_node(Scene *scene, String name)
     }
 
     Scene_Node *node = get_node(scene, node_index);
-    node->name = copy_string(name, to_allocator(get_general_purpose_allocator()));
+    node->name = copy_string(name, memory_context.general);
 
     node->parent_index = -1;
     node->first_child_index = -1;
@@ -2266,6 +2271,8 @@ void remove_child(Scene *scene, S32 parent_index, U32 node_index)
 
 void remove_node(Scene *scene, U32 node_index)
 {
+    Memory_Context memory_context = get_memory_context();
+
     Scene_Node *node = get_node(scene, node_index);
 
     for (S32 child_node_index = node->first_child_index; child_node_index != -1; child_node_index = get_node(scene, child_node_index)->next_sibling_index)
@@ -2278,7 +2285,7 @@ void remove_node(Scene *scene, U32 node_index)
         remove_child(scene, node->parent_index, node_index);
     }
 
-    deallocate(get_general_purpose_allocator(), (void *)node->name.data);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)node->name.data);
 
     if (scene->first_free_node_index == -1)
     {
@@ -2619,8 +2626,8 @@ static U8* get_pointer(Shader_Struct *_struct, U8 *data, String name)
 
 void begin_rendering(const Camera *camera)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-
+    Memory_Context memory_context = get_memory_context();
+    
     renderer->begin_frame();
 
     U32 frame_index = renderer_state->current_frame_in_flight_index;
@@ -2707,61 +2714,6 @@ void begin_rendering(const Camera *camera)
         render_data->light_bins[frame_index] = renderer_create_buffer(light_bins_buffer_descriptor);
     }
 
-    // Texture_Handle head_index_texture_handle = render_data->head_index_textures[frame_index];
-    // bool recreate_head_index_buffer = !is_valid_handle(&renderer_state->textures, head_index_texture_handle);
-
-    // if (is_valid_handle(&renderer_state->textures, head_index_texture_handle))
-    // {
-    //     Texture *head_index_texture = renderer_get_texture(head_index_texture_handle);
-    //     if (head_index_texture->width != renderer_state->back_buffer_width || head_index_texture->height != renderer_state->back_buffer_height)
-    //     {
-    //         recreate_head_index_buffer = true;
-    //         renderer_destroy_texture(head_index_texture_handle);
-    //     }
-    // }
-
-    // if (recreate_head_index_buffer)
-    // {
-    //     Texture_Descriptor head_index_texture_descriptor =
-    //     {
-    //         .name = HE_STRING_LITERAL("head_index"),
-    //         .width = renderer_state->back_buffer_width,
-    //         .height = renderer_state->back_buffer_height,
-    //         .format = Texture_Format::R32_UINT,
-    //         .layer_count = 1,
-    //         .is_storage = true,
-    //     };
-    //     render_data->head_index_textures[frame_index] = renderer_create_texture(head_index_texture_descriptor);
-    // }
-
-    // Buffer_Handle node_buffer_handle = render_data->node_buffers[frame_index];
-    // bool recreate_node_buffer = !is_valid_handle(&renderer_state->buffers, node_buffer_handle);
-
-    // if (is_valid_handle(&renderer_state->buffers, node_buffer_handle))
-    // {
-    //     Buffer *node_buffer = renderer_get_buffer(node_buffer_handle);
-    //     if (node_buffer->size != renderer_state->back_buffer_width * renderer_state->back_buffer_height * sizeof(Shader_Node) * 20)
-    //     {
-    //         recreate_node_buffer = true;
-    //         renderer_destroy_buffer(node_buffer_handle);
-    //     }
-    // }
-
-    // if (recreate_node_buffer)
-    // {
-    //     Buffer_Descriptor node_buffer_descriptor =
-    //     {
-    //         .size = renderer_state->back_buffer_width * renderer_state->back_buffer_height * sizeof(Shader_Node) * 20,
-    //         .usage = Buffer_Usage::STORAGE_GPU_SIDE
-    //     };
-    //     render_data->node_buffers[frame_index] = renderer_create_buffer(node_buffer_descriptor);
-    // }
-
-    // vulkan_renderer_fill_image(render_data->head_index_textures[frame_index], HE_MAX_U32);
-
-    // renderer->fill_buffer(render_data->node_count_buffers[frame_index], 0);
-    // renderer->fill_buffer(render_data->node_buffers[frame_index], -1);
-
     render_data->current_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
     render_data->current_material_handle = Resource_Pool< Material >::invalid_handle;
     render_data->current_static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
@@ -2774,8 +2726,8 @@ void begin_rendering(const Camera *camera)
     reset(&render_data->lights);
 
     U32 texture_count = renderer_state->textures.capacity;
-    Texture_Handle *textures = HE_ALLOCATE_ARRAY(scratch_memory.arena, Texture_Handle, texture_count);
-    Sampler_Handle *samplers = HE_ALLOCATE_ARRAY(scratch_memory.arena, Sampler_Handle, texture_count);
+    Texture_Handle *textures = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, Texture_Handle, texture_count);
+    Sampler_Handle *samplers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, Sampler_Handle, texture_count);
 
     for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
     {
@@ -2918,7 +2870,7 @@ static bool calc_light_aabb(Shader_Light *light, const glm::vec3 &view_p, Frame_
 
 void end_rendering()
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Memory_Context memory_context = get_memory_context();
 
     Frame_Render_Data *render_data = &renderer_state->render_data;
 
@@ -2938,7 +2890,7 @@ void end_rendering()
     };
 
     U32 sorted_light_count = 0;
-    Sorted_Light *sorted_lights = HE_ALLOCATE_ARRAY(scratch_memory.arena, Sorted_Light, light_count + 1);
+    Sorted_Light *sorted_lights = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, Sorted_Light, light_count + 1);
 
     F32 one_over_render_dist = 1.0f / (render_data->far_z - render_data->near_z);
     U32 directional_light_count = 0;

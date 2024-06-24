@@ -40,8 +40,8 @@ static void cgltf_free(void *user, void *ptr)
 
 static Asset_Handle get_texture_asset_handle(String model_relative_path, const cgltf_image *image)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-
+    Memory_Context memory_context = get_memory_context();
+    
     String texture_name = {};
     String parent_path = get_parent_path(model_relative_path);
 
@@ -58,7 +58,7 @@ static Asset_Handle get_texture_asset_handle(String model_relative_path, const c
         return { .uuid = 0 };
     }
 
-    String texture_path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(parent_path), HE_EXPAND_STRING(texture_name));
+    String texture_path = format_string(memory_context.temprary_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(parent_path), HE_EXPAND_STRING(texture_name));
     Asset_Handle asset_handle = import_asset(texture_path);
     return asset_handle;
 };
@@ -103,19 +103,20 @@ static String get_embedded_asset_path(cgltf_data *model_data, cgltf_mesh *mesh, 
 
 static cgltf_data *aquire_model_from_cache(U64 asset_uuid, String path)
 {
-    cgltf_data *result = nullptr;
-
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
-
     platform_lock_mutex(&model_cache_mutex);
+    HE_DEFER { platform_unlock_mutex(&model_cache_mutex); };
+    
+    Memory_Context memory_context = get_memory_context();
+
+    cgltf_data *result = nullptr;
 
     auto it = model_cache.find(asset_uuid);
     if (it == model_cache.iend())
     {
-        Read_Entire_File_Result file_result = read_entire_file(path, to_allocator(allocator));
+        Read_Entire_File_Result file_result = read_entire_file(path, memory_context.temp);
 
         cgltf_options options = {};
-        options.memory.user_data = allocator;
+        options.memory.user_data = memory_context.general.data;
         options.memory.alloc_func = cgltf_alloc;
         options.memory.free_func = cgltf_free;
 
@@ -140,8 +141,6 @@ static cgltf_data *aquire_model_from_cache(U64 asset_uuid, String path)
         instance.ref_count++;
     }
 
-    platform_unlock_mutex(&model_cache_mutex);
-
     return result;
 }
 
@@ -165,11 +164,10 @@ static void release_model_from_cache(U64 asset_uuid)
 
 void on_import_model(Asset_Handle asset_handle)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
+    Memory_Context memory_context = get_memory_context();
 
     const Asset_Registry_Entry &entry = get_asset_registry_entry(asset_handle);
-    String path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
+    String path = format_string(memory_context.temprary_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
 
     cgltf_data *model_data = aquire_model_from_cache(asset_handle.uuid, path);
     HE_ASSERT(model_data);
@@ -184,7 +182,7 @@ void on_import_model(Asset_Handle asset_handle)
     for (U32 material_index = 0; material_index < model_data->materials_count; material_index++)
     {
         cgltf_material *material = &model_data->materials[material_index];
-        String material_path = get_embedded_asset_path(model_data, material, asset_handle, scratch_memory.arena);
+        String material_path = get_embedded_asset_path(model_data, material, asset_handle, memory_context.temprary_memory.arena);
         Asset_Handle asset = import_asset(material_path);
         set_parent(asset, opaque_pbr_shader_asset);
     }
@@ -192,7 +190,7 @@ void on_import_model(Asset_Handle asset_handle)
     for (U32 static_mesh_index = 0; static_mesh_index < model_data->meshes_count; static_mesh_index++)
     {
         cgltf_mesh *static_mesh = &model_data->meshes[static_mesh_index];
-        String static_mesh_path = get_embedded_asset_path(model_data, static_mesh, asset_handle, scratch_memory.arena);
+        String static_mesh_path = get_embedded_asset_path(model_data, static_mesh, asset_handle, memory_context.temprary_memory.arena);
         Asset_Handle asset = import_asset(static_mesh_path);
     }
 }
@@ -204,8 +202,8 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         platform_create_mutex(&model_cache_mutex);
     }
 
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    // Free_List_Allocator *allocator = get_general_purpose_allocator();
+    Memory_Context memory_context = get_memory_context();
 
     String asset_path = get_asset_path();
     String relative_path = sub_string(path, asset_path.count + 1);
@@ -244,7 +242,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         U32 material_index = u64_to_u32(params->data_id);
         cgltf_material *material = &model_data->materials[material_index];
         
-        String material_path = get_embedded_asset_path(model_data, material, asset_handle, scratch_memory.arena);
+        String material_path = get_embedded_asset_path(model_data, material, asset_handle, memory_context.temprary_memory.arena);
         String material_name = get_name(material_path);
 
         Asset_Handle albedo_texture = {};
@@ -345,7 +343,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         U32 static_mesh_index = u64_to_u32(params->data_id);
         cgltf_mesh *static_mesh = &model_data->meshes[static_mesh_index];
 
-        String static_mesh_path = get_embedded_asset_path(model_data, static_mesh, asset_handle, scratch_memory.arena);
+        String static_mesh_path = get_embedded_asset_path(model_data, static_mesh, asset_handle, memory_context.temprary_memory.arena);
         String static_mesh_name = get_name(static_mesh_path);
 
         U64 total_vertex_count = 0;
@@ -372,7 +370,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             if (primitive->material)
             {
                 cgltf_material *material = primitive->material;
-                String material_path = get_embedded_asset_path(model_data, material, asset_handle, scratch_memory.arena);
+                String material_path = get_embedded_asset_path(model_data, material, asset_handle, memory_context.temprary_memory.arena);
                 sub_meshes[sub_mesh_index].material_asset = get_asset_handle(material_path).uuid;
             }
 
@@ -515,7 +513,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
 
         Static_Mesh_Descriptor static_mesh_descriptor =
         {
-            .name = copy_string(static_mesh_name, to_allocator(allocator)),
+            .name = copy_string(static_mesh_name, memory_context.general),
             .data_array = to_array_view(data_array),
 
             .indices = indices,
@@ -536,10 +534,10 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
 
     cgltf_scene *scene = &model_data->scenes[0];
 
-    Model *model = HE_ALLOCATE(allocator, Model);
-    model->name = copy_string(get_name(path), to_allocator(allocator));
+    Model *model = HE_ALLOCATOR_ALLOCATE(memory_context.general, Model);
+    model->name = copy_string(get_name(path), memory_context.general);
 
-    Scene_Node *nodes = HE_ALLOCATE_ARRAY(allocator, Scene_Node, scene->nodes_count);
+    Scene_Node *nodes = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.general, Scene_Node, scene->nodes_count);
 
     model->node_count = u64_to_u32(scene->nodes_count);
     model->nodes = nodes;
@@ -556,7 +554,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         }
         else
         {
-            node_name = format_string(scratch_memory.arena, "node_%u", node_index);
+            node_name = format_string(memory_context.temprary_memory.arena, "node_%u", node_index);
         }
 
         S32 parent_index = node->parent ? (S32)(node->parent - model_data->nodes) : -1;
@@ -572,7 +570,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         };
 
         Scene_Node *scene_node = &nodes[node_index];
-        scene_node->name = copy_string(node_name, to_allocator(allocator));
+        scene_node->name = copy_string(node_name, memory_context.general);
         scene_node->transform = transform;
         scene_node->parent_index = parent_index;
 
@@ -582,7 +580,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             HE_ASSERT(mesh_index >= 0 && (S64)model_data->meshes_count);
 
             cgltf_mesh *static_mesh = node->mesh;
-            String static_mesh_path = get_embedded_asset_path(model_data, static_mesh, asset_handle, scratch_memory.arena);
+            String static_mesh_path = get_embedded_asset_path(model_data, static_mesh, asset_handle, memory_context.temprary_memory.arena);
             scene_node->has_mesh = true;
             Static_Mesh_Component *mesh_comp = &scene_node->mesh;
             mesh_comp->static_mesh_asset = get_asset_handle(static_mesh_path).uuid;
@@ -595,7 +593,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
                 if (primitive->material)
                 {
                     cgltf_material *material = primitive->material;
-                    String material_path = get_embedded_asset_path(model_data, material, asset_handle, scratch_memory.arena);
+                    String material_path = get_embedded_asset_path(model_data, material, asset_handle, memory_context.temprary_memory.arena);
                     mesh_comp->materials[i] = get_asset_handle(material_path).uuid;
                 }
                 else
@@ -613,16 +611,17 @@ void unload_model(Load_Asset_Result load_result)
 {
     HE_ASSERT(sizeof(Model) == load_result.size);
 
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
+    Memory_Context memory_context = get_memory_context();
+
     Model *model = (Model *)load_result.data;
-    deallocate(allocator, (void *)model->name.data);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)model->name.data);
 
     for (U32 i = 0; i < model->node_count; i++)
     {
         Scene_Node *node = &model->nodes[i];
-        deallocate(allocator, (void *)node->name.data);
+        HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)node->name.data);
     }
 
-    deallocate(allocator, (void *)model->nodes);
-    deallocate(allocator, model);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)model->nodes);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general, model);
 }

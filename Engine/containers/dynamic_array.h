@@ -53,6 +53,8 @@ struct Dynamic_Array
 template< typename T >
 void init(Dynamic_Array< T > *dynamic_array, U32 initial_count = 0, U32 initial_capacity = 0, Allocator allocator = {})
 {
+    Memory_Context context = get_memory_context();
+
     HE_ASSERT(dynamic_array);
 
     if (!initial_capacity)
@@ -62,7 +64,7 @@ void init(Dynamic_Array< T > *dynamic_array, U32 initial_count = 0, U32 initial_
     
     if (!allocator.data)
     {
-        allocator = to_allocator(get_general_purpose_allocator());
+        allocator = context.general;
     }
 
     dynamic_array->data = dynamic_array->data = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, T, initial_capacity);

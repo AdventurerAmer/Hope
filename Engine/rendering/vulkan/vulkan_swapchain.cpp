@@ -3,14 +3,14 @@
 
 bool init_swapchain_support(Vulkan_Context *context, VkFormat *image_formats, U32 image_format_count, Vulkan_Swapchain_Support *swapchain_support)
 {
-    Memory_Arena *arena = get_permenent_arena();
-
+    Memory_Context memory_context = get_memory_context();
+    
     swapchain_support->surface_format_count = 0;
     vkGetPhysicalDeviceSurfaceFormatsKHR(context->physical_device, context->surface, &swapchain_support->surface_format_count, nullptr);
 
     HE_ASSERT(swapchain_support->surface_format_count);
 
-    swapchain_support->surface_formats = HE_ALLOCATE_ARRAY(arena, VkSurfaceFormatKHR, swapchain_support->surface_format_count);
+    swapchain_support->surface_formats = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, VkSurfaceFormatKHR, swapchain_support->surface_format_count);
 
     vkGetPhysicalDeviceSurfaceFormatsKHR(context->physical_device, context->surface, &swapchain_support->surface_format_count, swapchain_support->surface_formats);
 
@@ -19,7 +19,7 @@ bool init_swapchain_support(Vulkan_Context *context, VkFormat *image_formats, U3
 
     HE_ASSERT(swapchain_support->present_mode_count);
 
-    swapchain_support->present_modes = HE_ALLOCATE_ARRAY(arena, VkPresentModeKHR, swapchain_support->present_mode_count);
+    swapchain_support->present_modes = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, VkPresentModeKHR, swapchain_support->present_mode_count);
 
     vkGetPhysicalDeviceSurfacePresentModesKHR(context->physical_device, context->surface, &swapchain_support->present_mode_count, swapchain_support->present_modes);
 
@@ -73,6 +73,8 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
     HE_ASSERT(min_image_count);
     HE_ASSERT(swapchain);
     
+    Memory_Context memory_context = get_memory_context();
+
     const Vulkan_Swapchain_Support *swapchain_support = &context->swapchain_support;
 
     VkSurfaceCapabilitiesKHR surface_capabilities;
@@ -141,10 +143,9 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
     HE_CHECK_VKRESULT(vkCreateSwapchainKHR(context->logical_device, &swapchain_create_info, &context->allocation_callbacks, &swapchain->handle));
 
     HE_CHECK_VKRESULT(vkGetSwapchainImagesKHR(context->logical_device, swapchain->handle, &swapchain->image_count, nullptr));
-
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
-    swapchain->images = HE_ALLOCATE_ARRAY(allocator, VkImage, swapchain->image_count);
-    swapchain->image_views = HE_ALLOCATE_ARRAY(allocator, VkImageView, swapchain->image_count);
+    
+    swapchain->images = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.general, VkImage, swapchain->image_count);
+    swapchain->image_views = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.general, VkImageView, swapchain->image_count);
 
     HE_CHECK_VKRESULT(vkGetSwapchainImagesKHR(context->logical_device, swapchain->handle, &swapchain->image_count, swapchain->images));
 
@@ -171,15 +172,16 @@ bool create_swapchain(Vulkan_Context *context, U32 width, U32 height, U32 min_im
 
 void destroy_swapchain(Vulkan_Context *context, Vulkan_Swapchain *swapchain)
 {
+    Memory_Context memory_context = get_memory_context();
+
     for (U32 image_index = 0; image_index < swapchain->image_count; image_index++)
     {
         vkDestroyImageView(context->logical_device, swapchain->image_views[image_index], &context->allocation_callbacks);
         swapchain->image_views[image_index] = VK_NULL_HANDLE;
     }
 
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
-    deallocate(allocator, swapchain->images);
-    deallocate(allocator, swapchain->image_views);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general, swapchain->images);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general, swapchain->image_views);
 
     vkDestroySwapchainKHR(context->logical_device, swapchain->handle, &context->allocation_callbacks);
     swapchain->handle = VK_NULL_HANDLE;

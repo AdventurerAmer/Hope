@@ -24,9 +24,10 @@ void copy_memory(void *dst, const void *src, U64 size)
 
 struct Memory_System
 {
-    U64 thread_transient_arena_capacity;
+    U64 thread_arena_capacity;
 
     Memory_Arena permenent_arena;
+    Memory_Arena frame_arena;
     Memory_Arena debug_arena;
     Free_List_Allocator general_purpose_allocator;
 
@@ -37,10 +38,15 @@ static Memory_System memory_system_state;
 
 bool init_memory_system()
 {
-    memory_system_state.thread_transient_arena_capacity = HE_MEGA_BYTES(64);
+    memory_system_state.thread_arena_capacity = HE_MEGA_BYTES(64);
     U64 capacity = platform_get_total_memory_size();
 
     if (!init_memory_arena(&memory_system_state.permenent_arena, capacity, HE_MEGA_BYTES(64)))
+    {
+        return false;
+    }
+
+    if (!init_memory_arena(&memory_system_state.frame_arena, capacity, HE_MEGA_BYTES(64)))
     {
         return false;
     }
@@ -61,7 +67,7 @@ bool init_memory_system()
     HE_ASSERT(slot_index != -1);
 
     Thread_Memory_State *main_thread_memory_state = &memory_system_state.thread_id_to_memory_state.values[slot_index];
-    if (!init_memory_arena(&main_thread_memory_state->transient_arena, capacity, memory_system_state.thread_transient_arena_capacity))
+    if (!init_memory_arena(&main_thread_memory_state->arena, capacity, memory_system_state.thread_arena_capacity))
     {
         return false;
     }
@@ -72,7 +78,10 @@ bool init_memory_system()
 void deinit_memory_system()
 {
     HE_ASSERT(memory_system_state.permenent_arena.temp_count == 0);
+    HE_ASSERT(memory_system_state.frame_arena.temp_count == 0);
     HE_ASSERT(memory_system_state.debug_arena.temp_count == 0);
+    Memory_Arena *arena = get_thread_arena();
+    HE_ASSERT(arena->temp_count == 0);
 }
 
 Thread_Memory_State *get_thread_memory_state(U32 thread_id)
@@ -86,7 +95,7 @@ Thread_Memory_State *get_thread_memory_state(U32 thread_id)
 
     S32 slot_index = insert(&memory_system_state.thread_id_to_memory_state, thread_id);
     Thread_Memory_State *thread_memory_state = &memory_system_state.thread_id_to_memory_state.values[slot_index];
-    if (!init_memory_arena(&thread_memory_state->transient_arena, memory_system_state.thread_transient_arena_capacity, memory_system_state.thread_transient_arena_capacity))
+    if (!init_memory_arena(&thread_memory_state->arena, memory_system_state.thread_arena_capacity, memory_system_state.thread_arena_capacity))
     {
         return nullptr;
     }
@@ -99,57 +108,32 @@ Memory_Arena *get_permenent_arena()
     return &memory_system_state.permenent_arena;
 }
 
-Memory_Arena *get_transient_arena()
+Memory_Arena *get_thread_arena()
 {
     U32 thread_id = platform_get_current_thread_id();
     auto it = find(&memory_system_state.thread_id_to_memory_state, thread_id);
     HE_ASSERT(is_valid(it));
     Thread_Memory_State *memory_state = it.value;
-    return &memory_state->transient_arena;
-}
-
-Memory_Arena *get_debug_arena()
-{
-    return &memory_system_state.debug_arena;
-}
-
-Free_List_Allocator *get_general_purpose_allocator()
-{
-    return &memory_system_state.general_purpose_allocator;
-}
-
-Temprary_Memory_Arena begin_scratch_memory()
-{
-    return begin_temprary_memory(get_transient_arena());
-}
-
-Temprary_Memory_Arena_Janitor make_scratch_memory_janitor()
-{
-    Memory_Arena *transient_arena = get_transient_arena();
-    transient_arena->temp_count++;
-    return { .arena = transient_arena, .offset = transient_arena->offset };
+    return &memory_state->arena;
 }
 
 Memory_Context::~Memory_Context()
 {
-    HE_ASSERT(temp->temp_count);
-    temp->temp_count--;
-    temp->offset = temp_offset;
+    end_temprary_memory(&temprary_memory);
 }
 
-Memory_Context use_memory_context()
+Memory_Context get_memory_context()
 {
-    Memory_Arena *transient_arena = get_transient_arena();
-    transient_arena->temp_count++;
+    Memory_Arena *arena = get_thread_arena();
 
     return
     {
-        .permenent = &memory_system_state.permenent_arena,
-        .temp_offset = transient_arena->offset,
-        .temp = transient_arena,
-        .debug = &memory_system_state.debug_arena,
-        .general = &memory_system_state.general_purpose_allocator
-    };
+        .permenent       = to_allocator(&memory_system_state.permenent_arena),
+        .general         = to_allocator(&memory_system_state.general_purpose_allocator),
+        .frame           = to_allocator(&memory_system_state.frame_arena),
+        .temp            = to_allocator(arena),
+        .temprary_memory = begin_temprary_memory(arena),
+    }; 
 }
 
 //

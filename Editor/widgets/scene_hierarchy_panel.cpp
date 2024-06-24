@@ -31,7 +31,7 @@ enum class Add_Scene_Node_Operation
     AFTER,
 };
 
-void draw_scene_node(Scene_Handle scene_handle, Scene *scene, S32 node_index);
+void draw_scene_node(Asset_Handle asset_handle, Scene_Handle scene_handle, Scene *scene, S32 node_index);
 void add_model_to_scene(Scene *scene, U32 node_index, Asset_Handle asset_handle, Add_Scene_Node_Operation op);
 
 void new_node(Scene *scene, U32 parent_index)
@@ -60,10 +60,10 @@ void delete_node(Scene *scene, U32 node_index)
 
 void duplicate_node(Scene *scene, U32 node_index)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-
+    Memory_Context memory_context = get_memory_context();
+    
     Scene_Node *node = get_node(scene, node_index);
-    U32 duplicated_node_index = allocate_node(scene, format_string(scratch_memory.arena, "%.*s_", HE_EXPAND_STRING(node->name)));
+    U32 duplicated_node_index = allocate_node(scene, format_string(memory_context.temprary_memory.arena, "%.*s_", HE_EXPAND_STRING(node->name)));
     add_child_after(scene, node_index, duplicated_node_index);
 
     node = get_node(scene, node_index);
@@ -104,7 +104,7 @@ void draw(U64 scene_asset_uuid)
         {
             Scene_Handle scene_handle = get_asset_handle_as<Scene>(scene_asset);
             Scene *scene = renderer_get_scene(scene_handle);
-            draw_scene_node(scene_handle, scene, 0);
+            draw_scene_node(scene_asset, scene_handle, scene, 0);
 
             static bool is_context_window_open = false;
 
@@ -177,6 +177,8 @@ void reset_selection()
 
 static void add_model_to_scene(Scene *scene, U32 node_index, Asset_Handle asset_handle, Add_Scene_Node_Operation op)
 {
+    Memory_Context memory_context = get_memory_context();
+
     const Asset_Info *info = get_asset_info(asset_handle);
     if (info && info->name == HE_STRING_LITERAL("model"))
     {
@@ -188,8 +190,7 @@ static void add_model_to_scene(Scene *scene, U32 node_index, Asset_Handle asset_
         }
 
         Model *model = get_asset_as<Model>(asset_handle);
-        Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-
+        
         U32 sub_scene_parent = node_index;
 
         if (model->node_count != 1)
@@ -215,7 +216,7 @@ static void add_model_to_scene(Scene *scene, U32 node_index, Asset_Handle asset_
             }
         }
 
-        U32 *node_indices = HE_ALLOCATE_ARRAY(scratch_memory.arena, U32, model->node_count);
+        U32 *node_indices = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, U32, model->node_count);
 
         for (U32 i = 0; i < model->node_count; i++)
         {
@@ -266,8 +267,10 @@ static void add_model_to_scene(Scene *scene, U32 node_index, Asset_Handle asset_
     }
 }
 
-static void draw_scene_node(Scene_Handle scene_handle, Scene *scene, S32 node_index)
+static void draw_scene_node(Asset_Handle scene_asset, Scene_Handle scene_handle, Scene *scene, S32 node_index)
 {
+    Memory_Context memory_context = get_memory_context();
+
     HE_ASSERT(node_index != -1);
 
     ImGui::PushID(node_index);
@@ -298,7 +301,7 @@ static void draw_scene_node(Scene_Handle scene_handle, Scene *scene, S32 node_in
 
     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
     {
-        Inspector_Panel::inspect(scene_handle, node_index);
+        Inspector_Panel::inspect_scene_node(scene_asset, node_index);
         scene_hierarchy_state.selected_node_index = node_index;
     }
 
@@ -352,8 +355,8 @@ static void draw_scene_node(Scene_Handle scene_handle, Scene *scene, S32 node_in
                 Scene_Node *node = get_node(scene, node_index);
                 if (node->name.data && new_name.count)
                 {
-                    deallocate(get_general_purpose_allocator(), (void *)node->name.data);
-                    node->name = copy_string(new_name, to_allocator(get_general_purpose_allocator()));
+                    HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)node->name.data);
+                    node->name = copy_string(new_name, memory_context.general);
                 }
             }
         }
@@ -405,7 +408,7 @@ static void draw_scene_node(Scene_Handle scene_handle, Scene *scene, S32 node_in
         Scene_Node *node = get_node(scene, node_index);
         for (S32 child_node_index = node->first_child_index; child_node_index != -1; child_node_index = get_node(scene, child_node_index)->next_sibling_index)
         {
-            draw_scene_node(scene_handle, scene, child_node_index);
+            draw_scene_node(scene_asset, scene_handle, scene, child_node_index);
         }
 
         ImGui::TreePop();

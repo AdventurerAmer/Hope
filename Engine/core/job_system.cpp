@@ -14,7 +14,7 @@
 
 struct Thread_State
 {
-    Memory_Arena *transient_arena;
+    Memory_Arena *arena;
     U32 thread_index;
     Thread thread;
 
@@ -160,8 +160,8 @@ unsigned long execute_thread_work(void *params)
         HE_ASSERT(peeked);
         HE_ASSERT(job->data.proc);
 
-        Temprary_Memory_Arena temprary_memory_arena = begin_temprary_memory(thread_state->transient_arena);
-        job->data.parameters.arena = thread_state->transient_arena;
+        Temprary_Memory_Arena temprary_memory_arena = begin_temprary_memory(thread_state->arena);
+        job->data.parameters.arena = thread_state->arena;
 
         Job_Result result = job->data.proc(job->data.parameters);
         if (job->data.completed_proc)
@@ -183,7 +183,8 @@ unsigned long execute_thread_work(void *params)
 
 bool init_job_system()
 {
-    Memory_Arena *arena = get_permenent_arena();
+    Memory_Context memory_context = get_memory_context();
+
     bool inited = init_free_list_allocator(&job_system_state.job_data_allocator, nullptr, HE_MEGA_BYTES(64), HE_MEGA_BYTES(64), "job_allocator");
     HE_ASSERT(inited);
 
@@ -193,7 +194,7 @@ bool init_job_system()
     job_system_state.running.store(true);
     job_system_state.in_progress_job_count.store(0);
     job_system_state.thread_count = thread_count;
-    job_system_state.thread_states = HE_ALLOCATE_ARRAY(arena, Thread_State, thread_count);
+    job_system_state.thread_states = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, Thread_State, thread_count);
 
     init(&job_system_state.job_pool, thread_count * JOB_COUNT_PER_THREAD, to_allocator(&job_system_state.job_data_allocator));
 
@@ -202,7 +203,7 @@ bool init_job_system()
         Thread_State *thread_state = &job_system_state.thread_states[thread_index];
         thread_state->thread_index = thread_index;
 
-        init(&thread_state->job_queue, JOB_COUNT_PER_THREAD, to_allocator(arena));
+        init(&thread_state->job_queue, JOB_COUNT_PER_THREAD, memory_context.permenent);
 
         bool job_queue_semaphore_created = platform_create_semaphore(&thread_state->job_queue_semaphore);
         HE_ASSERT(job_queue_semaphore_created);
@@ -218,7 +219,7 @@ bool init_job_system()
 
         U32 thread_id = platform_get_thread_id(&thread_state->thread);
         Thread_Memory_State *memory_state = get_thread_memory_state(thread_id);
-        thread_state->transient_arena = &memory_state->transient_arena;
+        thread_state->arena = &memory_state->arena;
     }
 
     return true;
@@ -236,8 +237,12 @@ static void init_job(Job *job, Job_Data job_data)
 
     if (job_data.parameters.data)
     {
-        // todo(amer): handle alignment
-        void *data = allocate(&job_system_state.job_data_allocator, job_data.parameters.size, 1);
+        U16 alignment = job_data.parameters.alignment; 
+        if (!alignment)
+        {
+            alignment = HE_DEFAULT_ALIGNMENT;
+        }
+        void *data = allocate(&job_system_state.job_data_allocator, job_data.parameters.size, alignment);
         copy_memory(data, job_data.parameters.data, job_data.parameters.size);
         job->data.parameters.data = data;
     }

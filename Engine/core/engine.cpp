@@ -127,9 +127,7 @@ void game_loop(Engine *engine, F32 delta_time)
         imgui_new_frame();
     }
 
-    Temprary_Memory_Arena scratch_memory = begin_scratch_memory();
     hope_app_on_update(engine, delta_time);
-    end_temprary_memory(&scratch_memory);
 }
 
 void shutdown(Engine *engine)

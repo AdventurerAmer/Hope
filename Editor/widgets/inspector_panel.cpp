@@ -24,7 +24,7 @@ union Inspection_Data
 {
     struct
     {
-        Scene_Handle scene;
+        Asset_Handle scene_asset;
         S32 scene_node_index;
     };
 
@@ -40,8 +40,8 @@ struct Inspector_State
 
 static Inspector_State inspector_state;
 
-void inspect_scene_node(Scene_Node *scene_node);
-void inspect_asset(Asset_Handle asset_handle);
+void internal_inspect_scene_node(Scene_Node *scene_node);
+void internal_inspect_asset(Asset_Handle asset_handle);
 
 void draw()
 {
@@ -55,36 +55,44 @@ void draw()
 
         case Inspection_Type::SCENE_NODE:
         {
-            Scene *scene = renderer_get_scene(inspector_state.data.scene);
-            Scene_Node *node = get_node(scene, inspector_state.data.scene_node_index);
-            inspect_scene_node(node);
+            Asset_Handle scene_asset = inspector_state.data.scene_asset;
+            if (is_asset_handle_valid(scene_asset) && is_asset_loaded(scene_asset))
+            {
+                Scene_Handle scene_handle = get_asset_handle_as<Scene>(scene_asset);
+                Scene *scene = renderer_get_scene(scene_handle);
+                Scene_Node* node = get_node(scene, inspector_state.data.scene_node_index);
+                internal_inspect_scene_node(node);
+            }
         } break;
 
         case Inspection_Type::ASSET:
         {
-            inspect_asset(inspector_state.data.asset_handle);
+            internal_inspect_asset(inspector_state.data.asset_handle);
         } break;
     }
 
     ImGui::End();
 }
 
-void inspect(Scene_Handle scene_handle, S32 scene_node_index)
+void inspect_scene_node(Asset_Handle scene_asset, S32 scene_node_index)
 {
+    HE_ASSERT(is_asset_handle_valid(scene_asset));
     HE_ASSERT(scene_node_index != -1);
+    
     Editor::reset_selection();
 
     inspector_state.type = Inspection_Type::SCENE_NODE;
-    inspector_state.data.scene = scene_handle;
+    inspector_state.data.scene_asset = scene_asset;
     inspector_state.data.scene_node_index = scene_node_index;
 
+    Scene_Handle scene_handle = get_asset_handle_as<Scene>(scene_asset);
     Scene *scene = renderer_get_scene(scene_handle);
     Scene_Node *node = get_node(scene, scene_node_index);
     memset(inspector_state.rename_node_buffer, 0, sizeof(inspector_state.rename_node_buffer));
     memcpy(inspector_state.rename_node_buffer, node->name.data, node->name.count);
 }
 
-void inspect(Asset_Handle asset_handle)
+void inspect_asset(Asset_Handle asset_handle)
 {
     Editor::reset_selection();
 
@@ -121,8 +129,10 @@ static void draw_transform(Transform *transform)
     ImGui::PopID();
 }
 
-static void inspect_scene_node(Scene_Node *scene_node)
+static void internal_inspect_scene_node(Scene_Node *scene_node)
 {
+    Memory_Context memory_context = get_memory_context();
+
     ImGui::PushID(scene_node);
 
     ImGui::Text("Node");
@@ -135,8 +145,8 @@ static void inspect_scene_node(Scene_Node *scene_node)
             String new_name = HE_STRING(inspector_state.rename_node_buffer);
             if (scene_node->name.data && new_name.count)
             {
-                deallocate(get_general_purpose_allocator(), (void *)scene_node->name.data);
-                scene_node->name = copy_string(new_name, to_allocator(get_general_purpose_allocator()));
+                HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)scene_node->name.data);
+                scene_node->name = copy_string(new_name, memory_context.general);
             }
         }
     }
@@ -313,7 +323,7 @@ static void inspect_scene_node(Scene_Node *scene_node)
 
 static void inspect_material(Asset_Handle material_asset)
 {
-    ImGui::PushID(material_asset.uuid);
+    ImGui::PushID((void *)material_asset.uuid);
 
     const Asset_Registry_Entry &entry = get_asset_registry_entry(material_asset);
     Asset_Handle shader_asset = entry.parent;
@@ -718,9 +728,7 @@ static void inspect_material(Asset_Handle material_asset)
                 set_property(new_material_handle, new_material->properties[i].name, material->properties[property_id].data);
             }
         }
-
-        // todo(amer): we should destroy this material handle after 3 frames instead of waiting...
-        // renderer_wait_for_gpu_to_finish_all_work();
+        
         renderer_destroy_material(material_handle);
         
         material_handle = new_material_handle;
@@ -732,9 +740,10 @@ static void inspect_material(Asset_Handle material_asset)
 
     if (shader_changed || pipeline_changed || property_changed)
     {
-        Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+        Memory_Context memory_context = get_memory_context();
+
         const Asset_Registry_Entry &entry = get_asset_registry_entry(material_asset);
-        String path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
+        String path = format_string(memory_context.temprary_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
         bool success = serialize_material(material_handle, shader_asset.uuid, path);
         if (!success)
         {
@@ -745,7 +754,7 @@ static void inspect_material(Asset_Handle material_asset)
     ImGui::PopID();
 }
 
-static void inspect_asset(Asset_Handle asset_handle)
+static void internal_inspect_asset(Asset_Handle asset_handle)
 {
     if (!is_asset_loaded(asset_handle))
     {

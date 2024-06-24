@@ -12,27 +12,6 @@
 
 #include "rendering/renderer_utils.h"
 
-S32 find_memory_type_index(VkMemoryRequirements memory_requirements, VkMemoryPropertyFlags memory_property_flags, Vulkan_Context *context)
-{
-    S32 result = -1;
-
-    for (U32 memory_type_index = 0; memory_type_index < context->physical_device_memory_properties.memoryTypeCount; memory_type_index++)
-    {
-        if (((1 << memory_type_index) & memory_requirements.memoryTypeBits))
-        {
-            // todo(amer): we should track how much memory we allocated from heaps so allocations don't fail
-            const VkMemoryType *memory_type = &context->physical_device_memory_properties.memoryTypes[memory_type_index];
-            if ((memory_type->propertyFlags & memory_property_flags) == memory_property_flags)
-            {
-                result = (S32)memory_type_index;
-                break;
-            }
-        }
-    }
-
-    return result;
-}
-
 VkSampleCountFlagBits get_sample_count(U32 sample_count)
 {
     switch (sample_count)
@@ -348,10 +327,9 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
     command_buffer_allocate_info.commandBufferCount = 1;
     command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-    VkCommandBuffer command_buffer = {}; // todo(amer): @Leak
+    VkCommandBuffer command_buffer = {};
     vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
     vkResetCommandBuffer(command_buffer, 0);
-
 
     Vulkan_Upload_Request *vulkan_upload_request = &context->upload_requests[upload_request_handle.index];
     vulkan_upload_request->graphics_command_pool = thread_state->graphics_command_pool;
@@ -366,7 +344,6 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
 
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
     transtion_image_to_layout(command_buffer, image->handle, mip_levels, layer_count, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
 
     // todo(amer): only supporting RGBA for now.
     U64 size = (U64)width * (U64)height * sizeof(U32);

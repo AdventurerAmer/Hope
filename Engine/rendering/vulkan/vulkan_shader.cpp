@@ -197,9 +197,8 @@ static VkDescriptorSetLayoutBinding& find_or_add_binding(Counted_Array< VkDescri
 
 bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descriptor, Vulkan_Context *context)
 {
-    Free_List_Allocator *allocator = get_general_purpose_allocator();
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    
+    Memory_Context memory_context = get_memory_context();
+
     Shader *shader = get(&context->renderer_state->shaders, shader_handle);
     Vulkan_Shader *vulkan_shader = &context->shaders[shader_handle.index];
 
@@ -244,8 +243,8 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
             
             if (vertex_shader_input_count)
             {
-                vertex_input_binding_descriptions = HE_ALLOCATE_ARRAY(allocator, VkVertexInputBindingDescription, vertex_shader_input_count);
-                vertex_input_attribute_descriptions = HE_ALLOCATE_ARRAY(allocator, VkVertexInputAttributeDescription, vertex_shader_input_count);
+                vertex_input_binding_descriptions = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.general, VkVertexInputBindingDescription, vertex_shader_input_count);
+                vertex_input_attribute_descriptions = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.general, VkVertexInputAttributeDescription, vertex_shader_input_count);
             }
 
             U32 input_index = 0;
@@ -324,7 +323,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
 
             U32 member_count = u64_to_u32(type.member_types.size());
             struct_.member_count = member_count;
-            struct_.members = HE_ALLOCATE_ARRAY(allocator, Shader_Struct_Member, member_count);
+            struct_.members = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.general, Shader_Struct_Member, member_count);
 
             for (U32 i = 0; i < member_count; i++)
             {
@@ -337,7 +336,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
                 
                 member.offset = u64_to_u32(offset);
                 member.size = u64_to_u32(member_size);
-                member.name = copy_string(HE_STRING(name.c_str()), to_allocator(allocator));
+                member.name = copy_string(HE_STRING(name.c_str()), memory_context.general);
                 member.data_type = spirv_type_to_shader_data_type(member_type);
 
                 if (!member_type.array.empty())
@@ -376,7 +375,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
 
             binding.descriptorCount = descriptor_count;
 
-            String name = copy_string(HE_STRING(resource.name.c_str()), to_allocator(allocator));
+            String name = copy_string(HE_STRING(resource.name.c_str()), memory_context.general);
             append_struct(name, type);
         }
 
@@ -402,7 +401,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
 
             binding.descriptorCount = descriptor_count;
 
-            String name = copy_string(HE_STRING(resource.name.c_str()), to_allocator(allocator));
+            String name = copy_string(HE_STRING(resource.name.c_str()), memory_context.general);
             append_struct(name, type);
         }
     }
@@ -425,7 +424,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
         set_count++;
         const auto &set = sets[set_index];
 
-        VkDescriptorBindingFlags *bindings_flags = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkDescriptorBindingFlags, set.count);
+        VkDescriptorBindingFlags *bindings_flags = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkDescriptorBindingFlags, set.count);
         for (U32 i = 0; i < set.count; i++)
         {
             bindings_flags[i] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT;
@@ -600,7 +599,7 @@ static VkStencilOp get_stencil_operation(Stencil_Operation op)
 
 bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  const Pipeline_State_Descriptor &descriptor, Vulkan_Context *context)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+    Memory_Context memory_context = get_memory_context();
 
     Renderer_State *renderer_state = context->renderer_state;
     
@@ -720,7 +719,7 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
         color_mask |= VK_COLOR_COMPONENT_A_BIT;
     }
 
-    VkPipelineColorBlendAttachmentState *blend_states = HE_ALLOCATE_ARRAY(scratch_memory.arena, VkPipelineColorBlendAttachmentState, render_pass->color_attachments.count);
+    VkPipelineColorBlendAttachmentState *blend_states = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkPipelineColorBlendAttachmentState, render_pass->color_attachments.count);
     for (U32 i = 0; i < render_pass->color_attachments.count; i++)
     {
         const Attachment_Info &info = render_pass->color_attachments[i];

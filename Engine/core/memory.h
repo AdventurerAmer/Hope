@@ -182,30 +182,22 @@ void deinit_memory_system();
 
 struct Thread_Memory_State
 {
-    Memory_Arena transient_arena;
+    Memory_Arena arena;
 };
 
 Thread_Memory_State *get_thread_memory_state(U32 thread_id);
-
-Memory_Arena *get_permenent_arena();
-Memory_Arena *get_transient_arena();
-Memory_Arena *get_debug_arena();
-Free_List_Allocator *get_general_purpose_allocator();
-
-Temprary_Memory_Arena begin_scratch_memory();
-Temprary_Memory_Arena_Janitor make_scratch_memory_janitor();
+Memory_Arena *get_thread_arena();
 
 struct Memory_Context
 {
-    Memory_Arena *permenent;
-
-    U64 temp_offset;
-    Memory_Arena *temp;
-
-    Memory_Arena *debug;
-    Free_List_Allocator *general;
+    Allocator permenent;
+    Allocator general;
+    Allocator frame;
+    Allocator temp;
+    
+    Temprary_Memory_Arena temprary_memory;
 
     ~Memory_Context();
 };
 
-Memory_Context use_memory_context();
+Memory_Context get_memory_context();

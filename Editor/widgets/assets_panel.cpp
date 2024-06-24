@@ -125,7 +125,7 @@ void draw()
                         {
                             asset_handle = import_asset(asset_path);
                         }
-                        Inspector_Panel::inspect(asset_handle);
+                        Inspector_Panel::inspect_asset(asset_handle);
                     }
 
                     assets_panel_state.selected_path = path;
@@ -166,7 +166,7 @@ void draw()
                     if (ImGui::IsItemDeactivated() && !ImGui::IsDragDropActive())
                     {
                         Editor::reset_selection();
-                        Inspector_Panel::inspect(embeded_asset);
+                        Inspector_Panel::inspect_asset(embeded_asset);
                         assets_panel_state.selected_path = path;
                     }
                     ImGuiDragDropFlags src_flags = 0;
@@ -288,12 +288,12 @@ static void create_skybox_asset_modal(bool open)
                     HE_STRING_LITERAL("haskybox")
                 };
 
-                Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+                Memory_Context memory_context = get_memory_context();
 
                 String title = HE_STRING_LITERAL("Save Skybox Asset");
                 String filter = HE_STRING_LITERAL("Skybox (.haskybox)");
                 String absolute_path = save_file_dialog(title, filter, to_array_view(extensions));
-                HE_DEFER { deallocate(get_general_purpose_allocator(), (void *)absolute_path.data); };
+                HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)absolute_path.data); };
                 if (absolute_path.count)
                 {
                     String path = absolute_path;
@@ -301,11 +301,11 @@ static void create_skybox_asset_modal(bool open)
                     String ext = get_extension(absolute_path);
                     if (ext != extensions[0])
                     {
-                        path = format_string(scratch_memory.arena, "%.*s.haskybox", HE_EXPAND_STRING(absolute_path));
+                        path = format_string(memory_context.temprary_memory.arena, "%.*s.haskybox", HE_EXPAND_STRING(absolute_path));
                     }
 
                     String_Builder builder = {};
-                    begin_string_builder(&builder, scratch_memory.arena);
+                    begin_string_builder(&builder, memory_context.temprary_memory.arena);
                     append(&builder, "version 1\n");
                     append(&builder, "right_texture_uuid %llu\n", faces[(U32)Skybox_Face::RIGHT].asset_handle.uuid);
                     append(&builder, "left_texture_uuid %llu\n", faces[(U32)Skybox_Face::LEFT].asset_handle.uuid);
@@ -388,8 +388,8 @@ static void create_material_asset_modal(bool open)
             {
                 if (ImGui::Button("Ok", ImVec2(120, 0)))
                 {
-                    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-
+                    Memory_Context memory_context = get_memory_context();
+                    
                     String extensions[] =
                     {
                         HE_STRING_LITERAL("hamaterial")
@@ -399,7 +399,7 @@ static void create_material_asset_modal(bool open)
                     String filter = HE_STRING_LITERAL("Material (.hamaterial)");
 
                     String absolute_path = save_file_dialog(title, filter, to_array_view(extensions));
-                    HE_DEFER { deallocate(get_general_purpose_allocator(), (void *)absolute_path.data); };
+                    HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)absolute_path.data); };
 
                     if (absolute_path.count)
                     {
@@ -408,7 +408,7 @@ static void create_material_asset_modal(bool open)
                         String ext = get_extension(absolute_path);
                         if (ext != extensions[0])
                         {
-                            path = format_string(scratch_memory.arena, "%.*s.hamaterial", HE_EXPAND_STRING(absolute_path));
+                            path = format_string(memory_context.temprary_memory.arena, "%.*s.hamaterial", HE_EXPAND_STRING(absolute_path));
                         }
 
                         Material_Descriptor material_desc =

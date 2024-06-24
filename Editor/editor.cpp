@@ -35,8 +35,8 @@ void draw_graphics_window();
 
 bool hope_app_init(Engine *engine)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-
+    Memory_Context memory_context = get_memory_context();
+    
     Editor_State *state = &editor_state;
     state->engine = engine;
 
@@ -86,7 +86,7 @@ bool hope_app_init(Engine *engine)
     {
         String scene_name = HE_STRING_LITERAL("main");
         Scene_Handle scene_handle = renderer_create_scene(scene_name, 1);
-        String save_path = format_string(scratch_memory.arena, "%.*s/%.*s.hascene", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(scene_name));
+        String save_path = format_string(memory_context.temprary_memory.arena, "%.*s/%.*s.hascene", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(scene_name));
         serialize_scene(scene_handle, save_path);
         renderer_destroy_scene(scene_handle);
     }
@@ -99,6 +99,8 @@ bool hope_app_init(Engine *engine)
 
 void hope_app_on_event(Engine *engine, Event event)
 {
+    Memory_Context memory_context = get_memory_context();
+
 	switch (event.type)
 	{
         case Event_Type::KEY:
@@ -127,9 +129,8 @@ void hope_app_on_event(Engine *engine, Event event)
                     {
                         if (is_asset_handle_valid(editor_state.scene_asset))
                         {
-                            Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
                             const Asset_Registry_Entry &entry = get_asset_registry_entry(editor_state.scene_asset);
-                            String scene_path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
+                            String scene_path = format_string(memory_context.temprary_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
                             serialize_scene(get_asset_handle_as<Scene>(editor_state.scene_asset), scene_path);
                         }
                     }
@@ -229,7 +230,7 @@ void hope_app_on_event(Engine *engine, Event event)
                     Editor::reset_selection();
                     if (node_index != -1)
                     {
-                        Inspector_Panel::inspect(get_asset_handle_as<Scene>(editor_state.scene_asset), node_index);
+                        Inspector_Panel::inspect_scene_node(editor_state.scene_asset, node_index);
                         Scene_Hierarchy_Panel::select(node_index);
                     }
                 }
@@ -382,9 +383,9 @@ void hope_app_shutdown(Engine *engine)
     (void)engine;
     if (is_asset_handle_valid(editor_state.scene_asset))
     {
-        Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
+        Memory_Context memory_context = get_memory_context();
         const Asset_Registry_Entry &entry = get_asset_registry_entry(editor_state.scene_asset);
-        String scene_path = format_string(scratch_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
+        String scene_path = format_string(memory_context.temprary_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
         serialize_scene(get_asset_handle_as<Scene>(editor_state.scene_asset), scene_path);
     }
 }

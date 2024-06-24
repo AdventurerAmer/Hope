@@ -295,30 +295,21 @@ Parse_Name_Float3_Result parse_name_float3(String *str, String name)
 
 U64 str_to_u64(String str)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    Memory_Arena *arena = scratch_memory.arena;
-    char *data = (char *)(&arena->base[arena->offset]);
-    copy_memory((void *)data, str.data, str.count);
-    data[str.count] = '\0';
-    return strtoull(data, nullptr, 10);
+    Memory_Context memory_context = get_memory_context();
+    String temp = copy_string(str, memory_context.temp);
+    return strtoull(temp.data, nullptr, 10);
 }
 
 S64 str_to_s64(String str)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    Memory_Arena *arena = scratch_memory.arena;
-    char *data = (char *)(&arena->base[arena->offset]);
-    copy_memory((void *)data, str.data, str.count);
-    data[str.count] = '\0';
-    return strtoll(data, nullptr, 10);
+    Memory_Context memory_context = get_memory_context();
+    String temp = copy_string(str, memory_context.temp);
+    return strtoull(temp.data, nullptr, 10);;
 }
 
 F32 str_to_f32(String str)
 {
-    Temprary_Memory_Arena_Janitor scratch_memory = make_scratch_memory_janitor();
-    Memory_Arena *arena = scratch_memory.arena;
-    char *data = (char *)(&arena->base[arena->offset]);
-    copy_memory((void *)data, str.data, str.count);
-    data[str.count] = '\0';
-    return (F32)atof(data);
+    Memory_Context memory_context = get_memory_context();
+    String temp = copy_string(str, memory_context.temp);
+    return (F32)atof(temp.data);
 }
