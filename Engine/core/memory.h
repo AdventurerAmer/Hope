@@ -28,19 +28,6 @@
 #define HE_REALLOCATE_ARRAY(allocator_pointer, memory, type, count)\
 (type *)reallocate((allocator_pointer), memory, sizeof(type) * (count), alignof(type))
 
-void zero_memory(void *memory, U64 size);
-void copy_memory(void *dst, const void *src, U64 size);
-
-U64 get_number_of_bytes_to_align_address(uintptr_t address, U16 alignment);
-
-struct Allocator
-{
-    void *data;
-    void* (*allocate)(void *data, U64 size, U16 alignment);
-    void* (*reallocate)(void *data, void *memory, U64 new_size, U16 alignment);
-    void (*deallocate)(void *data, void *memory);
-};
-
 #define HE_ALLOCATOR_ALLOCATE(allocator, type)\
 (type *)(allocator).allocate((allocator).data, sizeof(type), HE_DEFAULT_ALIGNMENT)
 
@@ -61,6 +48,19 @@ struct Allocator
 
 #define HE_ALLOCATOR_DEALLOCATE(allocator, memory)\
 (allocator).deallocate((allocator).data, memory)
+
+void zero_memory(void *memory, U64 size);
+void copy_memory(void *dst, const void *src, U64 size);
+
+U64 get_number_of_bytes_to_align_address(uintptr_t address, U16 alignment);
+
+struct Allocator
+{
+    void *data;
+    void* (*allocate)(void *data, U64 size, U16 alignment);
+    void* (*reallocate)(void *data, void *memory, U64 new_size, U16 alignment);
+    void (*deallocate)(void *data, void *memory);
+};
 
 //
 // Memory Arena
@@ -103,31 +103,17 @@ HE_FORCE_INLINE Allocator to_allocator(Memory_Arena *memory_arena)
 }
 
 //
-// Temprary Memory Arena
+// Temprary Memory
 //
 
-struct Temprary_Memory_Arena
+struct Temprary_Memory
 {
     Memory_Arena *arena;
     U64 offset;
 };
 
-Temprary_Memory_Arena begin_temprary_memory(Memory_Arena *arena);
-void end_temprary_memory(Temprary_Memory_Arena *temprary_arena);
-
-//
-// Temprary Memory Arena Janitor
-//
-
-struct Temprary_Memory_Arena_Janitor
-{
-    Memory_Arena *arena;
-    U64 offset;
-
-    ~Temprary_Memory_Arena_Janitor();
-};
-
-Temprary_Memory_Arena_Janitor make_temprary_memory_arena_janitor(Memory_Arena *arena);
+Temprary_Memory begin_temprary_memory(Memory_Arena *arena);
+void end_temprary_memory(Temprary_Memory *temprary_memory);
 
 //
 // Free List Allocator
@@ -187,17 +173,21 @@ struct Thread_Memory_State
 
 Thread_Memory_State *get_thread_memory_state(U32 thread_id);
 Memory_Arena *get_thread_arena();
+Memory_Arena *get_frame_arena();
 
 struct Memory_Context
 {
-    Allocator permenent;
-    Allocator general;
-    Allocator frame;
-    Allocator temp;
+    Allocator permenent_allocator;
+    Allocator general_allocator;
+    Allocator frame_allocator;
     
-    Temprary_Memory_Arena temprary_memory;
+    Temprary_Memory temprary_memory;
+    Allocator temp_allocator;
+
+    bool dropped;
 
     ~Memory_Context();
 };
 
-Memory_Context get_memory_context();
+Memory_Context grab_memory_context();
+bool drop_memory_context(Memory_Context *memory_context, Allocator allocator);

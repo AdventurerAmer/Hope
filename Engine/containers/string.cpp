@@ -128,14 +128,29 @@ String sub_string(String str, U64 index, U64 count)
     return { count, str.data + index };
 }
 
-String format_string(Memory_Arena *arena, const char *format, va_list args)
+String format_string(Allocator allocator, const char *format, va_list args)
 {
-    U8 *buffer = arena->base + arena->offset;
-    S32 count = vsprintf((char *)buffer, format, args);
-    HE_ASSERT(count >= 0);
-    HE_ASSERT(arena->offset + count + 1 <= arena->size);
+    Memory_Context memory_context = grab_memory_context();
+
+    Memory_Arena *arena = memory_context.temprary_memory.arena;
+    char *buffer = (char *)(arena->base + arena->offset);
+    U64 buffer_size = arena->size - arena->offset;
+
+    S32 count = vsnprintf((char *)buffer, buffer_size, format, args);
+    if (!count)
+    {
+        return {};
+    }
+
     arena->offset += count + 1;
-    return { (U64)count, (const char *)buffer };
+    String result = { (U64)count, (const char *)buffer };
+
+    if (drop_memory_context(&memory_context, allocator))
+    {
+        return result;
+    }
+
+    return copy_string(result, allocator);
 }
 
 String advance(String str, U64 count)
@@ -205,11 +220,11 @@ String eat_none_white_space(String *str)
     return result;
 }
 
-String format_string(Memory_Arena *arena, const char *format, ...)
+String format_string(Allocator allocator, const char *format, ...)
 {
     va_list args;
     va_start(args, format);
-    String result = format_string(arena, format, args);
+    String result = format_string(allocator, format, args);
     va_end(args);
     return result;
 }
@@ -295,21 +310,21 @@ Parse_Name_Float3_Result parse_name_float3(String *str, String name)
 
 U64 str_to_u64(String str)
 {
-    Memory_Context memory_context = get_memory_context();
-    String temp = copy_string(str, memory_context.temp);
+    Memory_Context memory_context = grab_memory_context();
+    String temp = copy_string(str, memory_context.temp_allocator);
     return strtoull(temp.data, nullptr, 10);
 }
 
 S64 str_to_s64(String str)
 {
-    Memory_Context memory_context = get_memory_context();
-    String temp = copy_string(str, memory_context.temp);
+    Memory_Context memory_context = grab_memory_context();
+    String temp = copy_string(str, memory_context.temp_allocator);
     return strtoull(temp.data, nullptr, 10);;
 }
 
 F32 str_to_f32(String str)
 {
-    Memory_Context memory_context = get_memory_context();
-    String temp = copy_string(str, memory_context.temp);
+    Memory_Context memory_context = grab_memory_context();
+    String temp = copy_string(str, memory_context.temp_allocator);
     return (F32)atof(temp.data);
 }

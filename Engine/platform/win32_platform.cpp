@@ -666,16 +666,19 @@ U64 platform_get_file_last_write_time(const char *path)
     return last_write_time.QuadPart;
 }
 
-bool platform_get_current_working_directory(char *buffer, U64 *size)
+bool platform_get_current_working_directory(char *buffer, U64 size, U64 *out_count)
 {
-    if (buffer)
+    HE_ASSERT(buffer);
+    HE_ASSERT(size);
+    HE_ASSERT(out_count);
+    DWORD count = GetCurrentDirectoryA(u64_to_u32(size), buffer);
+    if (count + 1 > size)
     {
-        DWORD result = GetCurrentDirectoryA((DWORD)*size, buffer);
-        return result + 1 <= *size;
+        return false;
     }
-    
-    *size = GetCurrentDirectoryA(0, buffer);
-    return false;
+    buffer[count] = '\0';
+    *out_count = count;
+    return true;
 }
 
 void platform_walk_directory(const char *path, bool recursive, on_walk_directory_proc on_walk_directory)
@@ -1065,14 +1068,14 @@ bool platform_create_semaphore(Semaphore *semaphore, U32 init_count)
     return true;
 }
 
-bool signal_semaphore(Semaphore *semaphore, U32 increase_amount)
+bool platform_signal_semaphore(Semaphore *semaphore, U32 increase_amount)
 {
     HANDLE semaphore_handle = (HANDLE)semaphore->platform_semaphore_state;
     BOOL result = ReleaseSemaphore(semaphore_handle, increase_amount, NULL);
     return result != 0;
 }
 
-bool wait_for_semaphore(Semaphore *semaphore)
+bool platform_wait_for_semaphore(Semaphore *semaphore)
 {
     HANDLE semaphore_handle = (HANDLE)semaphore->platform_semaphore_state;
     DWORD result = WaitForSingleObject(semaphore_handle, INFINITE);

@@ -33,8 +33,8 @@ void init(Hash_Map< Key_Type, Value_Type > *hash_map, U32 capacity, Allocator al
 
     if (!allocator.data)
     {
-        Memory_Context memory_context = get_memory_context();
-        allocator = memory_context.general;
+        Memory_Context memory_context = grab_memory_context();
+        allocator = memory_context.general_allocator;
     }
 
     if ((capacity & (capacity - 1)) != 0)

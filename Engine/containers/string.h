@@ -90,8 +90,8 @@ bool ends_with(String str, String end);
 String sub_string(String str, U64 index);
 String sub_string(String str, U64 index, U64 count);
 
-String format_string(struct Memory_Arena *arena, const char *format, ...);
-String format_string(struct Memory_Arena *arena, const char *format, va_list args);
+String format_string(Allocator allocator, const char *format, ...);
+String format_string(Allocator allocator, const char *format, va_list args);
 
 String advance(String str, U64 count);
 String eat_chars(String str, String chars);

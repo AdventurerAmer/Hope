@@ -93,7 +93,7 @@ static bool is_physical_device_supports_all_features(VkPhysicalDevice physical_d
 
 static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR surface)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     U32 physical_device_count = 0;
     HE_CHECK_VKRESULT(vkEnumeratePhysicalDevices(instance, &physical_device_count, nullptr));
@@ -103,7 +103,7 @@ static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR s
         return VK_NULL_HANDLE;
     }
 
-    VkPhysicalDevice *physical_devices = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkPhysicalDevice, physical_device_count);
+    VkPhysicalDevice *physical_devices = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkPhysicalDevice, physical_device_count);
 
     HE_CHECK_VKRESULT(vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices));
 
@@ -128,7 +128,7 @@ static VkPhysicalDevice pick_physical_device(VkInstance instance, VkSurfaceKHR s
         bool can_physical_device_do_graphics = false;
         bool can_physical_device_present = false;
 
-        VkQueueFamilyProperties *queue_families = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkQueueFamilyProperties, queue_family_count);
+        VkQueueFamilyProperties *queue_families = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkQueueFamilyProperties, queue_family_count);
 
         vkGetPhysicalDeviceQueueFamilyProperties(*current_physical_device, &queue_family_count, queue_families);
 
@@ -213,28 +213,28 @@ static VkDescriptorPool create_descriptor_bool(U32 set_count)
 
 static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State *renderer_state)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     context->renderer_state = renderer_state;
     
     VkAllocationCallbacks *allocation_callbacks = &context->allocation_callbacks;
-    allocation_callbacks->pUserData = memory_context.general.data;
+    allocation_callbacks->pUserData = memory_context.general_allocator.data;
     allocation_callbacks->pfnAllocation = &vulkan_allocate;
     allocation_callbacks->pfnReallocation = &vulkan_reallocate;
     allocation_callbacks->pfnFree = &vulkan_deallocate;
     allocation_callbacks->pfnInternalAllocation = nullptr;
     allocation_callbacks->pfnInternalFree = nullptr;
 
-    context->buffers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, Vulkan_Buffer, HE_MAX_BUFFER_COUNT);
-    context->textures = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, Vulkan_Image, HE_MAX_TEXTURE_COUNT);
-    context->samplers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, Vulkan_Sampler, HE_MAX_SAMPLER_COUNT);
-    context->shaders = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, Vulkan_Shader, HE_MAX_SHADER_COUNT);
-    context->pipeline_states = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, Vulkan_Pipeline_State, HE_MAX_PIPELINE_STATE_COUNT);
-    context->bind_groups = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, Vulkan_Bind_Group, HE_MAX_BIND_GROUP_COUNT);
-    context->render_passes = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, Vulkan_Render_Pass, HE_MAX_RENDER_PASS_COUNT);
-    context->frame_buffers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, Vulkan_Frame_Buffer, HE_MAX_FRAME_BUFFER_COUNT);
-    context->semaphores = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, Vulkan_Semaphore, HE_MAX_SEMAPHORE_COUNT);
-    context->upload_requests = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, Vulkan_Upload_Request, HE_MAX_UPLOAD_REQUEST_COUNT);
+    context->buffers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Buffer, HE_MAX_BUFFER_COUNT);
+    context->textures = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Image, HE_MAX_TEXTURE_COUNT);
+    context->samplers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Sampler, HE_MAX_SAMPLER_COUNT);
+    context->shaders = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Shader, HE_MAX_SHADER_COUNT);
+    context->pipeline_states = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Pipeline_State, HE_MAX_PIPELINE_STATE_COUNT);
+    context->bind_groups = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Bind_Group, HE_MAX_BIND_GROUP_COUNT);
+    context->render_passes = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Render_Pass, HE_MAX_RENDER_PASS_COUNT);
+    context->frame_buffers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Frame_Buffer, HE_MAX_FRAME_BUFFER_COUNT);
+    context->semaphores = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Semaphore, HE_MAX_SEMAPHORE_COUNT);
+    context->upload_requests = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Upload_Request, HE_MAX_UPLOAD_REQUEST_COUNT);
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
@@ -367,7 +367,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     U32 queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device, &queue_family_count, nullptr);
 
-    VkQueueFamilyProperties *queue_families = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkQueueFamilyProperties, queue_family_count);
+    VkQueueFamilyProperties *queue_families = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkQueueFamilyProperties, queue_family_count);
 
     vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device, &queue_family_count, queue_families);
 
@@ -427,7 +427,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     }
 
     F32 queue_priority = 1.0f;
-    VkDeviceQueueCreateInfo *queue_create_infos = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkDeviceQueueCreateInfo, 3);
+    VkDeviceQueueCreateInfo *queue_create_infos = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkDeviceQueueCreateInfo, 3);
 
     queue_create_infos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
     queue_create_infos[0].queueFamilyIndex = context->graphics_queue_family_index;
@@ -468,7 +468,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     U32 extension_property_count = 0;
     vkEnumerateDeviceExtensionProperties(context->physical_device, nullptr, &extension_property_count, nullptr);
 
-    VkExtensionProperties *extension_properties = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkExtensionProperties, extension_property_count);
+    VkExtensionProperties *extension_properties = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkExtensionProperties, extension_property_count);
 
     vkEnumerateDeviceExtensionProperties(context->physical_device, nullptr, &extension_property_count, extension_properties);
 
@@ -546,7 +546,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     U64 pipeline_cache_size = 0;
     U8 *pipeline_cache_data = nullptr;
     
-    Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL(HE_VULKAN_PIPELINE_CACHE_FILE_PATH), memory_context.temp);
+    Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL(HE_VULKAN_PIPELINE_CACHE_FILE_PATH), memory_context.temp_allocator);
     if (result.success)
     {
         VkPipelineCacheHeaderVersionOne *pipeline_cache_header = (VkPipelineCacheHeaderVersionOne *)result.data;
@@ -562,7 +562,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     pipeline_cache_create_info.pInitialData = pipeline_cache_data;
     HE_CHECK_VKRESULT(vkCreatePipelineCache(context->logical_device, &pipeline_cache_create_info, &context->allocation_callbacks, &context->pipeline_cache));
 
-    init(&context->thread_states, get_effective_thread_count(),  memory_context.permenent);
+    init(&context->thread_states, get_effective_thread_count(),  memory_context.permenent_allocator);
     
     S32 slot_index = insert(&context->thread_states, platform_get_current_thread_id());
     HE_ASSERT(slot_index != -1);
@@ -634,7 +634,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
 
 void deinit_vulkan(Vulkan_Context *context)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     vkDeviceWaitIdle(context->logical_device);
     
@@ -685,7 +685,7 @@ void deinit_vulkan(Vulkan_Context *context)
 
     if (pipeline_cache_size)
     {
-        U8 *pipeline_cache_data = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, U8, pipeline_cache_size);
+        U8 *pipeline_cache_data = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, U8, pipeline_cache_size);
         vkGetPipelineCacheData(context->logical_device, context->pipeline_cache, &pipeline_cache_size, pipeline_cache_data);
         
         std::filesystem::path pipeline_cache_file_path(HE_VULKAN_PIPELINE_CACHE_FILE_PATH);
@@ -913,14 +913,14 @@ void vulkan_renderer_set_vertex_buffers(const Array_View< Buffer_Handle > &verte
 {
     HE_ASSERT(vertex_buffer_handles.count == offsets.count);
     
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Vulkan_Context *context = &vulkan_context;
 
     U32 current_frame_in_flight_index = context->renderer_state->current_frame_in_flight_index;
     VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
 
-    VkBuffer* vulkan_vertex_buffers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkBuffer, offsets.count);
+    VkBuffer* vulkan_vertex_buffers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkBuffer, offsets.count);
     for (U32 vertex_buffer_index = 0; vertex_buffer_index < offsets.count; vertex_buffer_index++)
     {
         Buffer_Handle vertex_buffer_handle = vertex_buffer_handles[vertex_buffer_index];
@@ -1615,7 +1615,7 @@ static VkDescriptorSet allocate_descriptor_set(Vulkan_Descriptor_Pool_Allocator 
 void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors)
 {
     Vulkan_Context *context = &vulkan_context;
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Bind_Group *bind_group = renderer_get_bind_group(bind_group_handle);
     Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[bind_group_handle.index];
@@ -1625,7 +1625,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
     vulkan_bind_group->handle = allocate_descriptor_set(&context->descriptor_pool_allocators[frame_index], vulkan_shader->descriptor_set_layouts[bind_group->group_index]);
     HE_ASSERT(vulkan_bind_group->handle != VK_NULL_HANDLE);
     
-    VkWriteDescriptorSet *write_descriptor_sets = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkWriteDescriptorSet, update_binding_descriptors.count);
+    VkWriteDescriptorSet *write_descriptor_sets = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkWriteDescriptorSet, update_binding_descriptors.count);
 
     for (U32 binding_index = 0; binding_index < update_binding_descriptors.count; binding_index++)
     {
@@ -1646,7 +1646,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
                 write_descriptor_set->descriptorType = get_descriptor_type(buffer->usage);
             }
 
-            VkDescriptorBufferInfo *buffer_infos = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkDescriptorBufferInfo, binding->count);
+            VkDescriptorBufferInfo *buffer_infos = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkDescriptorBufferInfo, binding->count);
 
             for (U32 buffer_index = 0; buffer_index < binding->count; buffer_index++)
             {
@@ -1664,7 +1664,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
 
         if (binding->textures)
         {
-            VkDescriptorImageInfo *image_infos = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkDescriptorImageInfo, binding->count);
+            VkDescriptorImageInfo *image_infos = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkDescriptorImageInfo, binding->count);
 
             {
                 Texture_Handle texture_handle = binding->textures[0];
@@ -1707,12 +1707,12 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
 void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bind_Group_Handle > &bind_group_handles)
 {
     Vulkan_Context *context = &vulkan_context;
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Bind_Group *bind_group = get(&context->renderer_state->bind_groups, bind_group_handles[0]);
     Vulkan_Shader *vulkan_shader = &context->shaders[bind_group->shader.index];
     
-    VkDescriptorSet *descriptor_sets = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkDescriptorSet, bind_group_handles.count);
+    VkDescriptorSet *descriptor_sets = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkDescriptorSet, bind_group_handles.count);
     
     for (U32 bind_group_index = 0; bind_group_index < bind_group_handles.count; bind_group_index++)
     {
@@ -1726,7 +1726,7 @@ void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bin
 bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Render_Pass *render_pass = get(&context->renderer_state->render_passes, render_pass_handle);
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
@@ -1750,8 +1750,8 @@ bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, c
     }
 
     U32 attachment_count = descriptor.color_attachments.count + descriptor.depth_stencil_attachments.count;
-    VkAttachmentDescription *attachments = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkAttachmentDescription, attachment_count);
-    VkAttachmentReference *attachment_refs = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkAttachmentReference, attachment_count);
+    VkAttachmentDescription *attachments = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkAttachmentDescription, attachment_count);
+    VkAttachmentReference *attachment_refs = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkAttachmentReference, attachment_count);
     U32 attachment_index = 0;
 
     for (const Attachment_Info &attachment_info : descriptor.color_attachments)
@@ -1865,7 +1865,7 @@ void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Fr
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
 
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Frame_Buffer *frame_buffer = get(&renderer_state->frame_buffers, frame_buffer_handle);
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[render_pass_handle.index];
@@ -1874,7 +1874,7 @@ void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Fr
 
     Texture *attachment = get(&renderer_state->textures, frame_buffer->attachments[0]);
     
-    VkClearValue *vulkan_clear_values = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkClearValue, clear_values.count);
+    VkClearValue *vulkan_clear_values = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkClearValue, clear_values.count);
 
     for (U32 clear_value_index = 0; clear_value_index < clear_values.count; clear_value_index++)
     {
@@ -1946,7 +1946,7 @@ void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle, 
 bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle, const Frame_Buffer_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Frame_Buffer *frame_buffer = get(&context->renderer_state->frame_buffers, frame_buffer_handle);
     copy(&frame_buffer->attachments, &descriptor.attachments);
@@ -1957,7 +1957,7 @@ bool vulkan_renderer_create_frame_buffer(Frame_Buffer_Handle frame_buffer_handle
     Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[frame_buffer_handle.index];
 
     Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[ descriptor.render_pass.index ];
-    VkImageView *vulkan_attachments = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, VkImageView, descriptor.attachments.count);
+    VkImageView *vulkan_attachments = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkImageView, descriptor.attachments.count);
 
     U32 attachment_index = 0;
     for (Texture_Handle texture_handle : descriptor.attachments)

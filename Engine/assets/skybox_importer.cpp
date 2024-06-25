@@ -15,9 +15,9 @@ Load_Asset_Result load_skybox(String path, const Embeded_Asset_Params *params)
     Render_Context render_context = get_render_context();
     Renderer_State *renderer_state = render_context.renderer_state;
 
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
-    Read_Entire_File_Result file_result = read_entire_file(path, memory_context.temp);
+    Read_Entire_File_Result file_result = read_entire_file(path, memory_context.temp_allocator);
 
     String str = { .count = file_result.size, .data = (const char *)file_result.data };
     String white_space = HE_STRING_LITERAL(" \n\t\r\v\f");
@@ -77,8 +77,8 @@ Load_Asset_Result load_skybox(String path, const Embeded_Asset_Params *params)
         S32 channels;
         const Asset_Registry_Entry &entry = get_asset_registry_entry(texture_assets[i]);
 
-        String texture_abolute_path = format_string(memory_context.temprary_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
-        Read_Entire_File_Result texture_file_result = read_entire_file(texture_abolute_path, memory_context.temp);
+        String texture_abolute_path = format_string(memory_context.temp_allocator, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
+        Read_Entire_File_Result texture_file_result = read_entire_file(texture_abolute_path, memory_context.temp_allocator);
         stbi_uc *pixels = stbi_load_from_memory(texture_file_result.data, u64_to_u32(texture_file_result.size), &width, &height, &channels, STBI_rgb_alpha);
         if (!pixels)
         {

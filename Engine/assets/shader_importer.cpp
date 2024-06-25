@@ -7,12 +7,12 @@
 
 Load_Asset_Result load_shader(String path, const Embeded_Asset_Params *params)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Render_Context render_context = get_render_context();
     Renderer_State *renderer_state = render_context.renderer_state;
 
-    Read_Entire_File_Result file_result = read_entire_file(path, memory_context.temp);
+    Read_Entire_File_Result file_result = read_entire_file(path, memory_context.temp_allocator);
     if (!file_result.success)
     {
         HE_LOG(Assets, Error, "load_shader -- failed to read asset file: %.*s\n", HE_EXPAND_STRING(path));

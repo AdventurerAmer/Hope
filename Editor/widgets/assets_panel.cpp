@@ -288,12 +288,12 @@ static void create_skybox_asset_modal(bool open)
                     HE_STRING_LITERAL("haskybox")
                 };
 
-                Memory_Context memory_context = get_memory_context();
+                Memory_Context memory_context = grab_memory_context();
 
                 String title = HE_STRING_LITERAL("Save Skybox Asset");
                 String filter = HE_STRING_LITERAL("Skybox (.haskybox)");
-                String absolute_path = save_file_dialog(title, filter, to_array_view(extensions));
-                HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)absolute_path.data); };
+                String absolute_path = save_file_dialog(title, filter, to_array_view(extensions), memory_context.temp_allocator);
+                // HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)absolute_path.data); };
                 if (absolute_path.count)
                 {
                     String path = absolute_path;
@@ -301,7 +301,7 @@ static void create_skybox_asset_modal(bool open)
                     String ext = get_extension(absolute_path);
                     if (ext != extensions[0])
                     {
-                        path = format_string(memory_context.temprary_memory.arena, "%.*s.haskybox", HE_EXPAND_STRING(absolute_path));
+                        path = format_string(memory_context.temp_allocator, "%.*s.haskybox", HE_EXPAND_STRING(absolute_path));
                     }
 
                     String_Builder builder = {};
@@ -388,7 +388,7 @@ static void create_material_asset_modal(bool open)
             {
                 if (ImGui::Button("Ok", ImVec2(120, 0)))
                 {
-                    Memory_Context memory_context = get_memory_context();
+                    Memory_Context memory_context = grab_memory_context();
                     
                     String extensions[] =
                     {
@@ -398,8 +398,8 @@ static void create_material_asset_modal(bool open)
                     String title = HE_STRING_LITERAL("Save Material Asset");
                     String filter = HE_STRING_LITERAL("Material (.hamaterial)");
 
-                    String absolute_path = save_file_dialog(title, filter, to_array_view(extensions));
-                    HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)absolute_path.data); };
+                    String absolute_path = save_file_dialog(title, filter, to_array_view(extensions), memory_context.temp_allocator);
+                    // HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)absolute_path.data); };
 
                     if (absolute_path.count)
                     {
@@ -408,7 +408,7 @@ static void create_material_asset_modal(bool open)
                         String ext = get_extension(absolute_path);
                         if (ext != extensions[0])
                         {
-                            path = format_string(memory_context.temprary_memory.arena, "%.*s.hamaterial", HE_EXPAND_STRING(absolute_path));
+                            path = format_string(memory_context.temp_allocator, "%.*s.hamaterial", HE_EXPAND_STRING(absolute_path));
                         }
 
                         Material_Descriptor material_desc =

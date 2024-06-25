@@ -116,9 +116,8 @@ void on_event(Engine *engine, Event event)
 
 void game_loop(Engine *engine, F32 delta_time)
 {
-    Render_Context render_context = get_render_context();
-    Renderer *renderer = render_context.renderer;
-    Renderer_State *renderer_state = render_context.renderer_state;
+    Memory_Arena *frame_arena = get_frame_arena();
+    Temprary_Memory frame_temprary_memory = begin_temprary_memory(frame_arena);
 
     renderer_handle_upload_requests();
 
@@ -128,6 +127,8 @@ void game_loop(Engine *engine, F32 delta_time)
     }
 
     hope_app_on_update(engine, delta_time);
+
+    end_temprary_memory(&frame_temprary_memory);
 }
 
 void shutdown(Engine *engine)

@@ -6,13 +6,13 @@
 
 void init(Render_Graph *render_graph)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
     
     reset(&render_graph->nodes);
-    init(&render_graph->node_cache, HE_MAX_RENDER_GRAPH_NODE_COUNT, memory_context.general);
+    init(&render_graph->node_cache, HE_MAX_RENDER_GRAPH_NODE_COUNT, memory_context.general_allocator);
 
     reset(&render_graph->resources);
-    init(&render_graph->resource_cache, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT, memory_context.general);
+    init(&render_graph->resource_cache, HE_MAX_RENDER_GRAPH_RESOURCE_COUNT, memory_context.general_allocator);
 
     render_graph->presentable_resource = nullptr; 
 }

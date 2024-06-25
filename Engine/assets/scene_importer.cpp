@@ -9,9 +9,9 @@ bool deserialize_light(String *str, Light_Component *light);
 
 Load_Asset_Result load_scene(String path, const Embeded_Asset_Params *params)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
-    Read_Entire_File_Result read_result = read_entire_file(path, memory_context.temp);
+    Read_Entire_File_Result read_result = read_entire_file(path, memory_context.temp_allocator);
     if (!read_result.success)
     {
         HE_LOG(Assets, Error, "failed to parse scene asset\n");

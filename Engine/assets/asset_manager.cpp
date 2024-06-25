@@ -80,6 +80,8 @@ static Job_Result reload_asset_job(const Job_Parameters &params)
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
     
+    Memory_Context memory_context = grab_memory_context();
+
     Asset_Registry_Entry &entry = internal_get_asset_registry_entry(asset_handle);
     HE_ASSERT(entry.state != Asset_State::PENDING);
     
@@ -105,7 +107,7 @@ static Job_Result reload_asset_job(const Job_Parameters &params)
     }
     HE_ASSERT(load);
 
-    String path = format_string(params.arena, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(relative_path));
+    String path = format_string(memory_context.temp_allocator, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(relative_path));
 
     Embeded_Asset_Params embeded_params =
     {
@@ -128,7 +130,7 @@ static Job_Result reload_asset_job(const Job_Parameters &params)
     return Job_Result::SUCCEEDED;
 }
 
-static String internal_get_asset_absolute_path(const Asset_Registry_Entry &entry, Memory_Arena *arena)
+static String internal_get_asset_absolute_path(const Asset_Registry_Entry &entry, Allocator allocator)
 {
     String result = {};
 
@@ -136,11 +138,11 @@ static String internal_get_asset_absolute_path(const Asset_Registry_Entry &entry
     if (is_asset_embeded(entry.path, &embeder_handle))
     {
         Asset_Registry_Entry &embeder_entry = internal_get_asset_registry_entry(embeder_handle);   
-        result = format_string(arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(embeder_entry.path));
+        result = format_string(allocator, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(embeder_entry.path));
     }
     else
     {
-        result = format_string(arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
+        result = format_string(allocator, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
     }
 
     return result;
@@ -160,9 +162,9 @@ static void internal_reload_asset(Asset_Handle asset_handle, Job_Handle parent_j
         return;
     }
 
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
-    String absolute_path = internal_get_asset_absolute_path(entry, memory_context.temprary_memory.arena);
+    String absolute_path = internal_get_asset_absolute_path(entry, memory_context.temp_allocator);
 
     U64 last_write_time = platform_get_file_last_write_time(absolute_path.data);
     if (entry.last_write_time == last_write_time)
@@ -251,12 +253,12 @@ static void on_file_changes(Watch_Directory_Result result, String old_path, Stri
                 return;
             }
 
-            Memory_Context memory_context = get_memory_context();
+            Memory_Context memory_context = grab_memory_context();
 
             Asset_Registry_Entry &entry = internal_get_asset_registry_entry(asset_handle);
 
-            HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)entry.path.data);
-            entry.path = copy_string(new_path, memory_context.general);
+            HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)entry.path.data);
+            entry.path = copy_string(new_path, memory_context.general_allocator);
             HE_LOG(Assets, Trace, "[Rename]: %.*s to %.*s \n", HE_EXPAND_STRING(old_path), HE_EXPAND_STRING(new_path));
             
             serialize_asset_registry();
@@ -304,9 +306,9 @@ bool init_asset_manager(String asset_path)
         return false;
     }
 
-    Memory_Context memory_context = get_memory_context();
-    asset_manager_state = HE_ALLOCATOR_ALLOCATE(memory_context.permenent, Asset_Manager);
-    asset_manager_state->asset_path = copy_string(asset_path, memory_context.permenent);
+    Memory_Context memory_context = grab_memory_context();
+    asset_manager_state = HE_ALLOCATOR_ALLOCATE(memory_context.permenent_allocator, Asset_Manager);
+    asset_manager_state->asset_path = copy_string(asset_path, memory_context.permenent_allocator);
 
     init(&asset_manager_state->asset_infos);
 
@@ -382,9 +384,9 @@ bool init_asset_manager(String asset_path)
         register_asset(HE_STRING_LITERAL("scene"), to_array_view(extensions), &load_scene, &unload_scene);
     }
 
-    String asset_registry_path = format_string(memory_context.temprary_memory.arena, "%.*s/%s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_ASSET_REGISTRY_FILE_NAME);
+    String asset_registry_path = format_string(memory_context.temp_allocator, "%.*s/%s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_ASSET_REGISTRY_FILE_NAME);
 
-    asset_manager_state->asset_registry_path = copy_string(asset_registry_path, memory_context.permenent);
+    asset_manager_state->asset_registry_path = copy_string(asset_registry_path, memory_context.permenent_allocator);
 
     if (file_exists(asset_manager_state->asset_registry_path))
     {
@@ -433,17 +435,17 @@ bool register_asset(String name, Array_View< String > extensions, load_asset_pro
         }
     }
 
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Asset_Info &asset_info = append(&asset_manager_state->asset_infos);
-    asset_info.name = copy_string(name, memory_context.permenent);
+    asset_info.name = copy_string(name, memory_context.permenent_allocator);
 
-    asset_info.extensions = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, String, extensions.count);
+    asset_info.extensions = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, String, extensions.count);
     asset_info.extension_count = extensions.count;
 
     for (U32 i = 0; i < extensions.count; i++)
     {
-        asset_info.extensions[i] = copy_string(extensions[i], memory_context.permenent);
+        asset_info.extensions[i] = copy_string(extensions[i], memory_context.permenent_allocator);
     }
 
     asset_info.on_import = on_import;
@@ -657,9 +659,9 @@ Asset_Handle import_asset(String path)
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
 
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
-    path = copy_string(path, memory_context.temp);
+    path = copy_string(path, memory_context.temp_allocator);
     sanitize_path(path);
 
     auto &registry = asset_manager_state->asset_registry;
@@ -671,8 +673,8 @@ Asset_Handle import_asset(String path)
         Asset_Registry_Entry &entry = it.value();
         if (name_with_extension == get_name_with_extension(entry.path) && entry.is_deleted)
         {
-            HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)entry.path.data);
-            entry.path = copy_string(path, memory_context.general);
+            HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)entry.path.data);
+            entry.path = copy_string(path, memory_context.general_allocator);
             entry.is_deleted = false;
             return { .uuid = it.key() };
         }
@@ -702,7 +704,7 @@ Asset_Handle import_asset(String path)
     }
     else
     {
-        String absolute_path = format_string(memory_context.temprary_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(path));
+        String absolute_path = format_string(memory_context.temp_allocator, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(path));
         
         if (!file_exists(absolute_path))
         {
@@ -723,7 +725,7 @@ Asset_Handle import_asset(String path)
 
     Asset_Registry_Entry entry =
     {
-        .path = copy_string(path, memory_context.general),
+        .path = copy_string(path, memory_context.general_allocator),
         .type_info_index = u32_to_u16(type_info_index),
         .parent = {},
         .last_write_time = 0,
@@ -793,11 +795,11 @@ void set_parent(Asset_Handle asset, Asset_Handle parent)
 
 bool is_asset_embeded(String path, Asset_Handle *out_embeder, U64 *out_data_id)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Asset_Handle embeder = {};
     U64 data_id = 0;
-    char *name = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, char, 128); // todo(amer): @Hardcoding
+    char *name = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, char, 128); // todo(amer): @Hardcoding
     S32 count = sscanf(path.data, "@%llu-%llu/%s", &embeder.uuid, &data_id, name);
     if (out_embeder)
     {
@@ -901,6 +903,8 @@ static Job_Result load_asset_job(const Job_Parameters &params)
 {
     Load_Asset_Job_Data *job_data = (Load_Asset_Job_Data *)params.data;
 
+    Memory_Context memory_context = grab_memory_context();
+
     const Asset_Registry_Entry &asset_entry = get_asset_registry_entry(job_data->asset_handle);
     String relative_path = asset_entry.path;
     load_asset_proc load = asset_manager_state->asset_infos[asset_entry.type_info_index].load;
@@ -918,7 +922,7 @@ static Job_Result load_asset_job(const Job_Parameters &params)
 
     HE_ASSERT(load);
 
-    String path = format_string(params.arena, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(relative_path));
+    String path = format_string(memory_context.temp_allocator, "%.*s/%.*s", HE_EXPAND_STRING(asset_manager_state->asset_path), HE_EXPAND_STRING(relative_path));
 
     Embeded_Asset_Params embeded_params =
     {
@@ -954,12 +958,12 @@ static bool serialize_asset_registry()
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
 
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Asset_Registry &registry = asset_manager_state->asset_registry;
     Asset_Dependency &dependency = asset_manager_state->asset_dependency;
 
-    Asset_Handle *handles = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, Asset_Handle, registry.size());
+    Asset_Handle *handles = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, Asset_Handle, registry.size());
     
     {
         U32 handle_index = 0;
@@ -1036,9 +1040,9 @@ static bool deserialize_asset_registry()
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
 
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
-    Read_Entire_File_Result file_result = read_entire_file(asset_manager_state->asset_registry_path, memory_context.temp);
+    Read_Entire_File_Result file_result = read_entire_file(asset_manager_state->asset_registry_path, memory_context.temp_allocator);
     if (!file_result.success)
     {
         HE_LOG(Assets, Error, "deserialize_asset_registry -- failed to open file: %.*s\n", HE_EXPAND_STRING(asset_manager_state->asset_registry_path));
@@ -1120,7 +1124,7 @@ static bool deserialize_asset_registry()
         Asset_Handle parent_handle = { .uuid = parent_uuid };
 
         Asset_Registry_Entry entry = {};
-        entry.path = copy_string(path, memory_context.general);
+        entry.path = copy_string(path, memory_context.general_allocator);
         entry.type_info_index = index_of(&asset_manager_state->asset_infos, asset_info);
         entry.last_write_time = 0;
         entry.parent = { .uuid = parent_uuid };
@@ -1128,7 +1132,7 @@ static bool deserialize_asset_registry()
         entry.state = Asset_State::UNLOADED;
         entry.job = Resource_Pool< Job >::invalid_handle;
         
-        String absolute_path = internal_get_asset_absolute_path(entry, memory_context.temprary_memory.arena);
+        String absolute_path = internal_get_asset_absolute_path(entry, memory_context.temp_allocator);
         entry.is_deleted = !file_exists(absolute_path);
 
         registry.emplace(asset_uuid, entry);
@@ -1150,7 +1154,7 @@ static bool deserialize_asset_registry()
     return true;
 }
 
-String format_embedded_asset(Asset_Handle asset_handle, U64 data_id, String name, Memory_Arena *arena)
+String format_embedded_asset(Asset_Handle asset_handle, U64 data_id, String name, Allocator allocator)
 {
-    return format_string(arena, "@%llu-%llu/%.*s", asset_handle.uuid, data_id, HE_EXPAND_STRING(name));
+    return format_string(allocator, "@%llu-%llu/%.*s", asset_handle.uuid, data_id, HE_EXPAND_STRING(name));
 }

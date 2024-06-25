@@ -77,8 +77,8 @@ struct Window
 
 bool platform_create_window(Window *window, const char *title, U32 width, U32 height, bool maximized = false, Window_Mode window_mode = Window_Mode::WINDOWED);
 void platform_set_window_mode(Window *window, Window_Mode window_mode);
-bool platform_open_file_dialog(char *buffer, U64 count, const char *title, U64 title_count, const char *filter, U64 filter_count, const char **extensions, U32 extension_count);
-bool platform_save_file_dialog(char *buffer, U64 count, const char *title, U64 title_count, const char *filter, U64 filter_count, const char **extensions, U32 extension_count);
+bool platform_open_file_dialog(char *buffer, U64 size, const char *title, U64 title_count, const char *filter, U64 filter_count, const char **extensions, U32 extension_count);
+bool platform_save_file_dialog(char *buffer, U64 size, const char *title, U64 title_count, const char *filter, U64 filter_count, const char **extensions, U32 extension_count);
 
 //
 // files
@@ -86,7 +86,7 @@ bool platform_save_file_dialog(char *buffer, U64 count, const char *title, U64 t
 
 bool platform_path_exists(const char *path, bool *is_file = nullptr);
 U64 platform_get_file_last_write_time(const char *path);
-bool platform_get_current_working_directory(char *buffer, U64 *count);
+bool platform_get_current_working_directory(char *buffer, U64 size, U64 *out_count);
 
 typedef void(*on_walk_directory_proc)(struct String *path, bool is_directory);
 void platform_walk_directory(const char *path, bool recursive, on_walk_directory_proc on_walk_directory_proc);
@@ -178,13 +178,12 @@ struct Semaphore
 };
 
 bool platform_create_semaphore(Semaphore *semaphore, U32 init_count = 0);
-bool signal_semaphore(Semaphore *semaphore, U32 increase_amount = 1);
-bool wait_for_semaphore(Semaphore *semaphore);
+bool platform_signal_semaphore(Semaphore *semaphore, U32 increase_amount = 1);
+bool platform_wait_for_semaphore(Semaphore *semaphore);
 
 //
 // imgui
 //
-
 void platform_init_imgui(struct Engine *engine);
 void platform_imgui_new_frame();
 void platform_shutdown_imgui();

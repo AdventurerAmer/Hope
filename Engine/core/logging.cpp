@@ -27,8 +27,8 @@ bool init_logging_system()
         return false;
     }
 
-    Memory_Context memory_context = get_memory_context();
-    logging_system_state = HE_ALLOCATOR_ALLOCATE(memory_context.permenent, Logging_System_State);
+    Memory_Context memory_context = grab_memory_context();
+    logging_system_state = HE_ALLOCATOR_ALLOCATE(memory_context.permenent_allocator, Logging_System_State);
 
     Logger *logger = &logging_system_state->main_logger;
     U64 channel_mask = 0xFFFFFFFFFFFFFFFF;
@@ -49,7 +49,7 @@ void deinit_logging_system()
 
 bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 channel_mask)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
     
     bool result = true;
 
@@ -60,7 +60,7 @@ bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 chan
     main_channel->name = name;
 
     // note(amer): should logging files be in the bin folder or a separate folder for logs ?
-    String main_channel_path = format_string(memory_context.temprary_memory.arena, "logging/%s.log", name);
+    String main_channel_path = format_string(memory_context.temp_allocator, "logging/%s.log", name);
 
     main_channel->log_file_result = platform_open_file(main_channel_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
     if (!main_channel->log_file_result.success)
@@ -75,7 +75,7 @@ bool init_logger(Logger *logger, const char *name, Verbosity verbosity, U64 chan
         Logging_Channel *channel = &logger->channels[channel_index];
         channel->name = channel_to_ansi_string[channel_index];
 
-        String channel_path = format_string(memory_context.temprary_memory.arena, "logging/%s.log", channel->name);
+        String channel_path = format_string(memory_context.temp_allocator, "logging/%s.log", channel->name);
 
         channel->log_file_result = platform_open_file(channel_path.data, Open_File_Flags(OpenFileFlag_Write|OpenFileFlag_Truncate));
         if (!channel->log_file_result.success)
@@ -132,12 +132,12 @@ void log(Channel channel, Verbosity verbosity, const char *format, ...)
 {
     Logger *logger = &logging_system_state->main_logger;
 
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
     
     va_list args;
     va_start(args, format);
 
-    String message = format_string(memory_context.temprary_memory.arena, format, args);
+    String message = format_string(memory_context.temp_allocator, format, args);
 
     Logging_Channel *main_channel = &logger->main_channel;
 

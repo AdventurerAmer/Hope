@@ -29,56 +29,66 @@ bool directory_exists(String path)
     return !is_file;
 }
 
-String open_file_dialog(String title, String filter, Array_View< String > extensions)
+String open_file_dialog(String title, String filter, Array_View< String > extensions, Allocator allocator)
 {
-    Memory_Context memory_context = get_memory_context();
-    String working_path = get_current_working_directory(memory_context.temp);
+    Memory_Context memory_context = grab_memory_context();
+    String working_path = get_current_working_directory(memory_context.temp_allocator);
     
     const char **_extensions = nullptr;
 
     if (extensions.count)
     {
-        _extensions = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, const char*, extensions.count);
+        _extensions = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, const char*, extensions.count);
         for (U32 i = 0; i < extensions.count; i++)
         {
             _extensions[i] = extensions[i].data;
         }
     }
 
-    // todo(amer): @Hardcoding
-    U64 count = 256;
-    char *absolute_path_buffer = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, char, count);
-    bool success = platform_open_file_dialog(absolute_path_buffer, count, title.data, title.count, filter.data, filter.count, _extensions, extensions.count);
+    Memory_Arena *arena = memory_context.temprary_memory.arena;
+
+    U64 absolute_path_size = arena->size - arena->offset;
+    char *absolute_path_buffer = (char *)(arena->base + arena->offset);
+
+    bool success = platform_open_file_dialog(absolute_path_buffer, absolute_path_size, title.data, title.count, filter.data, filter.count, _extensions, extensions.count);
     if (!success)
     {
         return HE_STRING_LITERAL("");
     }
-    
-    String absolute_path = HE_STRING(absolute_path_buffer);    
+
+    String absolute_path = HE_STRING(absolute_path_buffer);
+    arena->offset += absolute_path.count + 1;
+
+    sanitize_path(absolute_path);
     String relative_path = sub_string(absolute_path, working_path.count + 1);
-    sanitize_path(relative_path);
-    return copy_string(relative_path, memory_context.general);
+    
+    if (drop_memory_context(&memory_context, allocator))
+    {
+        return relative_path;
+    }
+
+    return copy_string(relative_path, allocator);
 }
 
-String save_file_dialog(String title, String filter, Array_View< String > extensions)
+String save_file_dialog(String title, String filter, Array_View< String > extensions, Allocator allocator)
 {
-    Memory_Context memory_context = get_memory_context();
-    String working_path = get_current_working_directory(memory_context.temp);
+    Memory_Context memory_context = grab_memory_context();
+    String working_path = get_current_working_directory(memory_context.temp_allocator);
     
     const char **_extensions = nullptr;
 
     if (extensions.count)
     {
-        _extensions = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, const char*, extensions.count);
+        _extensions = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, const char*, extensions.count);
         for (U32 i = 0; i < extensions.count; i++)
         {
             _extensions[i] = extensions[i].data;
         }
     }
 
-    // todo(amer): @Hardcoding
-    U64 count = 256;
-    char *absolute_path_buffer = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, char, count);
+    Memory_Arena *arena = memory_context.temprary_memory.arena;
+    U64 count = arena->size - arena->offset;
+    char *absolute_path_buffer = (char *)(arena->base + arena->offset);
 
     bool success = platform_save_file_dialog(absolute_path_buffer, count, title.data, title.count, filter.data, filter.count, _extensions, extensions.count);
     if (!success)
@@ -87,18 +97,44 @@ String save_file_dialog(String title, String filter, Array_View< String > extens
     }
 
     String absolute_path = HE_STRING(absolute_path_buffer);
+    arena->offset += absolute_path.count + 1;
+
     String relative_path = sub_string(absolute_path, working_path.count + 1);
     sanitize_path(relative_path);
-    return copy_string(relative_path, memory_context.general);
+
+    if (drop_memory_context(&memory_context, allocator))
+    {
+        return relative_path;
+    }
+
+    return copy_string(relative_path, allocator);
 }
 
 String get_current_working_directory(Allocator allocator)
 {
-    U64 size = 0;
-    platform_get_current_working_directory(nullptr, &size);
-    char *data = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, char, size);
-    platform_get_current_working_directory(data, &size);
-    return { size - 1, data };
+    Memory_Context memory_context = grab_memory_context();
+
+    Memory_Arena *arena = memory_context.temprary_memory.arena;
+    
+    char *path_buffer = (char*)(arena->base + arena->offset);
+    U64 path_buffer_size = arena->size - arena->offset;
+
+    U64 count = 0;
+    if (!platform_get_current_working_directory(path_buffer, path_buffer_size, &count))
+    {
+        return {};
+    }
+
+    arena->offset += count + 1;
+    String path = { .count = count, .data = path_buffer };
+    sanitize_path(path);
+
+    if (drop_memory_context(&memory_context, allocator))
+    {
+        return path;
+    }
+
+    return copy_string(path, allocator);
 }
 
 String get_parent_path(String path)
@@ -158,7 +194,7 @@ String get_name_with_extension(String path)
         start_index++;
     }
     
-    return sub_string(path, start_index); 
+    return sub_string(path, start_index);
 }
 
 Read_Entire_File_Result read_entire_file(String path, Allocator allocator)

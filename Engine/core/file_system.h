@@ -9,8 +9,8 @@
 void sanitize_path(String &path);
 bool file_exists(String path);
 bool directory_exists(String path);
-String open_file_dialog(String title, String filter, Array_View< String > extensions);
-String save_file_dialog(String title, String filter, Array_View< String > extensions);
+String open_file_dialog(String title, String filter, Array_View< String > extensions, Allocator allocator);
+String save_file_dialog(String title, String filter, Array_View< String > extensions, Allocator allocator);
 
 String get_current_working_directory(Allocator allocator);
 String get_parent_path(String path);

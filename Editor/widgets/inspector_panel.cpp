@@ -131,7 +131,7 @@ static void draw_transform(Transform *transform)
 
 static void internal_inspect_scene_node(Scene_Node *scene_node)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     ImGui::PushID(scene_node);
 
@@ -145,8 +145,8 @@ static void internal_inspect_scene_node(Scene_Node *scene_node)
             String new_name = HE_STRING(inspector_state.rename_node_buffer);
             if (scene_node->name.data && new_name.count)
             {
-                HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)scene_node->name.data);
-                scene_node->name = copy_string(new_name, memory_context.general);
+                HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)scene_node->name.data);
+                scene_node->name = copy_string(new_name, memory_context.general_allocator);
             }
         }
     }
@@ -740,10 +740,10 @@ static void inspect_material(Asset_Handle material_asset)
 
     if (shader_changed || pipeline_changed || property_changed)
     {
-        Memory_Context memory_context = get_memory_context();
+        Memory_Context memory_context = grab_memory_context();
 
         const Asset_Registry_Entry &entry = get_asset_registry_entry(material_asset);
-        String path = format_string(memory_context.temprary_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
+        String path = format_string(memory_context.temp_allocator, "%.*s/%.*s", HE_EXPAND_STRING(get_asset_path()), HE_EXPAND_STRING(entry.path));
         bool success = serialize_material(material_handle, shader_asset.uuid, path);
         if (!success)
         {

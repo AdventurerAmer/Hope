@@ -105,19 +105,21 @@ struct Renderer
 
 struct Frame_Render_Data
 {
+    glm::mat4 view;
+    glm::mat4 projection;
+
+    F32 near_z;
+    F32 far_z;
+
     Bind_Group_Handle globals_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
     Bind_Group_Handle pass_bind_groups[HE_MAX_FRAMES_IN_FLIGHT];
 
     Buffer_Handle globals_uniform_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    Shader_Globals *globals;
 
     Buffer_Handle instance_storage_buffers[HE_MAX_FRAMES_IN_FLIGHT];
     Shader_Instance_Data *instance_base;
     U32 instance_count;
-
-    U32 *light_count;
-    U32 *directional_light_count;
-
-    glm::vec3 *ambient;
 
     Buffer_Handle light_storage_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
@@ -143,12 +145,6 @@ struct Frame_Render_Data
     Counted_Array< Shader_Light, HE_MAX_LIGHT_COUNT > lights;
 
     Buffer_Handle scene_buffers[HE_MAX_FRAMES_IN_FLIGHT];
-
-    glm::mat4 view;
-    glm::mat4 projection;
-
-    F32 near_z;
-    F32 far_z;
 };
 
 struct Renderer_State

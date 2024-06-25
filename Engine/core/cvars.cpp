@@ -35,7 +35,7 @@ static CVars_State cvars_state;
 
 static CVar_Category* find_or_append_category(const String &name, bool should_append = true)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     auto &categories = cvars_state.categories;
 
@@ -50,7 +50,7 @@ static CVar_Category* find_or_append_category(const String &name, bool should_ap
     if (should_append)
     {
         CVar_Category category = {};
-        category.name = copy_string(name, memory_context.permenent);
+        category.name = copy_string(name, memory_context.permenent_allocator);
         init(&category.vars);
 
         append(&categories, category);
@@ -62,7 +62,7 @@ static CVar_Category* find_or_append_category(const String &name, bool should_ap
 
 static CVar* find_or_append_cvar(CVar_Category *category, const String &name, bool should_append = true)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     auto &vars = category->vars;
 
@@ -77,7 +77,7 @@ static CVar* find_or_append_cvar(CVar_Category *category, const String &name, bo
     if (should_append)
     {
         CVar var = {};
-        var.name = copy_string(name, memory_context.permenent);
+        var.name = copy_string(name, memory_context.permenent_allocator);
         append(&vars, var);
         return &back(&vars);
     }
@@ -87,14 +87,14 @@ static CVar* find_or_append_cvar(CVar_Category *category, const String &name, bo
 
 bool init_cvars(String filepath)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     cvars_state.filepath = filepath;
 
     auto &categories = cvars_state.categories;
     init(&categories);
     
-    Read_Entire_File_Result result = read_entire_file(filepath, memory_context.temp);
+    Read_Entire_File_Result result = read_entire_file(filepath, memory_context.temp_allocator);
     CVar_Category *category = nullptr;
 
     if (result.success)
@@ -126,7 +126,7 @@ bool init_cvars(String filepath)
                 String value = sub_string(cvar_name_value_pair, space + 1);
 
                 CVar *var = find_or_append_cvar(category, name);
-                var->value = copy_string(value, memory_context.permenent);
+                var->value = copy_string(value, memory_context.permenent_allocator);
             }
 
             str.data += new_line_index + 1;
@@ -141,7 +141,7 @@ bool init_cvars(String filepath)
 
 void deinit_cvars()
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     auto &categories = cvars_state.categories;
     

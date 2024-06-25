@@ -744,6 +744,28 @@ using Upload_Request_Handle = Resource_Handle< Upload_Request >;
 // Shader Structs
 //
 
+struct Shader_Globals
+{
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 projection;
+
+    alignas(16) glm::vec3 eye;
+    alignas(16) glm::vec3 ambient;
+
+    alignas(8) glm::uvec2 resolution;
+
+    alignas(4) F32 gamma;
+
+    alignas(4) F32 z_near;
+    alignas(4) F32 z_far;
+
+    alignas(4) U32 light_count;
+    alignas(4) U32 directional_light_count;
+    alignas(4) U32 light_bin_count;
+
+    alignas(4) S32 max_node_count;
+};
+
 struct Shader_Instance_Data
 {
     S32 entity_index;

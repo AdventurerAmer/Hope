@@ -129,4 +129,4 @@ Resource_Handle< T > get_asset_handle_as(Asset_Handle asset_handle)
     return { .index = result.index, .generation = result.generation };
 }
 
-String format_embedded_asset(Asset_Handle asset_handle, U64 data_id, String name, Memory_Arena *arena);
+String format_embedded_asset(Asset_Handle asset_handle, U64 data_id, String name, Allocator allocator);

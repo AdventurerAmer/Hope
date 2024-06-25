@@ -68,7 +68,7 @@ static void schedule_job_to_least_worked_thread(Job_Handle job_handle)
     HE_ASSERT(index != -1);
     platform_unlock_mutex(&least_worked_thread_state->job_queue_mutex);
 
-    bool signaled = signal_semaphore(&least_worked_thread_state->job_queue_semaphore);
+    bool signaled = platform_signal_semaphore(&least_worked_thread_state->job_queue_semaphore);
     HE_ASSERT(signaled);
 }
 
@@ -140,7 +140,7 @@ unsigned long execute_thread_work(void *params)
 
     while (true)
     {
-        bool signaled = wait_for_semaphore(job_queue_semaphore);
+        bool signaled = platform_wait_for_semaphore(job_queue_semaphore);
         HE_ASSERT(signaled);
 
         platform_lock_mutex(job_queue_mutex);
@@ -160,7 +160,7 @@ unsigned long execute_thread_work(void *params)
         HE_ASSERT(peeked);
         HE_ASSERT(job->data.proc);
 
-        Temprary_Memory_Arena temprary_memory_arena = begin_temprary_memory(thread_state->arena);
+        Temprary_Memory temprary_memory = begin_temprary_memory(thread_state->arena);
         job->data.parameters.arena = thread_state->arena;
 
         Job_Result result = job->data.proc(job->data.parameters);
@@ -169,7 +169,7 @@ unsigned long execute_thread_work(void *params)
             job->data.completed_proc(result);
         }
 
-        end_temprary_memory(&temprary_memory_arena);
+        end_temprary_memory(&temprary_memory);
 
         pop_front(job_queue);
 
@@ -183,7 +183,7 @@ unsigned long execute_thread_work(void *params)
 
 bool init_job_system()
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     bool inited = init_free_list_allocator(&job_system_state.job_data_allocator, nullptr, HE_MEGA_BYTES(64), HE_MEGA_BYTES(64), "job_allocator");
     HE_ASSERT(inited);
@@ -194,7 +194,7 @@ bool init_job_system()
     job_system_state.running.store(true);
     job_system_state.in_progress_job_count.store(0);
     job_system_state.thread_count = thread_count;
-    job_system_state.thread_states = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent, Thread_State, thread_count);
+    job_system_state.thread_states = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Thread_State, thread_count);
 
     init(&job_system_state.job_pool, thread_count * JOB_COUNT_PER_THREAD, to_allocator(&job_system_state.job_data_allocator));
 
@@ -203,7 +203,7 @@ bool init_job_system()
         Thread_State *thread_state = &job_system_state.thread_states[thread_index];
         thread_state->thread_index = thread_index;
 
-        init(&thread_state->job_queue, JOB_COUNT_PER_THREAD, memory_context.permenent);
+        init(&thread_state->job_queue, JOB_COUNT_PER_THREAD, memory_context.permenent_allocator);
 
         bool job_queue_semaphore_created = platform_create_semaphore(&thread_state->job_queue_semaphore);
         HE_ASSERT(job_queue_semaphore_created);

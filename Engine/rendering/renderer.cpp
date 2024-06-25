@@ -108,9 +108,9 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
 
 bool init_renderer_state(Engine *engine)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
-    renderer_state = HE_ALLOCATOR_ALLOCATE(memory_context.permenent, Renderer_State);
+    renderer_state = HE_ALLOCATOR_ALLOCATE(memory_context.permenent_allocator, Renderer_State);
     renderer_state->engine = engine;
 
     bool renderer_requested = request_renderer(RenderingAPI_Vulkan, &renderer_state->renderer);
@@ -125,19 +125,19 @@ bool init_renderer_state(Engine *engine)
     bool render_commands_mutex_created = platform_create_mutex(&renderer_state->render_commands_mutex);
     HE_ASSERT(render_commands_mutex_created);
     
-    init(&renderer_state->buffers, HE_MAX_BUFFER_COUNT, memory_context.permenent);
-    init(&renderer_state->textures, HE_MAX_TEXTURE_COUNT, memory_context.permenent);
-    init(&renderer_state->samplers, HE_MAX_SAMPLER_COUNT, memory_context.permenent);
-    init(&renderer_state->shaders, HE_MAX_SHADER_COUNT, memory_context.permenent);
-    init(&renderer_state->pipeline_states, HE_MAX_PIPELINE_STATE_COUNT, memory_context.permenent);
-    init(&renderer_state->bind_groups, HE_MAX_BIND_GROUP_COUNT, memory_context.permenent);
-    init(&renderer_state->render_passes, HE_MAX_RENDER_PASS_COUNT, memory_context.permenent);
-    init(&renderer_state->frame_buffers, HE_MAX_FRAME_BUFFER_COUNT, memory_context.permenent);
-    init(&renderer_state->semaphores, HE_MAX_SEMAPHORE_COUNT, memory_context.permenent);
-    init(&renderer_state->materials, HE_MAX_MATERIAL_COUNT, memory_context.permenent);
-    init(&renderer_state->static_meshes, HE_MAX_STATIC_MESH_COUNT, memory_context.permenent);
-    init(&renderer_state->scenes, HE_MAX_SCENE_COUNT, memory_context.permenent);
-    init(&renderer_state->upload_requests, HE_MAX_UPLOAD_REQUEST_COUNT, memory_context.permenent);
+    init(&renderer_state->buffers, HE_MAX_BUFFER_COUNT, memory_context.permenent_allocator);
+    init(&renderer_state->textures, HE_MAX_TEXTURE_COUNT, memory_context.permenent_allocator);
+    init(&renderer_state->samplers, HE_MAX_SAMPLER_COUNT, memory_context.permenent_allocator);
+    init(&renderer_state->shaders, HE_MAX_SHADER_COUNT, memory_context.permenent_allocator);
+    init(&renderer_state->pipeline_states, HE_MAX_PIPELINE_STATE_COUNT, memory_context.permenent_allocator);
+    init(&renderer_state->bind_groups, HE_MAX_BIND_GROUP_COUNT, memory_context.permenent_allocator);
+    init(&renderer_state->render_passes, HE_MAX_RENDER_PASS_COUNT, memory_context.permenent_allocator);
+    init(&renderer_state->frame_buffers, HE_MAX_FRAME_BUFFER_COUNT, memory_context.permenent_allocator);
+    init(&renderer_state->semaphores, HE_MAX_SEMAPHORE_COUNT, memory_context.permenent_allocator);
+    init(&renderer_state->materials, HE_MAX_MATERIAL_COUNT, memory_context.permenent_allocator);
+    init(&renderer_state->static_meshes, HE_MAX_STATIC_MESH_COUNT, memory_context.permenent_allocator);
+    init(&renderer_state->scenes, HE_MAX_SCENE_COUNT, memory_context.permenent_allocator);
+    init(&renderer_state->upload_requests, HE_MAX_UPLOAD_REQUEST_COUNT, memory_context.permenent_allocator);
 
     platform_create_mutex(&renderer_state->pending_upload_requests_mutex);
     reset(&renderer_state->pending_upload_requests);
@@ -358,7 +358,7 @@ bool init_renderer_state(Engine *engine)
     {
         // Allocator allocator = to_allocator(scratch_memory.arena);
 
-        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/default.glsl"), memory_context.temp);
+        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/default.glsl"), memory_context.temp_allocator);
         String default_shader_source = { .count = result.size, .data = (const char *)result.data };
 
         Shader_Compilation_Result default_shader_compilation_result = renderer_compile_shader(default_shader_source, HE_STRING_LITERAL("shaders"));
@@ -735,14 +735,14 @@ Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
 {
     HE_ASSERT(descriptor.data_array.count <= HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT);
 
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Texture_Handle texture_handle = aquire_handle(&renderer_state->textures);
     Texture *texture = renderer_get_texture(texture_handle);
 
     if (descriptor.name.data)
     {
-        texture->name = copy_string(descriptor.name, memory_context.general);
+        texture->name = copy_string(descriptor.name, memory_context.general_allocator);
     }
 
     Upload_Request_Handle upload_request_handle = Resource_Pool< Upload_Request >::invalid_handle;
@@ -795,13 +795,13 @@ void renderer_destroy_texture(Texture_Handle &texture_handle)
     HE_ASSERT(texture_handle != renderer_state->white_pixel_texture);
     HE_ASSERT(texture_handle != renderer_state->normal_pixel_texture);
     
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Texture *texture = renderer_get_texture(texture_handle);
 
     if (texture->name.count && texture->name.data)
     {
-        HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)texture->name.data);
+        HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)texture->name.data);
     }
 
     texture->name = HE_STRING_LITERAL("");
@@ -881,10 +881,10 @@ shaderc_include_result *shaderc_include_resolve(void *user_data, const char *req
 {
     Shaderc_UserData *ud = (Shaderc_UserData *)user_data;
     
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
     
     String source = HE_STRING(requested_source);
-    String path = format_string(memory_context.temprary_memory.arena, "%.*s/%.*s", HE_EXPAND_STRING(ud->include_path), HE_EXPAND_STRING(source));
+    String path = format_string(memory_context.temp_allocator, "%.*s/%.*s", HE_EXPAND_STRING(ud->include_path), HE_EXPAND_STRING(source));
     Read_Entire_File_Result file_result = read_entire_file(path, ud->allocator);
     HE_ASSERT(file_result.success);
     shaderc_include_result *result = HE_ALLOCATOR_ALLOCATE(ud->allocator, shaderc_include_result);
@@ -908,13 +908,13 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
     static shaderc_compiler_t compiler = shaderc_compiler_initialize();
     static shaderc_compile_options_t options = shaderc_compile_options_initialize();
 
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
-    Shaderc_UserData *shaderc_userdata = HE_ALLOCATOR_ALLOCATE(memory_context.general, Shaderc_UserData);
-    shaderc_userdata->allocator = memory_context.general;
+    Shaderc_UserData *shaderc_userdata = HE_ALLOCATOR_ALLOCATE(memory_context.general_allocator, Shaderc_UserData);
+    shaderc_userdata->allocator = memory_context.general_allocator;
     shaderc_userdata->include_path = include_path;
 
-    HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general, shaderc_userdata); };
+    HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, shaderc_userdata); };
 
     shaderc_compile_options_set_include_callbacks(options, shaderc_include_resolve, shaderc_include_result_release, shaderc_userdata);
     shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
@@ -985,7 +985,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
         }
 
         // shaderc requires a string to be null-terminated
-        String source = format_string(memory_context.temprary_memory.arena, "%.*s", HE_EXPAND_STRING(sources[stage_index]));
+        String source = format_string(memory_context.temp_allocator, "%.*s", HE_EXPAND_STRING(sources[stage_index]));
 
         shaderc_shader_kind kind = shader_stage_to_shaderc_kind((Shader_Stage)stage_index);
         shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, source.data, source.count, kind, include_path.data, "main", options);
@@ -1001,7 +1001,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
             {
                 if (compilation_result.stages[stage_index].count)
                 {
-                    HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)compilation_result.stages[stage_index].data);
+                    HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)compilation_result.stages[stage_index].data);
                 }
             }
 
@@ -1011,7 +1011,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
         const char *data = shaderc_result_get_bytes(result);
         U64 size = shaderc_result_get_length(result);
         String blob = { .count = size, .data = data };
-        compilation_result.stages[stage_index] = copy_string(blob, memory_context.general);
+        compilation_result.stages[stage_index] = copy_string(blob, memory_context.general_allocator);
     }
 
     compilation_result.success = true;
@@ -1020,9 +1020,9 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
 
 Shader_Handle load_shader(String name)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
     
-    Read_Entire_File_Result result = read_entire_file( format_string(memory_context.temprary_memory.arena, "shaders/%.*s.glsl", HE_EXPAND_STRING(name)), memory_context.temp);
+    Read_Entire_File_Result result = read_entire_file( format_string(memory_context.temp_allocator, "shaders/%.*s.glsl", HE_EXPAND_STRING(name)), memory_context.temp_allocator);
     String shader_source = { .count = result.size, .data = (const char *)result.data };
 
     Shader_Compilation_Result compilation_result = renderer_compile_shader(shader_source, HE_STRING_LITERAL("shaders"));
@@ -1043,7 +1043,7 @@ Shader_Handle load_shader(String name)
 
 void renderer_destroy_shader_compilation_result(Shader_Compilation_Result *result)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
     {
@@ -1052,7 +1052,7 @@ void renderer_destroy_shader_compilation_result(Shader_Compilation_Result *resul
             continue;
         }
 
-        HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)result->stages[stage_index].data);
+        HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)result->stages[stage_index].data);
         result->stages[stage_index] = {};
     }
 }
@@ -1089,7 +1089,7 @@ Shader_Struct *renderer_find_shader_struct(Shader_Handle shader_handle, String n
 void renderer_destroy_shader(Shader_Handle &shader_handle)
 {
     HE_ASSERT(shader_handle != renderer_state->default_shader);
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     // todo(amer): can we make the shader reflection data a one memory block to free it in one step...
     Shader *shader = renderer_get_shader(shader_handle);
@@ -1097,10 +1097,10 @@ void renderer_destroy_shader(Shader_Handle &shader_handle)
     for (U32 struct_index = 0; struct_index < shader->struct_count; struct_index++)
     {
         Shader_Struct *shader_struct = &shader->structs[struct_index];
-        HE_ALLOCATOR_DEALLOCATE(memory_context.general, shader_struct->members);
+        HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, shader_struct->members);
     }
 
-    HE_ALLOCATOR_DEALLOCATE(memory_context.general, shader->structs);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, shader->structs);
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->destroy_shader(shader_handle, false);
@@ -1178,12 +1178,12 @@ void renderer_destroy_pipeline_state(Pipeline_State_Handle &pipeline_state_handl
 
 Render_Pass_Handle renderer_create_render_pass(const Render_Pass_Descriptor &descriptor)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Render_Pass_Handle render_pass_handle = aquire_handle(&renderer_state->render_passes);
 
     Render_Pass *render_pass = renderer_get_render_pass(render_pass_handle);
-    render_pass->name = copy_string(descriptor.name, memory_context.general);
+    render_pass->name = copy_string(descriptor.name, memory_context.general_allocator);
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_render_pass(render_pass_handle, descriptor);
@@ -1268,14 +1268,14 @@ void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle)
 
 Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &descriptor)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Static_Mesh_Handle static_mesh_handle = aquire_handle(&renderer_state->static_meshes);
     Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
     if (descriptor.name.data)
     {
-        static_mesh->name = copy_string(descriptor.name, memory_context.general);
+        static_mesh->name = copy_string(descriptor.name, memory_context.general_allocator);
     }
 
     Buffer_Descriptor position_buffer_descriptor =
@@ -1379,13 +1379,13 @@ void renderer_use_static_mesh(Static_Mesh_Handle static_mesh_handle)
 
 void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
     if (static_mesh->name.data)
     {
-        HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)static_mesh->name.data);
+        HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)static_mesh->name.data);
     }
 
     renderer_destroy_buffer(static_mesh->positions_buffer);
@@ -1409,14 +1409,14 @@ void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle)
 
 Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Material_Handle material_handle = aquire_handle(&renderer_state->materials);
     Material *material = get(&renderer_state->materials, material_handle);
 
     if (descriptor.name.count)
     {
-        material->name = copy_string(descriptor.name, memory_context.general);
+        material->name = copy_string(descriptor.name, memory_context.general_allocator);
     }
 
     String pass_name = descriptor.type == Material_Type::UI ? HE_STRING_LITERAL("ui") : HE_STRING_LITERAL("world");
@@ -1488,7 +1488,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 
     material->type = descriptor.type;
     material->pipeline_state_handle = pipeline_state_handle;
-    material->data = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.general, U8, properties->size);
+    material->data = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.general_allocator, U8, properties->size);
     material->size = properties->size;
     material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
 
@@ -1502,13 +1502,13 @@ Material *renderer_get_material(Material_Handle material_handle)
 
 void renderer_destroy_material(Material_Handle &material_handle)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Material *material = get(&renderer_state->materials, material_handle);
 
     if (material->name.data)
     {
-        HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)material->name.data);
+        HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)material->name.data);
     }
 
     Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, material->pipeline_state_handle);
@@ -1520,7 +1520,7 @@ void renderer_destroy_material(Material_Handle &material_handle)
         renderer_destroy_bind_group(material->bind_groups[frame_index]);
     }
 
-    HE_ALLOCATOR_DEALLOCATE(memory_context.general, material->data);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, material->data);
     release_handle(&renderer_state->materials, material_handle);
 
     material_handle = Resource_Pool< Material >::invalid_handle;
@@ -1796,7 +1796,7 @@ static const char* material_type_to_str(Material_Type type)
 
 bool serialize_material(Material_Handle material_handle, U64 shader_asset_uuid, String path)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
     
     Material *material = renderer_get_material(material_handle);
     Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
@@ -2073,7 +2073,7 @@ void serialize_scene_node(Scene_Node *node, S32 parent_index, String_Builder *bu
 
 bool serialize_scene(Scene_Handle scene_handle, String path)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     struct Serialized_Scene_Node
     {
@@ -2085,7 +2085,7 @@ bool serialize_scene(Scene_Handle scene_handle, String path)
     Skybox *skybox = &scene->skybox;
 
     Ring_Queue< Serialized_Scene_Node > queue;
-    init(&queue, scene->node_count, memory_context.temp);
+    init(&queue, scene->node_count, memory_context.temp_allocator);
 
     U32 serialized_node_index = 0;
     push(&queue, { .node_index = 0, .serialized_parent_index = -1 });
@@ -2139,7 +2139,7 @@ Scene_Node *get_node(Scene *scene, S32 node_index)
 
 U32 allocate_node(Scene *scene, String name)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     U32 node_index = 0;
 
@@ -2155,7 +2155,7 @@ U32 allocate_node(Scene *scene, String name)
     }
 
     Scene_Node *node = get_node(scene, node_index);
-    node->name = copy_string(name, memory_context.general);
+    node->name = copy_string(name, memory_context.general_allocator);
 
     node->parent_index = -1;
     node->first_child_index = -1;
@@ -2271,7 +2271,7 @@ void remove_child(Scene *scene, S32 parent_index, U32 node_index)
 
 void remove_node(Scene *scene, U32 node_index)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Scene_Node *node = get_node(scene, node_index);
 
@@ -2285,7 +2285,7 @@ void remove_node(Scene *scene, U32 node_index)
         remove_child(scene, node->parent_index, node_index);
     }
 
-    HE_ALLOCATOR_DEALLOCATE(memory_context.general, (void *)node->name.data);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)node->name.data);
 
     if (scene->first_free_node_index == -1)
     {
@@ -2404,7 +2404,7 @@ static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_t
         Light_Component *light_comp = &node->light;
 
         Shader_Light &light = append(&render_data->lights);
-        *render_data->light_count = *render_data->light_count + 1;
+        render_data->globals->light_count++;
 
         light.type = (U32)light_comp->type;
         light.direction = (glm::vec3)glm::rotate(transform.rotation, { 0.0f, 0.0f, -1.0f, 0.0f });
@@ -2448,7 +2448,7 @@ void render_scene(Scene_Handle scene_handle)
             dc.material = get_asset_handle_as<Material>(skybox_material_asset);
             dc.instance_index = instance_index;
 
-            *render_data->ambient = srgb_to_linear(skybox->ambient_color, renderer_state->gamma);
+            render_data->globals->ambient = srgb_to_linear(skybox->ambient_color, renderer_state->gamma);
         }
     }
 
@@ -2626,7 +2626,7 @@ static U8* get_pointer(Shader_Struct *_struct, U8 *data, String name)
 
 void begin_rendering(const Camera *camera)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
     
     renderer->begin_frame();
 
@@ -2635,54 +2635,35 @@ void begin_rendering(const Camera *camera)
     Frame_Render_Data *render_data = &renderer_state->render_data;
     Buffer *global_uniform_buffer = get(&renderer_state->buffers, render_data->globals_uniform_buffers[frame_index]);
 
-    Shader_Struct *globals_struct = renderer_find_shader_struct(renderer_state->default_shader, HE_STRING_LITERAL("Globals"));
-    glm::mat4 *view = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("view"));
-    glm::mat4 *projection = (glm::mat4 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("projection"));
-    glm::vec3 *eye = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("eye"));
-    F32 *gamma = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("gamma"));
-    U32 *light_count = (U32 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("light_count"));
+    Shader_Globals *globals = (Shader_Globals *)global_uniform_buffer->data;
+    render_data->globals = globals;
 
-    glm::vec3 *ambient = (glm::vec3 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("ambient"));
-    render_data->ambient = ambient;
+    globals->max_node_count = renderer_state->back_buffer_width * renderer_state->back_buffer_height * 20;
+    globals->resolution = glm::uvec2(renderer_state->back_buffer_width, renderer_state->back_buffer_height);
 
-    glm::uvec2 *resolution = (glm::uvec2 *)get_pointer(globals_struct, (U8 *)global_uniform_buffer->data, HE_STRING_LITERAL("resolution"));
-    *resolution = glm::uvec2(renderer_state->back_buffer_width, renderer_state->back_buffer_height);
-
-    U32 *directional_light_count = (U32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("directional_light_count"));
-    render_data->directional_light_count = directional_light_count;
-
-    U32 *light_bin_count = (U32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("light_bin_count"));
-    *light_bin_count = render_data->light_bin_count;
-
-    F32 *z_near = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("z_near"));
-    F32 *z_far = (F32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("z_far"));
-
-    S32 *max_node_count = (S32 *)get_pointer(globals_struct, (U8 * )global_uniform_buffer->data, HE_STRING_LITERAL("max_node_count"));
-    *max_node_count = renderer_state->back_buffer_width * renderer_state->back_buffer_height * 20;
-
-    *view = glm::mat4(1.0f);
-    *projection = glm::mat4(1.0f);
-    *eye = glm::vec3(0.0f);
-    *gamma = renderer_state->gamma;
-    *light_count = 0;
-    render_data->light_count = light_count;
-    *z_near = 0.1f;
-    *z_far = 1000.0f;
+    globals->view = glm::mat4(1.0f);
+    globals->projection = glm::mat4(1.0f);
+    globals->eye = glm::vec3(0.0f);
+    globals->gamma = renderer_state->gamma;
+    globals->light_count = 0;
+    globals->z_near = 0.1f;
+    globals->z_far = 1000.0f;
 
     if (camera)
     {
-        *view = camera->view;
+        globals->view = camera->view;
         glm::mat4 proj = camera->projection;
         proj[1][1] *= -1;
-        *projection = proj;
-        *eye = camera->position;
+        globals->projection = proj;
+        globals->eye = camera->position;
 
         render_data->view = camera->view;
         render_data->projection = camera->projection;
         render_data->near_z = camera->near_clip;
         render_data->far_z = camera->far_clip;
-        *z_near = camera->near_clip;
-        *z_far = camera->far_clip;
+
+        globals->z_near = camera->near_clip;
+        globals->z_far = camera->far_clip;
     }
 
     Buffer *instance_storage_buffer = get(&renderer_state->buffers, render_data->instance_storage_buffers[frame_index]);
@@ -2726,8 +2707,8 @@ void begin_rendering(const Camera *camera)
     reset(&render_data->lights);
 
     U32 texture_count = renderer_state->textures.capacity;
-    Texture_Handle *textures = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, Texture_Handle, texture_count);
-    Sampler_Handle *samplers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, Sampler_Handle, texture_count);
+    Texture_Handle *textures = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, Texture_Handle, texture_count);
+    Sampler_Handle *samplers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, Sampler_Handle, texture_count);
 
     for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
     {
@@ -2870,15 +2851,15 @@ static bool calc_light_aabb(Shader_Light *light, const glm::vec3 &view_p, Frame_
 
 void end_rendering()
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
 
     Frame_Render_Data *render_data = &renderer_state->render_data;
 
     U32 width = renderer_state->back_buffer_width;
     U32 height = renderer_state->back_buffer_height;
 
-    U32 total_light_count = *render_data->light_count;
-    U32 light_count = *render_data->light_count;
+    U32 total_light_count = render_data->globals->light_count;
+    U32 light_count = render_data->globals->light_count;
     Shader_Light *lights = render_data->lights.data;
 
     struct Sorted_Light
@@ -2890,7 +2871,7 @@ void end_rendering()
     };
 
     U32 sorted_light_count = 0;
-    Sorted_Light *sorted_lights = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, Sorted_Light, light_count + 1);
+    Sorted_Light *sorted_lights = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, Sorted_Light, light_count + 1);
 
     F32 one_over_render_dist = 1.0f / (render_data->far_z - render_data->near_z);
     U32 directional_light_count = 0;
@@ -2936,8 +2917,8 @@ void end_rendering()
     }
 
     light_count = sorted_light_count;
-    *render_data->light_count = sorted_light_count;
-    *render_data->directional_light_count = directional_light_count;
+    render_data->globals->light_count = sorted_light_count;
+    render_data->globals->directional_light_count = directional_light_count;
     
     std::sort(sorted_lights, sorted_lights + light_count, [](const Sorted_Light &a, const Sorted_Light &b) { return a.depth < b.depth; });
 

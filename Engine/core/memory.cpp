@@ -103,12 +103,12 @@ Thread_Memory_State *get_thread_memory_state(U32 thread_id)
     return thread_memory_state;
 }
 
-Memory_Arena *get_permenent_arena()
+Memory_Arena* get_permenent_arena()
 {
     return &memory_system_state.permenent_arena;
 }
 
-Memory_Arena *get_thread_arena()
+Memory_Arena* get_thread_arena()
 {
     U32 thread_id = platform_get_current_thread_id();
     auto it = find(&memory_system_state.thread_id_to_memory_state, thread_id);
@@ -117,23 +117,50 @@ Memory_Arena *get_thread_arena()
     return &memory_state->arena;
 }
 
-Memory_Context::~Memory_Context()
+Memory_Arena* get_frame_arena()
 {
-    end_temprary_memory(&temprary_memory);
+    return &memory_system_state.frame_arena;
 }
 
-Memory_Context get_memory_context()
+Memory_Context::~Memory_Context()
+{
+    if (!dropped)
+    {
+        end_temprary_memory(&temprary_memory);
+    }
+}
+
+Memory_Context grab_memory_context()
 {
     Memory_Arena *arena = get_thread_arena();
 
     return
     {
-        .permenent       = to_allocator(&memory_system_state.permenent_arena),
-        .general         = to_allocator(&memory_system_state.general_purpose_allocator),
-        .frame           = to_allocator(&memory_system_state.frame_arena),
-        .temp            = to_allocator(arena),
-        .temprary_memory = begin_temprary_memory(arena),
-    }; 
+        .permenent_allocator = to_allocator(&memory_system_state.permenent_arena),
+        .general_allocator   = to_allocator(&memory_system_state.general_purpose_allocator),
+        .frame_allocator     = to_allocator(&memory_system_state.frame_arena),
+        .temprary_memory     = begin_temprary_memory(arena),
+        .temp_allocator      = to_allocator(arena),
+        .dropped             = false
+    };
+}
+
+bool drop_memory_context(Memory_Context *memory_context, Allocator allocator)
+{
+    HE_ASSERT(memory_context);
+    HE_ASSERT(allocator.data);
+
+    if (memory_context->temp_allocator.data == allocator.data)
+    {
+        Memory_Arena *arena = memory_context->temprary_memory.arena;
+        HE_ASSERT(arena->temp_count);
+        arena->temp_count--;
+
+        memory_context->dropped = true;
+        return true;
+    }
+
+    return false;
 }
 
 //
@@ -225,47 +252,23 @@ void deallocate(Memory_Arena *arena, void *memory)
 }
 
 //
-// Temprary Memory Arena
+// Temprary Memory
 //
 
-Temprary_Memory_Arena begin_temprary_memory(Memory_Arena *arena)
+Temprary_Memory begin_temprary_memory(Memory_Arena *arena)
 {
     HE_ASSERT(arena);
     arena->temp_count++;
     return { .arena = arena, .offset = arena->offset };
 }
 
-void end_temprary_memory(Temprary_Memory_Arena *temprary_arena)
+void end_temprary_memory(Temprary_Memory *temprary_memory)
 {
-    Memory_Arena *arena = temprary_arena->arena;
+    Memory_Arena *arena = temprary_memory->arena;
     HE_ASSERT(arena);
     HE_ASSERT(arena->temp_count);
     arena->temp_count--;
-
-    arena->offset = temprary_arena->offset;
-}
-
-//
-// Temprary Memory Arena Janitor
-//
-
-Temprary_Memory_Arena_Janitor::~Temprary_Memory_Arena_Janitor()
-{
-    HE_ASSERT(arena->temp_count);
-    arena->temp_count--;
-
-    arena->offset = offset;
-}
-
-Temprary_Memory_Arena_Janitor make_temprary_memory_arena_janitor(Memory_Arena *arena)
-{
-    HE_ASSERT(arena);
-    arena->temp_count++;
-
-    Temprary_Memory_Arena_Janitor result;
-    result.arena = arena;
-    result.offset = arena->offset;
-    return result;
+    arena->offset = temprary_memory->offset;
 }
 
 //

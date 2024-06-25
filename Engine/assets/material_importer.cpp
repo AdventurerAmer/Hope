@@ -69,9 +69,9 @@ static Stencil_Operation str_to_stencil_op(String str)
 
 Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
 {
-    Memory_Context memory_context = get_memory_context();
+    Memory_Context memory_context = grab_memory_context();
     
-    Read_Entire_File_Result file_result = read_entire_file(path, memory_context.temp);
+    Read_Entire_File_Result file_result = read_entire_file(path, memory_context.temp_allocator);
 
     if (!file_result.success)
     {
@@ -251,7 +251,7 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
 
     if (property_count)
     {
-         material_properties = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp, Material_Property, property_count);
+         material_properties = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, Material_Property, property_count);
 
         for (U32 i = 0; i < property_count; i++)
         {
