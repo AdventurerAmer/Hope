@@ -46,6 +46,11 @@ vec4 sample_cubemap(uint texture_index, vec3 uv)
     return texture(u_cubemaps[nonuniformEXT(texture_index)], uv);
 }
 
+vec4 sample_cubemap_lod(uint texture_index, vec3 uv, float load)
+{
+    return textureLod(u_cubemaps[nonuniformEXT(texture_index)], uv, load);
+}
+
 layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_STORAGE_BUFFER_BINDING) readonly buffer Light_Buffer
 {
     Light lights[];
@@ -65,9 +70,7 @@ layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFOR
 void main()
 {
     float noop = NOOP(lights[0].color.r) * NOOP(float(light_bins[0]));
-
-    vec3 color = srgb_to_linear( sample_cubemap( material.skybox_cubemap, in_cubemap_uv ).rgb, globals.gamma );
-    color *= srgb_to_linear( material.sky_color, globals.gamma );
-
+    vec3 color = sample_cubemap_lod( material.skybox_cubemap, in_cubemap_uv, 0 ).rgb;
+    // color *= srgb_to_linear( material.sky_color, globals.gamma );
     out_color = vec4(color * noop, 1.0);
 }

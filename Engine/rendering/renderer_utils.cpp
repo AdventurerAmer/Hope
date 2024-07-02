@@ -10,6 +10,7 @@ bool is_color_format(Texture_Format format)
         case Texture_Format::R8G8B8A8_SRGB:
         case Texture_Format::B8G8R8A8_SRGB:
         case Texture_Format::R32G32B32A32_SFLOAT:
+        case Texture_Format::R16G16B16A16_SFLOAT:
         case Texture_Format::R32G32B32_SFLOAT:
         case Texture_Format::R32_SINT:
         case Texture_Format::R32_UINT:

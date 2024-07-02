@@ -1,0 +1,27 @@
+version 1
+type opaque
+shader 8015345852571305201
+cull_mode back
+front_face counter_clockwise
+depth_operation less_or_equal
+depth_testing true
+depth_writing false
+stencil_operation always
+stencil_testing false
+stencil_pass keep
+stencil_fail keep
+depth_fail keep
+stencil_compare_mask 255
+stencil_write_mask 255
+stencil_reference_value 0
+property_count 10
+albedo_texture u32 10324595239600198612
+albedo_color v4f 1.000000 1.000000 1.000000 0.000000
+normal_texture u32 0
+roughness_metallic_texture u32 0
+roughness_factor f32 0.000000
+metallic_factor f32 0.000000
+reflectance f32 0.000000
+alpha_cutoff f32 0.000000
+occlusion_texture u32 0
+type u32 0

@@ -60,7 +60,7 @@ void draw()
             {
                 Scene_Handle scene_handle = get_asset_handle_as<Scene>(scene_asset);
                 Scene *scene = renderer_get_scene(scene_handle);
-                Scene_Node* node = get_node(scene, inspector_state.data.scene_node_index);
+                Scene_Node *node = get_node(scene, inspector_state.data.scene_node_index);
                 internal_inspect_scene_node(node);
             }
         } break;
@@ -636,15 +636,15 @@ static void inspect_material(Asset_Handle material_asset)
             {
                 if (property->is_texture_asset)
                 {
-                    bool is_skybox_asset = ends_with(property->name, HE_STRING_LITERAL("cubemap"));
-                    if (is_skybox_asset)
+                    String title = HE_STRING_LITERAL("Texture");
+                    String type = HE_STRING_LITERAL("texture");
+                    bool is_hdr_texture_asset = ends_with(property->name, HE_STRING_LITERAL("cubemap"));
+                    if (is_hdr_texture_asset)
                     {
-                        property_changed |= select_asset(HE_STRING_LITERAL("Skybox"), HE_STRING_LITERAL("skybox"), (Asset_Handle*)&data.u64);
+                        title = HE_STRING_LITERAL("HDR Map");
+                        type = HE_STRING_LITERAL("environment_map");
                     }
-                    else
-                    {
-                        property_changed |= select_asset(HE_STRING_LITERAL("Texture"), HE_STRING_LITERAL("texture"), (Asset_Handle*)&data.u64);
-                    }
+                    property_changed |= select_asset(title, type, (Asset_Handle*)&data.u64);
                 }
                 else
                 {

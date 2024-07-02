@@ -166,7 +166,7 @@ template< typename T >
 void remove_back(Dynamic_Array< T > *dynamic_array)
 {
     HE_ASSERT(dynamic_array);
-    HE_ASSERT(dynamic_array->count);
+    HE_ASSERT(dynamic_array->count > 0);
     dynamic_array->count--;
 }
 

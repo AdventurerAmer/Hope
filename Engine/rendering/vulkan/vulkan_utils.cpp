@@ -102,6 +102,11 @@ VkFormat get_texture_format(Texture_Format texture_format)
             return VK_FORMAT_R32G32B32_SFLOAT;
         } break;
 
+        case Texture_Format::R16G16B16A16_SFLOAT:
+        {
+            return VK_FORMAT_R16G16B16A16_SFLOAT;
+        } break;
+
         case Texture_Format::R32_SINT:
         {
             return VK_FORMAT_R32_SINT;
@@ -232,7 +237,7 @@ VkPipelineStageFlags get_pipeline_stage_flags(VkAccessFlags access_flags)
     return result;
 }
 
-void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U32 mip_levels, U32 layer_count, VkImageLayout old_layout, VkImageLayout new_layout)
+void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U32 base_mip_level, U32 mip_levels, U32 base_layer, U32 layer_count, VkImageLayout old_layout, VkImageLayout new_layout)
 {
     VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
     barrier.oldLayout = old_layout;
@@ -241,9 +246,9 @@ void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U3
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = image;
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.baseMipLevel = base_mip_level;
     barrier.subresourceRange.levelCount = mip_levels;
-    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.baseArrayLayer = base_layer;
     barrier.subresourceRange.layerCount = layer_count;
 
     VkPipelineStageFlags source_stage = 0;
@@ -302,6 +307,59 @@ void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U3
     }
     else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
     {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        destination_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+    {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destination_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        source_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        destination_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        source_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        destination_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     }
     else
     {
@@ -343,7 +401,8 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
     command_buffer_begin_info.pInheritanceInfo = 0;
 
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
-    transtion_image_to_layout(command_buffer, image->handle, mip_levels, layer_count, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    transtion_image_to_layout(command_buffer, image->handle, 0, mip_levels, 0, layer_count, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     // todo(amer): only supporting RGBA for now.
     U64 size = (U64)width * (U64)height * sizeof(U32);
@@ -485,4 +544,52 @@ Vulkan_Thread_State *get_thread_state(Vulkan_Context *context)
     HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &transfer_command_pool_create_info, &context->allocation_callbacks, &thread_state->transfer_command_pool));
 
     return thread_state;
+}
+
+Vulkan_Command_Buffer begin_one_use_command_buffer(Vulkan_Context *context)
+{
+    Vulkan_Thread_State *thread_state = get_thread_state(context);
+
+    VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    command_buffer_allocate_info.commandPool = thread_state->graphics_command_pool;
+    command_buffer_allocate_info.commandBufferCount = 1;
+    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+    VkCommandBuffer command_buffer = {};
+    vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
+    vkResetCommandBuffer(command_buffer, 0);
+
+    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    command_buffer_begin_info.flags = 0;
+    command_buffer_begin_info.pInheritanceInfo = 0;
+
+    vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
+
+    return
+    {
+        .pool = thread_state->graphics_command_pool,
+        .handle = command_buffer
+    };
+}
+
+void end_one_use_command_buffer(Vulkan_Context *context, Vulkan_Command_Buffer *command_buffer)
+{
+    vkEndCommandBuffer(command_buffer->handle);
+
+    VkCommandBufferSubmitInfo command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    command_buffer_submit_info.commandBuffer = command_buffer->handle;
+
+    VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
+    submit_info.commandBufferInfoCount = 1;
+    submit_info.pCommandBufferInfos = &command_buffer_submit_info;
+
+    VkFenceCreateInfo fence_create_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    VkFence fence = {};
+    vkCreateFence(context->logical_device, &fence_create_info, &context->allocation_callbacks, &fence);
+
+    context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, fence);
+    vkWaitForFences(context->logical_device, 1, &fence, VK_TRUE, HE_MAX_U64);
+
+    vkDestroyFence(context->logical_device, fence, &context->allocation_callbacks);
+    vkFreeCommandBuffers(context->logical_device, command_buffer->pool, 1, &command_buffer->handle);
 }

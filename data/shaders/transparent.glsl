@@ -17,8 +17,9 @@ layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_INSTANCE_STORA
 
 void main()
 {
-    vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
     float noop = NOOP(in_position.x) * NOOP(float(instances[gl_InstanceIndex].entity_index)) * NOOP(globals.gamma);
+
+    vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
     gl_Position = vec4(uv * 2.0f + -1.0f, 0.0f, 1.0f) * noop;
 }
 

@@ -6,6 +6,11 @@ vec3 fresnel_schlick(float NdotL, vec3 f0)
     return f0 + (vec3(1.0) - f0) * pow(clamp(1.0 - NdotL, 0.0, 1.0), 5.0);
 }
 
+vec3 fresnel_schlick_roughness(float NdotL, vec3 f0, float roughness)
+{
+    return f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(clamp(1.0 - NdotL, 0.0, 1.0), 5.0);
+}
+
 float distribution_ggx(float NdotH, float roughness)
 {
     float a = roughness * roughness;

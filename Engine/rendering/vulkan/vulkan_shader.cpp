@@ -210,6 +210,9 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
 
     Dynamic_Array< Shader_Struct > structs;
     init(&structs);
+    
+    bool is_using_a_push_constant = false;
+    VkPushConstantRange push_constant = {};
 
     for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
     {
@@ -404,6 +407,16 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
             String name = copy_string(HE_STRING(resource.name.c_str()), memory_context.general_allocator);
             append_struct(name, type);
         }
+
+        HE_ASSERT(resources.push_constant_buffers.size() <= 1);
+
+        for (auto &resource : resources.push_constant_buffers)
+        {
+            const auto &type = compiler.get_type(resource.type_id);
+            is_using_a_push_constant = true;
+            push_constant.size = u64_to_u32(compiler.get_declared_struct_size(type));
+            push_constant.stageFlags |= get_shader_stage(stage);
+        }
     }
 
     shader->structs = structs.data;
@@ -446,6 +459,13 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
     VkPipelineLayoutCreateInfo pipeline_layout_create_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
     pipeline_layout_create_info.setLayoutCount = set_count;
     pipeline_layout_create_info.pSetLayouts = vulkan_shader->descriptor_set_layouts;
+    
+    if (is_using_a_push_constant)
+    {
+        pipeline_layout_create_info.pushConstantRangeCount = 1;
+        pipeline_layout_create_info.pPushConstantRanges = &push_constant;
+    }
+
     vkCreatePipelineLayout(context->logical_device, &pipeline_layout_create_info, &context->allocation_callbacks, &vulkan_shader->pipeline_layout);
 
     return true;

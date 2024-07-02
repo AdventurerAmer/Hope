@@ -74,6 +74,11 @@ layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFOR
 
     int max_node_count;
 
+    uint irradiance_map;
+    uint prefilter_map;
+    uint brdf_lut;
+
+    uint use_environment_map;
 } globals;
 
 vec3 srgb_to_linear(vec3 color, float gamma)

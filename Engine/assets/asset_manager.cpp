@@ -335,6 +335,15 @@ bool init_asset_manager(String asset_path)
     {
         String extensions[] =
         {
+            HE_STRING_LITERAL("hdr"),
+        };
+
+        register_asset(HE_STRING_LITERAL("environment_map"), to_array_view(extensions), &load_environment_map, &unload_environment_map);
+    }
+
+    {
+        String extensions[] =
+        {
             HE_STRING_LITERAL("glsl"),
         };
         register_asset(HE_STRING_LITERAL("shader"), to_array_view(extensions), &load_shader, &unload_shader);

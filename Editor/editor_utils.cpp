@@ -26,8 +26,6 @@ bool select_asset(String name, String type, Asset_Handle* asset_handle, const Se
         String absolute_path = open_file_dialog(title, filter, { .count = info->extension_count, .data = info->extensions }, memory_context.temp_allocator);
         if (absolute_path.count)
         {
-            // HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)absolute_path.data); };
-
             String asset_path = get_asset_path();
             String path = sub_string(absolute_path, asset_path.count + 1);
 

@@ -15,5 +15,5 @@ stencil_compare_mask 255
 stencil_write_mask 255
 stencil_reference_value 0
 property_count 2
-skybox_cubemap u32 1592366032695847528
+skybox_cubemap u32 10324595239600198612
 sky_color v3f 1.000000 1.000000 1.000000

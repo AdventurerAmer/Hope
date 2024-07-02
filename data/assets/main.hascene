@@ -1,7 +1,7 @@
 version 1
 ambient_color 0.107843 0.107843 0.107843
 skybox_material_asset 11193936441130767775
-node_count 7
+node_count 9
 node_name 4 main
 parent -1
 component_count 1
@@ -15,42 +15,25 @@ component_count 2
 component transform
 position 0.000000 0.000000 0.000000
 rotation -0.707106 -0.000000 0.000000 0.707108
-scale 0.999986 1.000508 0.999867
+scale 0.999986 1.000246 0.999736
 component light
 type directional
 color 1.000000 1.000000 1.000000
-intensity 3.000000
+intensity 1.000000
 radius 1.000000
 inner_angle 30.000000
 outer_angle 45.000000
-node_name 10 PointLight
+node_name 6 Corset
 parent 0
 component_count 2
 component transform
-position 3.733900 2.422756 -0.039656
-rotation 0.000000 0.000000 0.000000 1.000000
-scale 1.000000 1.000000 1.000000
-component light
-type point
-color 1.000000 1.000000 1.000000
-intensity 5.000000
-radius 5.000000
-inner_angle 30.000000
-outer_angle 45.000000
-node_name 9 SpotLight
-parent 0
-component_count 2
-component transform
-position -5.151625 1.559388 -0.500000
-rotation -0.707107 -0.000000 0.000000 0.707107
-scale 1.000000 0.999990 0.999990
-component light
-type spot
-color 0.665157 0.111015 0.808824
-intensity 5.000000
-radius 5.000000
-inner_angle 30.000000
-outer_angle 45.000000
+position 0.683569 0.000000 0.000000
+rotation -0.000001 1.000000 -0.000001 0.000000
+scale 15.000000 15.000000 15.000000
+component mesh
+static_mesh_asset 1596034640347025962
+material_count 1
+material_asset 6161747045336294976
 node_name 6 Sponza
 parent 0
 component_count 2
@@ -86,25 +69,3 @@ material_asset 12999501450642474048
 material_asset 14508616316600532449
 material_asset 16596479098434924918
 material_asset 10415673011533898807
-node_name 9 WineGlass
-parent 0
-component_count 2
-component transform
-position 2.366784 0.545264 -0.020001
-rotation 0.000000 0.000000 0.000000 1.000000
-scale 0.200000 0.200000 0.200000
-component mesh
-static_mesh_asset 6388750915018620212
-material_count 1
-material_asset 9454918637899659995
-node_name 4 Cube
-parent 0
-component_count 2
-component transform
-position 0.000000 0.487844 0.000000
-rotation 0.000000 0.000000 0.000000 1.000000
-scale 0.500000 0.500000 0.500000
-component mesh
-static_mesh_asset 12725177303487466838
-material_count 1
-material_asset 7947054628376301445

@@ -1,5 +1,5 @@
 version 1
-entry_count 166
+entry_count 180
 
 asset 62636994909288842
 parent 0
@@ -9,9 +9,9 @@ asset 122433984408223052
 parent 0
 path 29 sponza/759203620573749278.jpg
 
-asset 700366889616505363
+asset 443442315885985788
 parent 0
-path 75 flighthelmet/flighthelmet_materials_glassplasticmat_occlusionroughmetal.png
+path 65 flighthelmet/flighthelmet_materials_glassplasticmat_basecolor.png
 
 asset 735344314189985025
 parent 0
@@ -29,6 +29,10 @@ asset 1218245937320479653
 parent 0
 path 30 sponza/7056944414013900257.jpg
 
+asset 1398919709568779604
+parent 0
+path 60 flighthelmet/flighthelmet_materials_metalpartsmat_normal.png
+
 asset 1592366032695847528
 parent 0
 path 19 skybox/day.haskybox
@@ -36,6 +40,14 @@ path 19 skybox/day.haskybox
 asset 1707571491740468454
 parent 0
 path 30 sponza/6772804448157695701.jpg
+
+asset 1723429955223884691
+parent 0
+path 73 flighthelmet/flighthelmet_materials_rubberwoodmat_occlusionroughmetal.png
+
+asset 1986355035055585516
+parent 0
+path 63 flighthelmet/flighthelmet_materials_metalpartsmat_basecolor.png
 
 asset 2199361210014870906
 parent 0
@@ -48,6 +60,10 @@ path 30 sponza/3827035219084910048.jpg
 asset 2286835573540296267
 parent 0
 path 31 sponza/13824894030729245199.jpg
+
+asset 2337600446319472338
+parent 0
+path 75 flighthelmet/flighthelmet_materials_leatherpartsmat_occlusionroughmetal.png
 
 asset 2354713328764094966
 parent 0
@@ -69,10 +85,6 @@ asset 2670317426124499114
 parent 0
 path 30 sponza/5823059166183034438.jpg
 
-asset 2920097016495326617
-parent 0
-path 69 flighthelmet/flighthelmet_materials_lensesmat_occlusionroughmetal.png
-
 asset 2948329419528880293
 parent 0
 path 24 corset/corset_normal.png
@@ -85,21 +97,9 @@ asset 3038700182390986010
 parent 0
 path 30 sponza/6667038893015345571.jpg
 
-asset 3244898225665951552
+asset 3199645184600690791
 parent 0
-path 60 flighthelmet/flighthelmet_materials_metalpartsmat_normal.png
-
-asset 4081248235208194876
-parent 0
-path 65 flighthelmet/flighthelmet_materials_glassplasticmat_basecolor.png
-
-asset 4101038381942615881
-parent 0
-path 60 flighthelmet/flighthelmet_materials_rubberwoodmat_normal.png
-
-asset 4213844486902225131
-parent 0
-path 62 flighthelmet/flighthelmet_materials_leatherpartsmat_normal.png
+path 62 flighthelmet/flighthelmet_materials_glassplasticmat_normal.png
 
 asset 4616202591534216497
 parent 0
@@ -116,10 +116,6 @@ path 30 sponza/9288698199695299068.jpg
 asset 5392021351113867272
 parent 0
 path 17 skybox/bottom.jpg
-
-asset 5616399259521131636
-parent 0
-path 56 flighthelmet/flighthelmet_materials_lensesmat_normal.png
 
 asset 5628488906864031416
 parent 0
@@ -153,6 +149,10 @@ asset 6590295612652514437
 parent 0
 path 31 sponza/11474523244911310074.jpg
 
+asset 6630084107149384048
+parent 0
+path 73 flighthelmet/flighthelmet_materials_metalpartsmat_occlusionroughmetal.png
+
 asset 6697839719479623670
 parent 0
 path 30 sponza/3628158980083700836.jpg
@@ -160,10 +160,6 @@ path 30 sponza/3628158980083700836.jpg
 asset 6967855870522168995
 parent 0
 path 30 sponza/2374361008830720677.jpg
-
-asset 7056638684453626189
-parent 0
-path 75 flighthelmet/flighthelmet_materials_leatherpartsmat_occlusionroughmetal.png
 
 asset 7213917854495828532
 parent 0
@@ -177,6 +173,14 @@ asset 7445644185218232797
 parent 0
 path 29 sponza/466164707995436622.jpg
 
+asset 7906466447516794386
+parent 0
+path 63 flighthelmet/flighthelmet_materials_rubberwoodmat_basecolor.png
+
+asset 7961395646613689159
+parent 0
+path 56 flighthelmet/flighthelmet_materials_lensesmat_normal.png
+
 asset 8015345852571305201
 parent 0
 path 15 opaque_pbr.glsl
@@ -189,11 +193,15 @@ asset 8165342927083170180
 parent 0
 path 11 skybox.glsl
 
+asset 8202978101722123762
+parent 0
+path 60 flighthelmet/flighthelmet_materials_rubberwoodmat_normal.png
+
 asset 8307312701857016074
 parent 0
 path 14 wine_glass.glb
 
-asset 8511563891712690352
+asset 8385564277495899360
 parent 0
 path 65 flighthelmet/flighthelmet_materials_leatherpartsmat_basecolor.png
 
@@ -233,17 +241,9 @@ asset 9159621065586785266
 parent 0
 path 30 sponza/8783994986360286082.jpg
 
-asset 9745211643176234536
-parent 0
-path 63 flighthelmet/flighthelmet_materials_metalpartsmat_basecolor.png
-
 asset 9770807792522373384
 parent 0
 path 33 alphatest/alphablendmodetest.gltf
-
-asset 10037110289834143916
-parent 0
-path 62 flighthelmet/flighthelmet_materials_glassplasticmat_normal.png
 
 asset 10086302852330984034
 parent 0
@@ -252,6 +252,10 @@ path 30 sponza/8481240838833932244.jpg
 asset 10296917428753877704
 parent 0
 path 24 skybox/test_texture2.jpg
+
+asset 10324595239600198612
+parent 0
+path 11 env_map.hdr
 
 asset 10332835908850748313
 parent 0
@@ -277,6 +281,10 @@ asset 10847949875592460072
 parent 0
 path 30 sponza/7441062115984513793.jpg
 
+asset 10936808422054541471
+parent 0
+path 30 flighthelmet/flighthelmet.gltf
+
 asset 11006192681211403832
 parent 0
 path 29 sponza/715093869573992647.jpg
@@ -297,9 +305,9 @@ asset 11862542767902073477
 parent 0
 path 31 sponza/13196865903111448057.jpg
 
-asset 12073274582355000325
+asset 12116340301983385217
 parent 0
-path 63 flighthelmet/flighthelmet_materials_rubberwoodmat_basecolor.png
+path 69 flighthelmet/flighthelmet_materials_lensesmat_occlusionroughmetal.png
 
 asset 12438951073060705066
 parent 0
@@ -312,10 +320,6 @@ path 31 sponza/10388182081421875623.jpg
 asset 12823198258482195946
 parent 0
 path 30 sponza/4601176305987539675.jpg
-
-asset 13293278701419201523
-parent 0
-path 59 flighthelmet/flighthelmet_materials_lensesmat_basecolor.png
 
 asset 13378225761779421910
 parent 0
@@ -361,13 +365,17 @@ asset 14572507862165446096
 parent 0
 path 30 sponza/7815564343179553343.jpg
 
-asset 14822683783636644278
+asset 14578828847930551259
 parent 0
-path 73 flighthelmet/flighthelmet_materials_rubberwoodmat_occlusionroughmetal.png
+path 62 flighthelmet/flighthelmet_materials_leatherpartsmat_normal.png
 
 asset 15054953919755052540
 parent 0
 path 31 sponza/14118779221266351425.jpg
+
+asset 15304419593155789175
+parent 0
+path 59 flighthelmet/flighthelmet_materials_lensesmat_basecolor.png
 
 asset 15671134324778876631
 parent 0
@@ -380,10 +388,6 @@ path 16 skybox/front.jpg
 asset 16100182631515934415
 parent 0
 path 31 sponza/16299174074766089871.jpg
-
-asset 16113869882062232887
-parent 0
-path 73 flighthelmet/flighthelmet_materials_metalpartsmat_occlusionroughmetal.png
 
 asset 16306991298944523000
 parent 0
@@ -449,17 +453,25 @@ asset 18045571140674849612
 parent 0
 path 31 sponza/15722799267630235092.jpg
 
-asset 18060137150482840628
+asset 18046704950340121373
 parent 0
-path 30 flighthelmet/flighthelmet.gltf
+path 75 flighthelmet/flighthelmet_materials_glassplasticmat_occlusionroughmetal.png
 
 asset 18218549930094824184
 parent 0
 path 30 sponza/5061699253647017043.png
 
+asset 741084921264531470
+parent 0
+path 47 @10936808422054541471-5/lenses_low.hastaticmesh
+
 asset 1344338170730431444
 parent 8015345852571305201
 path 46 14399620457642705962-11/material_12.hamaterial
+
+asset 1404353958416553056
+parent 0
+path 53 @10936808422054541471-2/glassplastic_low.hastaticmesh
 
 asset 1596034640347025962
 parent 0
@@ -468,6 +480,10 @@ path 44 @17100233425848174167-0/pcube49.hastaticmesh
 asset 2250824472457792722
 parent 0
 path 52 @9770807792522373384-1/testcutoff75mesh.hastaticmesh
+
+asset 3581063969221193049
+parent 8015345852571305201
+path 15 test.hamaterial
 
 asset 4631150335493291018
 parent 0
@@ -480,6 +496,10 @@ path 44 @8307312701857016074-0/cylinder.hastaticmesh
 asset 8229898394157980959
 parent 0
 path 51 @9770807792522373384-4/greenarrowsmesh.hastaticmesh
+
+asset 8328010482800864894
+parent 0
+path 51 @10936808422054541471-1/rubberwood_low.hastaticmesh
 
 asset 8974320423326970516
 parent 0
@@ -497,6 +517,10 @@ asset 11193936441130767775
 parent 8165342927083170180
 path 28 skybox/skybox_mat.hamaterial
 
+asset 11236259426237611407
+parent 0
+path 53 @10936808422054541471-4/leatherparts_low.hastaticmesh
+
 asset 12182689722498211310
 parent 0
 path 49 @9770807792522373384-3/testblendmesh.hastaticmesh
@@ -508,6 +532,14 @@ path 40 @8717310569931951559-0/mesh.hastaticmesh
 asset 12725177303487466838
 parent 0
 path 40 @3023274599992012132-0/cube.hastaticmesh
+
+asset 13248223133493321324
+parent 0
+path 51 @10936808422054541471-3/metalparts_low.hastaticmesh
+
+asset 15853964935075470076
+parent 0
+path 45 @10936808422054541471-0/hose_low.hastaticmesh
 
 asset 16382431776745144380
 parent 0
@@ -529,6 +561,10 @@ asset 477946821057547021
 parent 8015345852571305201
 path 44 @7356666216630384374-4/material_5.hamaterial
 
+asset 741917504139528313
+parent 8015345852571305201
+path 42 @10936808422054541471-0/hosemat.hamaterial
+
 asset 989203901741616135
 parent 8015345852571305201
 path 40 @9770807792522373384-0/matbed.hamaterial
@@ -540,6 +576,10 @@ path 46 @7356666216630384374-18/material_18.hamaterial
 asset 1734130218101057621
 parent 8015345852571305201
 path 46 @7356666216630384374-15/material_15.hamaterial
+
+asset 1907757246125104018
+parent 8015345852571305201
+path 50 @10936808422054541471-2/glassplasticmat.hamaterial
 
 asset 3154200429867416261
 parent 8015345852571305201
@@ -609,9 +649,17 @@ asset 10901400572429975175
 parent 8015345852571305201
 path 46 @7356666216630384374-13/material_13.hamaterial
 
+asset 11012759191555023174
+parent 8015345852571305201
+path 48 @10936808422054541471-1/rubberwoodmat.hamaterial
+
 asset 11154135374231199016
 parent 8015345852571305201
 path 37 @8717310569931951559-0/red.hamaterial
+
+asset 11218331899606643438
+parent 8015345852571305201
+path 44 @10936808422054541471-5/lensesmat.hamaterial
 
 asset 11326009464697860302
 parent 8015345852571305201
@@ -620,6 +668,10 @@ path 44 @7356666216630384374-6/material_7.hamaterial
 asset 11831481988470774220
 parent 8015345852571305201
 path 44 @7356666216630384374-1/material_3.hamaterial
+
+asset 12643919628368748371
+parent 8015345852571305201
+path 50 @10936808422054541471-4/leatherpartsmat.hamaterial
 
 asset 12999501450642474048
 parent 8015345852571305201
@@ -664,3 +716,7 @@ path 45 @9770807792522373384-3/matcutoff75.hamaterial
 asset 18143047514799041325
 parent 8015345852571305201
 path 46 @7356666216630384374-11/material_12.hamaterial
+
+asset 18193992490959412599
+parent 8015345852571305201
+path 48 @10936808422054541471-3/metalpartsmat.hamaterial

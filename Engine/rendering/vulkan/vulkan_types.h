@@ -143,6 +143,12 @@ struct Vulkan_Descriptor_Pool_Allocator
     Dynamic_Array< VkDescriptorPool > ready_pools;
 };
 
+struct Vulkan_Command_Buffer
+{
+    VkCommandPool pool;
+    VkCommandBuffer handle;
+};
+
 #define HE_MAX_DESCRIPTOR_POOL_SIZE_RATIO_COUNT 16
 
 struct Vulkan_Context

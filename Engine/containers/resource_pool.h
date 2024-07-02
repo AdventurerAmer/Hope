@@ -92,7 +92,12 @@ template< typename T >
 HE_FORCE_INLINE bool is_valid_handle(Resource_Pool< T > *resource_pool, Resource_Handle< T > handle)
 {
     HE_ASSERT(resource_pool);
+    platform_lock_mutex(&resource_pool->mutex);
+
     bool result = handle.index >= 0 && handle.index < (S32)resource_pool->capacity && resource_pool->is_allocated[handle.index] && resource_pool->generations[handle.index] == handle.generation;
+    
+    platform_unlock_mutex(&resource_pool->mutex);
+
     return result;
 }
 

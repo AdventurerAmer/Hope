@@ -106,6 +106,7 @@ enum class Texture_Format
     B8G8R8A8_UNORM,
     R32G32B32A32_SFLOAT,
     R32G32B32_SFLOAT,
+    R16G16B16A16_SFLOAT,
     R32_SINT,
     R32_UINT,
     DEPTH_F32_STENCIL_U8,
@@ -164,7 +165,6 @@ struct Texture_Descriptor
     bool is_attachment = false;
     bool is_cubemap = false;
     bool is_storage = false;
-    Texture_Handle alias = Resource_Pool< Texture >::invalid_handle; 
 };
 
 //
@@ -371,9 +371,9 @@ struct Update_Binding_Descriptor
     U32 element_index;
     U32 count;
 
-    Buffer_Handle *buffers;
-    Texture_Handle *textures;
-    Sampler_Handle *samplers;
+    const Buffer_Handle *buffers;
+    const Texture_Handle *textures;
+    const Sampler_Handle *samplers;
 };
 
 struct Bind_Group_Descriptor
@@ -653,6 +653,14 @@ struct Skybox
     U64 skybox_material_asset;
 };
 
+struct Environment_Map
+{
+    Texture_Handle environment_map;
+    Texture_Handle irradiance_map;
+    Texture_Handle prefilter_map;
+    Texture_Handle brdf_lut;
+};
+
 enum class Light_Type : U8
 {
     DIRECTIONAL,
@@ -764,6 +772,12 @@ struct Shader_Globals
     alignas(4) U32 light_bin_count;
 
     alignas(4) S32 max_node_count;
+
+    alignas(4) U32 irradiance_map;
+    alignas(4) U32 prefilter_map;
+    alignas(4) U32 brdf_lut;
+
+    alignas(4) U32 use_environment_map;
 };
 
 struct Shader_Instance_Data

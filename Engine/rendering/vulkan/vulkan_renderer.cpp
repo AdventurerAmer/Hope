@@ -211,6 +211,34 @@ static VkDescriptorPool create_descriptor_bool(U32 set_count)
     return descriptor_pool;
 }
 
+Vulkan_Descriptor_Pool_Allocator create_descriptor_pool_allocator(U32 initial_set_count)
+{
+    Vulkan_Descriptor_Pool_Allocator allocator = {};
+    allocator.set_count_per_pool = initial_set_count;
+    init(&allocator.ready_pools);
+    init(&allocator.full_pools);
+
+    return allocator;
+}
+
+void destroy_descriptor_pool_allocator(Vulkan_Descriptor_Pool_Allocator *allocator)
+{
+    Vulkan_Context *context = &vulkan_context;
+
+    for (U32 i = 0; i < allocator->ready_pools.count; i++)
+    {
+        vkDestroyDescriptorPool(context->logical_device, allocator->ready_pools[i], &context->allocation_callbacks);
+    }
+
+    for (U32 i = 0; i < allocator->full_pools.count; i++)
+    {
+        vkDestroyDescriptorPool(context->logical_device, allocator->full_pools[i], &context->allocation_callbacks);
+    }
+
+    deinit(&allocator->ready_pools);
+    deinit(&allocator->full_pools);
+}
+
 static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State *renderer_state)
 {
     Memory_Context memory_context = grab_memory_context();
@@ -592,14 +620,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
-        Vulkan_Descriptor_Pool_Allocator *descriptor_pool_allocator = &context->descriptor_pool_allocators[frame_index];
-        descriptor_pool_allocator->set_count_per_pool = 1024;
-        init(&descriptor_pool_allocator->ready_pools);
-        init(&descriptor_pool_allocator->full_pools);
-        VkDescriptorPool descriptor_pool = create_descriptor_bool(descriptor_pool_allocator->set_count_per_pool);
-
-        descriptor_pool_allocator->set_count_per_pool = (U32)(descriptor_pool_allocator->set_count_per_pool * 1.5f);
-        append(&descriptor_pool_allocator->ready_pools, descriptor_pool);
+        context->descriptor_pool_allocators[frame_index] = create_descriptor_pool_allocator(1024);
     }
 
     context->timeline_value = HE_MAX_FRAMES_IN_FLIGHT;
@@ -832,6 +853,21 @@ void vulkan_renderer_begin_frame()
     wait_info.pValues = &wait_value;
     vkWaitSemaphores(context->logical_device, &wait_info, UINT64_MAX);
 
+    VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[frame_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);
+
+    VkCommandBuffer command_buffer = context->graphics_command_buffers[frame_index];
+    vkResetCommandBuffer(command_buffer, 0);
+
+    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    command_buffer_begin_info.flags = 0;
+    command_buffer_begin_info.pInheritanceInfo = 0;
+
+    vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
+
+    context->command_buffer = command_buffer;
+
+    vulkan_renderer_destroy_resources_at_frame((frame_index + 1) % HE_MAX_FRAMES_IN_FLIGHT);
+
     Vulkan_Descriptor_Pool_Allocator *descriptor_pool_allocator = &context->descriptor_pool_allocators[frame_index];
 
     // @Bug(amer): we are getting a memory leak here it seems vkResetDescriptorPool doesn't reset descriptor set handles but allocates a new one.
@@ -864,31 +900,18 @@ void vulkan_renderer_begin_frame()
 
     for (U32 i = 0; i < descriptor_pool_allocator->full_pools.count; i++)
     {
-        vkResetDescriptorPool(context->logical_device, descriptor_pool_allocator->full_pools[i], 0);
+        VkResult result = vkResetDescriptorPool(context->logical_device, descriptor_pool_allocator->full_pools[i], 0);
+        HE_ASSERT(result == VK_SUCCESS);
+
         append(&descriptor_pool_allocator->ready_pools, descriptor_pool_allocator->full_pools[i]);
     }
     
     reset(&descriptor_pool_allocator->full_pools);
 
 #endif
-    
-    VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[frame_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);
-
-    VkCommandBuffer command_buffer = context->graphics_command_buffers[frame_index];
-    vkResetCommandBuffer(command_buffer, 0);
-    
-    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    command_buffer_begin_info.flags = 0;
-    command_buffer_begin_info.pInheritanceInfo = 0;
-
-    vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
-
-    context->command_buffer = command_buffer;
-    
-    vulkan_renderer_destroy_resources_at_frame((frame_index + 1) % HE_MAX_FRAMES_IN_FLIGHT);
 }
 
-void vulkan_renderer_set_viewport(U32 width, U32 height)
+static void internal_set_viewport(VkCommandBuffer command_buffer, U32 width, U32 height)
 {
     Vulkan_Context *context = &vulkan_context;
 
@@ -899,17 +922,23 @@ void vulkan_renderer_set_viewport(U32 width, U32 height)
     viewport.height = (F32)height;
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(context->command_buffer, 0, 1, &viewport);
-    
+    vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+
     VkRect2D scissor = {};
     scissor.offset.x = 0;
     scissor.offset.y = 0;
     scissor.extent.width = width;
     scissor.extent.height = height;
-    vkCmdSetScissor(context->command_buffer, 0, 1, &scissor);
+    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 }
 
-void vulkan_renderer_set_vertex_buffers(const Array_View< Buffer_Handle > &vertex_buffer_handles, const Array_View< U64 > &offsets)
+void vulkan_renderer_set_viewport(U32 width, U32 height)
+{
+    Vulkan_Context *context = &vulkan_context;
+    internal_set_viewport(context->command_buffer, width, height);
+}
+
+static void internal_set_vertex_buffers(VkCommandBuffer command_buffer, const Array_View< Buffer_Handle >& vertex_buffer_handles, const Array_View< U64 >& offsets)
 {
     HE_ASSERT(vertex_buffer_handles.count == offsets.count);
     
@@ -918,7 +947,6 @@ void vulkan_renderer_set_vertex_buffers(const Array_View< Buffer_Handle > &verte
     Vulkan_Context *context = &vulkan_context;
 
     U32 current_frame_in_flight_index = context->renderer_state->current_frame_in_flight_index;
-    VkCommandBuffer command_buffer = context->graphics_command_buffers[current_frame_in_flight_index];
 
     VkBuffer* vulkan_vertex_buffers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkBuffer, offsets.count);
     for (U32 vertex_buffer_index = 0; vertex_buffer_index < offsets.count; vertex_buffer_index++)
@@ -931,23 +959,41 @@ void vulkan_renderer_set_vertex_buffers(const Array_View< Buffer_Handle > &verte
     vkCmdBindVertexBuffers(command_buffer, 0, offsets.count, vulkan_vertex_buffers, offsets.data);
 }
 
-void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 offset)
+void vulkan_renderer_set_vertex_buffers(const Array_View< Buffer_Handle > &vertex_buffer_handles, const Array_View< U64 > &offsets)
+{
+    Vulkan_Context *context = &vulkan_context;
+    internal_set_vertex_buffers(context->command_buffer, vertex_buffer_handles, offsets);
+}
+
+static void internal_set_index_buffer(VkCommandBuffer command_buffer, Buffer_Handle index_buffer_handle, U64 offset)
 {
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Buffer *vulkan_index_buffer = &context->buffers[index_buffer_handle.index];
-    vkCmdBindIndexBuffer(context->command_buffer, vulkan_index_buffer->handle, offset, VK_INDEX_TYPE_UINT16);
+    vkCmdBindIndexBuffer(command_buffer, vulkan_index_buffer->handle, offset, VK_INDEX_TYPE_UINT16);
 }
 
-void vulkan_renderer_set_pipeline_state(Pipeline_State_Handle pipeline_state_handle)
+void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 offset)
+{
+    Vulkan_Context *context = &vulkan_context;
+    internal_set_index_buffer(context->command_buffer, index_buffer_handle, offset);
+}
+
+static void internal_set_pipeline_state(VkCommandBuffer command_buffer, Pipeline_State_Handle pipeline_state_handle)
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
 
     Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[pipeline_state_handle.index];
-    vkCmdBindPipeline(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_pipeline_state->handle);
+    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_pipeline_state->handle);
 }
 
-void vulkan_renderer_draw_sub_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index)
+void vulkan_renderer_set_pipeline_state(Pipeline_State_Handle pipeline_state_handle)
+{
+    Vulkan_Context *context = &vulkan_context;
+    internal_set_pipeline_state(context->command_buffer, pipeline_state_handle);
+}
+
+static void internal_draw_sub_mesh(VkCommandBuffer command_buffer, Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index)
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
@@ -958,13 +1004,25 @@ void vulkan_renderer_draw_sub_mesh(Static_Mesh_Handle static_mesh_handle, U32 fi
     U32 instance_count = 1;
     S32 first_vertex = sub_mesh->vertex_offset;
     U32 first_index = sub_mesh->index_offset;
-    vkCmdDrawIndexed(context->command_buffer, sub_mesh->index_count, instance_count, first_index, first_vertex, first_instance);
+    vkCmdDrawIndexed(command_buffer, sub_mesh->index_count, instance_count, first_index, first_vertex, first_instance);
+}
+
+void vulkan_renderer_draw_sub_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index)
+{
+    Vulkan_Context *context = &vulkan_context;
+    internal_draw_sub_mesh(context->command_buffer, static_mesh_handle, first_instance, sub_mesh_index);
+}
+
+static void internal_draw_fullscreen_triangle(VkCommandBuffer command_buffer)
+{
+    Vulkan_Context *context = &vulkan_context;
+    vkCmdDraw(command_buffer, 3, 1, 0, 0);
 }
 
 void vulkan_renderer_draw_fullscreen_triangle()
 {
     Vulkan_Context *context = &vulkan_context;
-    vkCmdDraw(context->command_buffer, 3, 1, 0, 0);
+    internal_draw_fullscreen_triangle(context->command_buffer);
 }
 
 void vulkan_renderer_fill_buffer(Buffer_Handle buffer_handle, U32 value)
@@ -1119,20 +1177,20 @@ void vulkan_renderer_end_frame()
 
     region.extent = { context->swapchain.width, context->swapchain.height, 1 };
     
-    transtion_image_to_layout(context->command_buffer, swapchain_image, 1, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    transtion_image_to_layout(context->command_buffer, swapchain_image, 0, 1, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     Texture_Handle presentable_attachment = get_presentable_attachment(&renderer_state->render_graph, renderer_state);
     Vulkan_Image *vulkan_presentable_attachment = &context->textures[presentable_attachment.index];
     
-    transtion_image_to_layout(context->command_buffer, vulkan_presentable_attachment->handle, 1, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transtion_image_to_layout(context->command_buffer, vulkan_presentable_attachment->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
     vkCmdCopyImage(context->command_buffer, vulkan_presentable_attachment->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    transtion_image_to_layout(context->command_buffer, swapchain_image, 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-    transtion_image_to_layout(context->command_buffer, vulkan_presentable_attachment->handle, 1, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    transtion_image_to_layout(context->command_buffer, swapchain_image, 0, 1, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    transtion_image_to_layout(context->command_buffer, vulkan_presentable_attachment->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     Texture_Handle scene_texture = get_texture_resource(&renderer_state->render_graph, renderer_state, HE_STRING_LITERAL("scene"));
 
     Vulkan_Image *scene_image = &context->textures[scene_texture.index];
-    transtion_image_to_layout(context->command_buffer, scene_image->handle, 1, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transtion_image_to_layout(context->command_buffer, scene_image->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
     Buffer_Handle scene_buffer = renderer_state->render_data.scene_buffers[renderer_state->current_frame_in_flight_index];
     Vulkan_Buffer *vulkan_scene_buffer = &context->buffers[scene_buffer.index];
@@ -1157,7 +1215,7 @@ void vulkan_renderer_end_frame()
     };
 
     vkCmdCopyImageToBuffer(context->command_buffer, scene_image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vulkan_scene_buffer->handle, 1, &buffer_image_copy);
-    transtion_image_to_layout(context->command_buffer, scene_image->handle, 1, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    transtion_image_to_layout(context->command_buffer, scene_image->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
     vkEndCommandBuffer(context->command_buffer);
 
@@ -1337,34 +1395,9 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     }
     else if (descriptor.is_storage)
     {
-        Vulkan_Thread_State *thread_state = get_thread_state(context);
-
-        VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-        command_buffer_allocate_info.commandPool = thread_state->graphics_command_pool;
-        command_buffer_allocate_info.commandBufferCount = 1;
-        command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-
-        VkCommandBuffer command_buffer = {};
-        vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
-        vkResetCommandBuffer(command_buffer, 0);
-
-        VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-        command_buffer_begin_info.flags = 0;
-        command_buffer_begin_info.pInheritanceInfo = 0;
-
-        vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
-        transtion_image_to_layout(command_buffer, image->handle, mip_levels, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-        vkEndCommandBuffer(command_buffer);
-
-        VkCommandBufferSubmitInfo command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
-        command_buffer_submit_info.commandBuffer = command_buffer;
-
-        VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
-        submit_info.commandBufferInfoCount = 1;
-        submit_info.pCommandBufferInfos = &command_buffer_submit_info;
-
-        context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-        vkQueueWaitIdle(context->graphics_queue);
+        Vulkan_Command_Buffer command_buffer = begin_one_use_command_buffer(context);
+        transtion_image_to_layout(command_buffer.handle, image->handle, 0, mip_levels, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        end_one_use_command_buffer(context, &command_buffer);
     }
     
     texture->size = image->allocation_info.size;
@@ -1612,19 +1645,20 @@ static VkDescriptorSet allocate_descriptor_set(Vulkan_Descriptor_Pool_Allocator 
     return descriptor_set;
 }
 
-void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors)
+void internal_update_bind_group(Vulkan_Descriptor_Pool_Allocator *allocator, Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors)
 {
     Vulkan_Context *context = &vulkan_context;
+    U32 frame_index = context->renderer_state->current_frame_in_flight_index;
+
     Memory_Context memory_context = grab_memory_context();
 
     Bind_Group *bind_group = renderer_get_bind_group(bind_group_handle);
     Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[bind_group_handle.index];
     Vulkan_Shader *vulkan_shader = &context->shaders[bind_group->shader.index];
 
-    U32 frame_index = context->renderer_state->current_frame_in_flight_index;
-    vulkan_bind_group->handle = allocate_descriptor_set(&context->descriptor_pool_allocators[frame_index], vulkan_shader->descriptor_set_layouts[bind_group->group_index]);
+    vulkan_bind_group->handle = allocate_descriptor_set(allocator, vulkan_shader->descriptor_set_layouts[bind_group->group_index]);
     HE_ASSERT(vulkan_bind_group->handle != VK_NULL_HANDLE);
-    
+
     VkWriteDescriptorSet *write_descriptor_sets = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkWriteDescriptorSet, update_binding_descriptors.count);
 
     for (U32 binding_index = 0; binding_index < update_binding_descriptors.count; binding_index++)
@@ -1704,7 +1738,14 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
     vkUpdateDescriptorSets(context->logical_device, update_binding_descriptors.count, write_descriptor_sets, 0, nullptr);
 }
 
-void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bind_Group_Handle > &bind_group_handles)
+void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, const Array_View< Update_Binding_Descriptor > &update_binding_descriptors)
+{
+    Vulkan_Context *context = &vulkan_context;
+    U32 frame_index = context->renderer_state->current_frame_in_flight_index;
+    internal_update_bind_group(&context->descriptor_pool_allocators[frame_index], bind_group_handle, update_binding_descriptors);
+}
+
+static void internal_set_bind_groups(VkCommandBuffer command_buffer, U32 first_bind_group, const Array_View< Bind_Group_Handle >& bind_group_handles)
 {
     Vulkan_Context *context = &vulkan_context;
     Memory_Context memory_context = grab_memory_context();
@@ -1720,7 +1761,13 @@ void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bin
         descriptor_sets[bind_group_index] = vulkan_bind_group->handle;
     }
       
-    vkCmdBindDescriptorSets(context->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_shader->pipeline_layout, first_bind_group, bind_group_handles.count, descriptor_sets, 0, nullptr);
+    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_shader->pipeline_layout, first_bind_group, bind_group_handles.count, descriptor_sets, 0, nullptr);
+}
+
+void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bind_Group_Handle > &bind_group_handles)
+{
+    Vulkan_Context *context = &vulkan_context;
+    internal_set_bind_groups(context->command_buffer, first_bind_group, bind_group_handles);
 }
 
 bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor)
@@ -2287,6 +2334,497 @@ void vulkan_renderer_set_vsync(bool enabled)
     }
 
     recreate_swapchain(context, &context->swapchain, renderer_state->back_buffer_width, renderer_state->back_buffer_height, present_mode);
+}
+
+struct Cubemap_Face_Render_Info
+{
+    VkImageView *image_views;
+    VkFramebuffer *frame_buffers;
+};
+
+Array<Cubemap_Face_Render_Info, 6> create_cubemap_face_info_array(Texture *texture, Vulkan_Image *image, Vulkan_Render_Pass *render_pass, U32 mip_levels, Allocator allocator)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Array<Cubemap_Face_Render_Info, 6> faces = {};
+
+    for (U32 face_index = 0; face_index < 6; face_index++)
+    {
+        Cubemap_Face_Render_Info *face_info = &faces[face_index];
+        face_info->image_views = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, VkImageView, mip_levels);
+        face_info->frame_buffers = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, VkFramebuffer, mip_levels);
+
+        U32 width = texture->width;
+        U32 height = texture->height;
+
+        for (U32 mip_index = 0; mip_index < mip_levels; mip_index++)
+        {
+            VkImageViewCreateInfo image_view_create_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+            image_view_create_info.image = image->handle;
+            image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            image_view_create_info.format = get_texture_format(texture->format);
+            image_view_create_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+            image_view_create_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+            image_view_create_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+            image_view_create_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+            image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            image_view_create_info.subresourceRange.baseMipLevel = mip_index;
+            image_view_create_info.subresourceRange.levelCount = 1;
+            image_view_create_info.subresourceRange.baseArrayLayer = face_index;
+            image_view_create_info.subresourceRange.layerCount = 1;
+
+            HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, &context->allocation_callbacks, &face_info->image_views[mip_index]));
+
+            VkFramebufferCreateInfo frame_buffer_create_info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+            frame_buffer_create_info.width = width;
+            frame_buffer_create_info.height = height;
+            frame_buffer_create_info.layers = 1;
+            frame_buffer_create_info.attachmentCount = 1;
+            frame_buffer_create_info.pAttachments = &face_info->image_views[mip_index];
+            frame_buffer_create_info.renderPass = render_pass->handle;
+
+            HE_CHECK_VKRESULT(vkCreateFramebuffer(context->logical_device, &frame_buffer_create_info, &context->allocation_callbacks, &face_info->frame_buffers[mip_index]));
+
+            width /= 2;
+            height /= 2;
+        }
+    }
+
+    return faces;
+}
+
+void free_cubemap_face_info_array(Array<Cubemap_Face_Render_Info, 6> face_infos, U32 mip_levels)
+{
+    Vulkan_Context *context = &vulkan_context;
+
+    for (U32 face_index = 0; face_index < 6; face_index++)
+    {
+        Cubemap_Face_Render_Info *face_info = &face_infos[face_index];
+        for (U32 mip_index = 0; mip_index < mip_levels; mip_index++)
+        {
+            vkDestroyImageView(context->logical_device, face_info->image_views[mip_index], &context->allocation_callbacks);
+            vkDestroyFramebuffer(context->logical_device, face_info->frame_buffers[mip_index], &context->allocation_callbacks);
+        }
+    }
+}
+
+void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &render_data)
+{
+    Memory_Context memory_context = grab_memory_context();
+
+    Vulkan_Context *context = &vulkan_context;
+    Renderer_State *renderer_state = context->renderer_state;
+
+    Texture *hdr = renderer_get_texture(render_data.hdr_handle);
+    Texture *hdr_cubemap = renderer_get_texture(render_data.hdr_cubemap_handle);
+    Texture *irradiance_cubemap = renderer_get_texture(render_data.irradiance_cubemap_handle);
+    Texture *prefilter_cubemap = renderer_get_texture(render_data.prefilter_cubemap_handle);
+    Texture *brdf_lut_texture = renderer_get_texture(render_data.brdf_lut_texture_handle);
+
+    Vulkan_Image *vulkan_hdr = &context->textures[render_data.hdr_handle.index];
+    Vulkan_Image *vulkan_hdr_cubemap = &context->textures[render_data.hdr_cubemap_handle.index];
+    Vulkan_Image *vulkan_irradiance_cubemap = &context->textures[render_data.irradiance_cubemap_handle.index];
+    Vulkan_Image *vulkan_prefilter_cubemap = &context->textures[render_data.prefilter_cubemap_handle.index];
+    Vulkan_Image *vulkan_brdf_lut_texture = &context->textures[render_data.brdf_lut_texture_handle.index];
+
+    Vulkan_Shader *hdr_shader = &context->shaders[render_data.hdr_shader.index];
+    Vulkan_Shader *irradiance_shader = &context->shaders[render_data.irradiance_shader.index];
+    Vulkan_Shader *prefilter_shader = &context->shaders[render_data.prefilter_shader.index];
+    Vulkan_Shader *brdf_lut_shader = &context->shaders[render_data.brdf_lut_shader.index];
+
+    Vulkan_Render_Pass *cubemap_render_pass = &context->render_passes[render_data.cubemap_render_pass.index];
+
+    Array<Cubemap_Face_Render_Info, 6> hdr_cubemap_faces = create_cubemap_face_info_array(hdr_cubemap, vulkan_hdr_cubemap, cubemap_render_pass, 1, memory_context.temp_allocator);
+
+    Array<Cubemap_Face_Render_Info, 6> irrdiance_cubemap_faces = create_cubemap_face_info_array(irradiance_cubemap, vulkan_irradiance_cubemap, cubemap_render_pass, 1, memory_context.temp_allocator);
+
+    const U32 prefileter_map_mip_levels = prefilter_cubemap->mip_levels;
+
+    Array<Cubemap_Face_Render_Info, 6> prefilter_cubemap_faces = create_cubemap_face_info_array(prefilter_cubemap, vulkan_prefilter_cubemap, cubemap_render_pass, prefileter_map_mip_levels, memory_context.temp_allocator);
+
+    VkFramebufferCreateInfo brdf_lut_frame_buffer_create_info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+    brdf_lut_frame_buffer_create_info.renderPass = cubemap_render_pass->handle;
+    brdf_lut_frame_buffer_create_info.attachmentCount = 1;
+    brdf_lut_frame_buffer_create_info.pAttachments = &vulkan_brdf_lut_texture->view;
+    brdf_lut_frame_buffer_create_info.width = brdf_lut_texture->width;
+    brdf_lut_frame_buffer_create_info.height = brdf_lut_texture->height;
+    brdf_lut_frame_buffer_create_info.layers = 1;
+
+    VkFramebuffer brdf_lut_frame_buffer = {};
+    HE_CHECK_VKRESULT(vkCreateFramebuffer(context->logical_device, &brdf_lut_frame_buffer_create_info, &context->allocation_callbacks, &brdf_lut_frame_buffer));
+
+    Vulkan_Descriptor_Pool_Allocator descriptor_pool_allocator = create_descriptor_pool_allocator(16);
+
+    Bind_Group_Descriptor hdr_bind_group_descriptor =
+    {
+        .shader = render_data.hdr_shader,
+        .group_index = 0,
+    };
+
+    Bind_Group_Handle hdr_bind_group_handle = renderer_create_bind_group(hdr_bind_group_descriptor);
+    HE_ASSERT(is_valid_handle(&renderer_state->bind_groups, hdr_bind_group_handle));
+
+    {
+        Update_Binding_Descriptor update_bindings[] =
+        {
+            {
+                .binding_number = 0,
+                .element_index = 0,
+                .count = 1,
+                .textures = &render_data.hdr_handle,
+                .samplers = &renderer_state->default_texture_sampler
+            }
+        };
+
+        internal_update_bind_group(&descriptor_pool_allocator, hdr_bind_group_handle, to_array_view(update_bindings));
+    }
+
+    Bind_Group_Descriptor irradiance_bind_group_descriptor =
+    {
+        .shader = render_data.irradiance_shader,
+        .group_index = 0,
+    };
+
+    Bind_Group_Handle irradiance_bind_group_handle = renderer_create_bind_group(irradiance_bind_group_descriptor);
+    HE_ASSERT(is_valid_handle(&renderer_state->bind_groups, irradiance_bind_group_handle));
+
+    Buffer *globals_uniform_buffer = renderer_get_buffer(render_data.globals_uniform_buffer);
+    glm::mat4 *projection = (glm::mat4 *)globals_uniform_buffer->data;
+    *projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+
+    {
+        Update_Binding_Descriptor update_bindings[] =
+        {
+            {
+                .binding_number = 0,
+                .element_index = 0,
+                .count = 1,
+                .buffers = &render_data.globals_uniform_buffer
+            },
+            {
+                .binding_number = 1,
+                .element_index = 0,
+                .count = 1,
+                .textures = &render_data.hdr_cubemap_handle,
+                .samplers = &renderer_state->default_cubemap_sampler
+            }
+        };
+
+        internal_update_bind_group(&descriptor_pool_allocator, irradiance_bind_group_handle, to_array_view(update_bindings));
+    }
+
+    Bind_Group_Descriptor prefilter_bind_group_descriptor =
+    {
+        .shader = render_data.prefilter_shader,
+        .group_index = 0,
+    };
+
+    Bind_Group_Handle prefilter_bind_group_handle = renderer_create_bind_group(prefilter_bind_group_descriptor);
+    HE_ASSERT(is_valid_handle(&renderer_state->bind_groups, prefilter_bind_group_handle));
+
+    {
+        Update_Binding_Descriptor update_bindings[] =
+        {
+            {
+                .binding_number = 0,
+                .element_index = 0,
+                .count = 1,
+                .buffers = &render_data.globals_uniform_buffer
+            },
+            {
+                .binding_number = 1,
+                .element_index = 0,
+                .count = 1,
+                .textures = &render_data.hdr_cubemap_handle,
+                .samplers = &renderer_state->default_cubemap_sampler
+            }
+        };
+
+        internal_update_bind_group(&descriptor_pool_allocator, prefilter_bind_group_handle, to_array_view(update_bindings));
+    }
+
+    Static_Mesh_Handle cube_mesh_handle = renderer_state->default_static_mesh;
+    Static_Mesh *cube_mesh = renderer_get_static_mesh(cube_mesh_handle);
+
+    Vulkan_Command_Buffer command_buffer = begin_one_use_command_buffer(context);
+
+    // hdr pass
+    transtion_image_to_layout(command_buffer.handle, vulkan_hdr_cubemap->handle, 0, 1, 0, 6, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    for (U32 face_index = 0; face_index < 6; face_index++)
+    {
+        VkClearValue clear_value = { .color = { 1.0f, 0.0f, 0.0f, 1.0f } };
+
+        VkRenderPassBeginInfo begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+        begin_info.framebuffer = hdr_cubemap_faces[face_index].frame_buffers[0]; // hdr_frame_buffers[face_index];
+        begin_info.renderArea = { .offset = { 0, 0 }, .extent { hdr_cubemap->width, hdr_cubemap->height } };
+        begin_info.clearValueCount = 1;
+        begin_info.pClearValues = &clear_value;
+        begin_info.renderPass = cubemap_render_pass->handle;
+        vkCmdBeginRenderPass(command_buffer.handle, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+
+        internal_set_viewport(command_buffer.handle, hdr_cubemap->width, hdr_cubemap->height);
+        internal_set_bind_groups(command_buffer.handle, 0, { .count = 1, .data = &hdr_bind_group_handle });
+        internal_set_pipeline_state(command_buffer.handle, render_data.hdr_pipeline_state_handle);
+
+        Buffer_Handle buffers[] = { cube_mesh->positions_buffer };
+        U64 offsets[] = { 0 };
+        internal_set_vertex_buffers(command_buffer.handle, to_array_view(buffers), to_array_view(offsets));
+        internal_set_index_buffer(command_buffer.handle, cube_mesh->indices_buffer, 0);
+
+        glm::mat4 projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+        projection[1][1] *= -1;
+
+        glm::mat4 views[] =
+        {
+            // POSITIVE_X
+            glm::rotate(glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)), glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // NEGATIVE_X
+            glm::rotate(glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f)), glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // POSITIVE_Y
+            glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // NEGATIVE_Y
+            glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // POSITIVE_Z
+            glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // NEGATIVE_Z
+            glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+        };
+
+        struct Push_Constants
+        {
+            glm::mat4 view;
+            alignas(16) glm::mat4 projection;
+        };
+        static_assert(sizeof(Push_Constants) <= 128);
+
+        Push_Constants constants =
+        {
+            .view = views[face_index],
+            .projection = projection,
+        };
+
+        vkCmdPushConstants(command_buffer.handle, hdr_shader->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Push_Constants), &constants);
+
+        internal_draw_sub_mesh(command_buffer.handle, cube_mesh_handle, 0, 0);
+
+        vkCmdEndRenderPass(command_buffer.handle);
+    }
+
+    // wait for hdr pass to finish
+    vkCmdPipelineBarrier(command_buffer.handle, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 0, nullptr);
+
+    transtion_image_to_layout(command_buffer.handle, vulkan_hdr_cubemap->handle, 0, 1, 0, 6, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    for (U32 face_index = 0; face_index < 6; face_index++)
+    {
+        U32 width = hdr_cubemap->width;
+        U32 height = hdr_cubemap->height;
+
+        for (U32 mip_index = 1; mip_index < hdr_cubemap->mip_levels; mip_index++)
+        {
+            transtion_image_to_layout(command_buffer.handle, vulkan_hdr_cubemap->handle, mip_index, 1, face_index, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+            VkImageBlit blit = {};
+            blit.srcOffsets[0] = { 0, 0, 0 };
+            blit.srcOffsets[1] = { (S32)width, (S32)height, 1 };
+            blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.srcSubresource.mipLevel = mip_index - 1;
+            blit.srcSubresource.baseArrayLayer = face_index;
+            blit.srcSubresource.layerCount = 1;
+
+            width /= 2;
+            height /= 2;
+
+            blit.dstOffsets[0] = { 0, 0, 0 };
+            blit.dstOffsets[1] = { (S32)width, (S32)height, 1 };
+            blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.dstSubresource.mipLevel = mip_index;
+            blit.dstSubresource.baseArrayLayer = face_index;
+            blit.dstSubresource.layerCount = 1;
+
+            vkCmdBlitImage(command_buffer.handle, vulkan_hdr_cubemap->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vulkan_hdr_cubemap->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+            transtion_image_to_layout(command_buffer.handle, vulkan_hdr_cubemap->handle, mip_index, 1, face_index, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        }
+    }
+
+    transtion_image_to_layout(command_buffer.handle, vulkan_hdr_cubemap->handle, 0, hdr->mip_levels, 0, 6, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    transtion_image_to_layout(command_buffer.handle, vulkan_irradiance_cubemap->handle, 0, 1, 0, 6, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    transtion_image_to_layout(command_buffer.handle, vulkan_prefilter_cubemap->handle, 0, prefileter_map_mip_levels, 0, 6, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    transtion_image_to_layout(command_buffer.handle, vulkan_brdf_lut_texture->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    // irradiance pass
+    for (U32 face_index = 0; face_index < 6; face_index++)
+    {
+        VkClearValue clear_value = { .color = { 1.0f, 0.0f, 0.0f, 1.0f } };
+
+        VkRenderPassBeginInfo begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+        begin_info.framebuffer = irrdiance_cubemap_faces[face_index].frame_buffers[0];
+        begin_info.renderArea = { .offset = { 0, 0 }, .extent { irradiance_cubemap->width, irradiance_cubemap->height } };
+        begin_info.clearValueCount = 1;
+        begin_info.pClearValues = &clear_value;
+        begin_info.renderPass = cubemap_render_pass->handle;
+        vkCmdBeginRenderPass(command_buffer.handle, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+
+        internal_set_viewport(command_buffer.handle, irradiance_cubemap->width, irradiance_cubemap->height);
+        internal_set_bind_groups(command_buffer.handle, 0, { .count = 1, .data = &irradiance_bind_group_handle });
+        internal_set_pipeline_state(command_buffer.handle, render_data.irradiance_pipeline_state_handle);
+
+        Buffer_Handle buffers[] = { cube_mesh->positions_buffer };
+        U64 offsets[] = { 0 };
+        internal_set_vertex_buffers(command_buffer.handle, to_array_view(buffers), to_array_view(offsets));
+        internal_set_index_buffer(command_buffer.handle, cube_mesh->indices_buffer, 0);
+
+        struct Push_Constants
+        {
+            glm::mat4 view;
+        };
+        static_assert(sizeof(Push_Constants) <= 128);
+
+        glm::mat4 views[] =
+        {
+            // POSITIVE_X
+            glm::rotate(glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)), glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // NEGATIVE_X
+            glm::rotate(glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f)), glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // POSITIVE_Y
+            glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // NEGATIVE_Y
+            glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // POSITIVE_Z
+            glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // NEGATIVE_Z
+            glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+        };
+
+        Push_Constants constants =
+        {
+            .view = views[face_index],
+        };
+
+        vkCmdPushConstants(command_buffer.handle, irradiance_shader->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Push_Constants), &constants);
+
+        internal_draw_sub_mesh(command_buffer.handle, cube_mesh_handle, 0, 0);
+
+        vkCmdEndRenderPass(command_buffer.handle);
+    }
+
+    // prefilter pass
+
+    for (U32 face_index = 0; face_index < 6; face_index++)
+    {
+        Cubemap_Face_Render_Info *face_info = &prefilter_cubemap_faces[face_index];
+
+        glm::mat4 views[] =
+        {
+            // POSITIVE_X
+            glm::rotate(glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)), glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // NEGATIVE_X
+            glm::rotate(glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f)), glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // POSITIVE_Y
+            glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // NEGATIVE_Y
+            glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // POSITIVE_Z
+            glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+            // NEGATIVE_Z
+            glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+        };
+
+        U32 width = prefilter_cubemap->width;
+        U32 height = prefilter_cubemap->height;
+
+        for (U32 mip_index = 0; mip_index < prefileter_map_mip_levels; mip_index++)
+        {
+            VkClearValue clear_value = { .color = { 1.0f, 0.0f, 0.0f, 1.0f } };
+
+            VkRenderPassBeginInfo begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+            begin_info.framebuffer = face_info->frame_buffers[mip_index];
+            begin_info.renderArea = { .offset = { 0, 0 }, .extent { width, height } };
+            begin_info.clearValueCount = 1;
+            begin_info.pClearValues = &clear_value;
+            begin_info.renderPass = cubemap_render_pass->handle;
+            vkCmdBeginRenderPass(command_buffer.handle, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+
+            internal_set_viewport(command_buffer.handle, width, height);
+            internal_set_bind_groups(command_buffer.handle, 0, { .count = 1, .data = &prefilter_bind_group_handle });
+            internal_set_pipeline_state(command_buffer.handle, render_data.prefilter_pipeline_state_handle);
+
+            Buffer_Handle buffers[] = { cube_mesh->positions_buffer };
+            U64 offsets[] = { 0 };
+            internal_set_vertex_buffers(command_buffer.handle, to_array_view(buffers), to_array_view(offsets));
+            internal_set_index_buffer(command_buffer.handle, cube_mesh->indices_buffer, 0);
+
+            struct Push_Constants
+            {
+                F32 roughness;
+                alignas(16) glm::mat4 view;
+            };
+            static_assert(sizeof(Push_Constants) <= 128);
+
+            Push_Constants constants =
+            {
+                .roughness = (F32)mip_index / F32(prefileter_map_mip_levels - 1),
+                .view = views[face_index],
+            };
+
+            vkCmdPushConstants(command_buffer.handle, prefilter_shader->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push_Constants), &constants);
+
+            internal_draw_sub_mesh(command_buffer.handle, cube_mesh_handle, 0, 0);
+
+            vkCmdEndRenderPass(command_buffer.handle);
+
+            width /= 2;
+            height /= 2;
+        }
+    }
+
+    // brdf pass
+    VkClearValue clear_value = { .color = { 1.0f, 0.0f, 0.0f, 1.0f } };
+
+    VkRenderPassBeginInfo begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+    begin_info.framebuffer = brdf_lut_frame_buffer;
+    begin_info.renderArea = { .offset = { 0, 0 }, .extent { brdf_lut_texture->width, brdf_lut_texture->height } };
+    begin_info.clearValueCount = 1;
+    begin_info.pClearValues = &clear_value;
+    begin_info.renderPass = cubemap_render_pass->handle;
+    vkCmdBeginRenderPass(command_buffer.handle, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+
+    internal_set_viewport(command_buffer.handle, brdf_lut_texture->width, brdf_lut_texture->height);
+    internal_set_pipeline_state(command_buffer.handle, render_data.brdf_lut_pipeline_state_handle);
+    internal_draw_fullscreen_triangle(command_buffer.handle);
+
+    vkCmdEndRenderPass(command_buffer.handle);
+
+    transtion_image_to_layout(command_buffer.handle, vulkan_irradiance_cubemap->handle, 0, 1, 0, 6, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    transtion_image_to_layout(command_buffer.handle, vulkan_prefilter_cubemap->handle, 0, prefileter_map_mip_levels, 0, 6, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    transtion_image_to_layout(command_buffer.handle, vulkan_brdf_lut_texture->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    end_one_use_command_buffer(context, &command_buffer);
+
+    destroy_descriptor_pool_allocator(&descriptor_pool_allocator);
+
+    free_cubemap_face_info_array(hdr_cubemap_faces, 1);
+    free_cubemap_face_info_array(irrdiance_cubemap_faces, 1);
+    free_cubemap_face_info_array(prefilter_cubemap_faces, prefileter_map_mip_levels);
+
+    vkDestroyFramebuffer(context->logical_device, brdf_lut_frame_buffer, &context->allocation_callbacks);
+
+    hdr_cubemap->is_attachment = false;
+    hdr_cubemap->state = Resource_State::SHADER_READ_ONLY;
+
+    irradiance_cubemap->is_attachment = false;
+    irradiance_cubemap->state = Resource_State::SHADER_READ_ONLY;
+
+    prefilter_cubemap->is_attachment = false;
+    prefilter_cubemap->state = Resource_State::SHADER_READ_ONLY;
+
+    brdf_lut_texture->is_attachment = false;
+    brdf_lut_texture->state = Resource_State::SHADER_READ_ONLY;
+
+    // vulkan_renderer_imgui_add_texture(render_data.brdf_lut_texture_handle);
 }
 
 bool vulkan_renderer_init_imgui()

@@ -535,7 +535,6 @@ void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *rend
         }
 
         Frame_Buffer *frame_buffer = renderer_get_frame_buffer(node.frame_buffers[frame_index]);
-        renderer->set_viewport(frame_buffer->width, frame_buffer->height);
 
         if (node.before_render)
         {
@@ -543,6 +542,7 @@ void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *rend
         }
 
         renderer->begin_render_pass(node.render_pass, node.frame_buffers[frame_index], to_array_view(node.clear_values));
+        renderer->set_viewport(frame_buffer->width, frame_buffer->height);
         node.render(renderer, renderer_state);
         renderer->end_render_pass(node.render_pass);
     }

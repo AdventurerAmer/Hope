@@ -188,6 +188,7 @@ struct Renderer_State
 
     Texture_Handle white_pixel_texture;
     Texture_Handle normal_pixel_texture;
+    Texture_Handle default_cubemap;
 
     Sampler_Handle default_texture_sampler;
     Sampler_Handle default_cubemap_sampler;
@@ -244,6 +245,8 @@ void renderer_destroy_buffer(Buffer_Handle &buffer_handle);
 Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor);
 Texture* renderer_get_texture(Texture_Handle texture_handle);
 void renderer_destroy_texture(Texture_Handle &texture_handle);
+
+Environment_Map renderer_hdr_to_environment_map(Texture_Handle hdr_texture);
 
 //
 // Samplers
@@ -377,7 +380,7 @@ void renderer_handle_upload_requests();
 
 Render_Context get_render_context();
 
-void begin_rendering(const Camera *camera = nullptr);
+void begin_rendering(const Camera *camera);
 void render_scene(Scene_Handle scene_handle);
 void end_rendering();
 

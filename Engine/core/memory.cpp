@@ -27,9 +27,16 @@ struct Memory_System
     U64 thread_arena_capacity;
 
     Memory_Arena permenent_arena;
+    Allocator permenent_allocator;
+
     Memory_Arena frame_arena;
+    Allocator frame_allocator;
+
     Memory_Arena debug_arena;
-    Free_List_Allocator general_purpose_allocator;
+    Allocator debug_allocator;
+
+    Free_List_Allocator general_free_list_allocator;
+    Allocator general_allocator;
 
     Hash_Map< U32, Thread_Memory_State > thread_id_to_memory_state;
 };
@@ -38,7 +45,7 @@ static Memory_System memory_system_state;
 
 bool init_memory_system()
 {
-    memory_system_state.thread_arena_capacity = HE_MEGA_BYTES(64);
+    memory_system_state.thread_arena_capacity = HE_MEGA_BYTES(128);
     U64 capacity = platform_get_total_memory_size();
 
     if (!init_memory_arena(&memory_system_state.permenent_arena, capacity, HE_MEGA_BYTES(64)))
@@ -46,20 +53,28 @@ bool init_memory_system()
         return false;
     }
 
+    memory_system_state.permenent_allocator = to_allocator(&memory_system_state.permenent_arena);
+
     if (!init_memory_arena(&memory_system_state.frame_arena, capacity, HE_MEGA_BYTES(64)))
     {
         return false;
     }
+
+    memory_system_state.frame_allocator = to_allocator(&memory_system_state.frame_arena);
 
     if (!init_memory_arena(&memory_system_state.debug_arena, capacity, HE_MEGA_BYTES(64)))
     {
         return false;
     }
 
-    if (!init_free_list_allocator(&memory_system_state.general_purpose_allocator, nullptr, capacity, HE_MEGA_BYTES(512), "general_purpose_allocator"))
+    memory_system_state.debug_allocator = to_allocator(&memory_system_state.debug_arena);
+
+    if (!init_free_list_allocator(&memory_system_state.general_free_list_allocator, nullptr, capacity, HE_MEGA_BYTES(512), "general_free_list_allocator"))
     {
         return false;
     }
+
+    memory_system_state.general_allocator = to_allocator(&memory_system_state.general_free_list_allocator);
 
     init(&memory_system_state.thread_id_to_memory_state, get_effective_thread_count(), to_allocator(&memory_system_state.permenent_arena));
 
@@ -136,9 +151,9 @@ Memory_Context grab_memory_context()
 
     return
     {
-        .permenent_allocator = to_allocator(&memory_system_state.permenent_arena),
-        .general_allocator   = to_allocator(&memory_system_state.general_purpose_allocator),
-        .frame_allocator     = to_allocator(&memory_system_state.frame_arena),
+        .permenent_allocator = memory_system_state.permenent_allocator,
+        .general_allocator   = memory_system_state.general_allocator,
+        .frame_allocator     = memory_system_state.frame_allocator,
         .temprary_memory     = begin_temprary_memory(arena),
         .temp_allocator      = to_allocator(arena),
         .dropped             = false

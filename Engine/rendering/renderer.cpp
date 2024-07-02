@@ -1,6 +1,7 @@
 #include "rendering/renderer.h"
 #include "rendering/renderer_utils.h"
 #include "rendering/render_passes.h"
+#include "rendering/renderer_types.h"
 
 #include "core/platform.h"
 #include "core/cvars.h"
@@ -200,7 +201,7 @@ bool init_renderer_state(Engine *engine)
 
     Buffer_Descriptor transfer_buffer_descriptor =
     {
-        .size = HE_MEGA_BYTES(512),
+        .size = HE_GIGA_BYTES(1),
         .usage = Buffer_Usage::TRANSFER
     };
     renderer_state->transfer_buffer = renderer_create_buffer(transfer_buffer_descriptor);
@@ -257,6 +258,32 @@ bool init_renderer_state(Engine *engine)
         };
 
         renderer_state->normal_pixel_texture = renderer_create_texture(normal_pixel_descriptor);
+    }
+
+    {
+        U32 white_pixel_data = 0xFFFFFFFF;
+        void *data_array[6] = {};
+
+        for (U32 i = 0; i < 6; i++)
+        {
+            U32 *pixel = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
+            *pixel = white_pixel_data;
+            data_array[i] = (void *)pixel;
+        }
+
+        Texture_Descriptor cubemap_descriptor =
+        {
+            .name = HE_STRING_LITERAL("default_cubemap"),
+            .width = 1,
+            .height = 1,
+            .format = Texture_Format::R8G8B8A8_UNORM,
+            .layer_count = 6,
+            .data_array = to_array_view(data_array),
+            .mipmapping = false,
+            .is_cubemap = true
+        };
+
+        renderer_state->default_cubemap = renderer_create_texture(cubemap_descriptor);
     }
 
     {
@@ -350,14 +377,12 @@ bool init_renderer_state(Engine *engine)
         .mag_filter = Filter::LINEAR,
         .mip_filter = Filter::LINEAR,
 
-        .anisotropy = 1
+        .anisotropy = 0
     };
 
     renderer_state->default_cubemap_sampler = renderer_create_sampler(default_cubemap_sampler_descriptor);
 
     {
-        // Allocator allocator = to_allocator(scratch_memory.arena);
-
         Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/default.glsl"), memory_context.temp_allocator);
         String default_shader_source = { .count = result.size, .data = (const char *)result.data };
 
@@ -781,7 +806,8 @@ Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
     texture->format = descriptor.format;
     texture->sample_count = descriptor.sample_count;
     texture->is_storage = descriptor.is_storage;
-    texture->alias = descriptor.alias;
+
+    HE_LOG(Rendering, Trace, "created texture: %.*s { %d, %u }\n", HE_EXPAND_STRING(texture->name), texture_handle.index, texture_handle.generation);
     return texture_handle;
 }
 
@@ -804,7 +830,6 @@ void renderer_destroy_texture(Texture_Handle &texture_handle)
         HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)texture->name.data);
     }
 
-    texture->name = HE_STRING_LITERAL("");
     texture->width = 0;
     texture->height = 0;
     texture->sample_count = 1;
@@ -812,11 +837,13 @@ void renderer_destroy_texture(Texture_Handle &texture_handle)
     texture->alignment = 0;
     texture->is_attachment = false;
     texture->is_cubemap = false;
-    texture->alias = Resource_Pool<Texture>::invalid_handle;
+    texture->is_uploaded_to_gpu = false;
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->destroy_texture(texture_handle, false);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
+
+    HE_LOG(Rendering, Trace, "destroyed texture %.*s { %d, %u }\n", HE_EXPAND_STRING(texture->name), texture_handle.index, texture_handle.generation);
 
     release_handle(&renderer_state->textures, texture_handle);
     texture_handle = Resource_Pool< Texture >::invalid_handle;
@@ -837,6 +864,221 @@ Sampler_Handle renderer_create_sampler(const Sampler_Descriptor &descriptor)
     Sampler *sampler = &renderer_state->samplers.data[sampler_handle.index];
     sampler->descriptor = descriptor;
     return sampler_handle;
+}
+
+Environment_Map renderer_hdr_to_environment_map(Texture_Handle hdr_texture)
+{
+    Texture_Descriptor hdr_cubemap_descriptor =
+    {
+        .name = HE_STRING_LITERAL("hdr"),
+        .width = 512,
+        .height = 512,
+        .format = Texture_Format::R16G16B16A16_SFLOAT,
+        .layer_count = 6,
+        .mipmapping = true,
+        .sample_count = 1,
+        .is_attachment = true,
+        .is_cubemap = true,
+    };
+
+    Texture_Handle hdr_cubemap_handle = renderer_create_texture(hdr_cubemap_descriptor);
+
+    Texture_Descriptor irradiance_cubemap_descriptor =
+    {
+        .name = HE_STRING_LITERAL("irradiance"),
+        .width = 64,
+        .height = 64,
+        .format = Texture_Format::R16G16B16A16_SFLOAT,
+        .layer_count = 6,
+        .mipmapping = false,
+        .sample_count = 1,
+        .is_attachment = true,
+        .is_cubemap = true,
+    };
+
+    Texture_Handle irradiance_cubemap_handle = renderer_create_texture(irradiance_cubemap_descriptor);
+
+    Texture_Descriptor prefilter_cubemap_descriptor =
+    {
+        .name = HE_STRING_LITERAL("prefilter"),
+        .width = 512,
+        .height = 512,
+        .format = Texture_Format::R16G16B16A16_SFLOAT,
+        .layer_count = 6,
+        .mipmapping = true,
+        .sample_count = 1,
+        .is_attachment = true,
+        .is_cubemap = true,
+    };
+
+    Texture_Handle prefilter_cubemap_handle = renderer_create_texture(prefilter_cubemap_descriptor);
+
+    Texture_Descriptor brdf_lut_texture_descriptor =
+    {
+        .name = HE_STRING_LITERAL("brdf_lut"),
+        .width = 512,
+        .height = 512,
+        .format = Texture_Format::R16G16B16A16_SFLOAT,
+        .layer_count = 1,
+        .mipmapping = false,
+        .sample_count = 1,
+        .is_attachment = true,
+        .is_cubemap = false,
+    };
+
+    Texture_Handle brdf_lut_texture_handle = renderer_create_texture(brdf_lut_texture_descriptor);
+
+    Render_Pass_Descriptor cubemap_render_pass_descriptor =
+    {
+        .name = HE_STRING_LITERAL("cubemap_render_pass"),
+        .color_attachments =
+        {{
+            {
+                .format = Texture_Format::R16G16B16A16_SFLOAT
+            }
+        }}
+    };
+
+    Render_Pass_Handle cubemap_render_pass_handle = renderer_create_render_pass(cubemap_render_pass_descriptor);
+    HE_ASSERT(is_valid_handle(&renderer_state->render_passes, cubemap_render_pass_handle));
+
+    Shader_Handle hdr_shader_handle = load_shader(HE_STRING_LITERAL("hdr"));
+    HE_ASSERT(is_valid_handle(&renderer_state->shaders, hdr_shader_handle));
+
+    Shader_Handle irradiance_shader_handle = load_shader(HE_STRING_LITERAL("irradiance"));
+    HE_ASSERT(is_valid_handle(&renderer_state->shaders, irradiance_shader_handle));
+
+    Shader_Handle prefilter_shader_handle = load_shader(HE_STRING_LITERAL("prefilter"));
+    HE_ASSERT(is_valid_handle(&renderer_state->shaders, prefilter_shader_handle));
+
+    Shader_Handle brdf_lut_shader_handle = load_shader(HE_STRING_LITERAL("brdf_lut"));
+    HE_ASSERT(is_valid_handle(&renderer_state->shaders, brdf_lut_shader_handle));
+
+    Pipeline_State_Descriptor hdr_pipeline =
+    {
+        .settings =
+        {
+            .cull_mode = Cull_Mode::NONE,
+            .fill_mode = Fill_Mode::SOLID,
+
+            .depth_testing = false,
+            .depth_writing = false,
+
+            .stencil_testing = false,
+
+            .sample_shading = true,
+        },
+        .shader = hdr_shader_handle,
+        .render_pass = cubemap_render_pass_handle,
+    };
+
+    Pipeline_State_Handle hdr_pipeline_state_handle = renderer_create_pipeline_state(hdr_pipeline);
+    HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, hdr_pipeline_state_handle));
+
+    Pipeline_State_Descriptor irradiance_pipeline =
+    {
+        .settings =
+        {
+            .cull_mode = Cull_Mode::NONE,
+            .fill_mode = Fill_Mode::SOLID,
+
+            .depth_testing = false,
+            .depth_writing = false,
+
+            .stencil_testing = false,
+
+            .sample_shading = true,
+        },
+        .shader = irradiance_shader_handle,
+        .render_pass = cubemap_render_pass_handle,
+    };
+
+    Pipeline_State_Handle irradiance_pipeline_state_handle = renderer_create_pipeline_state(irradiance_pipeline);
+    HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, irradiance_pipeline_state_handle));
+
+    Pipeline_State_Descriptor prefilter_pipeline =
+    {
+        .settings =
+        {
+            .cull_mode = Cull_Mode::NONE,
+            .fill_mode = Fill_Mode::SOLID,
+
+            .depth_testing = false,
+            .depth_writing = false,
+
+            .stencil_testing = false,
+
+            .sample_shading = true,
+        },
+        .shader = prefilter_shader_handle,
+        .render_pass = cubemap_render_pass_handle,
+    };
+
+    Pipeline_State_Handle prefilter_pipeline_state_handle = renderer_create_pipeline_state(prefilter_pipeline);
+    HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, prefilter_pipeline_state_handle));
+
+    Pipeline_State_Descriptor brdf_lut_pipeline =
+    {
+        .settings =
+        {
+            .cull_mode = Cull_Mode::NONE,
+            .fill_mode = Fill_Mode::SOLID,
+
+            .depth_testing = false,
+            .depth_writing = false,
+
+            .stencil_testing = false,
+
+            .sample_shading = true,
+        },
+        .shader = brdf_lut_shader_handle,
+        .render_pass = cubemap_render_pass_handle,
+    };
+
+    Pipeline_State_Handle brdf_lut_pipeline_state_handle = renderer_create_pipeline_state(brdf_lut_pipeline);
+    HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, brdf_lut_pipeline_state_handle));
+
+    Buffer_Descriptor globals_uniform_buffer_descriptor =
+    {
+        .size = sizeof(glm::mat4),
+        .usage = Buffer_Usage::UNIFORM
+    };
+    Buffer_Handle globals_uniform_buffer = renderer_create_buffer(globals_uniform_buffer_descriptor);
+
+    Enviornment_Map_Render_Data render_data
+    {
+        .globals_uniform_buffer = globals_uniform_buffer,
+
+        .hdr_handle = hdr_texture,
+        .hdr_cubemap_handle = hdr_cubemap_handle,
+        .irradiance_cubemap_handle = irradiance_cubemap_handle,
+        .prefilter_cubemap_handle = prefilter_cubemap_handle,
+        .brdf_lut_texture_handle = brdf_lut_texture_handle,
+
+        .cubemap_render_pass = cubemap_render_pass_handle,
+
+        .hdr_shader = hdr_shader_handle,
+        .irradiance_shader = irradiance_shader_handle,
+        .prefilter_shader = prefilter_shader_handle,
+        .brdf_lut_shader = brdf_lut_shader_handle,
+
+        .hdr_pipeline_state_handle = hdr_pipeline_state_handle,
+        .irradiance_pipeline_state_handle = irradiance_pipeline_state_handle,
+        .prefilter_pipeline_state_handle = prefilter_pipeline_state_handle,
+        .brdf_lut_pipeline_state_handle = brdf_lut_pipeline_state_handle,
+    };
+
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
+    vulkan_renderer_hdr_to_environment_map(render_data);
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+
+    return
+    {
+        .environment_map = hdr_cubemap_handle,
+        .irradiance_map = irradiance_cubemap_handle,
+        .prefilter_map = prefilter_cubemap_handle,
+        .brdf_lut = brdf_lut_texture_handle
+    };
 }
 
 Sampler* renderer_get_sampler(Sampler_Handle sampler_handle)
@@ -995,7 +1237,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
         shaderc_compilation_status status = shaderc_result_get_compilation_status(result);
         if (status != shaderc_compilation_status_success)
         {
-            HE_LOG(Resource, Fetal, "%s\n", shaderc_result_get_error_message(result));
+            HE_LOG(Resource, Fetal, "failed to compile %.*s stage: %s\n", HE_EXPAND_STRING(shader_stage_signature[stage_index]), shaderc_result_get_error_message(result));
 
             for (U32 i = 0; i < stage_index; i++)
             {
@@ -1023,6 +1265,13 @@ Shader_Handle load_shader(String name)
     Memory_Context memory_context = grab_memory_context();
     
     Read_Entire_File_Result result = read_entire_file( format_string(memory_context.temp_allocator, "shaders/%.*s.glsl", HE_EXPAND_STRING(name)), memory_context.temp_allocator);
+
+    if (!result.success)
+    {
+        HE_LOG(Rendering, Fetal, "failed to read shader file: shaders/%.*s\n", HE_EXPAND_STRING(name));
+        return Resource_Pool< Shader >::invalid_handle;
+    }
+
     String shader_source = { .count = result.size, .data = (const char *)result.data };
 
     Shader_Compilation_Result compilation_result = renderer_compile_shader(shader_source, HE_STRING_LITERAL("shaders"));
@@ -1625,8 +1874,17 @@ void renderer_use_material(Material_Handle material_handle)
                 {
                     if (is_asset_loaded(texture_asset))
                     {
-                        Texture_Handle texture = get_asset_handle_as<Texture>(texture_asset);
-                        *texture_index = texture.index;
+                        const Asset_Info *info = get_asset_info(texture_asset);
+                        if (info->name == HE_STRING_LITERAL("texture"))
+                        {
+                            Texture_Handle texture = get_asset_handle_as<Texture>(texture_asset);
+                            *texture_index = texture.index;
+                        }
+                        else if (info->name == HE_STRING_LITERAL("environment_map"))
+                        {
+                            Environment_Map *env_map = get_asset_as<Environment_Map>(texture_asset);
+                            *texture_index = env_map->environment_map.index;
+                        }
                     }
                     else
                     {
@@ -1831,7 +2089,9 @@ bool serialize_material(Material_Handle material_handle, U64 shader_asset_uuid, 
     for (U32 i = 0; i < material->properties.count; i++)
     {
         Material_Property *property = &material->properties[i];
-        bool is_texture_asset = ends_with(property->name, HE_STRING_LITERAL("texture")) || ends_with(property->name, HE_STRING_LITERAL("cubemap"));
+        bool is_texture_asset = ends_with(property->name, HE_STRING_LITERAL("texture"));
+        bool is_cubemap_asset = ends_with(property->name, HE_STRING_LITERAL("cubemap"));
+
         bool is_color = ends_with(property->name, HE_STRING_LITERAL("color"));
         append(&builder, "%.*s %.*s ", HE_EXPAND_STRING(property->name), HE_EXPAND_STRING(shader_data_type_to_str(property->data_type)));
         switch (property->data_type)
@@ -1845,7 +2105,7 @@ bool serialize_material(Material_Handle material_handle, U64 shader_asset_uuid, 
 
             case Shader_Data_Type::U32:
             {
-                append(&builder, "%llu\n", is_texture_asset ? property->data.u64 : property->data.u32);
+                append(&builder, "%llu\n", (is_texture_asset || is_cubemap_asset) ? property->data.u64 : property->data.u32);
             } break;
 
             case Shader_Data_Type::S8:
@@ -2638,32 +2898,46 @@ void begin_rendering(const Camera *camera)
     Shader_Globals *globals = (Shader_Globals *)global_uniform_buffer->data;
     render_data->globals = globals;
 
-    globals->max_node_count = renderer_state->back_buffer_width * renderer_state->back_buffer_height * 20;
     globals->resolution = glm::uvec2(renderer_state->back_buffer_width, renderer_state->back_buffer_height);
-
-    globals->view = glm::mat4(1.0f);
-    globals->projection = glm::mat4(1.0f);
-    globals->eye = glm::vec3(0.0f);
     globals->gamma = renderer_state->gamma;
     globals->light_count = 0;
-    globals->z_near = 0.1f;
-    globals->z_far = 1000.0f;
 
-    if (camera)
+    globals->max_node_count = renderer_state->back_buffer_width * renderer_state->back_buffer_height * 20;
+
+    globals->view = camera->view;
+    glm::mat4 proj = camera->projection;
+    proj[1][1] *= -1;
+    globals->projection = proj;
+    globals->eye = camera->position;
+
+    render_data->view = camera->view;
+    render_data->projection = camera->projection;
+    render_data->near_z = camera->near_clip;
+    render_data->far_z = camera->far_clip;
+
+    globals->z_near = camera->near_clip;
+    globals->z_far = camera->far_clip;
+
+    static bool ls_use_enviornment_map = true;
+    ImGui::Begin("Environment_Mapping");
+    ImGui::Checkbox("Use Environment Map", &ls_use_enviornment_map);
+    globals->use_environment_map = (U32)ls_use_enviornment_map;
+    ImGui::End();
+
+    Asset_Handle environment_map_asset = import_asset(HE_STRING_LITERAL("env_map.hdr"));
+    if (is_asset_handle_valid(environment_map_asset) && is_asset_loaded(environment_map_asset))
     {
-        globals->view = camera->view;
-        glm::mat4 proj = camera->projection;
-        proj[1][1] *= -1;
-        globals->projection = proj;
-        globals->eye = camera->position;
-
-        render_data->view = camera->view;
-        render_data->projection = camera->projection;
-        render_data->near_z = camera->near_clip;
-        render_data->far_z = camera->far_clip;
-
-        globals->z_near = camera->near_clip;
-        globals->z_far = camera->far_clip;
+        Environment_Map *env_map = get_asset_as<Environment_Map>(environment_map_asset);
+        globals->irradiance_map = env_map->irradiance_map.index;
+        globals->prefilter_map = env_map->prefilter_map.index;
+        globals->brdf_lut = env_map->brdf_lut.index;
+        // ImGui::Image(renderer->imgui_get_texture_id(env_map->brdf_lut_map), ImVec2(512, 512), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+    }
+    else
+    {
+        globals->irradiance_map = renderer_state->default_cubemap.index;
+        globals->prefilter_map = renderer_state->default_cubemap.index;
+        globals->brdf_lut = renderer_state->white_pixel_texture.index;
     }
 
     Buffer *instance_storage_buffer = get(&renderer_state->buffers, render_data->instance_storage_buffers[frame_index]);
@@ -2710,6 +2984,8 @@ void begin_rendering(const Camera *camera)
     Texture_Handle *textures = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, Texture_Handle, texture_count);
     Sampler_Handle *samplers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, Sampler_Handle, texture_count);
 
+    platform_lock_mutex(&renderer_state->textures.mutex);
+
     for (auto it = iterator(&renderer_state->textures); next(&renderer_state->textures, it);)
     {
         Texture *texture = get(&renderer_state->textures, it);
@@ -2725,6 +3001,8 @@ void begin_rendering(const Camera *camera)
 
         samplers[it.index] = texture->is_cubemap ? renderer_state->default_cubemap_sampler : renderer_state->default_texture_sampler;
     }
+
+    platform_unlock_mutex(&renderer_state->textures.mutex);
 
     Update_Binding_Descriptor update_globals_bindings[] =
     {
@@ -2774,7 +3052,9 @@ void begin_rendering(const Camera *camera)
         render_data->pass_bind_groups[frame_index]
     };
 
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->set_bind_groups(SHADER_GLOBALS_BIND_GROUP, to_array_view(bind_groups));
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
 }
 
 static bool calc_light_aabb(Shader_Light *light, const glm::vec3 &view_p, Frame_Render_Data *render_data)

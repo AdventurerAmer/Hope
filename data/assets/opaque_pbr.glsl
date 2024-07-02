@@ -69,10 +69,21 @@ in Fragment_Input
 } frag_input;
 
 layout(set = SHADER_PASS_BIND_GROUP, binding = SHADER_BINDLESS_TEXTURES_BINDING) uniform sampler2D u_textures[];
+layout(set = SHADER_PASS_BIND_GROUP, binding = SHADER_BINDLESS_TEXTURES_BINDING) uniform samplerCube u_cubemaps[];
 
 vec4 sample_texture(uint texture_index, vec2 uv)
 {
     return texture( u_textures[ nonuniformEXT( texture_index ) ], uv );
+}
+
+vec4 sample_cubemap(uint cubemap_index, vec3 uv)
+{
+    return texture( u_cubemaps[ nonuniformEXT( cubemap_index ) ], uv );
+}
+
+vec4 sample_cubemap_lod(uint cubemap_index, vec3 uv, float lod)
+{
+    return textureLod( u_cubemaps[ nonuniformEXT( cubemap_index ) ], uv, lod );
 }
 
 layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_STORAGE_BUFFER_BINDING) readonly buffer Light_Buffer
@@ -211,7 +222,31 @@ void main()
         Lo += brdf(L, radiance, N, V, NdotV, albedo, roughness, metallic, material.reflectance);
     }
 
-    vec3 color = globals.ambient * albedo * occlusion + Lo;
+    vec3 color = vec3(0.0);
+
+    if (globals.use_environment_map == 0)
+    {
+        color = vec3(0.03) * albedo * occlusion + Lo;
+    }
+    else
+    {
+        vec3 f0 = mix(vec3(material.reflectance), albedo, metallic);
+        vec3 ks = fresnel_schlick_roughness(max(dot(N, V), 0.0), f0, roughness);
+        vec3 kd = vec3(1.0) - ks;
+        kd *= 1.0 - metallic;
+
+        vec3 irradiance = sample_cubemap(globals.irradiance_map, N).rgb;
+        vec3 diffuse = irradiance * albedo;
+
+        vec3 R = reflect(-V, N);
+        const float reflection_lod = 4.0;
+        vec3 prefiltered_color = sample_cubemap_lod(globals.prefilter_map, R, roughness * reflection_lod).rgb;
+        vec2 env_brdf = sample_texture( globals.brdf_lut, vec2(max(dot(N, V), 0.0), roughness) ).rg;
+        vec3 specular = prefiltered_color * (ks * env_brdf.x + env_brdf.y);
+
+        vec3 ambient = (kd * diffuse + specular) * occlusion;
+        color = ambient + Lo;
+    }
 
     int node_index = atomicAdd(node_count, 1);
     if (node_index < globals.max_node_count)
