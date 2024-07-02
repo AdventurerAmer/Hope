@@ -1297,14 +1297,10 @@ void vulkan_renderer_end_frame()
     context->timeline_value++;
 }
 
-bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture_Descriptor &descriptor, Upload_Request_Handle upload_request_handle)
+static void internal_create_texture(const Texture_Descriptor &descriptor, Vulkan_Image *image, Upload_Request_Handle upload_request_handle = Resource_Pool<Upload_Request>::invalid_handle)
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
-
-    Texture *texture = get(&renderer_state->textures, texture_handle);
-    Vulkan_Image *image = &context->textures[texture_handle.index];
-    image->imgui_handle = VK_NULL_HANDLE;
 
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_NONE;
     VkImageUsageFlags usage = VK_IMAGE_USAGE_FLAG_BITS_MAX_ENUM;
@@ -1329,7 +1325,7 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     else
     {
         aspect = VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT;
-        
+
         if (descriptor.is_attachment)
         {
             usage = VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -1387,11 +1383,12 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
     image_view_create_info.subresourceRange.layerCount = descriptor.layer_count;
     HE_CHECK_VKRESULT(vkCreateImageView(context->logical_device, &image_view_create_info, &context->allocation_callbacks, &image->view));
 
-    if (descriptor.data_array.count > 0 && is_valid_handle(&renderer_state->upload_requests, upload_request_handle))
+    if (descriptor.data_array.count > 0)
     {
         Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
-        VkFormat format = get_texture_format(descriptor.format);
-        copy_data_to_image(context, image, descriptor.width, descriptor.height, mip_levels, descriptor.layer_count, format, descriptor.data_array, upload_request_handle);
+        Vulkan_Command_Buffer command_buffer = begin_one_use_command_buffer(context);
+        copy_data_to_image(context, &command_buffer, image, descriptor, mip_levels);
+        end_one_use_command_buffer(context, &command_buffer, upload_request_handle);
     }
     else if (descriptor.is_storage)
     {
@@ -1399,10 +1396,30 @@ bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture
         transtion_image_to_layout(command_buffer.handle, image->handle, 0, mip_levels, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         end_one_use_command_buffer(context, &command_buffer);
     }
-    
+}
+
+bool vulkan_renderer_create_texture(Texture_Handle texture_handle, const Texture_Descriptor &descriptor, Upload_Request_Handle upload_request_handle)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Renderer_State *renderer_state = context->renderer_state;
+
+    Texture *texture = get(&renderer_state->textures, texture_handle);
+    Vulkan_Image *image = &context->textures[texture_handle.index];
+    image->imgui_handle = VK_NULL_HANDLE;
+
+    internal_create_texture(descriptor, image, upload_request_handle);
+
     texture->size = image->allocation_info.size;
     texture->alignment = image->allocation->GetAlignment();
     texture->layer_count = descriptor.layer_count;
+
+    U32 mip_levels = 1;
+
+    if (descriptor.mipmapping)
+    {
+        mip_levels = (U32)glm::floor(glm::log2((F32)glm::max(descriptor.width, descriptor.height)));
+    }
+
     texture->mip_levels = mip_levels;
     return true;
 }
@@ -1426,7 +1443,7 @@ ImTextureID vulkan_renderer_imgui_get_texture_id(Texture_Handle texture)
 void vulkan_renderer_destroy_texture(Texture_Handle texture_handle, bool immediate)
 {
     Vulkan_Context *context = &vulkan_context;
-    
+
     Vulkan_Image &image = context->textures[texture_handle.index];
     if (immediate)
     {
@@ -1440,7 +1457,7 @@ void vulkan_renderer_destroy_texture(Texture_Handle texture_handle, bool immedia
     }
     else
     {
-        U32 frame_index = context->renderer_state->current_frame_in_flight_index; 
+        U32 frame_index = context->renderer_state->current_frame_in_flight_index;
         append(&context->pending_delete_textures[frame_index], image);
     }
 }
@@ -1529,7 +1546,7 @@ bool vulkan_renderer_create_sampler(Sampler_Handle sampler_handle, const Sampler
 void vulkan_renderer_destroy_sampler(Sampler_Handle sampler_handle, bool immediate)
 {
     Vulkan_Context *context = &vulkan_context;
-    Vulkan_Sampler &sampler = context->samplers[sampler_handle.index]; 
+    Vulkan_Sampler &sampler = context->samplers[sampler_handle.index];
     if (immediate)
     {
         vkDestroySampler(context->logical_device, sampler.handle, &context->allocation_callbacks);
@@ -1593,7 +1610,7 @@ static VkDescriptorType get_descriptor_type(Buffer_Usage usage)
         case Buffer_Usage::STORAGE_CPU_SIDE:
         case Buffer_Usage::STORAGE_GPU_SIDE:
             return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        
+
         default:
         {
             HE_ASSERT(!"unsupported binding type");
@@ -1606,14 +1623,14 @@ static VkDescriptorType get_descriptor_type(Buffer_Usage usage)
 static VkDescriptorPool get_descriptor_pool(Vulkan_Descriptor_Pool_Allocator *allocator)
 {
     Vulkan_Context *context = &vulkan_context;
-    
+
     if (allocator->ready_pools.count)
     {
         VkDescriptorPool descriptor_pool = back(&allocator->ready_pools);
         remove_back(&allocator->ready_pools);
         return descriptor_pool;
     }
-    
+
     VkDescriptorPool descriptor_pool = create_descriptor_bool(allocator->set_count_per_pool);
     allocator->set_count_per_pool = (U32)(allocator->set_count_per_pool * 1.5f);
     return descriptor_pool;
@@ -1752,15 +1769,15 @@ static void internal_set_bind_groups(VkCommandBuffer command_buffer, U32 first_b
 
     Bind_Group *bind_group = get(&context->renderer_state->bind_groups, bind_group_handles[0]);
     Vulkan_Shader *vulkan_shader = &context->shaders[bind_group->shader.index];
-    
+
     VkDescriptorSet *descriptor_sets = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkDescriptorSet, bind_group_handles.count);
-    
+
     for (U32 bind_group_index = 0; bind_group_index < bind_group_handles.count; bind_group_index++)
     {
         Vulkan_Bind_Group *vulkan_bind_group = &context->bind_groups[ bind_group_handles[ bind_group_index ].index ];
         descriptor_sets[bind_group_index] = vulkan_bind_group->handle;
     }
-      
+
     vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_shader->pipeline_layout, first_bind_group, bind_group_handles.count, descriptor_sets, 0, nullptr);
 }
 
@@ -1920,7 +1937,7 @@ void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Fr
     HE_ASSERT(frame_buffer->attachments.count <= clear_values.count);
 
     Texture *attachment = get(&renderer_state->textures, frame_buffer->attachments[0]);
-    
+
     VkClearValue *vulkan_clear_values = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkClearValue, clear_values.count);
 
     for (U32 clear_value_index = 0; clear_value_index < clear_values.count; clear_value_index++)
@@ -2046,25 +2063,25 @@ static VkBufferUsageFlags get_buffer_usage_flags(Buffer_Usage usage)
     switch (usage)
     {
         case Buffer_Usage::TRANSFER:
-        { 
+        {
             return VK_BUFFER_USAGE_TRANSFER_SRC_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         } break;
-        
+
         case Buffer_Usage::VERTEX:
         {
             return VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         } break;
-        
+
         case Buffer_Usage::INDEX:
         {
             return VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         } break;
-            
+
         case Buffer_Usage::UNIFORM:
         {
             return VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
         } break;
-        
+
         case Buffer_Usage::STORAGE_CPU_SIDE:
         {
             return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -2074,7 +2091,7 @@ static VkBufferUsageFlags get_buffer_usage_flags(Buffer_Usage usage)
         {
             return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         } break;
-        
+
         default:
         {
             HE_ASSERT(!"unsupported buffer usage");
@@ -2087,34 +2104,34 @@ static VkBufferUsageFlags get_buffer_usage_flags(Buffer_Usage usage)
 static VmaAllocationCreateInfo get_vma_allocation_create_info(Buffer_Usage usage)
 {
     VmaAllocationCreateInfo result = {};
-    
+
     switch (usage)
     {
         case Buffer_Usage::TRANSFER:
-        { 
+        {
             result.usage = VMA_MEMORY_USAGE_CPU_ONLY;
             result.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
         } break;
-        
+
         case Buffer_Usage::VERTEX:
         case Buffer_Usage::INDEX:
         case Buffer_Usage::STORAGE_GPU_SIDE:
         {
             result.usage = VMA_MEMORY_USAGE_GPU_ONLY;
         } break;
-            
+
         case Buffer_Usage::UNIFORM:
         {
             result.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
             result.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
         } break;
-        
+
         case Buffer_Usage::STORAGE_CPU_SIDE:
         {
             result.usage = VMA_MEMORY_USAGE_CPU_ONLY;
             result.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
         } break;
-        
+
         default:
         {
             HE_ASSERT(!"unsupported buffer usage");
@@ -2131,13 +2148,13 @@ bool vulkan_renderer_create_buffer(Buffer_Handle buffer_handle, const Buffer_Des
 
     Buffer *buffer = get(&context->renderer_state->buffers, buffer_handle);
     Vulkan_Buffer *vulkan_buffer = &context->buffers[buffer_handle.index];
-    
+
     VkBufferCreateInfo buffer_create_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     buffer_create_info.size = descriptor.size;
     buffer_create_info.usage = get_buffer_usage_flags(descriptor.usage);
     buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     buffer_create_info.flags = 0;
-    
+
     VmaAllocationCreateInfo allocation_create_info = get_vma_allocation_create_info(descriptor.usage);
     vmaCreateBuffer(context->allocator, &buffer_create_info, &allocation_create_info, &vulkan_buffer->handle, &vulkan_buffer->allocation, &vulkan_buffer->allocation_info);
 
@@ -2194,7 +2211,7 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     Vulkan_Upload_Request *vulkan_upload_request = &context->upload_requests[upload_request_handle.index];
     vulkan_upload_request->graphics_command_pool = VK_NULL_HANDLE;
     vulkan_upload_request->graphics_command_buffer = VK_NULL_HANDLE;
-    
+
     vulkan_upload_request->transfer_command_pool = thread_state->transfer_command_pool;
     vulkan_upload_request->transfer_command_buffer = command_buffer;
 
@@ -2243,7 +2260,7 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, indices_buffer->handle, 1, &index_copy_region);
 
     vkEndCommandBuffer(command_buffer);
-    
+
     VkCommandBufferSubmitInfo command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
     command_buffer_submit_info.commandBuffer = command_buffer;
 
@@ -2252,11 +2269,11 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     submit_info.pCommandBufferInfos = &command_buffer_submit_info;
 
     VkSemaphoreSubmitInfoKHR semaphore_submit_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-    
+
     Upload_Request *upload_request = renderer_get_upload_request(upload_request_handle);
     upload_request->target_value++;
     Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[upload_request->semaphore.index];
-    
+
     semaphore_submit_info.semaphore = vulkan_semaphore->handle;
     semaphore_submit_info.value = upload_request->target_value;
     semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
@@ -2407,39 +2424,17 @@ void free_cubemap_face_info_array(Array<Cubemap_Face_Render_Info, 6> face_infos,
     }
 }
 
-void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &render_data)
+void vulkan_renderer_fill_brdf_lut(Texture_Handle brdf_lut_texture_handle)
 {
-    Memory_Context memory_context = grab_memory_context();
-
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
 
-    Texture *hdr = renderer_get_texture(render_data.hdr_handle);
-    Texture *hdr_cubemap = renderer_get_texture(render_data.hdr_cubemap_handle);
-    Texture *irradiance_cubemap = renderer_get_texture(render_data.irradiance_cubemap_handle);
-    Texture *prefilter_cubemap = renderer_get_texture(render_data.prefilter_cubemap_handle);
-    Texture *brdf_lut_texture = renderer_get_texture(render_data.brdf_lut_texture_handle);
+    Vulkan_Render_Pass *cubemap_render_pass = &context->render_passes[renderer_state->cubemap_render_pass.index];
 
-    Vulkan_Image *vulkan_hdr = &context->textures[render_data.hdr_handle.index];
-    Vulkan_Image *vulkan_hdr_cubemap = &context->textures[render_data.hdr_cubemap_handle.index];
-    Vulkan_Image *vulkan_irradiance_cubemap = &context->textures[render_data.irradiance_cubemap_handle.index];
-    Vulkan_Image *vulkan_prefilter_cubemap = &context->textures[render_data.prefilter_cubemap_handle.index];
-    Vulkan_Image *vulkan_brdf_lut_texture = &context->textures[render_data.brdf_lut_texture_handle.index];
+    Texture *brdf_lut_texture = renderer_get_texture(brdf_lut_texture_handle);
+    Vulkan_Image *vulkan_brdf_lut_texture = &context->textures[brdf_lut_texture_handle.index];
 
-    Vulkan_Shader *hdr_shader = &context->shaders[render_data.hdr_shader.index];
-    Vulkan_Shader *irradiance_shader = &context->shaders[render_data.irradiance_shader.index];
-    Vulkan_Shader *prefilter_shader = &context->shaders[render_data.prefilter_shader.index];
-    Vulkan_Shader *brdf_lut_shader = &context->shaders[render_data.brdf_lut_shader.index];
-
-    Vulkan_Render_Pass *cubemap_render_pass = &context->render_passes[render_data.cubemap_render_pass.index];
-
-    Array<Cubemap_Face_Render_Info, 6> hdr_cubemap_faces = create_cubemap_face_info_array(hdr_cubemap, vulkan_hdr_cubemap, cubemap_render_pass, 1, memory_context.temp_allocator);
-
-    Array<Cubemap_Face_Render_Info, 6> irrdiance_cubemap_faces = create_cubemap_face_info_array(irradiance_cubemap, vulkan_irradiance_cubemap, cubemap_render_pass, 1, memory_context.temp_allocator);
-
-    const U32 prefileter_map_mip_levels = prefilter_cubemap->mip_levels;
-
-    Array<Cubemap_Face_Render_Info, 6> prefilter_cubemap_faces = create_cubemap_face_info_array(prefilter_cubemap, vulkan_prefilter_cubemap, cubemap_render_pass, prefileter_map_mip_levels, memory_context.temp_allocator);
+    Vulkan_Shader *brdf_lut_shader = &context->shaders[renderer_state->brdf_lut_shader.index];
 
     VkFramebufferCreateInfo brdf_lut_frame_buffer_create_info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
     brdf_lut_frame_buffer_create_info.renderPass = cubemap_render_pass->handle;
@@ -2452,35 +2447,109 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
     VkFramebuffer brdf_lut_frame_buffer = {};
     HE_CHECK_VKRESULT(vkCreateFramebuffer(context->logical_device, &brdf_lut_frame_buffer_create_info, &context->allocation_callbacks, &brdf_lut_frame_buffer));
 
-    Vulkan_Descriptor_Pool_Allocator descriptor_pool_allocator = create_descriptor_pool_allocator(16);
+    Vulkan_Command_Buffer command_buffer = begin_one_use_command_buffer(context);
 
-    Bind_Group_Descriptor hdr_bind_group_descriptor =
+    transtion_image_to_layout(command_buffer.handle, vulkan_brdf_lut_texture->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    VkClearValue clear_value = { .color = { 1.0f, 0.0f, 0.0f, 1.0f } };
+
+    VkRenderPassBeginInfo begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+    begin_info.framebuffer = brdf_lut_frame_buffer;
+    begin_info.renderArea = { .offset = { 0, 0 }, .extent { brdf_lut_texture->width, brdf_lut_texture->height } };
+    begin_info.clearValueCount = 1;
+    begin_info.pClearValues = &clear_value;
+    begin_info.renderPass = cubemap_render_pass->handle;
+    vkCmdBeginRenderPass(command_buffer.handle, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+
+    internal_set_viewport(command_buffer.handle, brdf_lut_texture->width, brdf_lut_texture->height);
+    internal_set_pipeline_state(command_buffer.handle, renderer_state->brdf_lut_pipeline_state);
+    internal_draw_fullscreen_triangle(command_buffer.handle);
+
+    vkCmdEndRenderPass(command_buffer.handle);
+
+    transtion_image_to_layout(command_buffer.handle, vulkan_brdf_lut_texture->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    end_one_use_command_buffer(context, &command_buffer);
+
+    vkDestroyFramebuffer(context->logical_device, brdf_lut_frame_buffer, &context->allocation_callbacks);
+    brdf_lut_texture->is_attachment = false;
+    brdf_lut_texture->state = Resource_State::SHADER_READ_ONLY;
+}
+
+void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &render_data)
+{
+    Memory_Context memory_context = grab_memory_context();
+
+    Vulkan_Context *context = &vulkan_context;
+    Renderer_State *renderer_state = context->renderer_state;
+
+    Vulkan_Image hdr_texture = {};
+
     {
-        .shader = render_data.hdr_shader,
-        .group_index = 0,
-    };
+        void *data_array[] = { render_data.hdr_data };
 
-    Bind_Group_Handle hdr_bind_group_handle = renderer_create_bind_group(hdr_bind_group_descriptor);
-    HE_ASSERT(is_valid_handle(&renderer_state->bind_groups, hdr_bind_group_handle));
-
-    {
-        Update_Binding_Descriptor update_bindings[] =
+        Texture_Descriptor hdr_texture_descriptor =
         {
-            {
-                .binding_number = 0,
-                .element_index = 0,
-                .count = 1,
-                .textures = &render_data.hdr_handle,
-                .samplers = &renderer_state->default_texture_sampler
-            }
+            .name = HE_STRING_LITERAL("HDR"),
+            .width = (U32)render_data.hdr_width,
+            .height = (U32)render_data.hdr_height,
+            .format = Texture_Format::R32G32B32A32_SFLOAT,
+            .data_array = to_array_view(data_array),
+            .mipmapping = false,
+            .sample_count = 1,
         };
 
-        internal_update_bind_group(&descriptor_pool_allocator, hdr_bind_group_handle, to_array_view(update_bindings));
+        internal_create_texture(hdr_texture_descriptor, &hdr_texture);
+    }
+
+    Texture *hdr_cubemap = renderer_get_texture(render_data.hdr_cubemap_handle);
+    Texture *irradiance_cubemap = renderer_get_texture(render_data.irradiance_cubemap_handle);
+    Texture *prefilter_cubemap = renderer_get_texture(render_data.prefilter_cubemap_handle);
+
+    Vulkan_Image *vulkan_hdr_cubemap = &context->textures[render_data.hdr_cubemap_handle.index];
+    Vulkan_Image *vulkan_irradiance_cubemap = &context->textures[render_data.irradiance_cubemap_handle.index];
+    Vulkan_Image *vulkan_prefilter_cubemap = &context->textures[render_data.prefilter_cubemap_handle.index];
+
+    Vulkan_Shader *hdr_shader = &context->shaders[renderer_state->hdr_shader.index];
+    Vulkan_Shader *irradiance_shader = &context->shaders[renderer_state->irradiance_shader.index];
+    Vulkan_Shader *prefilter_shader = &context->shaders[renderer_state->prefilter_shader.index];
+
+    Vulkan_Render_Pass *cubemap_render_pass = &context->render_passes[renderer_state->cubemap_render_pass.index];
+
+    Array<Cubemap_Face_Render_Info, 6> hdr_cubemap_faces = create_cubemap_face_info_array(hdr_cubemap, vulkan_hdr_cubemap, cubemap_render_pass, 1, memory_context.temp_allocator);
+
+    Array<Cubemap_Face_Render_Info, 6> irrdiance_cubemap_faces = create_cubemap_face_info_array(irradiance_cubemap, vulkan_irradiance_cubemap, cubemap_render_pass, 1, memory_context.temp_allocator);
+
+    const U32 prefileter_map_mip_levels = prefilter_cubemap->mip_levels;
+
+    Array<Cubemap_Face_Render_Info, 6> prefilter_cubemap_faces = create_cubemap_face_info_array(prefilter_cubemap, vulkan_prefilter_cubemap, cubemap_render_pass, prefileter_map_mip_levels, memory_context.temp_allocator);
+
+    Vulkan_Descriptor_Pool_Allocator descriptor_pool_allocator = create_descriptor_pool_allocator(16);
+
+    VkDescriptorSet hdr_descriptor_set = allocate_descriptor_set(&descriptor_pool_allocator, hdr_shader->descriptor_set_layouts[0]);
+
+    {
+        VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write_descriptor_set.dstSet = hdr_descriptor_set;
+        write_descriptor_set.descriptorCount = 1;
+        write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_descriptor_set.dstArrayElement = 0;
+        write_descriptor_set.dstBinding = 0;
+
+        Vulkan_Sampler *vulkan_sampler = &context->samplers[renderer_state->default_texture_sampler.index];
+
+        VkDescriptorImageInfo image_info = {};
+        image_info.sampler = vulkan_sampler->handle;
+        image_info.imageView = hdr_texture.view;
+        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        write_descriptor_set.pImageInfo = &image_info;
+
+        vkUpdateDescriptorSets(context->logical_device, 1, &write_descriptor_set, 0, nullptr);
     }
 
     Bind_Group_Descriptor irradiance_bind_group_descriptor =
     {
-        .shader = render_data.irradiance_shader,
+        .shader = renderer_state->irradiance_shader,
         .group_index = 0,
     };
 
@@ -2514,7 +2583,7 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
 
     Bind_Group_Descriptor prefilter_bind_group_descriptor =
     {
-        .shader = render_data.prefilter_shader,
+        .shader = renderer_state->prefilter_shader,
         .group_index = 0,
     };
 
@@ -2563,8 +2632,8 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
         vkCmdBeginRenderPass(command_buffer.handle, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
         internal_set_viewport(command_buffer.handle, hdr_cubemap->width, hdr_cubemap->height);
-        internal_set_bind_groups(command_buffer.handle, 0, { .count = 1, .data = &hdr_bind_group_handle });
-        internal_set_pipeline_state(command_buffer.handle, render_data.hdr_pipeline_state_handle);
+        vkCmdBindDescriptorSets(command_buffer.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, hdr_shader->pipeline_layout, 0, 1, &hdr_descriptor_set, 0, nullptr);
+        internal_set_pipeline_state(command_buffer.handle, renderer_state->hdr_pipeline_state);
 
         Buffer_Handle buffers[] = { cube_mesh->positions_buffer };
         U64 offsets[] = { 0 };
@@ -2648,10 +2717,9 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
         }
     }
 
-    transtion_image_to_layout(command_buffer.handle, vulkan_hdr_cubemap->handle, 0, hdr->mip_levels, 0, 6, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    transtion_image_to_layout(command_buffer.handle, vulkan_hdr_cubemap->handle, 0, hdr_cubemap->mip_levels, 0, 6, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     transtion_image_to_layout(command_buffer.handle, vulkan_irradiance_cubemap->handle, 0, 1, 0, 6, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     transtion_image_to_layout(command_buffer.handle, vulkan_prefilter_cubemap->handle, 0, prefileter_map_mip_levels, 0, 6, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    transtion_image_to_layout(command_buffer.handle, vulkan_brdf_lut_texture->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
     // irradiance pass
     for (U32 face_index = 0; face_index < 6; face_index++)
@@ -2668,7 +2736,7 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
 
         internal_set_viewport(command_buffer.handle, irradiance_cubemap->width, irradiance_cubemap->height);
         internal_set_bind_groups(command_buffer.handle, 0, { .count = 1, .data = &irradiance_bind_group_handle });
-        internal_set_pipeline_state(command_buffer.handle, render_data.irradiance_pipeline_state_handle);
+        internal_set_pipeline_state(command_buffer.handle, renderer_state->irradiance_pipeline_state);
 
         Buffer_Handle buffers[] = { cube_mesh->positions_buffer };
         U64 offsets[] = { 0 };
@@ -2748,7 +2816,7 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
 
             internal_set_viewport(command_buffer.handle, width, height);
             internal_set_bind_groups(command_buffer.handle, 0, { .count = 1, .data = &prefilter_bind_group_handle });
-            internal_set_pipeline_state(command_buffer.handle, render_data.prefilter_pipeline_state_handle);
+            internal_set_pipeline_state(command_buffer.handle, renderer_state->prefilter_pipeline_state);
 
             Buffer_Handle buffers[] = { cube_mesh->positions_buffer };
             U64 offsets[] = { 0 };
@@ -2779,28 +2847,9 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
         }
     }
 
-    // brdf pass
-    VkClearValue clear_value = { .color = { 1.0f, 0.0f, 0.0f, 1.0f } };
-
-    VkRenderPassBeginInfo begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-    begin_info.framebuffer = brdf_lut_frame_buffer;
-    begin_info.renderArea = { .offset = { 0, 0 }, .extent { brdf_lut_texture->width, brdf_lut_texture->height } };
-    begin_info.clearValueCount = 1;
-    begin_info.pClearValues = &clear_value;
-    begin_info.renderPass = cubemap_render_pass->handle;
-    vkCmdBeginRenderPass(command_buffer.handle, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
-
-    internal_set_viewport(command_buffer.handle, brdf_lut_texture->width, brdf_lut_texture->height);
-    internal_set_pipeline_state(command_buffer.handle, render_data.brdf_lut_pipeline_state_handle);
-    internal_draw_fullscreen_triangle(command_buffer.handle);
-
-    vkCmdEndRenderPass(command_buffer.handle);
-
     transtion_image_to_layout(command_buffer.handle, vulkan_irradiance_cubemap->handle, 0, 1, 0, 6, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     transtion_image_to_layout(command_buffer.handle, vulkan_prefilter_cubemap->handle, 0, prefileter_map_mip_levels, 0, 6, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-    transtion_image_to_layout(command_buffer.handle, vulkan_brdf_lut_texture->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     end_one_use_command_buffer(context, &command_buffer);
 
@@ -2809,8 +2858,9 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
     free_cubemap_face_info_array(hdr_cubemap_faces, 1);
     free_cubemap_face_info_array(irrdiance_cubemap_faces, 1);
     free_cubemap_face_info_array(prefilter_cubemap_faces, prefileter_map_mip_levels);
-
-    vkDestroyFramebuffer(context->logical_device, brdf_lut_frame_buffer, &context->allocation_callbacks);
+    
+    vkDestroyImageView(context->logical_device, hdr_texture.view, &context->allocation_callbacks);
+    vmaDestroyImage(context->allocator, hdr_texture.handle, hdr_texture.allocation);
 
     hdr_cubemap->is_attachment = false;
     hdr_cubemap->state = Resource_State::SHADER_READ_ONLY;
@@ -2820,9 +2870,6 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
 
     prefilter_cubemap->is_attachment = false;
     prefilter_cubemap->state = Resource_State::SHADER_READ_ONLY;
-
-    brdf_lut_texture->is_attachment = false;
-    brdf_lut_texture->state = Resource_State::SHADER_READ_ONLY;
 
     // vulkan_renderer_imgui_add_texture(render_data.brdf_lut_texture_handle);
 }

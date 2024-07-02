@@ -60,8 +60,12 @@ void draw()
             {
                 Scene_Handle scene_handle = get_asset_handle_as<Scene>(scene_asset);
                 Scene *scene = renderer_get_scene(scene_handle);
-                Scene_Node *node = get_node(scene, inspector_state.data.scene_node_index);
-                internal_inspect_scene_node(node);
+                U32 node_index = inspector_state.data.scene_node_index;
+                if (node_index >= 0 && node_index < scene->node_count)
+                {
+                    Scene_Node *node = get_node(scene, node_index);
+                    internal_inspect_scene_node(node);
+                }
             }
         } break;
 

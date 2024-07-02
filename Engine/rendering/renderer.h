@@ -214,6 +214,20 @@ struct Renderer_State
     Material_Handle outline_first_pass;
     Material_Handle outline_second_pass;
 
+    Render_Pass_Handle cubemap_render_pass;
+
+    Shader_Handle hdr_shader;
+    Shader_Handle irradiance_shader;
+    Shader_Handle prefilter_shader;
+    Shader_Handle brdf_lut_shader;
+
+    Pipeline_State_Handle hdr_pipeline_state;
+    Pipeline_State_Handle irradiance_pipeline_state;
+    Pipeline_State_Handle prefilter_pipeline_state;
+    Pipeline_State_Handle brdf_lut_pipeline_state;
+
+    Texture_Handle brdf_lut_texture;
+
     bool imgui_docking;
 };
 
@@ -246,7 +260,7 @@ Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor);
 Texture* renderer_get_texture(Texture_Handle texture_handle);
 void renderer_destroy_texture(Texture_Handle &texture_handle);
 
-Environment_Map renderer_hdr_to_environment_map(Texture_Handle hdr_texture);
+Environment_Map renderer_hdr_to_environment_map(F32 *data, U32 width, U32 height);
 
 //
 // Samplers

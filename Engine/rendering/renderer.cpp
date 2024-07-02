@@ -641,6 +641,144 @@ bool init_renderer_state(Engine *engine)
 
         set_property(renderer_state->outline_second_pass, HE_STRING_LITERAL("scale_factor"), { .f32 = 1.01f });
         set_property(renderer_state->outline_second_pass, HE_STRING_LITERAL("outline_color"), { .v3f = outline_color });
+
+        {
+            Render_Pass_Descriptor cubemap_render_pass_descriptor =
+            {
+                .name = HE_STRING_LITERAL("cubemap_render_pass"),
+                .color_attachments =
+                {{
+                    {
+                        .format = Texture_Format::R16G16B16A16_SFLOAT
+                    }
+                }}
+            };
+
+            Render_Pass_Handle cubemap_render_pass_handle = renderer_create_render_pass(cubemap_render_pass_descriptor);
+            HE_ASSERT(is_valid_handle(&renderer_state->render_passes, cubemap_render_pass_handle));
+            renderer_state->cubemap_render_pass = cubemap_render_pass_handle;
+
+            Shader_Handle brdf_lut_shader_handle = load_shader(HE_STRING_LITERAL("brdf_lut"));
+            HE_ASSERT(is_valid_handle(&renderer_state->shaders, brdf_lut_shader_handle));
+            renderer_state->brdf_lut_shader = brdf_lut_shader_handle;
+
+            Pipeline_State_Descriptor brdf_lut_pipeline =
+            {
+                .settings =
+                {
+                    .cull_mode = Cull_Mode::NONE,
+                    .fill_mode = Fill_Mode::SOLID,
+
+                    .depth_testing = false,
+                    .depth_writing = false,
+
+                    .stencil_testing = false,
+
+                    .sample_shading = true,
+                },
+                .shader = brdf_lut_shader_handle,
+                .render_pass = renderer_state->cubemap_render_pass,
+            };
+
+            Pipeline_State_Handle brdf_lut_pipeline_state_handle = renderer_create_pipeline_state(brdf_lut_pipeline);
+            HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, brdf_lut_pipeline_state_handle));
+            renderer_state->brdf_lut_pipeline_state = brdf_lut_pipeline_state_handle;
+
+            Shader_Handle hdr_shader_handle = load_shader(HE_STRING_LITERAL("hdr"));
+            HE_ASSERT(is_valid_handle(&renderer_state->shaders, hdr_shader_handle));
+            renderer_state->hdr_shader = hdr_shader_handle;
+
+            Shader_Handle irradiance_shader_handle = load_shader(HE_STRING_LITERAL("irradiance"));
+            HE_ASSERT(is_valid_handle(&renderer_state->shaders, irradiance_shader_handle));
+            renderer_state->irradiance_shader = irradiance_shader_handle;
+
+            Shader_Handle prefilter_shader_handle = load_shader(HE_STRING_LITERAL("prefilter"));
+            HE_ASSERT(is_valid_handle(&renderer_state->shaders, prefilter_shader_handle));
+            renderer_state->prefilter_shader = prefilter_shader_handle;
+
+            Pipeline_State_Descriptor hdr_pipeline =
+            {
+                .settings =
+                {
+                    .cull_mode = Cull_Mode::NONE,
+                    .fill_mode = Fill_Mode::SOLID,
+
+                    .depth_testing = false,
+                    .depth_writing = false,
+
+                    .stencil_testing = false,
+
+                    .sample_shading = true,
+                },
+                .shader = hdr_shader_handle,
+                .render_pass = renderer_state->cubemap_render_pass,
+            };
+
+            Pipeline_State_Handle hdr_pipeline_state_handle = renderer_create_pipeline_state(hdr_pipeline);
+            HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, hdr_pipeline_state_handle));
+            renderer_state->hdr_pipeline_state = hdr_pipeline_state_handle;
+
+            Pipeline_State_Descriptor irradiance_pipeline =
+            {
+                .settings =
+                {
+                    .cull_mode = Cull_Mode::NONE,
+                    .fill_mode = Fill_Mode::SOLID,
+
+                    .depth_testing = false,
+                    .depth_writing = false,
+
+                    .stencil_testing = false,
+
+                    .sample_shading = true,
+                },
+                .shader = irradiance_shader_handle,
+                .render_pass = renderer_state->cubemap_render_pass,
+            };
+
+            Pipeline_State_Handle irradiance_pipeline_state_handle = renderer_create_pipeline_state(irradiance_pipeline);
+            HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, irradiance_pipeline_state_handle));
+            renderer_state->irradiance_pipeline_state = irradiance_pipeline_state_handle;
+
+            Pipeline_State_Descriptor prefilter_pipeline =
+            {
+                .settings =
+                {
+                    .cull_mode = Cull_Mode::NONE,
+                    .fill_mode = Fill_Mode::SOLID,
+
+                    .depth_testing = false,
+                    .depth_writing = false,
+
+                    .stencil_testing = false,
+
+                    .sample_shading = true,
+                },
+                .shader = prefilter_shader_handle,
+                .render_pass = renderer_state->cubemap_render_pass,
+            };
+
+            Pipeline_State_Handle prefilter_pipeline_state_handle = renderer_create_pipeline_state(prefilter_pipeline);
+            HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, prefilter_pipeline_state_handle));
+            renderer_state->prefilter_pipeline_state = prefilter_pipeline_state_handle;
+
+            Texture_Descriptor brdf_lut_texture_descriptor =
+            {
+                .name = HE_STRING_LITERAL("brdf_lut"),
+                .width = 512,
+                .height = 512,
+                .format = Texture_Format::R16G16B16A16_SFLOAT,
+                .layer_count = 1,
+                .mipmapping = false,
+                .sample_count = 1,
+                .is_attachment = true,
+                .is_cubemap = false,
+            };
+
+            Texture_Handle brdf_lut_texture_handle = renderer_create_texture(brdf_lut_texture_descriptor);
+            vulkan_renderer_fill_brdf_lut(brdf_lut_texture_handle);
+            renderer_state->brdf_lut_texture = brdf_lut_texture_handle;
+        }
     }
 
     return true;
@@ -866,7 +1004,7 @@ Sampler_Handle renderer_create_sampler(const Sampler_Descriptor &descriptor)
     return sampler_handle;
 }
 
-Environment_Map renderer_hdr_to_environment_map(Texture_Handle hdr_texture)
+Environment_Map renderer_hdr_to_environment_map(F32 *data, U32 width, U32 height)
 {
     Texture_Descriptor hdr_cubemap_descriptor =
     {
@@ -913,131 +1051,6 @@ Environment_Map renderer_hdr_to_environment_map(Texture_Handle hdr_texture)
 
     Texture_Handle prefilter_cubemap_handle = renderer_create_texture(prefilter_cubemap_descriptor);
 
-    Texture_Descriptor brdf_lut_texture_descriptor =
-    {
-        .name = HE_STRING_LITERAL("brdf_lut"),
-        .width = 512,
-        .height = 512,
-        .format = Texture_Format::R16G16B16A16_SFLOAT,
-        .layer_count = 1,
-        .mipmapping = false,
-        .sample_count = 1,
-        .is_attachment = true,
-        .is_cubemap = false,
-    };
-
-    Texture_Handle brdf_lut_texture_handle = renderer_create_texture(brdf_lut_texture_descriptor);
-
-    Render_Pass_Descriptor cubemap_render_pass_descriptor =
-    {
-        .name = HE_STRING_LITERAL("cubemap_render_pass"),
-        .color_attachments =
-        {{
-            {
-                .format = Texture_Format::R16G16B16A16_SFLOAT
-            }
-        }}
-    };
-
-    Render_Pass_Handle cubemap_render_pass_handle = renderer_create_render_pass(cubemap_render_pass_descriptor);
-    HE_ASSERT(is_valid_handle(&renderer_state->render_passes, cubemap_render_pass_handle));
-
-    Shader_Handle hdr_shader_handle = load_shader(HE_STRING_LITERAL("hdr"));
-    HE_ASSERT(is_valid_handle(&renderer_state->shaders, hdr_shader_handle));
-
-    Shader_Handle irradiance_shader_handle = load_shader(HE_STRING_LITERAL("irradiance"));
-    HE_ASSERT(is_valid_handle(&renderer_state->shaders, irradiance_shader_handle));
-
-    Shader_Handle prefilter_shader_handle = load_shader(HE_STRING_LITERAL("prefilter"));
-    HE_ASSERT(is_valid_handle(&renderer_state->shaders, prefilter_shader_handle));
-
-    Shader_Handle brdf_lut_shader_handle = load_shader(HE_STRING_LITERAL("brdf_lut"));
-    HE_ASSERT(is_valid_handle(&renderer_state->shaders, brdf_lut_shader_handle));
-
-    Pipeline_State_Descriptor hdr_pipeline =
-    {
-        .settings =
-        {
-            .cull_mode = Cull_Mode::NONE,
-            .fill_mode = Fill_Mode::SOLID,
-
-            .depth_testing = false,
-            .depth_writing = false,
-
-            .stencil_testing = false,
-
-            .sample_shading = true,
-        },
-        .shader = hdr_shader_handle,
-        .render_pass = cubemap_render_pass_handle,
-    };
-
-    Pipeline_State_Handle hdr_pipeline_state_handle = renderer_create_pipeline_state(hdr_pipeline);
-    HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, hdr_pipeline_state_handle));
-
-    Pipeline_State_Descriptor irradiance_pipeline =
-    {
-        .settings =
-        {
-            .cull_mode = Cull_Mode::NONE,
-            .fill_mode = Fill_Mode::SOLID,
-
-            .depth_testing = false,
-            .depth_writing = false,
-
-            .stencil_testing = false,
-
-            .sample_shading = true,
-        },
-        .shader = irradiance_shader_handle,
-        .render_pass = cubemap_render_pass_handle,
-    };
-
-    Pipeline_State_Handle irradiance_pipeline_state_handle = renderer_create_pipeline_state(irradiance_pipeline);
-    HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, irradiance_pipeline_state_handle));
-
-    Pipeline_State_Descriptor prefilter_pipeline =
-    {
-        .settings =
-        {
-            .cull_mode = Cull_Mode::NONE,
-            .fill_mode = Fill_Mode::SOLID,
-
-            .depth_testing = false,
-            .depth_writing = false,
-
-            .stencil_testing = false,
-
-            .sample_shading = true,
-        },
-        .shader = prefilter_shader_handle,
-        .render_pass = cubemap_render_pass_handle,
-    };
-
-    Pipeline_State_Handle prefilter_pipeline_state_handle = renderer_create_pipeline_state(prefilter_pipeline);
-    HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, prefilter_pipeline_state_handle));
-
-    Pipeline_State_Descriptor brdf_lut_pipeline =
-    {
-        .settings =
-        {
-            .cull_mode = Cull_Mode::NONE,
-            .fill_mode = Fill_Mode::SOLID,
-
-            .depth_testing = false,
-            .depth_writing = false,
-
-            .stencil_testing = false,
-
-            .sample_shading = true,
-        },
-        .shader = brdf_lut_shader_handle,
-        .render_pass = cubemap_render_pass_handle,
-    };
-
-    Pipeline_State_Handle brdf_lut_pipeline_state_handle = renderer_create_pipeline_state(brdf_lut_pipeline);
-    HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, brdf_lut_pipeline_state_handle));
-
     Buffer_Descriptor globals_uniform_buffer_descriptor =
     {
         .size = sizeof(glm::mat4),
@@ -1047,25 +1060,15 @@ Environment_Map renderer_hdr_to_environment_map(Texture_Handle hdr_texture)
 
     Enviornment_Map_Render_Data render_data
     {
+        .hdr_data = data,
+        .hdr_width = width,
+        .hdr_height = height,
+
         .globals_uniform_buffer = globals_uniform_buffer,
 
-        .hdr_handle = hdr_texture,
         .hdr_cubemap_handle = hdr_cubemap_handle,
         .irradiance_cubemap_handle = irradiance_cubemap_handle,
         .prefilter_cubemap_handle = prefilter_cubemap_handle,
-        .brdf_lut_texture_handle = brdf_lut_texture_handle,
-
-        .cubemap_render_pass = cubemap_render_pass_handle,
-
-        .hdr_shader = hdr_shader_handle,
-        .irradiance_shader = irradiance_shader_handle,
-        .prefilter_shader = prefilter_shader_handle,
-        .brdf_lut_shader = brdf_lut_shader_handle,
-
-        .hdr_pipeline_state_handle = hdr_pipeline_state_handle,
-        .irradiance_pipeline_state_handle = irradiance_pipeline_state_handle,
-        .prefilter_pipeline_state_handle = prefilter_pipeline_state_handle,
-        .brdf_lut_pipeline_state_handle = brdf_lut_pipeline_state_handle,
     };
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
@@ -1077,7 +1080,6 @@ Environment_Map renderer_hdr_to_environment_map(Texture_Handle hdr_texture)
         .environment_map = hdr_cubemap_handle,
         .irradiance_map = irradiance_cubemap_handle,
         .prefilter_map = prefilter_cubemap_handle,
-        .brdf_lut = brdf_lut_texture_handle
     };
 }
 
@@ -2924,20 +2926,20 @@ void begin_rendering(const Camera *camera)
     globals->use_environment_map = (U32)ls_use_enviornment_map;
     ImGui::End();
 
+    globals->brdf_lut = renderer_state->brdf_lut_texture.index;
+
     Asset_Handle environment_map_asset = import_asset(HE_STRING_LITERAL("env_map.hdr"));
     if (is_asset_handle_valid(environment_map_asset) && is_asset_loaded(environment_map_asset))
     {
         Environment_Map *env_map = get_asset_as<Environment_Map>(environment_map_asset);
         globals->irradiance_map = env_map->irradiance_map.index;
         globals->prefilter_map = env_map->prefilter_map.index;
-        globals->brdf_lut = env_map->brdf_lut.index;
         // ImGui::Image(renderer->imgui_get_texture_id(env_map->brdf_lut_map), ImVec2(512, 512), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
     }
     else
     {
         globals->irradiance_map = renderer_state->default_cubemap.index;
         globals->prefilter_map = renderer_state->default_cubemap.index;
-        globals->brdf_lut = renderer_state->white_pixel_texture.index;
     }
 
     Buffer *instance_storage_buffer = get(&renderer_state->buffers, render_data->instance_storage_buffers[frame_index]);

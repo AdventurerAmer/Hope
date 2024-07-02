@@ -369,47 +369,22 @@ void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U3
     vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
-void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width, U32 height, U32 mip_levels, U32 layer_count, VkFormat format, Array_View< void * > data_array, Upload_Request_Handle upload_request_handle)
+void copy_data_to_image(Vulkan_Context *context, Vulkan_Command_Buffer *command_buffer, Vulkan_Image *image, const Texture_Descriptor &texture_descriptor, U32 mip_levels)
 {
     HE_ASSERT(context);
     HE_ASSERT(image);
-    HE_ASSERT(width);
-    HE_ASSERT(height);
 
     Renderer_State *renderer_state = context->renderer_state;
-
     Vulkan_Thread_State *thread_state = get_thread_state(context);
 
-    VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    command_buffer_allocate_info.commandPool = thread_state->graphics_command_pool;
-    command_buffer_allocate_info.commandBufferCount = 1;
-    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-
-    VkCommandBuffer command_buffer = {};
-    vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
-    vkResetCommandBuffer(command_buffer, 0);
-
-    Vulkan_Upload_Request *vulkan_upload_request = &context->upload_requests[upload_request_handle.index];
-    vulkan_upload_request->graphics_command_pool = thread_state->graphics_command_pool;
-    vulkan_upload_request->graphics_command_buffer = command_buffer;
-    
-    vulkan_upload_request->transfer_command_pool = VK_NULL_HANDLE;
-    vulkan_upload_request->transfer_command_buffer = VK_NULL_HANDLE;
-
-    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    command_buffer_begin_info.flags = 0;
-    command_buffer_begin_info.pInheritanceInfo = 0;
-
-    vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
-
-    transtion_image_to_layout(command_buffer, image->handle, 0, mip_levels, 0, layer_count, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    transtion_image_to_layout(command_buffer->handle, image->handle, 0, mip_levels, 0, texture_descriptor.layer_count, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     // todo(amer): only supporting RGBA for now.
-    U64 size = (U64)width * (U64)height * sizeof(U32);
+    U64 size = (U64)texture_descriptor.width * (U64)texture_descriptor.height * sizeof(U32);
 
-    for (U32 layer_index = 0; layer_index < layer_count; layer_index++)
+    for (U32 layer_index = 0; layer_index < texture_descriptor.layer_count; layer_index++)
     {
-        U64 offset = (U8 *)data_array[layer_index] - renderer_state->transfer_allocator.base;
+        U64 offset = (U8 *)texture_descriptor.data_array[layer_index] - renderer_state->transfer_allocator.base;
 
         VkBufferImageCopy region = {};
         region.bufferOffset = offset;
@@ -422,11 +397,11 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
         region.imageSubresource.layerCount = 1;
 
         region.imageOffset = { 0, 0, 0 };
-        region.imageExtent = { width, height, 1 };
+        region.imageExtent = { texture_descriptor.width, texture_descriptor.height, 1 };
 
         Renderer_State *renderer_state = context->renderer_state;
         Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
-        vkCmdCopyBufferToImage(command_buffer, transfer_buffer->handle, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        vkCmdCopyBufferToImage(command_buffer->handle, transfer_buffer->handle, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
         VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
         barrier.image = image->handle;
@@ -438,11 +413,11 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
         barrier.subresourceRange.levelCount = 1;
 
         VkFormatProperties format_properties;
-        vkGetPhysicalDeviceFormatProperties(context->physical_device, format, &format_properties);
+        vkGetPhysicalDeviceFormatProperties(context->physical_device, get_texture_format(texture_descriptor.format), &format_properties);
         HE_ASSERT((format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT));
 
-        U32 mip_width = width;
-        U32 mip_height = height;
+        U32 mip_width = texture_descriptor.width;
+        U32 mip_height = texture_descriptor.height;
 
         for (U32 mip_index = 1; mip_index < mip_levels; mip_index++)
         {
@@ -452,7 +427,7 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
             barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
             barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
-            vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+            vkCmdPipelineBarrier(command_buffer->handle, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
             VkImageBlit blit = {};
             blit.srcOffsets[0] = { 0, 0, 0 };
@@ -475,14 +450,14 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
             blit.dstSubresource.baseArrayLayer = layer_index;
             blit.dstSubresource.layerCount = 1;
 
-            vkCmdBlitImage(command_buffer, image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+            vkCmdBlitImage(command_buffer->handle, image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
 
             barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
             barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
             barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-            vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+            vkCmdPipelineBarrier(command_buffer->handle, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
         }
 
         barrier.subresourceRange.baseMipLevel = mip_levels - 1;
@@ -491,32 +466,8 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Image *image, U32 width,
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-        vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        vkCmdPipelineBarrier(command_buffer->handle, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
-
-    vkEndCommandBuffer(command_buffer);
-
-    VkCommandBufferSubmitInfo command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
-    command_buffer_submit_info.commandBuffer = command_buffer;
-
-    VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
-    submit_info.commandBufferInfoCount = 1;
-    submit_info.pCommandBufferInfos = &command_buffer_submit_info;
-
-    VkSemaphoreSubmitInfoKHR semaphore_submit_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-    
-    Upload_Request *upload_request = renderer_get_upload_request(upload_request_handle);
-    upload_request->target_value++;
-    Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[upload_request->semaphore.index];
-
-    semaphore_submit_info.semaphore = vulkan_semaphore->handle;
-    semaphore_submit_info.value = upload_request->target_value;
-    semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
-
-    submit_info.signalSemaphoreInfoCount = 1;
-    submit_info.pSignalSemaphoreInfos = &semaphore_submit_info;
-
-    context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
 }
 
 Vulkan_Thread_State *get_thread_state(Vulkan_Context *context)
@@ -572,8 +523,10 @@ Vulkan_Command_Buffer begin_one_use_command_buffer(Vulkan_Context *context)
     };
 }
 
-void end_one_use_command_buffer(Vulkan_Context *context, Vulkan_Command_Buffer *command_buffer)
+void end_one_use_command_buffer(Vulkan_Context *context, Vulkan_Command_Buffer *command_buffer, Upload_Request_Handle upload_request_handle)
 {
+    Renderer_State *renderer_state = context->renderer_state;
+
     vkEndCommandBuffer(command_buffer->handle);
 
     VkCommandBufferSubmitInfo command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
@@ -583,13 +536,40 @@ void end_one_use_command_buffer(Vulkan_Context *context, Vulkan_Command_Buffer *
     submit_info.commandBufferInfoCount = 1;
     submit_info.pCommandBufferInfos = &command_buffer_submit_info;
 
-    VkFenceCreateInfo fence_create_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-    VkFence fence = {};
-    vkCreateFence(context->logical_device, &fence_create_info, &context->allocation_callbacks, &fence);
+    if (is_valid_handle(&renderer_state->upload_requests, upload_request_handle))
+    {
+        Upload_Request *upload_request = renderer_get_upload_request(upload_request_handle);
+        upload_request->target_value++;
 
-    context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, fence);
-    vkWaitForFences(context->logical_device, 1, &fence, VK_TRUE, HE_MAX_U64);
+        Vulkan_Upload_Request *vulkan_upload_request = &context->upload_requests[upload_request_handle.index];
+        vulkan_upload_request->graphics_command_buffer = command_buffer->handle;
+        vulkan_upload_request->graphics_command_pool = command_buffer->pool;
 
-    vkDestroyFence(context->logical_device, fence, &context->allocation_callbacks);
-    vkFreeCommandBuffers(context->logical_device, command_buffer->pool, 1, &command_buffer->handle);
+        vulkan_upload_request->transfer_command_buffer = VK_NULL_HANDLE;
+        vulkan_upload_request->transfer_command_pool = VK_NULL_HANDLE;
+
+        Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[upload_request->semaphore.index];
+
+        VkSemaphoreSubmitInfoKHR semaphore_submit_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+        semaphore_submit_info.semaphore = vulkan_semaphore->handle;
+        semaphore_submit_info.value = upload_request->target_value;
+        semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
+
+        submit_info.signalSemaphoreInfoCount = 1;
+        submit_info.pSignalSemaphoreInfos = &semaphore_submit_info;
+
+        context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+    }
+    else
+    {
+        VkFenceCreateInfo fence_create_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        VkFence fence = {};
+        vkCreateFence(context->logical_device, &fence_create_info, &context->allocation_callbacks, &fence);
+
+        context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, fence);
+        vkWaitForFences(context->logical_device, 1, &fence, VK_TRUE, HE_MAX_U64);
+
+        vkDestroyFence(context->logical_device, fence, &context->allocation_callbacks);
+        vkFreeCommandBuffers(context->logical_device, command_buffer->pool, 1, &command_buffer->handle);
+    }
 }

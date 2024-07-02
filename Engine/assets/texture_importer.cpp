@@ -107,35 +107,9 @@ Load_Asset_Result load_environment_map(String path, const Embeded_Asset_Params *
     copy_memory(data, pixels, width * height * 4 * sizeof(F32));
     stbi_image_free(pixels);
 
-    void *data_array[] = { data };
-
-    Texture_Descriptor hdr_texture_descriptor =
-    {
-        .name = get_name(path),
-        .width = (U32)width,
-        .height = (U32)height,
-        .format = Texture_Format::R32G32B32A32_SFLOAT,
-        .data_array = to_array_view(data_array),
-        .mipmapping = false,
-        .sample_count = 1,
-    };
-
-    Texture_Handle hdr_texture = renderer_create_texture(hdr_texture_descriptor);
-    if (!is_valid_handle(&renderer_state->textures, hdr_texture))
-    {
-        HE_LOG(Assets, Error, "load_texture -- renderer_create_texture -- failed to load texture asset: %.*s\n", HE_EXPAND_STRING(path));
-        return {};
-    }
-
-    Texture *hdr = renderer_get_texture(hdr_texture);
-    std::atomic_bool *is_uploaded = (std::atomic_bool *)(&hdr->is_uploaded_to_gpu);
-    while(!is_uploaded->load());
-
     Environment_Map *environment_map = HE_ALLOCATOR_ALLOCATE(memory_context.general_allocator, Environment_Map);
-    *environment_map = renderer_hdr_to_environment_map(hdr_texture);
-
-    // todo(amer): @Bug use after delete
-    // renderer_destroy_texture(hdr_texture);
+    *environment_map = renderer_hdr_to_environment_map(data, width, height);
+    deallocate(&renderer_state->transfer_allocator, (void *)data);
 
     return { .success = true, .data = (void *)environment_map, .size = sizeof(Environment_Map) };
 }

@@ -76,26 +76,18 @@ void vulkan_renderer_destroy_resources_at_frame(U32 frame_index);
 
 struct Enviornment_Map_Render_Data
 {
+    F32 *hdr_data;
+    U32 hdr_width;
+    U32 hdr_height;
+
     Buffer_Handle globals_uniform_buffer;
 
-    Texture_Handle hdr_handle;
     Texture_Handle hdr_cubemap_handle;
     Texture_Handle irradiance_cubemap_handle;
     Texture_Handle prefilter_cubemap_handle;
-    Texture_Handle brdf_lut_texture_handle;
-
-    Render_Pass_Handle cubemap_render_pass;
-
-    Shader_Handle hdr_shader;
-    Shader_Handle irradiance_shader;
-    Shader_Handle prefilter_shader;
-    Shader_Handle brdf_lut_shader;
-
-    Pipeline_State_Handle hdr_pipeline_state_handle;
-    Pipeline_State_Handle irradiance_pipeline_state_handle;
-    Pipeline_State_Handle prefilter_pipeline_state_handle;
-    Pipeline_State_Handle brdf_lut_pipeline_state_handle;
 };
+
+void vulkan_renderer_fill_brdf_lut(Texture_Handle brdf_lut_texture_handle);
 
 void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &render_data);
 

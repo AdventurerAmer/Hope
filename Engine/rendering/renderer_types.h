@@ -658,7 +658,6 @@ struct Environment_Map
     Texture_Handle environment_map;
     Texture_Handle irradiance_map;
     Texture_Handle prefilter_map;
-    Texture_Handle brdf_lut;
 };
 
 enum class Light_Type : U8
