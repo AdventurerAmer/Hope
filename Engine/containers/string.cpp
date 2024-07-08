@@ -220,6 +220,30 @@ String eat_none_white_space(String *str)
     return result;
 }
 
+bool contains(String a, String b)
+{
+    for (U64 i = 0; i < a.count - b.count + 1; i++)
+    {
+        bool found = true;
+
+        for (U64 j = 0; j < b.count; j++)
+        {
+            if (a.data[i+j] != b.data[j])
+            {
+                found = false;
+                break;
+            }
+        }
+
+        if (found)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 String format_string(Allocator allocator, const char *format, ...)
 {
     va_list args;

@@ -84,7 +84,7 @@ layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFOR
 void main()
 {
     vec3 debug_texture = srgb_to_linear(texture( u_textures[ nonuniformEXT( material.debug_texture_index ) ], frag_input.uv ).rgb, globals.gamma);
-    vec3 color = debug_texture * srgb_to_linear(material.debug_color, globals.gamma);
+    vec3 color = debug_texture * material.debug_color;
     float noop = NOOP(lights[0].color.x) * NOOP(float(light_bins[0]));
     out_color = vec4(linear_to_srgb(color, globals.gamma), 1.0) * noop;
 }

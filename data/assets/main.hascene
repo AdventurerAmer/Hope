@@ -1,7 +1,7 @@
 version 1
-ambient_color 0.107843 0.107843 0.107843
+ambient_color 0.105882 0.105882 0.105882
 skybox_material_asset 11193936441130767775
-node_count 4
+node_count 5
 node_name 4 main
 parent -1
 component_count 1
@@ -14,11 +14,11 @@ parent 0
 component_count 2
 component transform
 position 0.000000 0.000000 0.000000
-rotation -0.707106 -0.000000 0.000000 0.707108
-scale 0.999986 1.000246 0.999736
+rotation -0.707107 -0.000000 0.000000 0.707107
+scale 0.999986 0.999812 0.999423
 component light
 type directional
-color 1.000000 1.000000 1.000000
+color 0.992157 0.580392 0.074510
 intensity 1.000000
 radius 1.000000
 inner_angle 30.000000
@@ -27,7 +27,7 @@ node_name 6 Corset
 parent 0
 component_count 2
 component transform
-position 0.683569 0.000000 0.000000
+position 0.500000 0.000000 0.000000
 rotation -0.000001 1.000000 -0.000001 0.000000
 scale 15.000000 15.000000 15.000000
 component mesh
@@ -69,3 +69,14 @@ material_asset 12999501450642474048
 material_asset 14508616316600532449
 material_asset 16596479098434924918
 material_asset 10415673011533898807
+node_name 5 Glass
+parent 0
+component_count 2
+component transform
+position 0.000000 0.527859 0.000000
+rotation 0.000000 0.000000 0.000000 1.000000
+scale 0.200000 0.200000 0.200000
+component mesh
+static_mesh_asset 6388750915018620212
+material_count 1
+material_asset 9454918637899659995

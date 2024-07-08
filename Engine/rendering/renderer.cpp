@@ -238,29 +238,6 @@ bool init_renderer_state(Engine *engine)
     }
 
     {
-        U32 *normal_pixel_data = HE_ALLOCATE(&renderer_state->transfer_allocator, U32);
-        *normal_pixel_data = 0xFFFF8080; // todo(amer): endianness
-        HE_ASSERT(HE_ARCH_X64);
-
-        void *data_array[] =
-        {
-            normal_pixel_data
-        };
-
-        Texture_Descriptor normal_pixel_descriptor =
-        {
-            .name = HE_STRING_LITERAL("normal pixel"),
-            .width = 1,
-            .height = 1,
-            .format = Texture_Format::R8G8B8A8_UNORM,
-            .data_array = to_array_view(data_array),
-            .mipmapping = false,
-        };
-
-        renderer_state->normal_pixel_texture = renderer_create_texture(normal_pixel_descriptor);
-    }
-
-    {
         U32 white_pixel_data = 0xFFFFFFFF;
         void *data_array[6] = {};
 
@@ -631,7 +608,7 @@ bool init_renderer_state(Engine *engine)
             }
         };
 
-        glm::vec3 outline_color = srgb_to_linear(glm::vec3 { 1.0f, 1.0f, 0.2f }, renderer_state->gamma);
+        glm::vec3 outline_color = { 1.0f, 1.0f, 0.2f };
 
         renderer_state->outline_first_pass = renderer_create_material(first_pass_outline_material);
         set_property(renderer_state->outline_first_pass, HE_STRING_LITERAL("scale_factor"), { .f32 = 1.0f });
@@ -945,7 +922,6 @@ Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
     texture->sample_count = descriptor.sample_count;
     texture->is_storage = descriptor.is_storage;
 
-    HE_LOG(Rendering, Trace, "created texture: %.*s { %d, %u }\n", HE_EXPAND_STRING(texture->name), texture_handle.index, texture_handle.generation);
     return texture_handle;
 }
 
@@ -957,7 +933,6 @@ Texture* renderer_get_texture(Texture_Handle texture_handle)
 void renderer_destroy_texture(Texture_Handle &texture_handle)
 {
     HE_ASSERT(texture_handle != renderer_state->white_pixel_texture);
-    HE_ASSERT(texture_handle != renderer_state->normal_pixel_texture);
     
     Memory_Context memory_context = grab_memory_context();
 
@@ -980,8 +955,6 @@ void renderer_destroy_texture(Texture_Handle &texture_handle)
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->destroy_texture(texture_handle, false);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
-
-    HE_LOG(Rendering, Trace, "destroyed texture %.*s { %d, %u }\n", HE_EXPAND_STRING(texture->name), texture_handle.index, texture_handle.generation);
 
     release_handle(&renderer_state->textures, texture_handle);
     texture_handle = Resource_Pool< Texture >::invalid_handle;
@@ -1124,9 +1097,9 @@ struct Shaderc_UserData
 shaderc_include_result *shaderc_include_resolve(void *user_data, const char *requested_source, int type, const char *requesting_source, size_t include_depth)
 {
     Shaderc_UserData *ud = (Shaderc_UserData *)user_data;
-    
+
     Memory_Context memory_context = grab_memory_context();
-    
+
     String source = HE_STRING(requested_source);
     String path = format_string(memory_context.temp_allocator, "%.*s/%.*s", HE_EXPAND_STRING(ud->include_path), HE_EXPAND_STRING(source));
     Read_Entire_File_Result file_result = read_entire_file(path, ud->allocator);
@@ -1265,7 +1238,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
 Shader_Handle load_shader(String name)
 {
     Memory_Context memory_context = grab_memory_context();
-    
+
     Read_Entire_File_Result result = read_entire_file( format_string(memory_context.temp_allocator, "shaders/%.*s.glsl", HE_EXPAND_STRING(name)), memory_context.temp_allocator);
 
     if (!result.success)
@@ -1818,7 +1791,7 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
     if (property->is_texture_asset)
     {
         U32 *texture_index = (U32 *)&material->data[property->offset_in_buffer];
-        *texture_index = (U32)renderer_state->white_pixel_texture.index;
+        *texture_index = renderer_state->white_pixel_texture.index;
     }
     else if (property->is_color)
     {
@@ -1828,14 +1801,14 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
             {
                 // srgb to linear
                 glm::vec3 *color = (glm::vec3 *)&material->data[property->offset_in_buffer];
-                *color = srgb_to_linear(property->data.v3f, renderer_state->gamma);
+                *color = srgb_to_linear(property->data.v3f);
             } break;
 
             case Shader_Data_Type::VECTOR4F:
             {
                 // srgb to linear
                 glm::vec4 *color = (glm::vec4 *)&material->data[property->offset_in_buffer];
-                *color = srgb_to_linear(property->data.v4f, renderer_state->gamma);
+                *color = srgb_to_linear(property->data.v4f);
             } break;
         }
     }
@@ -2057,7 +2030,7 @@ static const char* material_type_to_str(Material_Type type)
 bool serialize_material(Material_Handle material_handle, U64 shader_asset_uuid, String path)
 {
     Memory_Context memory_context = grab_memory_context();
-    
+
     Material *material = renderer_get_material(material_handle);
     Pipeline_State *pipeline_state = renderer_get_pipeline_state(material->pipeline_state_handle);
 
@@ -2091,10 +2064,8 @@ bool serialize_material(Material_Handle material_handle, U64 shader_asset_uuid, 
     for (U32 i = 0; i < material->properties.count; i++)
     {
         Material_Property *property = &material->properties[i];
-        bool is_texture_asset = ends_with(property->name, HE_STRING_LITERAL("texture"));
-        bool is_cubemap_asset = ends_with(property->name, HE_STRING_LITERAL("cubemap"));
+        bool is_texture_asset = ends_with(property->name, HE_STRING_LITERAL("texture")) || ends_with(property->name, HE_STRING_LITERAL("cubemap"));
 
-        bool is_color = ends_with(property->name, HE_STRING_LITERAL("color"));
         append(&builder, "%.*s %.*s ", HE_EXPAND_STRING(property->name), HE_EXPAND_STRING(shader_data_type_to_str(property->data_type)));
         switch (property->data_type)
         {
@@ -2107,7 +2078,7 @@ bool serialize_material(Material_Handle material_handle, U64 shader_asset_uuid, 
 
             case Shader_Data_Type::U32:
             {
-                append(&builder, "%llu\n", (is_texture_asset || is_cubemap_asset) ? property->data.u64 : property->data.u32);
+                append(&builder, "%llu\n", is_texture_asset ? property->data.u64 : property->data.u32);
             } break;
 
             case Shader_Data_Type::S8:
@@ -2674,7 +2645,7 @@ static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_t
         light.radius = light_comp->radius;
         light.outer_angle = glm::radians(light_comp->outer_angle);
         light.inner_angle = glm::radians(light_comp->inner_angle);
-        light.color = srgb_to_linear(light_comp->color, renderer_state->gamma) * light_comp->intensity;
+        light.color = srgb_to_linear(light_comp->color) * light_comp->intensity;
     }
 
     for (S32 child_node_index = node->first_child_index; child_node_index != -1; child_node_index = get_node(scene, child_node_index)->next_sibling_index)
@@ -2710,7 +2681,7 @@ void render_scene(Scene_Handle scene_handle)
             dc.material = get_asset_handle_as<Material>(skybox_material_asset);
             dc.instance_index = instance_index;
 
-            render_data->globals->ambient = srgb_to_linear(skybox->ambient_color, renderer_state->gamma);
+            render_data->globals->ambient = srgb_to_linear(skybox->ambient_color);
         }
     }
 
@@ -2777,7 +2748,7 @@ void renderer_destroy_upload_request(Upload_Request_Handle upload_request_handle
 void renderer_handle_upload_requests()
 {
     platform_lock_mutex(&renderer_state->pending_upload_requests_mutex);
-    
+
     for (S32 index = 0; index < (S32)renderer_state->pending_upload_requests.count; index++)
     {
         Upload_Request_Handle upload_request_handle = renderer_state->pending_upload_requests[index];
@@ -2889,7 +2860,7 @@ static U8* get_pointer(Shader_Struct *_struct, U8 *data, String name)
 void begin_rendering(const Camera *camera)
 {
     Memory_Context memory_context = grab_memory_context();
-    
+
     renderer->begin_frame();
 
     U32 frame_index = renderer_state->current_frame_in_flight_index;
@@ -2933,6 +2904,8 @@ void begin_rendering(const Camera *camera)
     {
         Environment_Map *env_map = get_asset_as<Environment_Map>(environment_map_asset);
         globals->irradiance_map = env_map->irradiance_map.index;
+        Texture *prefilter_map = renderer_get_texture(env_map->prefilter_map);
+        globals->prefilter_map_lod = prefilter_map->mip_levels;
         globals->prefilter_map = env_map->prefilter_map.index;
         // ImGui::Image(renderer->imgui_get_texture_id(env_map->brdf_lut_map), ImVec2(512, 512), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
     }
@@ -3255,15 +3228,6 @@ void end_rendering()
 
         light_bins[bin_index] = min_light_index|(max_light_index << 16);
     }
-
-    ImGui::Begin("Lighting");
-    ImGui::Text("Light Bin Count");
-    ImGui::SameLine();
-    ImGui::DragInt("##Light Bin Count", (S32 *)&render_data->light_bin_count, 1, 16, 128);
-    ImGui::Text("total light count: %u", total_light_count);
-    ImGui::Text("submitted light count: %u", light_count);
-    ImGui::Text("culled light count: %u", total_light_count - light_count);
-    ImGui::End();
 
     render(&renderer_state->render_graph, renderer, renderer_state);
     renderer->end_frame();

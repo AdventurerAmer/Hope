@@ -18,5 +18,11 @@ glm::vec4 srgb_to_linear(const glm::vec4 &color, F32 gamma);
 glm::vec3 linear_to_srgb(const glm::vec3 &color, F32 gamma);
 glm::vec4 linear_to_srgb(const glm::vec4 &color, F32 gamma);
 
+glm::vec3 srgb_to_linear(const glm::vec3 &color);
+glm::vec4 srgb_to_linear(const glm::vec4 &color);
+
+glm::vec3 linear_to_srgb(const glm::vec3 &color);
+glm::vec4 linear_to_srgb(const glm::vec4 &color);
+
 String shader_data_type_to_str(Shader_Data_Type type);
 Shader_Data_Type str_to_shader_data_type(String str);

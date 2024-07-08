@@ -100,6 +100,8 @@ String eat_none_of_chars(String str, String chars);
 String eat_white_space(String str);
 String eat_none_white_space(String *str);
 
+bool contains(String a, String b);
+
 struct String_Builder
 {
     Memory_Arena *arena;

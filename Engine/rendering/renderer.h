@@ -187,7 +187,6 @@ struct Renderer_State
     Material_Handle default_material;
 
     Texture_Handle white_pixel_texture;
-    Texture_Handle normal_pixel_texture;
     Texture_Handle default_cubemap;
 
     Sampler_Handle default_texture_sampler;

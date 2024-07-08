@@ -282,6 +282,7 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
             Shader_Data_Type data_type = (Shader_Data_Type)str_to_shader_data_type(type);
             
             bool is_texture_asset = (ends_with(name, HE_STRING_LITERAL("texture")) || ends_with(name, HE_STRING_LITERAL("cubemap"))) && data_type == Shader_Data_Type::U32;
+            bool is_color = ends_with(name, HE_STRING_LITERAL("color"));
 
             Material_Property_Data data = {};
 
@@ -383,6 +384,7 @@ Load_Asset_Result load_material(String path, const Embeded_Asset_Params *params)
             property->data = data;
             property->data_type = data_type;
             property->is_texture_asset = is_texture_asset;
+            property->is_color = is_color;
         }
     }
 

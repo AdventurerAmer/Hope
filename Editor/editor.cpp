@@ -395,6 +395,7 @@ static void draw_graphics_window()
     Render_Context render_context = get_render_context();
     Renderer *renderer = render_context.renderer;
     Renderer_State *renderer_state = render_context.renderer_state;
+    Frame_Render_Data *render_data = &renderer_state->render_data;
 
     // ImGui Graphics Settings
     {
@@ -481,6 +482,13 @@ static void draw_graphics_window()
                 ImGui::EndCombo();
             }
         }
+        //
+        //
+        //
+
+        ImGui::Text("Light Bin Count");
+        ImGui::SameLine();
+        ImGui::DragInt("##Light Bin Count", (S32 *)&render_data->light_bin_count, 1, 16, 128);
         
         ImGui::End();
     }

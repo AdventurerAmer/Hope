@@ -133,6 +133,87 @@ glm::vec4 linear_to_srgb(const glm::vec4 &color, F32 gamma)
     return glm::pow(color, glm::vec4(1.0f / gamma));
 }
 
+//
+// https://entropymine.com/imageworsener/srgbformula/
+//
+
+
+glm::vec3 srgb_to_linear(const glm::vec3 &color)
+{
+    glm::vec3 result = {};
+
+    for (U32 i = 0; i < 3; i++)
+    {
+        if (color[i] <= 0.04045f)
+        {
+            result[i] = color[i] / 12.92f;
+        }
+        else
+        {
+            result[i] = glm::pow((color[i] + 0.055f) / 1.055f, 2.4f);
+        }
+    }
+
+    return result;
+}
+
+glm::vec4 srgb_to_linear(const glm::vec4 &color)
+{
+    glm::vec4 result = {};
+
+    for (U32 i = 0; i < 4; i++)
+    {
+        if (color[i] <= 0.04045f)
+        {
+            result[i] = color[i] / 12.92f;
+        }
+        else
+        {
+            result[i] = glm::pow((color[i] + 0.055f) / 1.055f, 2.4f);
+        }
+    }
+
+    return result;
+}
+
+glm::vec3 linear_to_srgb(const glm::vec3 &color)
+{
+    glm::vec3 result = {};
+
+    for (U32 i = 0; i < 3; i++)
+    {
+        if (color[i] <= 0.0031308f)
+        {
+            result[i] = color[i] * 12.92f;
+        }
+        else
+        {
+            result[i] = 1.055f * glm::pow(color[i], 1.0f/2.4f) - 0.055f;
+        }
+    }
+
+    return result;
+}
+
+glm::vec4 linear_to_srgb(const glm::vec4 &color)
+{
+    glm::vec4 result = {};
+
+    for (U32 i = 0; i < 4; i++)
+    {
+        if (color[i] <= 0.0031308f)
+        {
+            result[i] = color[i] * 12.92f;
+        }
+        else
+        {
+            result[i] = 1.055f * glm::pow(color[i], 1.0f/2.4f) - 0.055f;
+        }
+    }
+
+    return result;
+}
+
 String shader_data_type_to_str(Shader_Data_Type type)
 {
     switch (type)

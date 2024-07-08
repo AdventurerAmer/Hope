@@ -151,16 +151,24 @@ void main()
     float occlusion = sample_texture( material.occlusion_texture, frag_input.uv ).r;
 
     vec3 normal = normalize(frag_input.normal);
-    vec3 tangent = normalize(frag_input.tangent.xyz);
-    tangent = normalize(tangent - dot(tangent, normal) * normal);
-    vec3 bitangent = cross(tangent, normal) * sign(frag_input.tangent.w);
-    mat3 TBN = mat3(tangent, bitangent, normal);
+    vec3 N = vec3(0.0);
 
-    vec3 N = sample_texture( material.normal_texture, frag_input.uv ).xyz * 2.0 - vec3(1.0, 1.0, 1.0);
-    N = normalize(TBN * N);
-    
+    if (material.normal_texture == 0)
+    {
+        N = normal;
+    }
+    else
+    {
+        vec3 tangent = normalize(frag_input.tangent.xyz);
+        tangent = normalize(tangent - dot(tangent, normal) * normal);
+        vec3 bitangent = cross(tangent, normal) * sign(frag_input.tangent.w);
+        mat3 TBN = mat3(tangent, bitangent, normal);
+        N = sample_texture( material.normal_texture, frag_input.uv ).rgb * vec3(2.0) - vec3(1.0);
+        N = normalize(TBN * N);
+    }
+
     vec3 V = normalize(globals.eye - frag_input.position);
-    float NdotV = max(0.0, dot(N, V));
+    float NdotV = max(dot(N, V), 0.0);
 
     vec4 view_space_p = globals.view * vec4(frag_input.position, 1.0);
     float depth = (-view_space_p.z - globals.z_near) / (globals.z_far - globals.z_near);
@@ -226,22 +234,20 @@ void main()
 
     if (globals.use_environment_map == 0)
     {
-        color = vec3(0.03) * albedo * occlusion + Lo;
+        color = globals.ambient * albedo * occlusion + Lo;
     }
     else
     {
         vec3 f0 = mix(vec3(material.reflectance), albedo, metallic);
-        vec3 ks = fresnel_schlick_roughness(max(dot(N, V), 0.0), f0, roughness);
-        vec3 kd = vec3(1.0) - ks;
-        kd *= 1.0 - metallic;
+        vec3 ks = fresnel_schlick_roughness(NdotV, f0, roughness);
+        vec3 kd = (vec3(1.0) - ks) * (1.0 - metallic);
 
         vec3 irradiance = sample_cubemap(globals.irradiance_map, N).rgb;
         vec3 diffuse = irradiance * albedo;
 
         vec3 R = reflect(-V, N);
-        const float reflection_lod = 4.0;
-        vec3 prefiltered_color = sample_cubemap_lod(globals.prefilter_map, R, roughness * reflection_lod).rgb;
-        vec2 env_brdf = sample_texture( globals.brdf_lut, vec2(max(dot(N, V), 0.0), roughness) ).rg;
+        vec3 prefiltered_color = sample_cubemap_lod( globals.prefilter_map, R, roughness * float(globals.prefilter_map_load) ).rgb;
+        vec2 env_brdf = sample_texture( globals.brdf_lut, vec2(NdotV, roughness) ).rg;
         vec3 specular = prefiltered_color * (ks * env_brdf.x + env_brdf.y);
 
         vec3 ambient = (kd * diffuse + specular) * occlusion;

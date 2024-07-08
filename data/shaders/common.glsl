@@ -75,6 +75,8 @@ layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFOR
     int max_node_count;
 
     uint irradiance_map;
+
+    uint prefilter_map_load;
     uint prefilter_map;
     uint brdf_lut;
 

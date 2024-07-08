@@ -322,7 +322,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         glm::vec4 base_color = *(glm::vec4 *)material->pbr_metallic_roughness.base_color_factor;
         Render_Context render_context = get_render_context();
         Renderer_State *renderer_state = render_context.renderer_state;
-        base_color = linear_to_srgb(base_color, renderer_state->gamma);
+        base_color = linear_to_srgb(base_color);
 
         set_property(material_handle, HE_STRING_LITERAL("albedo_texture"), { .u64 = albedo_texture.uuid });
         set_property(material_handle, HE_STRING_LITERAL("albedo_color"), { .v4f = base_color });

@@ -16,10 +16,10 @@ stencil_write_mask 255
 stencil_reference_value 0
 property_count 10
 albedo_texture u32 0
-albedo_color v4f 1.000000 1.000000 1.000000 0.392157
+albedo_color v4f 1.000000 1.000000 1.000000 0.294118
 normal_texture u32 0
 roughness_metallic_texture u32 0
-roughness_factor f32 0.000000
+roughness_factor f32 0.025000
 metallic_factor f32 0.000000
 reflectance f32 0.050000
 alpha_cutoff f32 0.000000

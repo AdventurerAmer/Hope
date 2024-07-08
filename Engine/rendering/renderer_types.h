@@ -773,6 +773,7 @@ struct Shader_Globals
     alignas(4) S32 max_node_count;
 
     alignas(4) U32 irradiance_map;
+    alignas(4) U32 prefilter_map_lod;
     alignas(4) U32 prefilter_map;
     alignas(4) U32 brdf_lut;
 
