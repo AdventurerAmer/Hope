@@ -33,6 +33,14 @@ static Editor_State editor_state;
 
 void draw_graphics_window();
 
+static void set_scene(Asset_Handle scene_asset)
+{
+    HE_ASSERT(is_asset_of_type(scene_asset, HE_STRING_LITERAL("scene")));
+    release_asset(editor_state.scene_asset);
+    acquire_asset(scene_asset);
+    editor_state.scene_asset = scene_asset;
+}
+
 bool hope_app_init(Engine *engine)
 {
     Memory_Context memory_context = grab_memory_context();
@@ -92,7 +100,7 @@ bool hope_app_init(Engine *engine)
     }
 
     scene_asset = import_asset(HE_STRING_LITERAL("main.hascene"));
-    editor_state.scene_asset = scene_asset;
+    set_scene(scene_asset);
     
     return true;
 }
@@ -287,7 +295,7 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
             
             Assets_Panel::draw();
             
-            if (is_asset_handle_valid(editor_state.scene_asset) && is_asset_loaded(editor_state.scene_asset))
+            if (is_asset_loaded(editor_state.scene_asset))
             {                
                 Scene_Hierarchy_Panel::draw(editor_state.scene_asset.uuid);
                 Inspector_Panel::draw();
@@ -295,25 +303,18 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
 
             ImGui::Begin("Scene");
 
-            if (is_asset_handle_valid(editor_state.scene_asset))
+            if (is_asset_loaded(editor_state.scene_asset))
             {
-                if (!is_asset_loaded(editor_state.scene_asset))
-                {
-                    aquire_asset(editor_state.scene_asset);
-                }
-                else
-                {
-                    Scene_Handle scene_handle = get_asset_handle_as<Scene>(editor_state.scene_asset);
-                    Scene *scene = renderer_get_scene(scene_handle);
+                Scene_Handle scene_handle = get_asset_handle_as<Scene>(editor_state.scene_asset);
+                Scene *scene = renderer_get_scene(scene_handle);
 
-                    Skybox *skybox = &scene->skybox;
+                Skybox *skybox = &scene->skybox;
 
-                    ImGui::Text("Ambient");
-                    ImGui::SameLine();
-                    ImGui::ColorEdit3("##EditAmbientColor", &skybox->ambient_color.r);
+                ImGui::Text("Ambient");
+                ImGui::SameLine();
+                ImGui::ColorEdit3("##EditAmbientColor", &skybox->ambient_color.r);
 
-                    select_asset(HE_STRING_LITERAL("Skybox Material"), HE_STRING_LITERAL("material"), (Asset_Handle *)&skybox->skybox_material_asset);
-                }
+                select_asset(HE_STRING_LITERAL("Skybox Material"), HE_STRING_LITERAL("material"), (Asset_Handle *)&skybox->skybox_material_asset);
             }
 
             ImGui::End();
@@ -335,43 +336,36 @@ void hope_app_on_update(Engine *engine, F32 delta_time)
 
         begin_rendering(camera);
 
-        if (is_asset_handle_valid(editor_state.scene_asset))
+        if (is_asset_loaded(editor_state.scene_asset))
         {
-            if (!is_asset_loaded(editor_state.scene_asset))
+            Scene_Handle scene_handle = get_asset_handle_as<Scene>(editor_state.scene_asset);
+
+            S32 node_index = Scene_Hierarchy_Panel::get_selected_node();
+            if (node_index != -1)
             {
-                aquire_asset(editor_state.scene_asset);
+                Scene *scene = renderer_get_scene(scene_handle);
+                Scene_Node *node = get_node(scene, node_index);
+
+                ImGuiIO &io = ImGui::GetIO();
+                ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+
+                Transform &t = node->transform;
+
+                glm::mat4 world = get_world_matrix(t);
+                ImGuizmo::Manipulate(glm::value_ptr(camera->view), glm::value_ptr(camera->projection), editor_state.operation, editor_state.guizmo_mode, glm::value_ptr(world));
+
+                glm::vec3 position;
+                glm::vec3 rotation;
+                glm::vec3 scale;
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(world), glm::value_ptr(position), glm::value_ptr(rotation), glm::value_ptr(scale));
+
+                t.position = position;
+                t.rotation = glm::quat(glm::radians(rotation));
+                t.euler_angles = rotation;
+                t.scale = scale;
             }
-            else
-            {
-                Scene_Handle scene_handle = get_asset_handle_as<Scene>(editor_state.scene_asset);
 
-                S32 node_index = Scene_Hierarchy_Panel::get_selected_node();
-                if (node_index != -1)
-                {
-                    Scene *scene = renderer_get_scene(scene_handle);
-                    Scene_Node *node = get_node(scene, node_index);
-
-                    ImGuiIO &io = ImGui::GetIO();
-                    ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
-
-                    Transform &t = node->transform;
-
-                    glm::mat4 world = get_world_matrix(t);
-                    ImGuizmo::Manipulate(glm::value_ptr(camera->view), glm::value_ptr(camera->projection), editor_state.operation, editor_state.guizmo_mode, glm::value_ptr(world));
-
-                    glm::vec3 position;
-                    glm::vec3 rotation;
-                    glm::vec3 scale;
-                    ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(world), glm::value_ptr(position), glm::value_ptr(rotation), glm::value_ptr(scale));
-
-                    t.position = position;
-                    t.rotation = glm::quat(glm::radians(rotation));
-                    t.euler_angles = rotation;
-                    t.scale = scale;
-                }
-
-                render_scene(scene_handle);
-            }
+            render_scene(scene_handle);
         }
 
         end_rendering();

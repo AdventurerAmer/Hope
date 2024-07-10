@@ -5,6 +5,8 @@
 #include <core/memory.h>
 #include <core/logging.h>
 
+#include <assets/asset_manager.h>
+
 #include <imgui/imgui.h>
 
 #include "../editor_utils.h"
@@ -82,7 +84,7 @@ void inspect_scene_node(Asset_Handle scene_asset, S32 scene_node_index)
 {
     HE_ASSERT(is_asset_handle_valid(scene_asset));
     HE_ASSERT(scene_node_index != -1);
-    
+
     Editor::reset_selection();
 
     inspector_state.type = Inspection_Type::SCENE_NODE;
@@ -103,6 +105,8 @@ void inspect_asset(Asset_Handle asset_handle)
     if (is_asset_handle_valid(asset_handle))
     {
         inspector_state.type = Inspection_Type::ASSET;
+        release_asset(inspector_state.data.asset_handle);
+        acquire_asset(asset_handle);
         inspector_state.data.asset_handle = asset_handle;
     }
     else
@@ -189,34 +193,27 @@ static void internal_inspect_scene_node(Scene_Node *scene_node)
             Renderer_State *renderer_state = render_context.renderer_state;
 
             Asset_Handle static_mesh_asset = { .uuid = mesh_comp->static_mesh_asset };
-            select_asset(HE_STRING_LITERAL("Static Mesh"), HE_STRING_LITERAL("static_mesh"), (Asset_Handle *)&mesh_comp->static_mesh_asset);
+            select_asset(HE_STRING_LITERAL("Static Mesh"), HE_STRING_LITERAL("static_mesh"), (Asset_Handle *)&mesh_comp->static_mesh_asset, { .load_on_select = true });
 
-            if (is_asset_handle_valid(static_mesh_asset))
+            if (is_asset_loaded(static_mesh_asset))
             {
-                if (!is_asset_loaded(static_mesh_asset))
-                {
-                    aquire_asset(static_mesh_asset);
-                }
-                else
-                {
-                    Static_Mesh_Handle static_mesh_handle = get_asset_handle_as<Static_Mesh>(static_mesh_asset);
-                    Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+                Static_Mesh_Handle static_mesh_handle = get_asset_handle_as<Static_Mesh>(static_mesh_asset);
+                Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
+                ImGui::Spacing();
+
+                if (ImGui::TreeNode("Materials"))
+                {
                     ImGui::Spacing();
 
-                    if (ImGui::TreeNode("Materials"))
+                    for (U32 i = 0; i < mesh_comp->materials.count; i++)
                     {
-                        ImGui::Spacing();
-
-                        for (U32 i = 0; i < mesh_comp->materials.count; i++)
-                        {
-                            ImGui::PushID(i);
-                            select_asset(HE_STRING_LITERAL("Material"), HE_STRING_LITERAL("material"), (Asset_Handle*)&mesh_comp->materials[i]);
-                            ImGui::PopID();
-                        }
-
-                        ImGui::TreePop();
+                        ImGui::PushID(i);
+                        select_asset(HE_STRING_LITERAL("Material"), HE_STRING_LITERAL("material"), (Asset_Handle*)&mesh_comp->materials[i], { .load_on_select = true });
+                        ImGui::PopID();
                     }
+
+                    ImGui::TreePop();
                 }
             }
         }
@@ -328,6 +325,7 @@ static void internal_inspect_scene_node(Scene_Node *scene_node)
 static void inspect_material(Asset_Handle material_asset)
 {
     ImGui::PushID((void *)material_asset.uuid);
+    HE_DEFER { ImGui::PopID(); };
 
     const Asset_Registry_Entry &entry = get_asset_registry_entry(material_asset);
     Asset_Handle shader_asset = entry.parent;
@@ -340,7 +338,12 @@ static void inspect_material(Asset_Handle material_asset)
 
     Pipeline_State_Settings &settings = pipeline_state->settings;
 
-    bool shader_changed = select_asset(HE_STRING_LITERAL("Shader"), HE_STRING_LITERAL("shader"), &shader_asset, { .nullify = false });
+    bool shader_changed = select_asset(HE_STRING_LITERAL("Shader"), HE_STRING_LITERAL("shader"), &shader_asset, { .nullify = false, .load_on_select = true });
+    if (shader_changed)
+    {
+        set_parent(material_asset, shader_asset);
+    }
+
     bool pipeline_changed = false;
 
     static constexpr const char *types[] = { "opaque", "alpha cutoff", "transparent" };
@@ -636,59 +639,59 @@ static void inspect_material(Asset_Handle material_asset)
 
             switch (property->data_type)
             {
-            case Shader_Data_Type::U32:
-            {
-                if (property->is_texture_asset)
+                case Shader_Data_Type::U32:
                 {
-                    String title = HE_STRING_LITERAL("Texture");
-                    String type = HE_STRING_LITERAL("texture");
-                    bool is_hdr_texture_asset = ends_with(property->name, HE_STRING_LITERAL("cubemap"));
-                    if (is_hdr_texture_asset)
+                    if (property->is_texture_asset)
                     {
-                        title = HE_STRING_LITERAL("HDR Map");
-                        type = HE_STRING_LITERAL("environment_map");
+                        String title = HE_STRING_LITERAL("Texture");
+                        String type = HE_STRING_LITERAL("texture");
+                        bool is_hdr_texture_asset = ends_with(property->name, HE_STRING_LITERAL("cubemap"));
+                        if (is_hdr_texture_asset)
+                        {
+                            title = HE_STRING_LITERAL("HDR Map");
+                            type = HE_STRING_LITERAL("environment_map");
+                        }
+                        property_changed |= select_asset(title, type, (Asset_Handle*)&data.u64);
                     }
-                    property_changed |= select_asset(title, type, (Asset_Handle*)&data.u64);
-                }
-                else
-                {
-                    property_changed |= ImGui::DragInt("##MaterialPropertyDragInt", (S32*)&data.u32, 0, HE_MAX_S32);
-                }
-            } break;
+                    else
+                    {
+                        property_changed |= ImGui::DragInt("##MaterialPropertyDragInt", (S32*)&data.u32, 0, HE_MAX_S32);
+                    }
+                } break;
 
-            case Shader_Data_Type::F32:
-            {
-                property_changed |= ImGui::DragFloat("##MaterialPropertyDragFloat", &data.f32, 0.1f);
-            } break;
+                case Shader_Data_Type::F32:
+                {
+                    property_changed |= ImGui::DragFloat("##MaterialPropertyDragFloat", &data.f32, 0.1f);
+                } break;
 
-            case Shader_Data_Type::VECTOR2F:
-            {
-                property_changed |= ImGui::DragFloat2("##MaterialPropertyDragFloat2", &data.v2f.x, 0.1f);
-            } break;
+                case Shader_Data_Type::VECTOR2F:
+                {
+                    property_changed |= ImGui::DragFloat2("##MaterialPropertyDragFloat2", &data.v2f.x, 0.1f);
+                } break;
 
-            case Shader_Data_Type::VECTOR3F:
-            {
-                if (property->is_color)
+                case Shader_Data_Type::VECTOR3F:
                 {
-                    property_changed |= ImGui::ColorEdit3("##MaterialPropertyColorEdit3", &data.v3f.x);
-                }
-                else
-                {
-                    property_changed |= ImGui::DragFloat3("##MaterialPropertyDragFloat3", &data.v3f.x, 0.1f);
-                }
-            } break;
+                    if (property->is_color)
+                    {
+                        property_changed |= ImGui::ColorEdit3("##MaterialPropertyColorEdit3", &data.v3f.x);
+                    }
+                    else
+                    {
+                        property_changed |= ImGui::DragFloat3("##MaterialPropertyDragFloat3", &data.v3f.x, 0.1f);
+                    }
+                } break;
 
-            case Shader_Data_Type::VECTOR4F:
-            {
-                if (property->is_color)
+                case Shader_Data_Type::VECTOR4F:
                 {
-                    property_changed |= ImGui::ColorEdit4("##MaterialPropertyColorEdit4", &data.v4f.x);
-                }
-                else
-                {
-                    property_changed |= ImGui::DragFloat4("##MaterialPropertyDragFloat4", &data.v4f.x, 0.1f);
-                }
-            } break;
+                    if (property->is_color)
+                    {
+                        property_changed |= ImGui::ColorEdit4("##MaterialPropertyColorEdit4", &data.v4f.x);
+                    }
+                    else
+                    {
+                        property_changed |= ImGui::DragFloat4("##MaterialPropertyDragFloat4", &data.v4f.x, 0.1f);
+                    }
+                } break;
             }
 
             if (property_changed)
@@ -698,48 +701,6 @@ static void inspect_material(Asset_Handle material_asset)
 
             ImGui::PopID();
         }
-    }
-
-    if (shader_changed)
-    {
-        set_parent(material_asset, shader_asset);
-
-        if (!is_asset_loaded(shader_asset))
-        {
-            Job_Handle job = aquire_asset(shader_asset);
-            wait_for_job_to_finish(job);
-        }
-    }
-
-    if (shader_changed || pipeline_changed)
-    {
-        Material_Descriptor material_desc =
-        {
-            .name = material->name,
-            .type = material->type,
-            .shader = get_asset_handle_as<Shader>(shader_asset),
-            .settings = pipeline_state->settings
-        };
-
-        Material_Handle new_material_handle = renderer_create_material(material_desc);
-        Material *new_material = renderer_get_material(new_material_handle);
-        
-        for (U32 i = 0; i < new_material->properties.count; i++)
-        {
-            S32 property_id = find_property(material_handle, new_material->properties[i].name);
-            if (property_id != -1 && material->properties[property_id].data_type == new_material->properties[i].data_type)
-            {
-                set_property(new_material_handle, new_material->properties[i].name, material->properties[property_id].data);
-            }
-        }
-        
-        renderer_destroy_material(material_handle);
-        
-        material_handle = new_material_handle;
-        
-        Load_Asset_Result *load_result = get_asset_load_result(material_asset);
-        load_result->index = new_material_handle.index;
-        load_result->generation = new_material_handle.generation;
     }
 
     if (shader_changed || pipeline_changed || property_changed)
@@ -754,15 +715,12 @@ static void inspect_material(Asset_Handle material_asset)
             HE_LOG(Assets, Error, "failed to save material asset: %.*s\n", HE_EXPAND_STRING(entry.path));
         }
     }
-
-    ImGui::PopID();
 }
 
 static void internal_inspect_asset(Asset_Handle asset_handle)
 {
     if (!is_asset_loaded(asset_handle))
     {
-        aquire_asset(asset_handle);
         return;
     }
 

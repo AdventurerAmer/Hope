@@ -16,7 +16,7 @@ Load_Asset_Result load_shader(String path, const Embeded_Asset_Params *params)
     if (!file_result.success)
     {
         HE_LOG(Assets, Error, "load_shader -- failed to read asset file: %.*s\n", HE_EXPAND_STRING(path));
-        return {};
+        return { .success = false, .index = -1, .generation = 0 };
     }
 
     String source = { .count = file_result.size, .data = (const char *)file_result.data };

@@ -6,7 +6,7 @@
 
 #include <imgui/imgui.h>
 
-bool select_asset(String name, String type, Asset_Handle* asset_handle, const Select_Asset_Config &config)
+bool select_asset(String name, String type, Asset_Handle *asset_handle, const Select_Asset_Config &config)
 {
     Render_Context render_context = get_render_context();
     Renderer *renderer = render_context.renderer;
@@ -31,11 +31,16 @@ bool select_asset(String name, String type, Asset_Handle* asset_handle, const Se
 
             if (path.count)
             {
-                *asset_handle = import_asset(path);
+                Asset_Handle selected_asset = import_asset(path);
                 if (config.load_on_select)
                 {
-                    aquire_asset(*asset_handle);
+                    if (*asset_handle != selected_asset)
+                    {
+                        release_asset(*asset_handle);
+                        acquire_asset(selected_asset);
+                    }
                 }
+                *asset_handle = selected_asset;
                 result = true;
             }
         }
@@ -46,14 +51,18 @@ bool select_asset(String name, String type, Asset_Handle* asset_handle, const Se
         ImGuiDragDropFlags target_flags = 0;
         if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_ASSET", target_flags))
         {
-            Asset_Handle asset = *(const Asset_Handle *)payload->Data;
-            if (is_asset_handle_valid(asset) && get_asset_info(asset) == info)
+            Asset_Handle dragged_asset = *(const Asset_Handle *)payload->Data;
+            if (is_asset_handle_valid(dragged_asset) && get_asset_info(dragged_asset) == info)
             {
-                *asset_handle = asset;
                 if (config.load_on_select)
                 {
-                    aquire_asset(*asset_handle);
+                    if (*asset_handle != dragged_asset)
+                    {
+                        release_asset(*asset_handle);
+                        acquire_asset(dragged_asset);
+                    }
                 }
+                *asset_handle = dragged_asset;
                 result = true;
             }
         }

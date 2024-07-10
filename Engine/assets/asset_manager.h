@@ -6,22 +6,13 @@
 
 struct Load_Asset_Result
 {
-    bool success;
+    bool success = false;
 
-    union
-    {
-        struct
-        {
-            void *data;
-            U64 size;
-        };
+    void *data = nullptr;
+    U64 size = 0;
 
-        struct
-        {
-            S32 index;
-            U32 generation;
-        };
-    };
+    S32 index = -1;
+    U32 generation = 0;
 };
 
 enum class Asset_State : U8
@@ -93,14 +84,17 @@ String get_asset_path();
 bool register_asset(String name, Array_View< String > extensions, load_asset_proc load, unload_asset_proc unload, on_import_asset_proc on_import = nullptr);
 
 bool is_asset_handle_valid(Asset_Handle asset_handle);
+bool is_asset_of_type(Asset_Handle asset_handle, String type);
 
 bool is_asset_loaded(Asset_Handle asset_handle);
 
-Job_Handle aquire_asset(Asset_Handle asset_handle);
+Job_Handle acquire_asset(Asset_Handle asset_handle);
 
 Load_Asset_Result get_asset(Asset_Handle asset_handle);
 
 void release_asset(Asset_Handle asset_handle);
+
+void reload_asset(Asset_Handle asset_handle);
 
 Asset_Handle get_asset_handle(String path);
 Asset_Handle import_asset(String path);

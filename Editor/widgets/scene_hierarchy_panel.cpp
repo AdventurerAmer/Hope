@@ -94,66 +94,58 @@ void draw(U64 scene_asset_uuid)
 
     is_focused_last_frame = is_focused;
 
-    if (is_asset_handle_valid(scene_asset))
+    Scene_Handle scene_handle = get_asset_handle_as<Scene>(scene_asset);
+    Scene *scene = renderer_get_scene(scene_handle);
+    draw_scene_node(scene_asset, scene_handle, scene, 0);
+
+    static bool is_context_window_open = false;
+
+    if (ImGui::BeginPopupContextWindow())
     {
-        if (!is_asset_loaded(scene_asset))
+        is_context_window_open = true;
+
+        const char *label = "Create Child Node";
+        if (scene_hierarchy_state.context_menu_node_index == -1)
         {
-            aquire_asset(scene_asset);
+            label = "Create Node";
         }
-        else
+
+        if (ImGui::MenuItem(label, "Ctrl+N"))
         {
-            Scene_Handle scene_handle = get_asset_handle_as<Scene>(scene_asset);
-            Scene *scene = renderer_get_scene(scene_handle);
-            draw_scene_node(scene_asset, scene_handle, scene, 0);
+            U32 parent = scene_hierarchy_state.context_menu_node_index == -1 ? 0 : scene_hierarchy_state.context_menu_node_index;
+            new_node(scene, parent);
+        }
 
-            static bool is_context_window_open = false;
-
-            if (ImGui::BeginPopupContextWindow())
+        if (scene_hierarchy_state.context_menu_node_index != -1)
+        {
+            if (ImGui::MenuItem("Rename", "F2"))
             {
-                is_context_window_open = true;
-
-                const char *label = "Create Child Node";
-                if (scene_hierarchy_state.context_menu_node_index == -1)
-                {
-                    label = "Create Node";
-                }
-
-                if (ImGui::MenuItem(label, "Ctrl+N"))
-                {
-                    U32 parent = scene_hierarchy_state.context_menu_node_index == -1 ? 0 : scene_hierarchy_state.context_menu_node_index;
-                    new_node(scene, parent);
-                }
-
-                if (scene_hierarchy_state.context_menu_node_index != -1)
-                {
-                    if (ImGui::MenuItem("Rename", "F2"))
-                    {
-                        rename_node(scene, (U32)scene_hierarchy_state.context_menu_node_index);
-                    }
-
-                    if (ImGui::MenuItem("Delete", "Del"))
-                    {
-                        delete_node(scene, (U32)scene_hierarchy_state.context_menu_node_index);
-                    }
-
-                    if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
-                    {
-                        duplicate_node(scene, (U32)scene_hierarchy_state.context_menu_node_index);
-                    }
-                }
-
-                ImGui::EndPopup();
+                rename_node(scene, (U32)scene_hierarchy_state.context_menu_node_index);
             }
-            else
+
+            if (ImGui::MenuItem("Delete", "Del"))
             {
-                if (is_context_window_open)
-                {
-                    scene_hierarchy_state.context_menu_node_index = -1;
-                    is_context_window_open = false;
-                }
+                delete_node(scene, (U32)scene_hierarchy_state.context_menu_node_index);
             }
+
+            if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
+            {
+                duplicate_node(scene, (U32)scene_hierarchy_state.context_menu_node_index);
+            }
+        }
+
+        ImGui::EndPopup();
+    }
+    else
+    {
+        if (is_context_window_open)
+        {
+            scene_hierarchy_state.context_menu_node_index = -1;
+            is_context_window_open = false;
         }
     }
+
+
     ImGui::End();
 }
 
@@ -182,11 +174,12 @@ static void add_model_to_scene(Scene *scene, U32 node_index, Asset_Handle asset_
     const Asset_Info *info = get_asset_info(asset_handle);
     if (info && info->name == HE_STRING_LITERAL("model"))
     {
+        // todo(amer): should we make a progress bar here ?
+        Job_Handle job_handle = acquire_asset(asset_handle);
+        wait_for_job_to_finish(job_handle);
         if (!is_asset_loaded(asset_handle))
         {
-            Job_Handle job_handle = aquire_asset(asset_handle);
-            // todo(amer): should we make a progress bar here ?
-            wait_for_job_to_finish(job_handle);
+            return;
         }
 
         Model *model = get_asset_as<Model>(asset_handle);
@@ -229,6 +222,18 @@ static void add_model_to_scene(Scene *scene, U32 node_index, Asset_Handle asset_
             current_scene_node->has_mesh = model_node->has_mesh;
             current_scene_node->mesh = model_node->mesh;
 
+            if (model_node->has_mesh)
+            {
+                Static_Mesh_Component &static_mesh_comp = model_node->mesh;
+                Asset_Handle static_mesh_asset = { .uuid = static_mesh_comp.static_mesh_asset };
+                acquire_asset(static_mesh_asset);
+                for (U32 material_index = 0; material_index < static_mesh_comp.materials.count; material_index++)
+                {
+                    Asset_Handle material_asset = { .uuid = static_mesh_comp.materials[material_index] };
+                    acquire_asset(material_asset);
+                }
+            }
+
             current_scene_node->has_light = model_node->has_light;
             current_scene_node->light = model_node->light;
 
@@ -264,6 +269,8 @@ static void add_model_to_scene(Scene *scene, U32 node_index, Asset_Handle asset_
                 add_child_last(scene, node_indices[model_node->parent_index], node_indices[i]);
             }
         }
+
+        release_asset(asset_handle);
     }
 }
 

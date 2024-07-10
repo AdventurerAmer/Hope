@@ -4,6 +4,7 @@
 #include "core/logging.h"
 #include "core/memory.h"
 #include "core/platform.h"
+#include "assets/asset_manager.h"
 
 #include "rendering/renderer.h"
 #include "rendering/renderer_utils.h" 
@@ -235,7 +236,7 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         if (!is_asset_loaded(opaque_pbr_shader_asset))
         {
             HE_LOG(Resource, Fetal, "load_model -- cgltf -- unable to load model asset file: %.*s --> parent asset failed to load\n", HE_EXPAND_STRING(path));
-            return {};
+            // return {};
         }
 
         Shader_Handle opaque_pbr_shader = get_asset_handle_as<Shader>(opaque_pbr_shader_asset);
@@ -372,7 +373,8 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             {
                 cgltf_material *material = primitive->material;
                 String material_path = get_embedded_asset_path(model_data, material, asset_handle, memory_context.temp_allocator);
-                sub_meshes[sub_mesh_index].material_asset = get_asset_handle(material_path).uuid;
+                Asset_Handle material_asset = get_asset_handle(material_path);
+                sub_meshes[sub_mesh_index].material_asset = material_asset.uuid;
             }
 
             for (U32 attribute_index = 0; attribute_index < primitive->attributes_count; attribute_index++)
@@ -583,8 +585,10 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             cgltf_mesh *static_mesh = node->mesh;
             String static_mesh_path = get_embedded_asset_path(model_data, static_mesh, asset_handle, memory_context.temp_allocator);
             scene_node->has_mesh = true;
+            Asset_Handle static_mesh_asset = get_asset_handle(static_mesh_path);
             Static_Mesh_Component *mesh_comp = &scene_node->mesh;
-            mesh_comp->static_mesh_asset = get_asset_handle(static_mesh_path).uuid;
+            mesh_comp->static_mesh_asset = static_mesh_asset.uuid;
+
             U32 material_count = u64_to_u32(static_mesh->primitives_count);
             init(&mesh_comp->materials, material_count, material_count);
 
@@ -625,4 +629,17 @@ void unload_model(Load_Asset_Result load_result)
 
     HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)model->nodes);
     HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, model);
+}
+
+
+Load_Asset_Result load_static_mesh(String path, const Embeded_Asset_Params *params)
+{
+    HE_ASSERT(false);
+    return {};
+}
+
+void unload_static_mesh(Load_Asset_Result load_result)
+{
+    Static_Mesh_Handle static_mesh_handle = { .index = load_result.index, .generation = load_result.generation };
+    renderer_destroy_static_mesh(static_mesh_handle);
 }

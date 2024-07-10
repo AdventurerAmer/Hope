@@ -1,5 +1,5 @@
 version 1
-entry_count 180
+entry_count 181
 
 asset 62636994909288842
 parent 0
@@ -544,6 +544,10 @@ path 45 @10936808422054541471-0/hose_low.hastaticmesh
 asset 16382431776745144380
 parent 0
 path 43 @9770807792522373384-2/bedmesh.hastaticmesh
+
+asset 16465243421511673555
+parent 8015345852571305201
+path 16 test2.hamaterial
 
 asset 16944760079330843920
 parent 0

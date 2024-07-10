@@ -378,64 +378,57 @@ static void create_material_asset_modal(bool open)
             ImGui::EndCombo();
         }
 
-        if (is_asset_handle_valid(shader_asset))
+        if (is_asset_loaded(shader_asset))
         {
-            if (!is_asset_loaded(shader_asset))
+            if (ImGui::Button("Ok", ImVec2(120, 0)))
             {
-                aquire_asset(shader_asset);
-            }
-            else
-            {
-                if (ImGui::Button("Ok", ImVec2(120, 0)))
+                Memory_Context memory_context = grab_memory_context();
+
+                String extensions[] =
                 {
-                    Memory_Context memory_context = grab_memory_context();
-                    
-                    String extensions[] =
+                    HE_STRING_LITERAL("hamaterial")
+                };
+
+                String title = HE_STRING_LITERAL("Save Material Asset");
+                String filter = HE_STRING_LITERAL("Material (.hamaterial)");
+
+                String absolute_path = save_file_dialog(title, filter, to_array_view(extensions), memory_context.temp_allocator);
+
+                if (absolute_path.count)
+                {
+                    String path = absolute_path;
+
+                    String ext = get_extension(absolute_path);
+                    if (ext != extensions[0])
                     {
-                        HE_STRING_LITERAL("hamaterial")
-                    };
-
-                    String title = HE_STRING_LITERAL("Save Material Asset");
-                    String filter = HE_STRING_LITERAL("Material (.hamaterial)");
-
-                    String absolute_path = save_file_dialog(title, filter, to_array_view(extensions), memory_context.temp_allocator);
-                    // HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)absolute_path.data); };
-
-                    if (absolute_path.count)
-                    {
-                        String path = absolute_path;
-
-                        String ext = get_extension(absolute_path);
-                        if (ext != extensions[0])
-                        {
-                            path = format_string(memory_context.temp_allocator, "%.*s.hamaterial", HE_EXPAND_STRING(absolute_path));
-                        }
-
-                        Material_Descriptor material_desc =
-                        {
-                            .name = get_name(path),
-                            .type = type,
-                            .shader = get_asset_handle_as<Shader>(shader_asset),
-                            .settings = {},
-                        };
-                        Material_Handle material = renderer_create_material(material_desc);
-                        bool success = serialize_material(material, shader_asset.uuid, path);
-                        if (success)
-                        {
-                            path = sub_string(path, get_asset_path().count + 1);
-                            Asset_Handle asset_handle = import_asset(path);
-                            set_parent(asset_handle, shader_asset);
-                        }
-                        renderer_destroy_material(material);
+                        path = format_string(memory_context.temp_allocator, "%.*s.hamaterial", HE_EXPAND_STRING(absolute_path));
                     }
 
-                    ImGui::CloseCurrentPopup();
+                    Material_Descriptor material_desc =
+                    {
+                        .name = get_name(path),
+                        .type = type,
+                        .shader = get_asset_handle_as<Shader>(shader_asset),
+                        .settings = {},
+                    };
+                    Material_Handle material = renderer_create_material(material_desc);
+                    bool success = serialize_material(material, shader_asset.uuid, path);
+                    if (success)
+                    {
+                        path = sub_string(path, get_asset_path().count + 1);
+                        Asset_Handle asset_handle = import_asset(path);
+                        set_parent(asset_handle, shader_asset);
+                    }
+                    renderer_destroy_material(material);
                 }
 
-                ImGui::SetItemDefaultFocus();
-                ImGui::SameLine();
+                ImGui::CloseCurrentPopup();
             }
+
+            ImGui::SetItemDefaultFocus();
+            ImGui::SameLine();
         }
+
 
         if (ImGui::Button("Cancel", ImVec2(120, 0)))
         {

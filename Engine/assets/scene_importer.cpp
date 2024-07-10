@@ -7,6 +7,49 @@
 bool deserialize_transform(String *str, Transform *t);
 bool deserialize_light(String *str, Light_Component *light);
 
+enum class Handle_Assets_Method
+{
+    ACQUIRE,
+    RELEASE
+};
+
+static void handle_scene_assets(Scene *scene, S32 node_index, Handle_Assets_Method method)
+{
+    Scene_Node *node = get_node(scene, node_index);
+
+    if (node->has_mesh)
+    {
+        Static_Mesh_Component *static_mesh_comp = &node->mesh;
+        Asset_Handle static_mesh_asset = { .uuid = static_mesh_comp->static_mesh_asset };
+
+        if (method == Handle_Assets_Method::ACQUIRE)
+        {
+            acquire_asset(static_mesh_asset);
+
+            for (U32 material_index = 0; material_index < static_mesh_comp->materials.count; material_index++)
+            {
+                Asset_Handle material_asset = { .uuid = static_mesh_comp->materials[material_index] };
+                acquire_asset(material_asset);
+            }
+        }
+        else
+        {
+            release_asset(static_mesh_asset);
+
+            for (U32 material_index = 0; material_index < static_mesh_comp->materials.count; material_index++)
+            {
+                Asset_Handle material_asset = { .uuid = static_mesh_comp->materials[material_index] };
+                release_asset(material_asset);
+            }
+        }
+    }
+
+    for (S32 child_node_index = node->first_child_index; child_node_index != -1; child_node_index = get_node(scene, child_node_index)->next_sibling_index)
+    {
+        handle_scene_assets(scene, child_node_index, method);
+    }
+}
+
 Load_Asset_Result load_scene(String path, const Embeded_Asset_Params *params)
 {
     Memory_Context memory_context = grab_memory_context();
@@ -184,12 +227,21 @@ Load_Asset_Result load_scene(String path, const Embeded_Asset_Params *params)
         }
     }
 
+    acquire_asset(skybox_material);
+    handle_scene_assets(scene, 0, Handle_Assets_Method::ACQUIRE);
+
     return { .success = true, .index = scene_handle.index, .generation = scene_handle.generation };
 }
 
 void unload_scene(Load_Asset_Result load_result)
 {
     Scene_Handle scene_handle = { .index = load_result.index, .generation = load_result.generation };
+
+    Scene *scene = renderer_get_scene(scene_handle);
+    Asset_Handle skybox_material_asset = { .uuid = scene->skybox.skybox_material_asset };
+    release_asset(skybox_material_asset);
+    handle_scene_assets(scene, 0, Handle_Assets_Method::RELEASE);
+
     renderer_destroy_scene(scene_handle);
 }
 

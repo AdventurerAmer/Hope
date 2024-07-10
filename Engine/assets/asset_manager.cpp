@@ -84,7 +84,6 @@ static Job_Result reload_asset_job(const Job_Parameters &params)
     Memory_Context memory_context = grab_memory_context();
 
     Asset_Registry_Entry &entry = internal_get_asset_registry_entry(asset_handle);
-    // HE_ASSERT(entry.state != Asset_State::PENDING);
     
     const Asset_Info *info = get_asset_info(entry.type_info_index);
     auto cache_it = asset_manager_state->asset_cache.find(asset_handle.uuid);
@@ -119,6 +118,7 @@ static Job_Result reload_asset_job(const Job_Parameters &params)
     if (!load_result.success)
     {
         entry.state = Asset_State::FAILED_TO_LOAD;
+        asset.load_result = {};
         HE_LOG(Assets, Error, "load_asset_job -- failed to reload asset: %.*s\n", HE_EXPAND_STRING(entry.path));
         return Job_Result::FAILED;
     }
@@ -216,10 +216,11 @@ static void internal_reload_asset(Asset_Handle asset_handle, Job_Handle parent_j
     }
 }
 
-static void reload_asset(Asset_Handle asset_handle)
+void reload_asset(Asset_Handle asset_handle)
 {
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+
     internal_reload_asset(asset_handle);
 }
 
@@ -369,7 +370,7 @@ bool init_asset_manager(String asset_path)
         {
             HE_STRING_LITERAL("hastaticmesh"),
         };
-        register_asset(HE_STRING_LITERAL("static_mesh"), to_array_view(extensions), nullptr, nullptr);
+        register_asset(HE_STRING_LITERAL("static_mesh"), to_array_view(extensions), &load_static_mesh, &unload_static_mesh);
     }
 
     {
@@ -496,9 +497,15 @@ bool is_asset_handle_valid(Asset_Handle asset_handle)
     }
 
     platform_lock_mutex(&asset_manager_state->asset_mutex);
-    HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+    HE_DEFER{ platform_unlock_mutex(&asset_manager_state->asset_mutex); };
 
     return internal_is_asset_handle_valid(asset_handle);
+}
+
+bool is_asset_of_type(Asset_Handle asset_handle, String type)
+{
+    const Asset_Info *asset_info = get_asset_info(asset_handle);
+    return asset_info->name == type;
 }
 
 static bool internal_is_asset_loaded(Asset_Handle asset_handle)
@@ -510,18 +517,19 @@ static bool internal_is_asset_loaded(Asset_Handle asset_handle)
 bool is_asset_loaded(Asset_Handle asset_handle)
 {
     platform_lock_mutex(&asset_manager_state->asset_mutex);
-    HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
+    HE_DEFER{ platform_unlock_mutex(&asset_manager_state->asset_mutex); };
     return internal_is_asset_loaded(asset_handle);
 }
 
-static Job_Handle internal_aquire_asset(Asset_Handle asset_handle)
+static Job_Handle internal_acquire_asset(Asset_Handle asset_handle)
 {
     Asset_Registry &asset_registry = asset_manager_state->asset_registry;
 
     auto entry_it = asset_registry.find(asset_handle.uuid);
     HE_ASSERT(entry_it != asset_registry.iend());
     Asset_Registry_Entry &entry = entry_it.value();
-    
+    entry.ref_count++;
+
     if (entry.state == Asset_State::UNLOADED)
     {
         entry.state = Asset_State::PENDING;
@@ -529,21 +537,21 @@ static Job_Handle internal_aquire_asset(Asset_Handle asset_handle)
         Job_Handle parent_job = Resource_Pool< Job >::invalid_handle;
         if (internal_is_asset_handle_valid(entry.parent))
         {
-            parent_job = internal_aquire_asset(entry.parent);
+            parent_job = internal_acquire_asset(entry.parent);
         }
-        
+
         String path = entry.path;
         const Asset_Info *asset_info = &asset_manager_state->asset_infos[entry.type_info_index];
 
-        Load_Asset_Job_Data load_asset_job_data = 
+        Load_Asset_Job_Data load_asset_job_data =
         {
             .asset_handle = asset_handle,
         };
 
-        Job_Data data = 
+        Job_Data data =
         {
             .parameters =
-            { 
+            {
                 .data = &load_asset_job_data,
                 .size = sizeof(Load_Asset_Job_Data),
                 .alignment = alignof(Load_Asset_Job_Data)
@@ -552,18 +560,16 @@ static Job_Handle internal_aquire_asset(Asset_Handle asset_handle)
         };
 
         entry.job = execute_job(data, { .count = 1, .data = &parent_job });
-        return entry.job;
     }
-    
-    entry.ref_count++;
+
     return entry.job;
 }
 
-Job_Handle aquire_asset(Asset_Handle asset_handle)
+Job_Handle acquire_asset(Asset_Handle asset_handle)
 {
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
-    return internal_aquire_asset(asset_handle);
+    return internal_acquire_asset(asset_handle);
 }
 
 Load_Asset_Result get_asset(Asset_Handle asset_handle)
@@ -574,7 +580,7 @@ Load_Asset_Result get_asset(Asset_Handle asset_handle)
     Asset_Cache &asset_cache = asset_manager_state->asset_cache;
     auto it = asset_cache.find(asset_handle.uuid);
     HE_ASSERT(it != asset_cache.iend());
-    Asset *asset = &it.value();
+    Asset* asset = &it.value();
     return asset->load_result;
 }
 
@@ -586,7 +592,11 @@ void release_asset(Asset_Handle asset_handle)
     Asset_Registry &asset_registry = asset_manager_state->asset_registry;
 
     auto entry_it = asset_registry.find(asset_handle.uuid);
-    HE_ASSERT(entry_it != asset_registry.iend());
+    if (entry_it == asset_registry.iend())
+    {
+        return;
+    }
+
     Asset_Registry_Entry &entry = entry_it.value();
 
     Asset_Cache &asset_cache = asset_manager_state->asset_cache;
@@ -599,7 +609,8 @@ void release_asset(Asset_Handle asset_handle)
     if (entry.ref_count == 0)
     {
         Asset_Info &info = asset_manager_state->asset_infos[entry.type_info_index];
-        
+        HE_ASSERT(info.unload);
+
         Asset *asset = &it.value();
         info.unload(asset->load_result);
 

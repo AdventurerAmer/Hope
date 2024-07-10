@@ -1786,12 +1786,22 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
 
     Material *material = get(&renderer_state->materials, material_handle);
     Material_Property *property = &material->properties[property_id];
-    property->data = data;
 
     if (property->is_texture_asset)
     {
-        U32 *texture_index = (U32 *)&material->data[property->offset_in_buffer];
-        *texture_index = renderer_state->white_pixel_texture.index;
+        Asset_Handle previous_asset_handle = { .uuid = property->data.u64 };
+        release_asset(previous_asset_handle);
+
+        Asset_Handle asset_handle = { .uuid = data.u64 };
+        if (is_asset_handle_valid(asset_handle))
+        {
+            acquire_asset(asset_handle);
+        }
+        else
+        {
+            U32 *texture_index = (U32 *)&material->data[property->offset_in_buffer];
+            *texture_index = renderer_state->white_pixel_texture.index;
+        }
     }
     else if (property->is_color)
     {
@@ -1801,22 +1811,23 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
             {
                 // srgb to linear
                 glm::vec3 *color = (glm::vec3 *)&material->data[property->offset_in_buffer];
-                *color = srgb_to_linear(property->data.v3f);
+                *color = srgb_to_linear(data.v3f);
             } break;
 
             case Shader_Data_Type::VECTOR4F:
             {
                 // srgb to linear
                 glm::vec4 *color = (glm::vec4 *)&material->data[property->offset_in_buffer];
-                *color = srgb_to_linear(property->data.v4f);
+                *color = srgb_to_linear(data.v4f);
             } break;
         }
     }
     else
     {
-        memcpy(material->data + property->offset_in_buffer, &property->data, get_size_of_shader_data_type(property->data_type));
+        memcpy(material->data + property->offset_in_buffer, &data, get_size_of_shader_data_type(property->data_type));
     }
 
+    property->data = data;
     material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
     return true;
 }
@@ -1834,7 +1845,7 @@ void renderer_use_material(Material_Handle material_handle)
 
     Material *material = get(&renderer_state->materials, material_handle);
 
-    if (material->dirty_count)
+    if (material->dirty_count > 0)
     {
         material->dirty_count--;
 
@@ -1845,32 +1856,24 @@ void renderer_use_material(Material_Handle material_handle)
             {
                 U32 *texture_index = (U32 *)&material->data[property->offset_in_buffer];
                 Asset_Handle texture_asset = { .uuid = property->data.u64 };
-                if (is_asset_handle_valid(texture_asset))
+                if (is_asset_loaded(texture_asset))
                 {
-                    if (is_asset_loaded(texture_asset))
+                    const Asset_Info *info = get_asset_info(texture_asset);
+                    if (info->name == HE_STRING_LITERAL("texture"))
                     {
-                        const Asset_Info *info = get_asset_info(texture_asset);
-                        if (info->name == HE_STRING_LITERAL("texture"))
-                        {
-                            Texture_Handle texture = get_asset_handle_as<Texture>(texture_asset);
-                            *texture_index = texture.index;
-                        }
-                        else if (info->name == HE_STRING_LITERAL("environment_map"))
-                        {
-                            Environment_Map *env_map = get_asset_as<Environment_Map>(texture_asset);
-                            *texture_index = env_map->environment_map.index;
-                        }
+                        Texture_Handle texture = get_asset_handle_as<Texture>(texture_asset);
+                        *texture_index = texture.index;
                     }
-                    else
+                    else if (info->name == HE_STRING_LITERAL("environment_map"))
                     {
-                        *texture_index = renderer_state->white_pixel_texture.index;
-                        material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
-                        aquire_asset(texture_asset);
+                        Environment_Map *env_map = get_asset_as<Environment_Map>(texture_asset);
+                        *texture_index = env_map->environment_map.index;
                     }
                 }
                 else
                 {
                     *texture_index = renderer_state->white_pixel_texture.index;
+                    material->dirty_count = HE_MAX_FRAMES_IN_FLIGHT;
                 }
             }
         }
@@ -2546,86 +2549,72 @@ static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_t
     {
         Static_Mesh_Component *static_mesh_comp = &node->mesh;
         Asset_Handle static_mesh_asset = { .uuid = static_mesh_comp->static_mesh_asset };
-        if (is_asset_handle_valid(static_mesh_asset))
+        if (is_asset_loaded(static_mesh_asset))
         {
-            if (!is_asset_loaded(static_mesh_asset))
-            {
-                aquire_asset(static_mesh_asset);
-            }
-            else
-            {
-                Static_Mesh_Handle static_mesh_handle = get_asset_handle_as<Static_Mesh>(static_mesh_asset);
+            Static_Mesh_Handle static_mesh_handle = get_asset_handle_as<Static_Mesh>(static_mesh_asset);
 
-                Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
-                if (static_mesh->is_uploaded_to_gpu)
+            Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
+            if (static_mesh->is_uploaded_to_gpu)
+            {
+                HE_ASSERT(render_data->instance_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
+                U32 instance_index = render_data->instance_count++;
+                Shader_Instance_Data *object_data = &render_data->instance_base[instance_index];
+                object_data->entity_index = node_index;
+                object_data->model = get_world_matrix(transform);
+
+                const Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
+                for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
                 {
-                    HE_ASSERT(render_data->instance_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
-                    U32 instance_index = render_data->instance_count++;
-                    Shader_Instance_Data *object_data = &render_data->instance_base[instance_index];
-                    object_data->entity_index = node_index;
-                    object_data->model = get_world_matrix(transform);
+                    const Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
 
-                    const Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
-                    for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
+                    Material_Handle material_handle = renderer_state->default_material;
+
+                    Asset_Handle material_asset = { .uuid = static_mesh_comp->materials[sub_mesh_index] };
+
+                    if (is_asset_loaded(material_asset))
                     {
-                        const Sub_Mesh *sub_mesh = &sub_meshes[sub_mesh_index];
+                        material_handle = get_asset_handle_as<Material>(material_asset);
+                    }
 
-                        Material_Handle material_handle = renderer_state->default_material;
+                    HE_ASSERT(is_valid_handle(&renderer_state->static_meshes, static_mesh_handle));
+                    HE_ASSERT(is_valid_handle(&renderer_state->materials, material_handle));
 
-                        Asset_Handle material_asset = { .uuid = static_mesh_comp->materials[sub_mesh_index] };
+                    Material *material = renderer_get_material(material_handle);
 
-                        if (is_asset_handle_valid(material_asset))
+                    Dynamic_Array< Draw_Command > *command_list = nullptr;
+
+                    switch (material->type)
+                    {
+                        case Material_Type::OPAQUE:
                         {
-                            if (!is_asset_loaded(material_asset))
-                            {
-                                aquire_asset(material_asset);
-                            }
-                            else
-                            {
-                                material_handle = get_asset_handle_as<Material>(material_asset);
-                            }
-                        }
+                            command_list = &render_data->opaque_commands;
+                        } break;
 
-                        HE_ASSERT(is_valid_handle(&renderer_state->static_meshes, static_mesh_handle));
-                        HE_ASSERT(is_valid_handle(&renderer_state->materials, material_handle));
-
-                        Material *material = renderer_get_material(material_handle);
-
-                        Dynamic_Array< Draw_Command > *command_list = nullptr;
-
-                        switch (material->type)
+                        case Material_Type::ALPHA_CUTOFF:
                         {
-                            case Material_Type::OPAQUE:
-                            {
-                                command_list = &render_data->opaque_commands;
-                            } break;
+                            command_list = &render_data->alpha_cutoff_commands;
+                        } break;
 
-                            case Material_Type::ALPHA_CUTOFF:
-                            {
-                                command_list = &render_data->alpha_cutoff_commands;
-                            } break;
+                        case Material_Type::TRANSPARENT:
+                        {
+                            command_list = &render_data->transparent_commands;
+                        } break;
+                    }
 
-                            case Material_Type::TRANSPARENT:
-                            {
-                                command_list = &render_data->transparent_commands;
-                            } break;
-                        }
+                    Draw_Command &draw_command = append(command_list);
+                    draw_command.static_mesh = static_mesh_handle;
+                    draw_command.sub_mesh_index = sub_mesh_index;
+                    draw_command.material = material_handle;
+                    draw_command.instance_index = instance_index;
 
-                        Draw_Command &draw_command = append(command_list);
+                    if (node_index == render_data->selected_node_index)
+                    {
+                        Dynamic_Array< Draw_Command > *outlines = &render_data->outline_commands;
+                        Draw_Command &draw_command = append(outlines);
                         draw_command.static_mesh = static_mesh_handle;
                         draw_command.sub_mesh_index = sub_mesh_index;
-                        draw_command.material = material_handle;
+                        draw_command.material = renderer_state->default_material;
                         draw_command.instance_index = instance_index;
-
-                        if (node_index == render_data->selected_node_index)
-                        {
-                            Dynamic_Array< Draw_Command > *outlines = &render_data->outline_commands;
-                            Draw_Command &draw_command = append(outlines);
-                            draw_command.static_mesh = static_mesh_handle;
-                            draw_command.sub_mesh_index = sub_mesh_index;
-                            draw_command.material = renderer_state->default_material;
-                            draw_command.instance_index = instance_index;
-                        }
                     }
                 }
             }
@@ -2662,27 +2651,20 @@ void render_scene(Scene_Handle scene_handle)
 
     Frame_Render_Data *render_data = &renderer_state->render_data;
 
-    if (is_asset_handle_valid(skybox_material_asset))
+    if (is_asset_loaded(skybox_material_asset))
     {
-        if (!is_asset_loaded(skybox_material_asset))
-        {
-            aquire_asset(skybox_material_asset);
-        }
-        else
-        {
-            U32 instance_index = render_data->instance_count++;
-            Shader_Instance_Data *object_data = &render_data->instance_base[instance_index];
-            object_data->model = get_world_matrix(get_identity_transform());
-            object_data->entity_index = -1;
+        U32 instance_index = render_data->instance_count++;
+        Shader_Instance_Data *object_data = &render_data->instance_base[instance_index];
+        object_data->model = get_world_matrix(get_identity_transform());
+        object_data->entity_index = -1;
 
-            Draw_Command &dc = append(&render_data->skybox_commands);
-            dc.static_mesh = renderer_state->default_static_mesh;
-            dc.sub_mesh_index = 0;
-            dc.material = get_asset_handle_as<Material>(skybox_material_asset);
-            dc.instance_index = instance_index;
+        Draw_Command &dc = append(&render_data->skybox_commands);
+        dc.static_mesh = renderer_state->default_static_mesh;
+        dc.sub_mesh_index = 0;
+        dc.material = get_asset_handle_as<Material>(skybox_material_asset);
+        dc.instance_index = instance_index;
 
-            render_data->globals->ambient = srgb_to_linear(skybox->ambient_color);
-        }
+        render_data->globals->ambient = srgb_to_linear(skybox->ambient_color);
     }
 
     traverse_scene_tree(scene, 0, get_identity_transform(), render_data);
