@@ -120,6 +120,7 @@ void game_loop(Engine *engine, F32 delta_time)
     Temprary_Memory frame_temprary_memory = begin_temprary_memory(frame_arena);
 
     renderer_handle_upload_requests();
+    reload_assets();
 
     if (!engine->is_minimized)
     {

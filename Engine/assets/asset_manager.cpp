@@ -59,6 +59,7 @@ struct Asset_Manager
     Asset_Cache asset_cache;
     Embeded_Asset_Cache embeded_cache;
     Asset_Dependency asset_dependency;
+    Dynamic_Array<Asset_Handle> pending_reload_assets;
     Mutex asset_mutex;
 };
 
@@ -83,15 +84,13 @@ static Job_Result reload_asset_job(const Job_Parameters &params)
     Memory_Context memory_context = grab_memory_context();
 
     Asset_Registry_Entry &entry = internal_get_asset_registry_entry(asset_handle);
-    HE_ASSERT(entry.state != Asset_State::PENDING);
+    // HE_ASSERT(entry.state != Asset_State::PENDING);
     
     const Asset_Info *info = get_asset_info(entry.type_info_index);
     auto cache_it = asset_manager_state->asset_cache.find(asset_handle.uuid);
     HE_ASSERT(cache_it != asset_manager_state->asset_cache.iend());
     Asset &asset = cache_it.value();
-    info->unload(asset.load_result);
-    entry.state = Asset_State::UNLOADED;
-    
+
     String relative_path = entry.path;
     load_asset_proc load = info->load;
 
@@ -119,7 +118,7 @@ static Job_Result reload_asset_job(const Job_Parameters &params)
     Load_Asset_Result load_result = load(path, is_embeded ? &embeded_params : nullptr);
     if (!load_result.success)
     {
-        entry.state = Asset_State::UNLOADED;
+        entry.state = Asset_State::FAILED_TO_LOAD;
         HE_LOG(Assets, Error, "load_asset_job -- failed to reload asset: %.*s\n", HE_EXPAND_STRING(entry.path));
         return Job_Result::FAILED;
     }
@@ -148,7 +147,7 @@ static String internal_get_asset_absolute_path(const Asset_Registry_Entry &entry
     return result;
 }
 
-static void internal_reload_asset(Asset_Handle asset_handle, Job_Handle parent_job = Resource_Pool< Job >::invalid_handle)
+static void internal_reload_asset(Asset_Handle asset_handle, Job_Handle parent_job = Resource_Pool< Job >::invalid_handle, bool force_reload = false)
 {
     if (!internal_is_asset_handle_valid(asset_handle))
     {
@@ -167,12 +166,24 @@ static void internal_reload_asset(Asset_Handle asset_handle, Job_Handle parent_j
     String absolute_path = internal_get_asset_absolute_path(entry, memory_context.temp_allocator);
 
     U64 last_write_time = platform_get_file_last_write_time(absolute_path.data);
-    if (entry.last_write_time == last_write_time)
+    if (entry.last_write_time == last_write_time && !force_reload)
     {
         return;
     }
 
+    const Asset_Info *info = get_asset_info(entry.type_info_index);
+    auto cache_it = asset_manager_state->asset_cache.find(asset_handle.uuid);
+    HE_ASSERT(cache_it != asset_manager_state->asset_cache.iend());
+    Asset &asset = cache_it.value();
+
+    if (entry.state == Asset_State::LOADED)
+    {
+        info->unload(asset.load_result);
+        asset.load_result = {};
+    }
+
     entry.last_write_time = last_write_time;
+    entry.state = Asset_State::PENDING;
 
     Reload_Asset_Job_Data data =
     {
@@ -200,7 +211,7 @@ static void internal_reload_asset(Asset_Handle asset_handle, Job_Handle parent_j
         for (U32 i = 0; i < children.count; i++)
         {
             Asset_Handle child_asset_handle = { .uuid = children[i] };
-            internal_reload_asset(child_asset_handle, entry.job);
+            internal_reload_asset(child_asset_handle, entry.job, true);
         }
     }
 }
@@ -209,12 +220,6 @@ static void reload_asset(Asset_Handle asset_handle)
 {
     platform_lock_mutex(&asset_manager_state->asset_mutex);
     HE_DEFER { platform_unlock_mutex(&asset_manager_state->asset_mutex); };
-    
-    if (!internal_is_asset_handle_valid(asset_handle))
-    {
-        return;
-    }
-
     internal_reload_asset(asset_handle);
 }
 
@@ -268,7 +273,7 @@ static void on_file_changes(Watch_Directory_Result result, String old_path, Stri
         {
             HE_LOG(Assets, Trace, "[Modified]: %.*s\n", HE_EXPAND_STRING(old_path));
             Asset_Handle asset_handle = get_asset_handle(old_path);
-            reload_asset(asset_handle);
+            append(&asset_manager_state->pending_reload_assets, asset_handle);
         } break;
 
         case FILE_DELETED:
@@ -316,6 +321,8 @@ bool init_asset_manager(String asset_path)
     asset_manager_state->asset_cache = Asset_Cache();
     asset_manager_state->embeded_cache = Embeded_Asset_Cache();
     asset_manager_state->asset_dependency = Asset_Dependency();
+
+    init(&asset_manager_state->pending_reload_assets);
 
     platform_create_mutex(&asset_manager_state->asset_mutex);
 
@@ -427,6 +434,17 @@ void deinit_asset_manager()
     }
 }
 
+void reload_assets()
+{
+    for (U32 i = 0; i < asset_manager_state->pending_reload_assets.count; i++)
+    {
+        Asset_Handle asset_handle = asset_manager_state->pending_reload_assets[i];
+        reload_asset(asset_handle);
+    }
+
+    reset(&asset_manager_state->pending_reload_assets);
+}
+
 String get_asset_path()
 {
     return asset_manager_state->asset_path;
@@ -486,7 +504,7 @@ bool is_asset_handle_valid(Asset_Handle asset_handle)
 static bool internal_is_asset_loaded(Asset_Handle asset_handle)
 {
     auto it = asset_manager_state->asset_cache.find(asset_handle.uuid);
-    return it != asset_manager_state->asset_cache.iend();
+    return it != asset_manager_state->asset_cache.iend() && it.value().load_result.success;
 }
 
 bool is_asset_loaded(Asset_Handle asset_handle)
@@ -949,7 +967,7 @@ static Job_Result load_asset_job(const Job_Parameters &params)
         
     if (!load_result.success)
     {
-        entry.state = Asset_State::UNLOADED;
+        entry.state = Asset_State::FAILED_TO_LOAD;
         HE_LOG(Assets, Error, "load_asset_job -- failed to load asset: %.*s\n", HE_EXPAND_STRING(asset_entry.path));
         return Job_Result::FAILED;
     }

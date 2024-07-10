@@ -1,0 +1,2 @@
+[Resource-Fetal]: failed to compile fragment stage: assets/opaque_pbr.glsl:212: error: '' :  syntax error, unexpected INT, expecting COMMA or SEMICOLON
+

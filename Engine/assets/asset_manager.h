@@ -29,6 +29,7 @@ enum class Asset_State : U8
     UNLOADED,
     PENDING,
     LOADED,
+    FAILED_TO_LOAD,
 };
 
 struct Asset_Handle
@@ -84,6 +85,8 @@ struct Asset_Registry_Entry
 
 bool init_asset_manager(String asset_path);
 void deinit_asset_manager();
+
+void reload_assets();
 
 String get_asset_path();
 

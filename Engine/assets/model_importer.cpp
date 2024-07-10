@@ -156,6 +156,7 @@ static void release_model_from_cache(U64 asset_uuid)
 
     if (instance.ref_count == 0)
     {
+        cgltf_free((cgltf_data *)instance.data);
         model_cache.erase(it);
     }
 
