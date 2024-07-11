@@ -20,6 +20,7 @@ static VkShaderStageFlagBits get_shader_stage(Shader_Stage shader_stage)
     {
         case Shader_Stage::VERTEX: return VK_SHADER_STAGE_VERTEX_BIT;
         case Shader_Stage::FRAGMENT: return VK_SHADER_STAGE_FRAGMENT_BIT;
+        case Shader_Stage::COMPUTE: return VK_SHADER_STAGE_COMPUTE_BIT;
 
         default:
         {
@@ -812,6 +813,34 @@ bool create_graphics_pipeline(Pipeline_State_Handle pipeline_state_handle,  cons
     graphics_pipeline_create_info.basePipelineIndex = -1;
 
     HE_CHECK_VKRESULT(vkCreateGraphicsPipelines(context->logical_device, context->pipeline_cache, 1, &graphics_pipeline_create_info, &context->allocation_callbacks, &vulkan_pipeline_state->handle));
+    return true;
+}
+
+bool create_compute_pipeline(Pipeline_State_Handle pipeline_state_handle,  const Pipeline_State_Descriptor &descriptor, Vulkan_Context *context)
+{
+    Memory_Context memory_context = grab_memory_context();
+
+    Renderer_State *renderer_state = context->renderer_state;
+    
+    Pipeline_State *pipeline_state = get(&renderer_state->pipeline_states, pipeline_state_handle);
+    Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[pipeline_state_handle.index];
+    
+    Shader *shader = get(&context->renderer_state->shaders, descriptor.shader);
+    Vulkan_Shader *vulkan_shader = &context->shaders[descriptor.shader.index];
+
+    HE_ASSERT(vulkan_shader->handles[(U32)Shader_Stage::COMPUTE] != VK_NULL_HANDLE);
+
+    VkPipelineShaderStageCreateInfo compute_shader_stage_create_info = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };    
+    compute_shader_stage_create_info.stage  = get_shader_stage(Shader_Stage::COMPUTE);
+    compute_shader_stage_create_info.module = vulkan_shader->handles[(U32)Shader_Stage::COMPUTE];
+    compute_shader_stage_create_info.pName  = "main";
+
+    VkComputePipelineCreateInfo compute_pipeline_create_info = { VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+    compute_pipeline_create_info.stage = compute_shader_stage_create_info;
+    compute_pipeline_create_info.layout = vulkan_shader->pipeline_layout;
+
+    HE_CHECK_VKRESULT(vkCreateComputePipelines(context->logical_device, context->pipeline_cache, 1, &compute_pipeline_create_info, &context->allocation_callbacks, &vulkan_pipeline_state->handle));
+
     return true;
 }
 

@@ -87,6 +87,8 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->clear_texture = &vulkan_renderer_clear_texture;
             renderer->change_texture_state = &vulkan_renderer_change_texture_state;
             renderer->invalidate_buffer = &vulkan_renderer_invalidate_buffer;
+            renderer->begin_compute_pass = &vulkan_renderer_begin_compute_pass;
+            renderer->end_compute_pass = &vulkan_renderer_end_compute_pass;
             renderer->end_frame = &vulkan_renderer_end_frame;
             renderer->set_vsync = &vulkan_renderer_set_vsync;
             renderer->get_texture_memory_requirements = &vulkan_renderer_get_texture_memory_requirements;
@@ -479,6 +481,8 @@ bool init_renderer_state(Engine *engine)
 
         Pipeline_State_Descriptor pipeline_state_descriptor =
         {
+            .shader = renderer_state->depth_prepass_shader,
+            .render_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("depth_prepass")), // todo(amer): we should not depend on the render graph here...
             .settings =
             {
                 .cull_mode = Cull_Mode::BACK,
@@ -500,8 +504,6 @@ bool init_renderer_state(Engine *engine)
 
                 .sample_shading = false,
             },
-            .shader = renderer_state->depth_prepass_shader,
-            .render_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("depth_prepass")), // todo(amer): we should not depend on the render graph here...
         };
 
         renderer_state->depth_prepass_pipeline = renderer_create_pipeline_state(pipeline_state_descriptor);
@@ -518,6 +520,8 @@ bool init_renderer_state(Engine *engine)
 
         Pipeline_State_Descriptor transparent_pipeline_descriptor =
         {
+            .shader = renderer_state->transparent_shader,
+            .render_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("transparent")), // todo(amer): we should not depend on the render graph here...
             .settings =
             {
                 .cull_mode = Cull_Mode::NONE,
@@ -540,8 +544,6 @@ bool init_renderer_state(Engine *engine)
                 .sample_shading = false,
                 .alpha_blending = false,
             },
-            .shader = renderer_state->transparent_shader,
-            .render_pass = get_render_pass(&renderer_state->render_graph, HE_STRING_LITERAL("transparent")), // todo(amer): we should not depend on the render graph here...
         };
 
         renderer_state->transparent_pipeline = renderer_create_pipeline_state(transparent_pipeline_descriptor);
@@ -641,6 +643,8 @@ bool init_renderer_state(Engine *engine)
 
             Pipeline_State_Descriptor brdf_lut_pipeline =
             {
+                .shader = brdf_lut_shader_handle,
+                .render_pass = renderer_state->cubemap_render_pass,
                 .settings =
                 {
                     .cull_mode = Cull_Mode::NONE,
@@ -653,8 +657,6 @@ bool init_renderer_state(Engine *engine)
 
                     .sample_shading = true,
                 },
-                .shader = brdf_lut_shader_handle,
-                .render_pass = renderer_state->cubemap_render_pass,
             };
 
             Pipeline_State_Handle brdf_lut_pipeline_state_handle = renderer_create_pipeline_state(brdf_lut_pipeline);
@@ -675,6 +677,8 @@ bool init_renderer_state(Engine *engine)
 
             Pipeline_State_Descriptor hdr_pipeline =
             {
+                .shader = hdr_shader_handle,
+                .render_pass = renderer_state->cubemap_render_pass,
                 .settings =
                 {
                     .cull_mode = Cull_Mode::NONE,
@@ -687,8 +691,6 @@ bool init_renderer_state(Engine *engine)
 
                     .sample_shading = true,
                 },
-                .shader = hdr_shader_handle,
-                .render_pass = renderer_state->cubemap_render_pass,
             };
 
             Pipeline_State_Handle hdr_pipeline_state_handle = renderer_create_pipeline_state(hdr_pipeline);
@@ -697,6 +699,9 @@ bool init_renderer_state(Engine *engine)
 
             Pipeline_State_Descriptor irradiance_pipeline =
             {
+                
+                .shader = irradiance_shader_handle,
+                .render_pass = renderer_state->cubemap_render_pass,
                 .settings =
                 {
                     .cull_mode = Cull_Mode::NONE,
@@ -709,8 +714,6 @@ bool init_renderer_state(Engine *engine)
 
                     .sample_shading = true,
                 },
-                .shader = irradiance_shader_handle,
-                .render_pass = renderer_state->cubemap_render_pass,
             };
 
             Pipeline_State_Handle irradiance_pipeline_state_handle = renderer_create_pipeline_state(irradiance_pipeline);
@@ -719,6 +722,8 @@ bool init_renderer_state(Engine *engine)
 
             Pipeline_State_Descriptor prefilter_pipeline =
             {
+                .shader = prefilter_shader_handle,
+                .render_pass = renderer_state->cubemap_render_pass,
                 .settings =
                 {
                     .cull_mode = Cull_Mode::NONE,
@@ -731,8 +736,6 @@ bool init_renderer_state(Engine *engine)
 
                     .sample_shading = true,
                 },
-                .shader = prefilter_shader_handle,
-                .render_pass = renderer_state->cubemap_render_pass,
             };
 
             Pipeline_State_Handle prefilter_pipeline_state_handle = renderer_create_pipeline_state(prefilter_pipeline);
@@ -1142,6 +1145,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
     static String shader_stage_signature[(U32)Shader_Stage::COUNT];
     shader_stage_signature[(U32)Shader_Stage::VERTEX] = HE_STRING_LITERAL("vertex");
     shader_stage_signature[(U32)Shader_Stage::FRAGMENT] = HE_STRING_LITERAL("fragment");
+    shader_stage_signature[(U32)Shader_Stage::COMPUTE] = HE_STRING_LITERAL("compute");
 
     String sources[(U32)Shader_Stage::COUNT] = {};
 
@@ -1194,11 +1198,18 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
         }
     }
 
+    Shader_Type shader_type = Shader_Type::GRAPHICS;
+
     for (U32 stage_index = 0; stage_index < (U32)Shader_Stage::COUNT; stage_index++)
     {
         if (!sources[stage_index].count)
         {
             continue;
+        }
+
+        if (stage_index == (U32)Shader_Stage::COMPUTE)
+        {
+            shader_type = Shader_Type::COMPUTE;
         }
 
         // shaderc requires a string to be null-terminated
@@ -1231,6 +1242,7 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
         compilation_result.stages[stage_index] = copy_string(blob, memory_context.general_allocator);
     }
 
+    compilation_result.type = shader_type;
     compilation_result.success = true;
     return compilation_result;
 }
@@ -1285,6 +1297,8 @@ Shader_Handle renderer_create_shader(const Shader_Descriptor &descriptor)
 {
     HE_ASSERT(descriptor.compilation_result->success);
     Shader_Handle shader_handle = aquire_handle(&renderer_state->shaders);
+    Shader *shader = get(&renderer_state->shaders, shader_handle);
+    shader->type = descriptor.compilation_result->type;
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_shader(shader_handle, descriptor);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
@@ -1377,8 +1391,8 @@ Pipeline_State_Handle renderer_create_pipeline_state(const Pipeline_State_Descri
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
     Pipeline_State *pipeline_state = &renderer_state->pipeline_states.data[pipeline_state_handle.index];
-    pipeline_state->render_pass = descriptor.render_pass;
     pipeline_state->shader = descriptor.shader;
+    pipeline_state->render_pass = descriptor.render_pass;
     pipeline_state->settings = descriptor.settings;
 
     return pipeline_state_handle;
@@ -1647,9 +1661,9 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 
     Pipeline_State_Descriptor pipeline_state_desc =
     {
-        .settings = descriptor.settings,
         .shader = descriptor.shader,
         .render_pass = get_render_pass(&renderer_state->render_graph, pass_name),
+        .settings = descriptor.settings,
     };
 
     Pipeline_State_Handle pipeline_state_handle = renderer_create_pipeline_state(pipeline_state_desc);
@@ -2882,6 +2896,7 @@ void begin_rendering(const Camera *camera)
     globals->brdf_lut = renderer_state->brdf_lut_texture.index;
 
     Asset_Handle environment_map_asset = import_asset(HE_STRING_LITERAL("env_map.hdr"));
+
     if (is_asset_handle_valid(environment_map_asset) && is_asset_loaded(environment_map_asset))
     {
         Environment_Map *env_map = get_asset_as<Environment_Map>(environment_map_asset);
@@ -2889,7 +2904,6 @@ void begin_rendering(const Camera *camera)
         Texture *prefilter_map = renderer_get_texture(env_map->prefilter_map);
         globals->prefilter_map_lod = prefilter_map->mip_levels;
         globals->prefilter_map = env_map->prefilter_map.index;
-        // ImGui::Image(renderer->imgui_get_texture_id(env_map->brdf_lut_map), ImVec2(512, 512), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
     }
     else
     {

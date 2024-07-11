@@ -165,8 +165,9 @@ VkAccessFlags get_access_flags(Resource_State resource_state, Texture_Format for
     switch (resource_state)
     {
         case UNDEFINED:
-        case GENERAL:
             return 0;
+
+        case GENERAL: return VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
 
         case COPY_SRC: return VK_ACCESS_TRANSFER_READ_BIT;
         case COPY_DST: return VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -201,7 +202,7 @@ VkPipelineStageFlags get_pipeline_stage_flags(VkAccessFlags access_flags)
 
     if ((access_flags & (VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT)) != 0)
     {
-        result |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        result |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
     }
     
     if ((access_flags & (VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)) != 0)

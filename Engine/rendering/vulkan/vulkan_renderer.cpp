@@ -396,7 +396,6 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device, &queue_family_count, nullptr);
 
     VkQueueFamilyProperties *queue_families = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkQueueFamilyProperties, queue_family_count);
-
     vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device, &queue_family_count, queue_families);
 
     bool found_a_queue_family_that_can_do_graphics_and_present = false;
@@ -454,6 +453,18 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
         }
     }
 
+    context->compute_queue_family_index = context->graphics_queue_family_index;
+
+    for (U32 queue_family_index = 0; queue_family_index < queue_family_count; queue_family_index++)
+    {
+        VkQueueFamilyProperties *queue_family = &queue_families[queue_family_index];
+        if ((queue_family->queueFlags & VK_QUEUE_COMPUTE_BIT) && !(queue_family->queueFlags & VK_QUEUE_GRAPHICS_BIT))
+        {
+            context->compute_queue_family_index = queue_family_index;
+            break;
+        }
+    }
+
     F32 queue_priority = 1.0f;
     VkDeviceQueueCreateInfo *queue_create_infos = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.temp_allocator, VkDeviceQueueCreateInfo, 3);
 
@@ -479,6 +490,17 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
         U32 queue_create_info_index = queue_create_info_count++;
         queue_create_infos[queue_create_info_index].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queue_create_infos[queue_create_info_index].queueFamilyIndex = context->transfer_queue_family_index;
+        queue_create_infos[queue_create_info_index].queueCount = 1;
+        queue_create_infos[queue_create_info_index].pQueuePriorities = &queue_priority;
+    }
+
+    if ((context->compute_queue_family_index != context->graphics_queue_family_index)
+        && (context->compute_queue_family_index != context->present_queue_family_index)
+        && (context->compute_queue_family_index != context->transfer_queue_family_index))
+    {
+        U32 queue_create_info_index = queue_create_info_count++;
+        queue_create_infos[queue_create_info_index].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_create_infos[queue_create_info_index].queueFamilyIndex = context->compute_queue_family_index;
         queue_create_infos[queue_create_info_index].queueCount = 1;
         queue_create_infos[queue_create_info_index].pQueuePriorities = &queue_priority;
     }
@@ -540,6 +562,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     vkGetDeviceQueue(context->logical_device, context->graphics_queue_family_index, 0, &context->graphics_queue);
     vkGetDeviceQueue(context->logical_device, context->present_queue_family_index, 0, &context->present_queue);
     vkGetDeviceQueue(context->logical_device, context->transfer_queue_family_index, 0, &context->transfer_queue);
+    vkGetDeviceQueue(context->logical_device, context->compute_queue_family_index, 0, &context->compute_queue);
 
     VmaVulkanFunctions vulkan_functions = {};
     vulkan_functions.vkGetInstanceProcAddr = &vkGetInstanceProcAddr;
@@ -606,11 +629,22 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     transfer_command_pool_create_info.queueFamilyIndex = context->transfer_queue_family_index;
     HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &transfer_command_pool_create_info, &context->allocation_callbacks, &main_thread_state->transfer_command_pool));
 
+    VkCommandPoolCreateInfo compute_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    transfer_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    transfer_command_pool_create_info.queueFamilyIndex = context->compute_queue_family_index;
+    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &transfer_command_pool_create_info, &context->allocation_callbacks, &main_thread_state->compute_command_pool));
+
     VkCommandBufferAllocateInfo graphics_command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     graphics_command_buffer_allocate_info.commandPool = main_thread_state->graphics_command_pool;
     graphics_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     graphics_command_buffer_allocate_info.commandBufferCount = HE_MAX_FRAMES_IN_FLIGHT;
     HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &graphics_command_buffer_allocate_info, context->graphics_command_buffers));
+
+    VkCommandBufferAllocateInfo compute_command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    graphics_command_buffer_allocate_info.commandPool = main_thread_state->compute_command_pool;
+    graphics_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    graphics_command_buffer_allocate_info.commandBufferCount = HE_MAX_FRAMES_IN_FLIGHT;
+    HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &graphics_command_buffer_allocate_info, context->compute_command_buffers));
 
     context->descriptor_pool_ratios = {{ 
         { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .ratio = 3.0f },
@@ -633,7 +667,8 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     timeline_semaphore_create_info.pNext = &timeline_semaphore_type_create_info;
     timeline_semaphore_create_info.flags = 0;
 
-    HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &timeline_semaphore_create_info, &context->allocation_callbacks, &context->timeline_semaphore));
+    HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &timeline_semaphore_create_info, &context->allocation_callbacks, &context->frame_timeline_semaphore));
+    HE_CHECK_VKRESULT(vkCreateSemaphore(context->logical_device, &timeline_semaphore_create_info, &context->allocation_callbacks, &context->compute_timeline_semaphore));
 
     VkSemaphoreCreateInfo binary_semaphore_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     binary_semaphore_create_info.flags = 0;
@@ -680,7 +715,8 @@ void deinit_vulkan(Vulkan_Context *context)
 
     ImGui_ImplVulkan_Shutdown();
     
-    vkDestroySemaphore(context->logical_device, context->timeline_semaphore, &context->allocation_callbacks);
+    vkDestroySemaphore(context->logical_device, context->frame_timeline_semaphore, &context->allocation_callbacks);
+    vkDestroySemaphore(context->logical_device, context->compute_timeline_semaphore, &context->allocation_callbacks);
     
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
@@ -697,6 +733,7 @@ void deinit_vulkan(Vulkan_Context *context)
         Vulkan_Thread_State *thread_state = &context->thread_states.values[slot_index];
         vkDestroyCommandPool(context->logical_device, thread_state->graphics_command_pool, &context->allocation_callbacks);
         vkDestroyCommandPool(context->logical_device, thread_state->transfer_command_pool, &context->allocation_callbacks);
+        vkDestroyCommandPool(context->logical_device, thread_state->compute_command_pool, &context->allocation_callbacks);
     }
 
     destroy_swapchain(context, &context->swapchain);
@@ -849,22 +886,27 @@ void vulkan_renderer_begin_frame()
     U64 wait_value = context->timeline_value - (renderer_state->frames_in_flight - 1);
     VkSemaphoreWaitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
     wait_info.semaphoreCount = 1;
-    wait_info.pSemaphores = &context->timeline_semaphore;
+    wait_info.pSemaphores = &context->frame_timeline_semaphore;
     wait_info.pValues = &wait_value;
     vkWaitSemaphores(context->logical_device, &wait_info, UINT64_MAX);
 
     VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[frame_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);
 
-    VkCommandBuffer command_buffer = context->graphics_command_buffers[frame_index];
-    vkResetCommandBuffer(command_buffer, 0);
-
     VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     command_buffer_begin_info.flags = 0;
     command_buffer_begin_info.pInheritanceInfo = 0;
 
-    vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
+    VkCommandBuffer graphics_command_buffer = context->graphics_command_buffers[frame_index];
+    vkResetCommandBuffer(graphics_command_buffer, 0);
+    vkBeginCommandBuffer(graphics_command_buffer, &command_buffer_begin_info);
 
-    context->command_buffer = command_buffer;
+    VkCommandBuffer compute_command_buffer = context->compute_command_buffers[frame_index];
+    vkResetCommandBuffer(compute_command_buffer, 0);
+    vkBeginCommandBuffer(compute_command_buffer, &command_buffer_begin_info);
+
+    context->graphics_command_buffer = graphics_command_buffer;
+    context->compute_command_buffer = compute_command_buffer;
+    context->command_buffer = graphics_command_buffer;
 
     vulkan_renderer_destroy_resources_at_frame((frame_index + 1) % HE_MAX_FRAMES_IN_FLIGHT);
 
@@ -1152,7 +1194,21 @@ void vulkan_renderer_invalidate_buffer(Buffer_Handle buffer_handle)
     barrier.size = VK_WHOLE_SIZE;
     barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
-    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
+    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
+}
+
+void vulkan_renderer_begin_compute_pass()
+{
+    Vulkan_Context *context = &vulkan_context;
+    U32 frame_index = context->renderer_state->current_frame_in_flight_index;
+    context->command_buffer = context->compute_command_buffers[frame_index];
+}
+
+void vulkan_renderer_end_compute_pass()
+{
+    Vulkan_Context *context = &vulkan_context;
+    U32 frame_index = context->renderer_state->current_frame_in_flight_index;
+    context->command_buffer = context->graphics_command_buffers[frame_index];
 }
 
 void vulkan_renderer_end_frame()
@@ -1177,20 +1233,20 @@ void vulkan_renderer_end_frame()
 
     region.extent = { context->swapchain.width, context->swapchain.height, 1 };
     
-    transtion_image_to_layout(context->command_buffer, swapchain_image, 0, 1, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    transtion_image_to_layout(context->graphics_command_buffer, swapchain_image, 0, 1, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     Texture_Handle presentable_attachment = get_presentable_attachment(&renderer_state->render_graph, renderer_state);
     Vulkan_Image *vulkan_presentable_attachment = &context->textures[presentable_attachment.index];
     
-    transtion_image_to_layout(context->command_buffer, vulkan_presentable_attachment->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transtion_image_to_layout(context->graphics_command_buffer, vulkan_presentable_attachment->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-    vkCmdCopyImage(context->command_buffer, vulkan_presentable_attachment->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    transtion_image_to_layout(context->command_buffer, swapchain_image, 0, 1, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-    transtion_image_to_layout(context->command_buffer, vulkan_presentable_attachment->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    vkCmdCopyImage(context->graphics_command_buffer, vulkan_presentable_attachment->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    transtion_image_to_layout(context->graphics_command_buffer, swapchain_image, 0, 1, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    transtion_image_to_layout(context->graphics_command_buffer, vulkan_presentable_attachment->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     Texture_Handle scene_texture = get_texture_resource(&renderer_state->render_graph, renderer_state, HE_STRING_LITERAL("scene"));
 
     Vulkan_Image *scene_image = &context->textures[scene_texture.index];
-    transtion_image_to_layout(context->command_buffer, scene_image->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transtion_image_to_layout(context->graphics_command_buffer, scene_image->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
     Buffer_Handle scene_buffer = renderer_state->render_data.scene_buffers[renderer_state->current_frame_in_flight_index];
     Vulkan_Buffer *vulkan_scene_buffer = &context->buffers[scene_buffer.index];
@@ -1214,56 +1270,104 @@ void vulkan_renderer_end_frame()
         .imageExtent = { 1, 1, 1 }
     };
 
-    vkCmdCopyImageToBuffer(context->command_buffer, scene_image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vulkan_scene_buffer->handle, 1, &buffer_image_copy);
-    transtion_image_to_layout(context->command_buffer, scene_image->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    vkCmdCopyImageToBuffer(context->graphics_command_buffer, scene_image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vulkan_scene_buffer->handle, 1, &buffer_image_copy);
+    transtion_image_to_layout(context->graphics_command_buffer, scene_image->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-    vkEndCommandBuffer(context->command_buffer);
+    vkEndCommandBuffer(context->graphics_command_buffer);
 
-    VkSemaphoreSubmitInfoKHR wait_semaphore_infos[] = 
-    { 
-        {
-            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
-            .semaphore = context->image_available_semaphores[renderer_state->current_frame_in_flight_index],
-            .value = 0,
-            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR
-        },
-        {
-            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
-            .semaphore = context->timeline_semaphore,
-            .value = context->timeline_value - (renderer_state->frames_in_flight - 1),
-            .stageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR
-        }
-    };
-    
-    VkSemaphoreSubmitInfoKHR signal_semaphore_infos[] =
-    {
-        {
-            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
-            .semaphore = context->rendering_finished_semaphores[renderer_state->current_frame_in_flight_index],
-            .value = 0,
-            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
-        },
-        {
-            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
-            .semaphore = context->timeline_semaphore,
-            .value = context->timeline_value + 1,
-            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
-        },
-    };
-    
-    VkCommandBufferSubmitInfoKHR command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO_KHR };
-    command_buffer_submit_info.commandBuffer = context->command_buffer;
-
-    VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
-    submit_info.waitSemaphoreInfoCount = HE_ARRAYCOUNT(wait_semaphore_infos);
-    submit_info.pWaitSemaphoreInfos = wait_semaphore_infos;
-    submit_info.signalSemaphoreInfoCount = HE_ARRAYCOUNT(signal_semaphore_infos);
-    submit_info.pSignalSemaphoreInfos = signal_semaphore_infos;
-    submit_info.commandBufferInfoCount = 1;
-    submit_info.pCommandBufferInfos = &command_buffer_submit_info;
+    vkEndCommandBuffer(context->compute_command_buffer);
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
-    context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+
+    {
+        // VkSemaphoreSubmitInfoKHR wait_semaphore_infos[] =
+        // {
+        //     {
+        //         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+        //         .semaphore = context->compute_timeline_semaphore,
+        //         .value = context->timeline_value,
+        //         .stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+        //     }
+        // };
+
+        VkSemaphoreSubmitInfoKHR signal_semaphore_infos[] =
+        {
+            {
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+                .semaphore = context->compute_timeline_semaphore,
+                .value = context->timeline_value + 1,
+                .stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            },
+        };
+
+        VkCommandBufferSubmitInfoKHR command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO_KHR };
+        command_buffer_submit_info.commandBuffer = context->compute_command_buffer;
+
+        VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
+        // submit_info.waitSemaphoreInfoCount = HE_ARRAYCOUNT(wait_semaphore_infos);
+        // submit_info.pWaitSemaphoreInfos = wait_semaphore_infos;
+
+        submit_info.signalSemaphoreInfoCount = HE_ARRAYCOUNT(signal_semaphore_infos);
+        submit_info.pSignalSemaphoreInfos = signal_semaphore_infos;
+        submit_info.commandBufferInfoCount = 1;
+        submit_info.pCommandBufferInfos = &command_buffer_submit_info;
+
+        context->vkQueueSubmit2KHR(context->compute_queue, 1, &submit_info, VK_NULL_HANDLE);
+    }
+
+    {
+        VkSemaphoreSubmitInfoKHR wait_semaphore_infos[] =
+        {
+            {
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+                .semaphore = context->image_available_semaphores[renderer_state->current_frame_in_flight_index],
+                .value = 0,
+                .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+                .semaphore = context->compute_timeline_semaphore,
+                .value = context->timeline_value + 1,
+                .stageMask = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+                .semaphore = context->frame_timeline_semaphore,
+                .value = context->timeline_value - (renderer_state->frames_in_flight - 1),
+                .stageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR
+            }
+        };
+
+        VkSemaphoreSubmitInfoKHR signal_semaphore_infos[] =
+        {
+            {
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+                .semaphore = context->rendering_finished_semaphores[renderer_state->current_frame_in_flight_index],
+                .value = 0,
+                .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+                .semaphore = context->frame_timeline_semaphore,
+                .value = context->timeline_value + 1,
+                .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+            },
+        };
+
+        VkCommandBufferSubmitInfoKHR command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO_KHR };
+        command_buffer_submit_info.commandBuffer = context->graphics_command_buffer;
+
+        VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
+        submit_info.waitSemaphoreInfoCount = HE_ARRAYCOUNT(wait_semaphore_infos);
+        submit_info.pWaitSemaphoreInfos = wait_semaphore_infos;
+        submit_info.signalSemaphoreInfoCount = HE_ARRAYCOUNT(signal_semaphore_infos);
+        submit_info.pSignalSemaphoreInfos = signal_semaphore_infos;
+        submit_info.commandBufferInfoCount = 1;
+        submit_info.pCommandBufferInfos = &command_buffer_submit_info;
+
+        context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+    }
+
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
     ImGuiIO &io = ImGui::GetIO();

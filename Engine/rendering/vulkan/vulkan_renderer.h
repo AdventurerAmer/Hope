@@ -64,6 +64,9 @@ void vulkan_renderer_change_texture_state(Texture_Handle texture_handle, Resourc
 
 void vulkan_renderer_invalidate_buffer(Buffer_Handle buffer_handle);
 
+void vulkan_renderer_begin_compute_pass();
+void vulkan_renderer_end_compute_pass();
+
 void vulkan_renderer_end_frame();
 
 bool vulkan_renderer_init_imgui();

@@ -335,12 +335,20 @@ enum class Shader_Stage : U8
 {
     VERTEX,
     FRAGMENT,
+    COMPUTE,
     COUNT
+};
+
+enum class Shader_Type
+{
+    GRAPHICS,
+    COMPUTE
 };
 
 struct Shader_Compilation_Result
 {
     bool success;
+    Shader_Type type;
     String stages[(U32)Shader_Stage::COUNT];
 };
 
@@ -353,7 +361,7 @@ struct Shader_Descriptor
 struct Shader
 {
     String name;
-
+    Shader_Type type;
     U32 struct_count;
     Shader_Struct *structs;
 };
@@ -473,10 +481,9 @@ struct Pipeline_State_Settings
 
 struct Pipeline_State_Descriptor
 {
-    Pipeline_State_Settings settings;
-    
     Shader_Handle shader;
     Render_Pass_Handle render_pass;
+    Pipeline_State_Settings settings;
 };
 
 struct Pipeline_State

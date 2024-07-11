@@ -126,6 +126,7 @@ struct Vulkan_Thread_State
 {
     VkCommandPool graphics_command_pool;
     VkCommandPool transfer_command_pool;
+    VkCommandPool compute_command_pool;
 };
 
 #define HE_MAX_VULKAN_DESCRIPTOR_POOL_SIZE_RATIO_COUNT 8
@@ -163,25 +164,22 @@ struct Vulkan_Context
     VkPhysicalDeviceProperties physical_device_properties;
     VkPhysicalDeviceMemoryProperties physical_device_memory_properties;
 
+    VkDevice logical_device;
+    VmaAllocator allocator;
+
     U32 graphics_queue_family_index;
     U32 present_queue_family_index;
     U32 transfer_queue_family_index;
-    VkDevice logical_device;
-    VmaAllocator allocator;
+    U32 compute_queue_family_index;
     
     VkQueue graphics_queue;
     VkQueue present_queue;
+    VkQueue compute_queue;
     VkQueue transfer_queue;
 
     Vulkan_Swapchain_Support swapchain_support;
     Vulkan_Swapchain swapchain;
     U32 current_swapchain_image_index;
-    
-    VkSemaphore image_available_semaphores[HE_MAX_FRAMES_IN_FLIGHT];
-    VkSemaphore rendering_finished_semaphores[HE_MAX_FRAMES_IN_FLIGHT];
-    
-    VkSemaphore timeline_semaphore;
-    U64 timeline_value;    
 
     Counted_Array< Vulkan_Descriptor_Pool_Size_Ratio, HE_MAX_DESCRIPTOR_POOL_SIZE_RATIO_COUNT > descriptor_pool_ratios;
     Vulkan_Descriptor_Pool_Allocator descriptor_pool_allocators[HE_MAX_FRAMES_IN_FLIGHT];
@@ -189,12 +187,23 @@ struct Vulkan_Context
     Hash_Map< U32, Vulkan_Thread_State > thread_states;
 
     VkCommandBuffer graphics_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+    VkCommandBuffer compute_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+
+    VkCommandBuffer graphics_command_buffer;
+    VkCommandBuffer compute_command_buffer;
     VkCommandBuffer command_buffer;
 
     VkPipelineCache pipeline_cache;
 
     PFN_vkQueueSubmit2KHR vkQueueSubmit2KHR;
     PFN_vkCmdPipelineBarrier2KHR vkCmdPipelineBarrier2KHR;
+
+    VkSemaphore image_available_semaphores[HE_MAX_FRAMES_IN_FLIGHT];
+    VkSemaphore rendering_finished_semaphores[HE_MAX_FRAMES_IN_FLIGHT];
+
+    VkSemaphore frame_timeline_semaphore;
+    VkSemaphore compute_timeline_semaphore;
+    U64 timeline_value;
 
     Vulkan_Buffer *buffers;
     Vulkan_Image *textures;

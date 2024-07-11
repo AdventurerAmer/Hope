@@ -20,14 +20,14 @@ void setup_render_passes(Render_Graph *render_graph, Renderer_State *renderer_st
 
     // depth prepass
     {
-        Render_Graph_Node &depth = add_node(render_graph, "depth_prepass", nullptr, &depth_prepass);
+        Render_Graph_Node &depth = add_graphics_node(render_graph, "depth_prepass", &depth_prepass);
         add_render_target(render_graph, &depth, "scene", { .format = R32_SINT }, CLEAR, { .icolor = { -1, -1, -1, -1 } });
         add_depth_stencil_target(render_graph, &depth, "depth", { .format = DEPTH_F32_STENCIL_U8 }, CLEAR, { .depth = 1.0f, .stencil = 0 });
     }
 
     // world pass
     {
-        Render_Graph_Node &world = add_node(render_graph, "world", nullptr, &world_pass);
+        Render_Graph_Node &world = add_graphics_node(render_graph, "world", &world_pass);
         add_render_target(render_graph, &world, "rt0", { .format = R32G32B32A32_SFLOAT }, CLEAR, { .color = { 1.0f, 0.0f, 1.0f, 1.0f } });
         set_depth_stencil_target(render_graph, &world, "depth", LOAD);
         add_storage_texture(render_graph, &world, "head_index_image", { .format = R32_UINT }, { .ucolor = { HE_MAX_U32, HE_MAX_U32, HE_MAX_U32, HE_MAX_U32 } });
@@ -38,7 +38,7 @@ void setup_render_passes(Render_Graph *render_graph, Renderer_State *renderer_st
 
     // transparent pass
     {
-        Render_Graph_Node &transparent = add_node(render_graph, "transparent", nullptr, &transparent_pass);
+        Render_Graph_Node &transparent = add_graphics_node(render_graph, "transparent", &transparent_pass);
         add_render_target_input(render_graph, &transparent, "scene", LOAD);
         add_render_target(render_graph, &transparent, "main", { .format = R8G8B8A8_UNORM }, CLEAR, { .color = { 1.0f, 0.0f, 1.0f, 1.0f } });
 
@@ -50,7 +50,7 @@ void setup_render_passes(Render_Graph *render_graph, Renderer_State *renderer_st
 
     // ui pass
     {
-        Render_Graph_Node &ui = add_node(render_graph, "ui", nullptr, &ui_pass);
+        Render_Graph_Node &ui = add_graphics_node(render_graph, "ui", &ui_pass);
         add_render_target_input(render_graph, &ui, "main", LOAD);
         set_depth_stencil_target(render_graph, &ui, "depth", CLEAR, { .depth = 1.0f, .stencil = 0 });
     }

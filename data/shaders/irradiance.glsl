@@ -43,11 +43,8 @@ void main()
     vec3 right = normalize(cross(up, normal));
     up = normalize(cross(normal, right));
 
-    float phi_sample_delta = 2.0 * PI / 180.0;
-    float theta_sample_delta = 0.5 * PI / 64.0;
-
-    // float phi_sample_delta = 0.0025;
-    // float theta_sample_delta = 0.0025;
+    float phi_sample_delta = 0.0025;
+    float theta_sample_delta = 0.0025;
 
     uint sample_count = 0;
 

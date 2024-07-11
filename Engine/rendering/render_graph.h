@@ -19,6 +19,12 @@
 typedef S32 Render_Graph_Node_Handle;
 typedef S32 Render_Graph_Resource_Handle;
 
+enum class Render_Graph_Node_Type
+{
+    GRAPHICS,
+    COMPUTE
+};
+
 struct Render_Target_Info
 {
     Texture_Format format;
@@ -53,7 +59,7 @@ struct Render_Graph_Resource
     Render_Graph_Node_Handle node_handle;
 };
 
-typedef std::function< void(struct Renderer *renderer, struct Renderer_State *renderer_state) > render_proc;
+typedef std::function< void(struct Renderer *renderer, struct Renderer_State *renderer_state) > Execute_Render_Graph_Node_Proc;
 
 enum Render_Graph_Resource_Usage
 {
@@ -82,6 +88,7 @@ struct Render_Graph_Node_Output
 struct Render_Graph_Node
 {
     String name;
+    Render_Graph_Node_Type type;
 
     bool enabled;
 
@@ -92,8 +99,7 @@ struct Render_Graph_Node
 
     Dynamic_Array< Render_Graph_Node_Handle > edges;
 
-    render_proc before_render;
-    render_proc render;
+    Execute_Render_Graph_Node_Proc execute;
 
     Shader_Handle shader;
     Bind_Group_Handle bind_group;
@@ -119,7 +125,9 @@ struct Render_Graph
 
 void init(Render_Graph *render_graph);
 
-Render_Graph_Node& add_node(Render_Graph *render_graph, const char *name, render_proc before_render, render_proc render);
+Render_Graph_Node& add_graphics_node(Render_Graph *render_graph, const char *name, Execute_Render_Graph_Node_Proc execute);
+Render_Graph_Node& add_compute_node(Render_Graph *render_graph, const char *name, Execute_Render_Graph_Node_Proc execute);
+
 void set_shader(Render_Graph *render_graph, Render_Graph_Node_Handle node_handle, Shader_Handle shader, U32 bind_group_index = 2);
 
 void add_render_target(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name, Render_Target_Info info, Attachment_Operation op, Clear_Value clear_value = {});

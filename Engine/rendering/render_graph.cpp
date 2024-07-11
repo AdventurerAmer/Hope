@@ -17,13 +17,16 @@ void init(Render_Graph *render_graph)
     render_graph->presentable_resource = nullptr; 
 }
 
-Render_Graph_Node& add_node(Render_Graph *render_graph, const char *node_name, render_proc before_render, render_proc render)
+static Render_Graph_Node& internal_add_node(Render_Graph *render_graph, const char *node_name, Execute_Render_Graph_Node_Proc execute, Render_Graph_Node_Type type)
 {
     HE_ASSERT(!is_valid(find(&render_graph->node_cache, HE_STRING(node_name))));
+    HE_ASSERT(node_name);
+    HE_ASSERT(execute);
     
     Render_Graph_Node &node = append(&render_graph->nodes);
 
     node.name = HE_STRING(node_name);
+    node.type = type;
     node.enabled = true;
 
     reset(&node.inputs);
@@ -38,8 +41,7 @@ Render_Graph_Node& add_node(Render_Graph *render_graph, const char *node_name, r
         init(&node.edges);
     }
 
-    node.before_render = before_render;
-    node.render = render;
+    node.execute = execute;
 
     node.render_pass = Resource_Pool< Render_Pass >::invalid_handle;
     node.shader = Resource_Pool< Shader >::invalid_handle;
@@ -51,6 +53,16 @@ Render_Graph_Node& add_node(Render_Graph *render_graph, const char *node_name, r
     }
 
     return node;
+}
+
+Render_Graph_Node& add_graphics_node(Render_Graph *render_graph, const char *name, Execute_Render_Graph_Node_Proc execute)
+{
+    return internal_add_node(render_graph, name, execute, Render_Graph_Node_Type::GRAPHICS);
+}
+
+Render_Graph_Node& add_compute_node(Render_Graph *render_graph, const char *name, Execute_Render_Graph_Node_Proc execute)
+{
+    return internal_add_node(render_graph, name, execute, Render_Graph_Node_Type::COMPUTE);
 }
 
 void set_shader(Render_Graph *render_graph, Render_Graph_Node_Handle node_handle, Shader_Handle shader, U32 bind_group_index)
@@ -70,6 +82,9 @@ void set_shader(Render_Graph *render_graph, Render_Graph_Node_Handle node_handle
 void add_render_target(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name, Render_Target_Info info, Attachment_Operation op, Clear_Value clear_value)
 {
     using enum Render_Graph_Resource_Usage;
+
+    HE_ASSERT(node);
+    HE_ASSERT(node->type == Render_Graph_Node_Type::GRAPHICS);
 
     Render_Graph_Node_Handle node_handle = (Render_Graph_Node_Handle)(node - render_graph->nodes.data);
 
@@ -166,6 +181,9 @@ void add_render_target_input(Render_Graph *render_graph, Render_Graph_Node *node
 {
     using enum Render_Graph_Resource_Usage;
 
+    HE_ASSERT(node);
+    HE_ASSERT(node->type == Render_Graph_Node_Type::GRAPHICS);
+
     Render_Graph_Node_Handle node_handle = (Render_Graph_Node_Handle)(node - render_graph->nodes.data);
 
     auto resource_it = find(&render_graph->resource_cache, HE_STRING(resource_name));
@@ -177,6 +195,9 @@ void add_render_target_input(Render_Graph *render_graph, Render_Graph_Node *node
 
 void add_texture_input(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name)
 {
+    HE_ASSERT(node);
+    HE_ASSERT(node->type == Render_Graph_Node_Type::GRAPHICS);
+
     Render_Graph_Node_Handle node_handle = (Render_Graph_Node_Handle)(node - render_graph->nodes.data);
     auto resource_it = find(&render_graph->resource_cache, HE_STRING(resource_name));
     HE_ASSERT(is_valid(resource_it));
@@ -192,6 +213,13 @@ void add_storage_texture_input(Render_Graph *render_graph, Render_Graph_Node *no
     HE_ASSERT(is_valid(resource_it));
 
     Render_Graph_Node_Handle resource_handle = *resource_it.value;
+    Render_Graph_Node *resource_node = &render_graph->nodes[resource_handle];
+
+    if (node->type == Render_Graph_Node_Type::COMPUTE)
+    {
+        HE_ASSERT(resource_node->type == Render_Graph_Node_Type::COMPUTE);
+    }
+
     append(&node->inputs, { .resource_handle = resource_handle, .usage = STORAGE_TEXTURE });
 }
 
@@ -202,12 +230,22 @@ void add_storage_buffer_input(Render_Graph *render_graph, Render_Graph_Node *nod
     HE_ASSERT(is_valid(resource_it));
 
     Render_Graph_Node_Handle resource_handle = *resource_it.value;
+    Render_Graph_Node *resource_node = &render_graph->nodes[resource_handle];
+
+    if (node->type == Render_Graph_Node_Type::COMPUTE)
+    {
+        HE_ASSERT(resource_node->type == Render_Graph_Node_Type::COMPUTE);
+    }
+
     append(&node->inputs, { .resource_handle = resource_handle, .usage = STORAGE_BUFFER });
 }
 
 void add_depth_stencil_target(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name, Render_Target_Info info, Attachment_Operation op, Clear_Value clear_value)
 {
     using enum Render_Graph_Resource_Usage;
+
+    HE_ASSERT(node);
+    HE_ASSERT(node->type == Render_Graph_Node_Type::GRAPHICS);
 
     Render_Graph_Node_Handle node_handle = (Render_Graph_Node_Handle)(node - render_graph->nodes.data);
 
@@ -240,6 +278,9 @@ void add_depth_stencil_target(Render_Graph *render_graph, Render_Graph_Node *nod
 
 void set_depth_stencil_target(Render_Graph *render_graph, Render_Graph_Node *node, const char *resource_name, Attachment_Operation op, Clear_Value clear_value)
 {
+    HE_ASSERT(node);
+    HE_ASSERT(node->type == Render_Graph_Node_Type::GRAPHICS);
+
     using enum Render_Graph_Resource_Usage;
 
     Render_Graph_Node_Handle node_handle = (Render_Graph_Node_Handle)(node - render_graph->nodes.data);
@@ -418,6 +459,11 @@ void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *rend
 
         Render_Graph_Node &node = render_graph->nodes[node_handle];
 
+        if (node.type == Render_Graph_Node_Type::COMPUTE)
+        {
+            renderer->begin_compute_pass();
+        }
+
         for (U32 input_index = 0; input_index < node.inputs.count; input_index++)
         {
             Render_Graph_Node_Input &input = node.inputs[input_index];
@@ -534,17 +580,19 @@ void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *rend
             renderer->set_bind_groups(pass_bind_group->group_index, { .count = 1, .data = &node.bind_group });
         }
 
-        Frame_Buffer *frame_buffer = renderer_get_frame_buffer(node.frame_buffers[frame_index]);
-
-        if (node.before_render)
+        if (node.type == Render_Graph_Node_Type::GRAPHICS)
         {
-            node.before_render(renderer, renderer_state);
+            Frame_Buffer* frame_buffer = renderer_get_frame_buffer(node.frame_buffers[frame_index]);
+            renderer->begin_render_pass(node.render_pass, node.frame_buffers[frame_index], to_array_view(node.clear_values));
+            renderer->set_viewport(frame_buffer->width, frame_buffer->height);
+            node.execute(renderer, renderer_state);
+            renderer->end_render_pass(node.render_pass);
         }
-
-        renderer->begin_render_pass(node.render_pass, node.frame_buffers[frame_index], to_array_view(node.clear_values));
-        renderer->set_viewport(frame_buffer->width, frame_buffer->height);
-        node.render(renderer, renderer_state);
-        renderer->end_render_pass(node.render_pass);
+        else if (node.type == Render_Graph_Node_Type::COMPUTE)
+        {
+            node.execute(renderer, renderer_state);
+            renderer->end_compute_pass();
+        }
     }
 }
 
@@ -628,6 +676,11 @@ void invalidate(Render_Graph *render_graph, struct Renderer *renderer, struct Re
     for (Render_Graph_Node_Handle node_handle : sorted_nodes)
     {
         Render_Graph_Node &node = render_graph->nodes[node_handle];
+
+        if (node.type != Render_Graph_Node_Type::GRAPHICS)
+        {
+            continue;
+        }
 
         Render_Pass_Descriptor render_pass_descriptor = {};
         render_pass_descriptor.name = node.name;

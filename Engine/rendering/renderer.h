@@ -56,6 +56,8 @@ struct Renderer
     void (*invalidate_buffer)(Buffer_Handle buffer_handle);
     void (*clear_texture)(Texture_Handle texture_handle, Clear_Value clear_value);
     void (*change_texture_state)(Texture_Handle texture_handle, Resource_State resource_state);
+    void (*begin_compute_pass)();
+    void (*end_compute_pass)();
     void (*end_frame)();
 
     bool (*create_buffer)(Buffer_Handle buffer_handle, const Buffer_Descriptor &descriptor);
