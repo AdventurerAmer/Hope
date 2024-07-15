@@ -21,9 +21,14 @@ out Fragment_Input
     vec4 tangent;
 } frag_input;
 
+layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFORM_BINDING) uniform Globals
+{
+    Shader_Globals globals;
+};
+
 layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_INSTANCE_STORAGE_BUFFER_BINDING) readonly buffer Instance_Buffer
 {
-    Instance_Data instances[];
+    Shader_Instance_Data instances[];
 };
 
 void main()
@@ -63,11 +68,16 @@ in Fragment_Input
 
 layout(location = 0) out vec4 out_color;
 
+layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFORM_BINDING) uniform Globals
+{
+    Shader_Globals globals;
+};
+
 layout(set = SHADER_PASS_BIND_GROUP, binding = SHADER_BINDLESS_TEXTURES_BINDING) uniform sampler2D u_textures[];
 
 layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_STORAGE_BUFFER_BINDING) readonly buffer Light_Buffer
 {
-    Light lights[];
+    Shader_Light lights[];
 };
 
 layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_BINS_STORAGE_BUFFER_BINDING) readonly buffer Light_Bins_Buffer
@@ -85,6 +95,6 @@ void main()
 {
     vec3 debug_texture = srgb_to_linear(texture( u_textures[ nonuniformEXT( material.debug_texture_index ) ], frag_input.uv ).rgb, globals.gamma);
     vec3 color = debug_texture * material.debug_color;
-    float noop = NOOP(lights[0].color.x) * NOOP(float(light_bins[0]));
+    float noop = NOOP(lights[0].color[0]) * NOOP(float(light_bins[0]));
     out_color = vec4(linear_to_srgb(color, globals.gamma), 1.0) * noop;
 }

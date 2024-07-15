@@ -10,9 +10,14 @@
 
 layout (location = 0) in vec3 in_position;
 
+layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFORM_BINDING) uniform Globals
+{
+    Shader_Globals globals;
+};
+
 layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_INSTANCE_STORAGE_BUFFER_BINDING) readonly buffer Instance_Buffer
 {
-    Instance_Data instances[];
+    Shader_Instance_Data instances[];
 };
 
 out Fragment_Input
@@ -22,7 +27,7 @@ out Fragment_Input
 
 void main()
 {
-    Instance_Data instance = instances[gl_InstanceIndex];
+    Shader_Instance_Data instance = instances[gl_InstanceIndex];
     mat4 local_to_world = instance.local_to_world;
     gl_Position = globals.projection * globals.view * local_to_world * vec4(in_position, 1.0);
     frag_input.entity_index = instance.entity_index;
@@ -44,6 +49,11 @@ in Fragment_Input
 {
     flat int entity_index;
 } frag_input;
+
+layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFORM_BINDING) uniform Globals
+{
+    Shader_Globals globals;
+};
 
 void main()
 {

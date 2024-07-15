@@ -10,15 +10,19 @@
 
 layout (location = 0) in vec3 in_position;
 
+layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFORM_BINDING) uniform Globals
+{
+    Shader_Globals globals;
+};
+
 layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_INSTANCE_STORAGE_BUFFER_BINDING) readonly buffer Instance_Buffer
 {
-    Instance_Data instances[];
+    Shader_Instance_Data instances[];
 };
 
 void main()
 {
     float noop = NOOP(in_position.x) * NOOP(float(instances[gl_InstanceIndex].entity_index)) * NOOP(globals.gamma);
-
     vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
     gl_Position = vec4(uv * 2.0f + -1.0f, 0.0f, 1.0f) * noop;
 }
@@ -33,6 +37,11 @@ void main()
 
 #include "../shaders/common.glsl"
 
+layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFORM_BINDING) uniform Globals
+{
+    Shader_Globals globals;
+};
+
 layout(set = SHADER_PASS_BIND_GROUP, binding = SHADER_BINDLESS_TEXTURES_BINDING) uniform sampler2D u_textures[];
 
 vec4 sample_texture(uint texture_index, vec2 uv)
@@ -42,7 +51,7 @@ vec4 sample_texture(uint texture_index, vec2 uv)
 
 layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_STORAGE_BUFFER_BINDING) readonly buffer Light_Buffer
 {
-    Light lights[];
+    Shader_Light lights[];
 };
 
 layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_BINS_STORAGE_BUFFER_BINDING) readonly buffer Light_Bins_Buffer
@@ -56,7 +65,7 @@ layout (set = 2, binding = 1, r32ui) uniform uimage2D head_index_image;
 
 layout (std430, set = 2, binding = 2) readonly buffer Node_Buffer
 {
-    Node nodes[];
+    Shader_Node nodes[];
 };
 
 layout (std430, set = 2, binding = 3) readonly buffer Node_Count_Buffer
@@ -71,7 +80,7 @@ layout(location = 1) out vec4 out_color;
 
 void main()
 {
-    Node fragments[MAX_FRAGMENT_COUNT];
+    Shader_Node fragments[MAX_FRAGMENT_COUNT];
     int count = 0;
 
     ivec2 coords = ivec2(gl_FragCoord.xy);
@@ -86,7 +95,7 @@ void main()
 
     for (uint i = 1; i < count; ++i)
     {
-        Node insert = fragments[i];
+        Shader_Node insert = fragments[i];
         uint j = i;
         while (j > 0 && insert.depth > fragments[j - 1].depth)
         {
@@ -100,10 +109,12 @@ void main()
 
     for (int i = 1; i < count; ++i)
     {
-        color = mix(color, fragments[i].color, fragments[i].color.a);
+        Shader_Node frag = fragments[i];
+        vec4 frag_color = vec4(frag.color[0], frag.color[1], frag.color[2], frag.color[3]);
+        color = mix(color, frag_color, frag_color.a);
     }
 
-    float noop = NOOP(lights[0].color.r) * NOOP(float(light_bins[0])) * NOOP(float(node_count));
+    float noop = NOOP(lights[0].color[0]) * NOOP(float(light_bins[0])) * NOOP(float(node_count));
     vec3 final_color = color.rgb;
     final_color = final_color / (final_color + vec3(1.0));
     final_color = linear_to_srgb(final_color, globals.gamma);

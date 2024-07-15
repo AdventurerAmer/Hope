@@ -196,13 +196,20 @@ VkAccessFlags get_access_flags(Resource_State resource_state, Texture_Format for
     return 0;
 }
 
-VkPipelineStageFlags get_pipeline_stage_flags(VkAccessFlags access_flags)
+VkPipelineStageFlags get_pipeline_stage_flags(VkAccessFlags access_flags, bool compute_only)
 {
     VkPipelineStageFlags result = 0;
 
     if ((access_flags & (VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT)) != 0)
     {
-        result |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        if (compute_only)
+        {
+            result |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        }
+        else
+        {
+            result |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        }
     }
     
     if ((access_flags & (VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)) != 0)

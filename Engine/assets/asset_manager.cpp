@@ -173,13 +173,20 @@ static void internal_reload_asset(Asset_Handle asset_handle, Job_Handle parent_j
 
     const Asset_Info *info = get_asset_info(entry.type_info_index);
     auto cache_it = asset_manager_state->asset_cache.find(asset_handle.uuid);
-    HE_ASSERT(cache_it != asset_manager_state->asset_cache.iend());
-    Asset &asset = cache_it.value();
+
+    Asset *asset = nullptr;
+
+    if (cache_it == asset_manager_state->asset_cache.iend())
+    {
+        cache_it = asset_manager_state->asset_cache.emplace(asset_handle.uuid, Asset {}).first;
+    }
+
+    asset = &cache_it.value();
 
     if (entry.state == Asset_State::LOADED)
     {
-        info->unload(asset.load_result);
-        asset.load_result = {};
+        info->unload(asset->load_result);
+        asset->load_result = {};
     }
 
     entry.last_write_time = last_write_time;

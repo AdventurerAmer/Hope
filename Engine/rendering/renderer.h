@@ -57,6 +57,7 @@ struct Renderer
     void (*clear_texture)(Texture_Handle texture_handle, Clear_Value clear_value);
     void (*change_texture_state)(Texture_Handle texture_handle, Resource_State resource_state);
     void (*begin_compute_pass)();
+    void (*dispatch_compute)(U32 group_size_x, U32 group_size_y, U32 group_size_z);
     void (*end_compute_pass)();
     void (*end_frame)();
 
@@ -228,6 +229,8 @@ struct Renderer_State
     Pipeline_State_Handle brdf_lut_pipeline_state;
 
     Texture_Handle brdf_lut_texture;
+
+    Pipeline_State_Handle compute_pipeline;
 
     bool imgui_docking;
 };

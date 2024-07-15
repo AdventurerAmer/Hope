@@ -363,6 +363,7 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
     features.descriptorBindingPartiallyBound = VK_TRUE;
     features.timelineSemaphore = VK_TRUE;
+    features.uniformBufferStandardLayout = VK_TRUE;
 
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT };
     robustness2_features.robustBufferAccess2 = VK_TRUE;
@@ -512,7 +513,8 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
         "VK_EXT_descriptor_indexing",
         "VK_KHR_timeline_semaphore",
         "VK_KHR_synchronization2",
-        "VK_EXT_robustness2"
+        "VK_EXT_robustness2",
+        "VK_KHR_uniform_buffer_standard_layout",
     };
 
     U32 extension_property_count = 0;
@@ -867,6 +869,12 @@ void vulkan_renderer_destroy_resources_at_frame(U32 frame_index)
     reset(&frame_buffers);
 }
 
+void vulkan_renderer_dispatch_compute(U32 group_size_x, U32 group_size_y, U32 group_size_z)
+{
+    Vulkan_Context *context = &vulkan_context;
+    vkCmdDispatch(context->command_buffer, group_size_x, group_size_y, group_size_z);
+}
+
 void vulkan_renderer_on_resize(U32 width, U32 height)
 {
     Vulkan_Context *context = &vulkan_context;
@@ -1026,7 +1034,12 @@ static void internal_set_pipeline_state(VkCommandBuffer command_buffer, Pipeline
     Renderer_State *renderer_state = context->renderer_state;
 
     Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[pipeline_state_handle.index];
-    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_pipeline_state->handle);
+    VkPipelineBindPoint bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    if (command_buffer == context->compute_command_buffer)
+    {
+        bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+    }
+    vkCmdBindPipeline(command_buffer, bind_point, vulkan_pipeline_state->handle);
 }
 
 void vulkan_renderer_set_pipeline_state(Pipeline_State_Handle pipeline_state_handle)
@@ -1144,7 +1157,12 @@ void vulkan_renderer_clear_texture(Texture_Handle texture_handle, Clear_Value cl
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.subresourceRange = sub_resource_range;
-    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    VkPipelineStageFlags stage_flags = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+    if (context->command_buffer == context->graphics_command_buffer)
+    {
+        stage_flags |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, stage_flags, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
 void vulkan_renderer_change_texture_state(Texture_Handle texture_handle, Resource_State new_resource_state)
@@ -1174,8 +1192,9 @@ void vulkan_renderer_change_texture_state(Texture_Handle texture_handle, Resourc
     barrier.srcAccessMask = get_access_flags(old_resource_state, texture->format);
     barrier.dstAccessMask = get_access_flags(new_resource_state, texture->format);
 
-    VkPipelineStageFlags src_stage = get_pipeline_stage_flags(barrier.srcAccessMask);
-    VkPipelineStageFlags dst_stage = get_pipeline_stage_flags(barrier.dstAccessMask);
+    bool compute_only = context->command_buffer == context->compute_command_buffer;
+    VkPipelineStageFlags src_stage = get_pipeline_stage_flags(barrier.srcAccessMask, compute_only);
+    VkPipelineStageFlags dst_stage = get_pipeline_stage_flags(barrier.dstAccessMask, compute_only);
     vkCmdPipelineBarrier(context->command_buffer, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
     texture->state = new_resource_state;
@@ -1687,6 +1706,12 @@ void vulkan_renderer_destroy_shader(Shader_Handle shader_handle, bool immediate)
 bool vulkan_renderer_create_pipeline_state(Pipeline_State_Handle pipeline_state_handle, const Pipeline_State_Descriptor &descriptor)
 {
     Vulkan_Context *context = &vulkan_context;
+    Shader *shader = renderer_get_shader(descriptor.shader);
+    if (shader->type == Shader_Type::COMPUTE)
+    {
+        return create_compute_pipeline(pipeline_state_handle, descriptor, context);
+    }
+
     return create_graphics_pipeline(pipeline_state_handle, descriptor, context);
 }
 
@@ -1882,7 +1907,13 @@ static void internal_set_bind_groups(VkCommandBuffer command_buffer, U32 first_b
         descriptor_sets[bind_group_index] = vulkan_bind_group->handle;
     }
 
-    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_shader->pipeline_layout, first_bind_group, bind_group_handles.count, descriptor_sets, 0, nullptr);
+    VkPipelineBindPoint bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    if (command_buffer == context->compute_command_buffer)
+    {
+        bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+    }
+
+    vkCmdBindDescriptorSets(command_buffer, bind_point, vulkan_shader->pipeline_layout, first_bind_group, bind_group_handles.count, descriptor_sets, 0, nullptr);
 }
 
 void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bind_Group_Handle > &bind_group_handles)

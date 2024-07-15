@@ -77,6 +77,8 @@ void vulkan_renderer_imgui_render();
 
 void vulkan_renderer_destroy_resources_at_frame(U32 frame_index);
 
+void vulkan_renderer_dispatch_compute(U32 group_size_x, U32 group_size_y, U32 group_size_z);
+
 struct Enviornment_Map_Render_Data
 {
     F32 *hdr_data;

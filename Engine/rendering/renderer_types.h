@@ -7,8 +7,6 @@
 #include "containers/string.h"
 #include "containers/resource_pool.h"
 
-#include "../data/shaders/common.glsl"
-
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 #include <glm/mat4x4.hpp>
@@ -19,6 +17,16 @@
 #include <glm/ext/scalar_constants.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
+
+#define uint uint32_t
+#define mat3 alignas(16) glm::mat3
+#define mat4 alignas(16) glm::mat4
+
+#include "../data/shaders/common.glsl"
+
+#undef uint
+#undef mat3
+#undef mat4
 
 #define HE_GRAPHICS_DEBUGGING 1
 
@@ -753,65 +761,6 @@ struct Upload_Request
 };
 
 using Upload_Request_Handle = Resource_Handle< Upload_Request >;
-
-//
-// Shader Structs
-//
-
-struct Shader_Globals
-{
-    alignas(16) glm::mat4 view;
-    alignas(16) glm::mat4 projection;
-
-    alignas(16) glm::vec3 eye;
-    alignas(16) glm::vec3 ambient;
-
-    alignas(8) glm::uvec2 resolution;
-
-    alignas(4) F32 gamma;
-
-    alignas(4) F32 z_near;
-    alignas(4) F32 z_far;
-
-    alignas(4) U32 light_count;
-    alignas(4) U32 directional_light_count;
-    alignas(4) U32 light_bin_count;
-
-    alignas(4) S32 max_node_count;
-
-    alignas(4) U32 irradiance_map;
-    alignas(4) U32 prefilter_map_lod;
-    alignas(4) U32 prefilter_map;
-    alignas(4) U32 brdf_lut;
-
-    alignas(4) U32 use_environment_map;
-};
-
-struct Shader_Instance_Data
-{
-    S32 entity_index;
-    alignas(16) glm::mat4 model;
-};
-
-struct Shader_Light
-{
-    glm::vec3 direction;
-    alignas(16) glm::vec3 position;
-    alignas(16) glm::vec3 color;
-    alignas(8) glm::uvec2 screen_aabb;
-    alignas(4) U32 type;
-    alignas(4) F32 radius;
-    alignas(4) F32 outer_angle;
-    alignas(4) F32 inner_angle;
-};
-
-struct Shader_Node
-{
-    glm::vec4 color;
-    alignas(4) F32 depth;
-    alignas(4) U32 next;
-    alignas(4) S32 entity_index;
-};
 
 //
 // Settings

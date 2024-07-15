@@ -15,10 +15,10 @@ component_count 2
 component transform
 position 0.000000 0.000000 0.000000
 rotation -0.707107 -0.000000 0.000000 0.707107
-scale 0.999986 0.999816 0.999427
+scale 0.999986 0.999818 0.999429
 component light
 type directional
-color 0.992157 0.580392 0.074510
+color 1.000000 1.000000 1.000000
 intensity 1.000000
 radius 1.000000
 inner_angle 30.000000

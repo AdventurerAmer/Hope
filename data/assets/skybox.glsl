@@ -12,9 +12,14 @@ layout (location = 0) in vec3 in_position;
 
 out vec3 out_cubemap_uv;
 
+layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFORM_BINDING) uniform Globals
+{
+    Shader_Globals globals;
+};
+
 layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_INSTANCE_STORAGE_BUFFER_BINDING) readonly buffer Instance_Buffer
 {
-    Instance_Data instances[];
+    Shader_Instance_Data instances[];
 };
 
 void main()
@@ -39,6 +44,11 @@ in vec3 in_cubemap_uv;
 
 layout (location = 0) out vec4 out_color;
 
+layout (std430, set = SHADER_GLOBALS_BIND_GROUP, binding = SHADER_GLOBALS_UNIFORM_BINDING) uniform Globals
+{
+    Shader_Globals globals;
+};
+
 layout(set = SHADER_PASS_BIND_GROUP, binding = SHADER_BINDLESS_TEXTURES_BINDING) uniform samplerCube u_cubemaps[];
 
 vec4 sample_cubemap(uint texture_index, vec3 uv)
@@ -53,7 +63,7 @@ vec4 sample_cubemap_lod(uint texture_index, vec3 uv, float load)
 
 layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_STORAGE_BUFFER_BINDING) readonly buffer Light_Buffer
 {
-    Light lights[];
+    Shader_Light lights[];
 };
 
 layout (std430, set = SHADER_PASS_BIND_GROUP, binding = SHADER_LIGHT_BINS_STORAGE_BUFFER_BINDING) readonly buffer Light_Bins_Buffer
@@ -69,7 +79,7 @@ layout (std430, set = SHADER_OBJECT_BIND_GROUP, binding = SHADER_MATERIAL_UNIFOR
 
 void main()
 {
-    float noop = NOOP(lights[0].color.r) * NOOP(float(light_bins[0]));
+    float noop = NOOP(lights[0].color[0]) * NOOP(float(light_bins[0]));
     vec3 color = sample_cubemap_lod( material.skybox_cubemap, in_cubemap_uv, 0 ).rgb * material.sky_color;
     out_color = vec4(color * noop, 1.0);
 }

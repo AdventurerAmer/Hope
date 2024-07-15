@@ -88,6 +88,7 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->change_texture_state = &vulkan_renderer_change_texture_state;
             renderer->invalidate_buffer = &vulkan_renderer_invalidate_buffer;
             renderer->begin_compute_pass = &vulkan_renderer_begin_compute_pass;
+            renderer->dispatch_compute = &vulkan_renderer_dispatch_compute;
             renderer->end_compute_pass = &vulkan_renderer_end_compute_pass;
             renderer->end_frame = &vulkan_renderer_end_frame;
             renderer->set_vsync = &vulkan_renderer_set_vsync;
@@ -362,21 +363,8 @@ bool init_renderer_state(Engine *engine)
     renderer_state->default_cubemap_sampler = renderer_create_sampler(default_cubemap_sampler_descriptor);
 
     {
-        Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL("shaders/default.glsl"), memory_context.temp_allocator);
-        String default_shader_source = { .count = result.size, .data = (const char *)result.data };
-
-        Shader_Compilation_Result default_shader_compilation_result = renderer_compile_shader(default_shader_source, HE_STRING_LITERAL("shaders"));
-        HE_ASSERT(default_shader_compilation_result.success);
-
-        Shader_Descriptor default_shader_descriptor =
-        {
-            .name = HE_STRING_LITERAL("default"),
-            .compilation_result = &default_shader_compilation_result
-        };
-
-        renderer_state->default_shader = renderer_create_shader(default_shader_descriptor);
+        renderer_state->default_shader = load_shader(HE_STRING_LITERAL("default"));
         HE_ASSERT(is_valid_handle(&renderer_state->shaders, renderer_state->default_shader));
-        renderer_destroy_shader_compilation_result(&default_shader_compilation_result);
 
         Pipeline_State_Settings settings =
         {
@@ -620,145 +608,156 @@ bool init_renderer_state(Engine *engine)
 
         set_property(renderer_state->outline_second_pass, HE_STRING_LITERAL("scale_factor"), { .f32 = 1.01f });
         set_property(renderer_state->outline_second_pass, HE_STRING_LITERAL("outline_color"), { .v3f = outline_color });
+    }
 
+    {
+        Render_Pass_Descriptor cubemap_render_pass_descriptor =
         {
-            Render_Pass_Descriptor cubemap_render_pass_descriptor =
-            {
-                .name = HE_STRING_LITERAL("cubemap_render_pass"),
-                .color_attachments =
-                {{
-                    {
-                        .format = Texture_Format::R16G16B16A16_SFLOAT
-                    }
-                }}
-            };
-
-            Render_Pass_Handle cubemap_render_pass_handle = renderer_create_render_pass(cubemap_render_pass_descriptor);
-            HE_ASSERT(is_valid_handle(&renderer_state->render_passes, cubemap_render_pass_handle));
-            renderer_state->cubemap_render_pass = cubemap_render_pass_handle;
-
-            Shader_Handle brdf_lut_shader_handle = load_shader(HE_STRING_LITERAL("brdf_lut"));
-            HE_ASSERT(is_valid_handle(&renderer_state->shaders, brdf_lut_shader_handle));
-            renderer_state->brdf_lut_shader = brdf_lut_shader_handle;
-
-            Pipeline_State_Descriptor brdf_lut_pipeline =
-            {
-                .shader = brdf_lut_shader_handle,
-                .render_pass = renderer_state->cubemap_render_pass,
-                .settings =
+            .name = HE_STRING_LITERAL("cubemap_render_pass"),
+            .color_attachments =
+            {{
                 {
-                    .cull_mode = Cull_Mode::NONE,
-                    .fill_mode = Fill_Mode::SOLID,
+                    .format = Texture_Format::R16G16B16A16_SFLOAT
+                }
+            }}
+        };
 
-                    .depth_testing = false,
-                    .depth_writing = false,
+        Render_Pass_Handle cubemap_render_pass_handle = renderer_create_render_pass(cubemap_render_pass_descriptor);
+        HE_ASSERT(is_valid_handle(&renderer_state->render_passes, cubemap_render_pass_handle));
+        renderer_state->cubemap_render_pass = cubemap_render_pass_handle;
 
-                    .stencil_testing = false,
+        Shader_Handle brdf_lut_shader_handle = load_shader(HE_STRING_LITERAL("brdf_lut"));
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, brdf_lut_shader_handle));
+        renderer_state->brdf_lut_shader = brdf_lut_shader_handle;
 
-                    .sample_shading = true,
-                },
-            };
-
-            Pipeline_State_Handle brdf_lut_pipeline_state_handle = renderer_create_pipeline_state(brdf_lut_pipeline);
-            HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, brdf_lut_pipeline_state_handle));
-            renderer_state->brdf_lut_pipeline_state = brdf_lut_pipeline_state_handle;
-
-            Shader_Handle hdr_shader_handle = load_shader(HE_STRING_LITERAL("hdr"));
-            HE_ASSERT(is_valid_handle(&renderer_state->shaders, hdr_shader_handle));
-            renderer_state->hdr_shader = hdr_shader_handle;
-
-            Shader_Handle irradiance_shader_handle = load_shader(HE_STRING_LITERAL("irradiance"));
-            HE_ASSERT(is_valid_handle(&renderer_state->shaders, irradiance_shader_handle));
-            renderer_state->irradiance_shader = irradiance_shader_handle;
-
-            Shader_Handle prefilter_shader_handle = load_shader(HE_STRING_LITERAL("prefilter"));
-            HE_ASSERT(is_valid_handle(&renderer_state->shaders, prefilter_shader_handle));
-            renderer_state->prefilter_shader = prefilter_shader_handle;
-
-            Pipeline_State_Descriptor hdr_pipeline =
+        Pipeline_State_Descriptor brdf_lut_pipeline =
+        {
+            .shader = brdf_lut_shader_handle,
+            .render_pass = renderer_state->cubemap_render_pass,
+            .settings =
             {
-                .shader = hdr_shader_handle,
-                .render_pass = renderer_state->cubemap_render_pass,
-                .settings =
-                {
-                    .cull_mode = Cull_Mode::NONE,
-                    .fill_mode = Fill_Mode::SOLID,
+                .cull_mode = Cull_Mode::NONE,
+                .fill_mode = Fill_Mode::SOLID,
 
-                    .depth_testing = false,
-                    .depth_writing = false,
+                .depth_testing = false,
+                .depth_writing = false,
 
-                    .stencil_testing = false,
+                .stencil_testing = false,
 
-                    .sample_shading = true,
-                },
-            };
+                .sample_shading = true,
+            },
+        };
 
-            Pipeline_State_Handle hdr_pipeline_state_handle = renderer_create_pipeline_state(hdr_pipeline);
-            HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, hdr_pipeline_state_handle));
-            renderer_state->hdr_pipeline_state = hdr_pipeline_state_handle;
+        Pipeline_State_Handle brdf_lut_pipeline_state_handle = renderer_create_pipeline_state(brdf_lut_pipeline);
+        HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, brdf_lut_pipeline_state_handle));
+        renderer_state->brdf_lut_pipeline_state = brdf_lut_pipeline_state_handle;
 
-            Pipeline_State_Descriptor irradiance_pipeline =
+        Shader_Handle hdr_shader_handle = load_shader(HE_STRING_LITERAL("hdr"));
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, hdr_shader_handle));
+        renderer_state->hdr_shader = hdr_shader_handle;
+
+        Shader_Handle irradiance_shader_handle = load_shader(HE_STRING_LITERAL("irradiance"));
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, irradiance_shader_handle));
+        renderer_state->irradiance_shader = irradiance_shader_handle;
+
+        Shader_Handle prefilter_shader_handle = load_shader(HE_STRING_LITERAL("prefilter"));
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, prefilter_shader_handle));
+        renderer_state->prefilter_shader = prefilter_shader_handle;
+
+        Pipeline_State_Descriptor hdr_pipeline =
+        {
+            .shader = hdr_shader_handle,
+            .render_pass = renderer_state->cubemap_render_pass,
+            .settings =
             {
-                
-                .shader = irradiance_shader_handle,
-                .render_pass = renderer_state->cubemap_render_pass,
-                .settings =
-                {
-                    .cull_mode = Cull_Mode::NONE,
-                    .fill_mode = Fill_Mode::SOLID,
+                .cull_mode = Cull_Mode::NONE,
+                .fill_mode = Fill_Mode::SOLID,
 
-                    .depth_testing = false,
-                    .depth_writing = false,
+                .depth_testing = false,
+                .depth_writing = false,
 
-                    .stencil_testing = false,
+                .stencil_testing = false,
 
-                    .sample_shading = true,
-                },
-            };
+                .sample_shading = true,
+            },
+        };
 
-            Pipeline_State_Handle irradiance_pipeline_state_handle = renderer_create_pipeline_state(irradiance_pipeline);
-            HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, irradiance_pipeline_state_handle));
-            renderer_state->irradiance_pipeline_state = irradiance_pipeline_state_handle;
+        Pipeline_State_Handle hdr_pipeline_state_handle = renderer_create_pipeline_state(hdr_pipeline);
+        HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, hdr_pipeline_state_handle));
+        renderer_state->hdr_pipeline_state = hdr_pipeline_state_handle;
 
-            Pipeline_State_Descriptor prefilter_pipeline =
+        Pipeline_State_Descriptor irradiance_pipeline =
+        {
+
+            .shader = irradiance_shader_handle,
+            .render_pass = renderer_state->cubemap_render_pass,
+            .settings =
             {
-                .shader = prefilter_shader_handle,
-                .render_pass = renderer_state->cubemap_render_pass,
-                .settings =
-                {
-                    .cull_mode = Cull_Mode::NONE,
-                    .fill_mode = Fill_Mode::SOLID,
+                .cull_mode = Cull_Mode::NONE,
+                .fill_mode = Fill_Mode::SOLID,
 
-                    .depth_testing = false,
-                    .depth_writing = false,
+                .depth_testing = false,
+                .depth_writing = false,
 
-                    .stencil_testing = false,
+                .stencil_testing = false,
 
-                    .sample_shading = true,
-                },
-            };
+                .sample_shading = true,
+            },
+        };
 
-            Pipeline_State_Handle prefilter_pipeline_state_handle = renderer_create_pipeline_state(prefilter_pipeline);
-            HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, prefilter_pipeline_state_handle));
-            renderer_state->prefilter_pipeline_state = prefilter_pipeline_state_handle;
+        Pipeline_State_Handle irradiance_pipeline_state_handle = renderer_create_pipeline_state(irradiance_pipeline);
+        HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, irradiance_pipeline_state_handle));
+        renderer_state->irradiance_pipeline_state = irradiance_pipeline_state_handle;
 
-            Texture_Descriptor brdf_lut_texture_descriptor =
+        Pipeline_State_Descriptor prefilter_pipeline =
+        {
+            .shader = prefilter_shader_handle,
+            .render_pass = renderer_state->cubemap_render_pass,
+            .settings =
             {
-                .name = HE_STRING_LITERAL("brdf_lut"),
-                .width = 512,
-                .height = 512,
-                .format = Texture_Format::R16G16B16A16_SFLOAT,
-                .layer_count = 1,
-                .mipmapping = false,
-                .sample_count = 1,
-                .is_attachment = true,
-                .is_cubemap = false,
-            };
+                .cull_mode = Cull_Mode::NONE,
+                .fill_mode = Fill_Mode::SOLID,
 
-            Texture_Handle brdf_lut_texture_handle = renderer_create_texture(brdf_lut_texture_descriptor);
-            vulkan_renderer_fill_brdf_lut(brdf_lut_texture_handle);
-            renderer_state->brdf_lut_texture = brdf_lut_texture_handle;
-        }
+                .depth_testing = false,
+                .depth_writing = false,
+
+                .stencil_testing = false,
+
+                .sample_shading = true,
+            },
+        };
+
+        Pipeline_State_Handle prefilter_pipeline_state_handle = renderer_create_pipeline_state(prefilter_pipeline);
+        HE_ASSERT(is_valid_handle(&renderer_state->pipeline_states, prefilter_pipeline_state_handle));
+        renderer_state->prefilter_pipeline_state = prefilter_pipeline_state_handle;
+
+        Texture_Descriptor brdf_lut_texture_descriptor =
+        {
+            .name = HE_STRING_LITERAL("brdf_lut"),
+            .width = 512,
+            .height = 512,
+            .format = Texture_Format::R16G16B16A16_SFLOAT,
+            .layer_count = 1,
+            .mipmapping = false,
+            .sample_count = 1,
+            .is_attachment = true,
+            .is_cubemap = false,
+        };
+
+        Texture_Handle brdf_lut_texture_handle = renderer_create_texture(brdf_lut_texture_descriptor);
+        vulkan_renderer_fill_brdf_lut(brdf_lut_texture_handle);
+        renderer_state->brdf_lut_texture = brdf_lut_texture_handle;
+    }
+
+    {
+        Shader_Handle compute_shader = load_shader(HE_STRING_LITERAL("compute"));
+        HE_ASSERT(is_valid_handle(&renderer_state->shaders, compute_shader));
+        // set_shader(&renderer_state->render_graph, get_node(&renderer_state->render_graph, HE_STRING_LITERAL("compute0")), compute_shader, 0);
+        Pipeline_State_Descriptor compute_pipeline_descriptor =
+        {
+            .shader = compute_shader,
+        };
+        renderer_state->compute_pipeline = renderer_create_pipeline_state(compute_pipeline_descriptor);
     }
 
     return true;
@@ -1081,6 +1080,7 @@ static shaderc_shader_kind shader_stage_to_shaderc_kind(Shader_Stage stage)
     {
         case Shader_Stage::VERTEX: return shaderc_vertex_shader;
         case Shader_Stage::FRAGMENT: return shaderc_fragment_shader;
+        case Shader_Stage::COMPUTE: return shaderc_compute_shader;
 
         default:
         {
@@ -2573,8 +2573,8 @@ static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_t
                 HE_ASSERT(render_data->instance_count < HE_MAX_BINDLESS_RESOURCE_DESCRIPTOR_COUNT);
                 U32 instance_index = render_data->instance_count++;
                 Shader_Instance_Data *object_data = &render_data->instance_base[instance_index];
+                object_data->local_to_world = get_world_matrix(transform);
                 object_data->entity_index = node_index;
-                object_data->model = get_world_matrix(transform);
 
                 const Dynamic_Array< Sub_Mesh > &sub_meshes = static_mesh->sub_meshes;
                 for (U32 sub_mesh_index = 0; sub_mesh_index < sub_meshes.count; sub_mesh_index++)
@@ -2643,12 +2643,19 @@ static void traverse_scene_tree(Scene *scene, U32 node_index, Transform parent_t
         render_data->globals->light_count++;
 
         light.type = (U32)light_comp->type;
-        light.direction = (glm::vec3)glm::rotate(transform.rotation, { 0.0f, 0.0f, -1.0f, 0.0f });
-        light.position = transform.position;
+
+        glm::vec3 *light_direction = (glm::vec3 *)light.direction;
+        *light_direction = glm::rotate(transform.rotation, { 0.0f, 0.0f, -1.0f, 0.0f });
+
+        glm::vec3 *light_position = (glm::vec3 *)light.position;
+        *light_position = transform.position;
+
         light.radius = light_comp->radius;
         light.outer_angle = glm::radians(light_comp->outer_angle);
         light.inner_angle = glm::radians(light_comp->inner_angle);
-        light.color = srgb_to_linear(light_comp->color) * light_comp->intensity;
+
+        glm::vec3 *light_color = (glm::vec3 *)light.color;
+        *light_color = srgb_to_linear(light_comp->color) * light_comp->intensity;
     }
 
     for (S32 child_node_index = node->first_child_index; child_node_index != -1; child_node_index = get_node(scene, child_node_index)->next_sibling_index)
@@ -2669,7 +2676,7 @@ void render_scene(Scene_Handle scene_handle)
     {
         U32 instance_index = render_data->instance_count++;
         Shader_Instance_Data *object_data = &render_data->instance_base[instance_index];
-        object_data->model = get_world_matrix(get_identity_transform());
+        object_data->local_to_world = get_world_matrix(get_identity_transform());
         object_data->entity_index = -1;
 
         Draw_Command &dc = append(&render_data->skybox_commands);
@@ -2678,7 +2685,8 @@ void render_scene(Scene_Handle scene_handle)
         dc.material = get_asset_handle_as<Material>(skybox_material_asset);
         dc.instance_index = instance_index;
 
-        render_data->globals->ambient = srgb_to_linear(skybox->ambient_color);
+        glm::vec3 *ambient = (glm::vec3 *)render_data->globals->ambient;
+        *ambient = srgb_to_linear(skybox->ambient_color);
     }
 
     traverse_scene_tree(scene, 0, get_identity_transform(), render_data);
@@ -2867,7 +2875,6 @@ void begin_rendering(const Camera *camera)
     Shader_Globals *globals = (Shader_Globals *)global_uniform_buffer->data;
     render_data->globals = globals;
 
-    globals->resolution = glm::uvec2(renderer_state->back_buffer_width, renderer_state->back_buffer_height);
     globals->gamma = renderer_state->gamma;
     globals->light_count = 0;
 
@@ -2877,7 +2884,9 @@ void begin_rendering(const Camera *camera)
     glm::mat4 proj = camera->projection;
     proj[1][1] *= -1;
     globals->projection = proj;
-    globals->eye = camera->position;
+
+    glm::vec3 *eye = (glm::vec3*)globals->eye;
+    *eye = camera->position;
 
     render_data->view = camera->view;
     render_data->projection = camera->projection;
@@ -3033,11 +3042,14 @@ static bool calc_light_aabb(Shader_Light *light, const glm::vec3 &view_p, Frame_
     U16 width = renderer_state->back_buffer_width;
     U16 height = renderer_state->back_buffer_height;
 
+    glm::uvec2 *light_screen_aabb = (glm::uvec2 *)&light->screen_aabb;
+    glm::vec3 *light_position = (glm::vec3 *)&light->position;
+
     bool camera_inside = (glm::length(view_p) - light->radius) < render_data->near_z;
 
     if (camera_inside)
     {
-        light->screen_aabb = { 0, (width - 1) | ((height - 1) << 16) };
+        *light_screen_aabb = { 0, (width - 1) | ((height - 1) << 16) };
         return true;
     }
 
@@ -3049,7 +3061,7 @@ static bool calc_light_aabb(Shader_Light *light, const glm::vec3 &view_p, Frame_
         F32 cx = (corner_index % 2) ? 1.0f : -1.0f;
         F32 cy = (corner_index & 2) ? 1.0f : -1.0f;
         F32 cz = (corner_index & 4) ? 1.0f : -1.0f;
-        glm::vec3 corner_world_pos = glm::vec3(cx, cy, cz) * light->radius + light->position;
+        glm::vec3 corner_world_pos = glm::vec3(cx, cy, cz) * light->radius + *light_position;
         glm::vec4 corner_view_pos = render_data->view * glm::vec4(corner_world_pos, 1.0f);
 
         if (corner_view_pos.z > -render_data->near_z + 0.0001f)
@@ -3096,7 +3108,7 @@ static bool calc_light_aabb(Shader_Light *light, const glm::vec3 &view_p, Frame_
     U32 max_x = (U32)screen_aabb_max.x;
     U32 max_y = (U32)screen_aabb_max.y;
 
-    light->screen_aabb = { min_x | (min_y << 16), max_x | (max_y << 16) };
+    *light_screen_aabb = { min_x | (min_y << 16), max_x | (max_y << 16) };
     return true;
 }
 
@@ -3130,13 +3142,15 @@ void end_rendering()
     for (U32 light_index = 0; light_index < light_count; light_index++)
     {
         Shader_Light *light = &lights[light_index];
+        glm::vec3 *light_position = (glm::vec3 *)light->position;
+        glm::uvec2 *light_screen_aabb = (glm::uvec2*)light->screen_aabb;
 
         Sorted_Light *sorted_light = &sorted_lights[sorted_light_count];
         sorted_light->index = light_index;
 
         if (light->type == (U32)Light_Type::DIRECTIONAL)
         {
-            light->screen_aabb = { 0, (width - 1) | ((height - 1) << 16) };
+            *light_screen_aabb = { 0, (width - 1) | ((height - 1) << 16) };
             sorted_light->depth = -HE_MAX_F32;
             sorted_light->min_depth = 0.0f;
             sorted_light->max_depth = 1.0f;
@@ -3145,7 +3159,7 @@ void end_rendering()
             continue;
         }
 
-        glm::vec4 view_p = render_data->view * glm::vec4(light->position, 1.0f);
+        glm::vec4 view_p = render_data->view * glm::vec4(*light_position, 1.0f);
 
         F32 depth = (-view_p.z - render_data->near_z) * one_over_render_dist;
         F32 min_depth = (-view_p.z - light->radius - render_data->near_z) * one_over_render_dist;

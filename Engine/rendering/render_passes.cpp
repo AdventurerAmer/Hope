@@ -5,6 +5,8 @@
 
 #include "rendering/vulkan/vulkan_renderer.h"
 
+void light_culling_pass(Renderer *renderer, Renderer_State *renderer_state);
+
 void depth_prepass(Renderer *renderer, Renderer_State *renderer_state);
 
 void world_pass(Renderer *renderer, Renderer_State *renderer_state);
@@ -18,6 +20,10 @@ void setup_render_passes(Render_Graph *render_graph, Renderer_State *renderer_st
     using enum Attachment_Operation;
     using enum Texture_Format;
 
+    {
+        Render_Graph_Node &light_culling = add_compute_node(render_graph, "light_culling", &light_culling_pass);
+    }
+
     // depth prepass
     {
         Render_Graph_Node &depth = add_graphics_node(render_graph, "depth_prepass", &depth_prepass);
@@ -30,8 +36,8 @@ void setup_render_passes(Render_Graph *render_graph, Renderer_State *renderer_st
         Render_Graph_Node &world = add_graphics_node(render_graph, "world", &world_pass);
         add_render_target(render_graph, &world, "rt0", { .format = R32G32B32A32_SFLOAT }, CLEAR, { .color = { 1.0f, 0.0f, 1.0f, 1.0f } });
         set_depth_stencil_target(render_graph, &world, "depth", LOAD);
-        add_storage_texture(render_graph, &world, "head_index_image", { .format = R32_UINT }, { .ucolor = { HE_MAX_U32, HE_MAX_U32, HE_MAX_U32, HE_MAX_U32 } });
 
+        add_storage_texture(render_graph, &world, "head_index_image", { .format = R32_UINT }, { .ucolor = { HE_MAX_U32, HE_MAX_U32, HE_MAX_U32, HE_MAX_U32 } });
         add_storage_buffer(render_graph, &world, "nodes", { .size = sizeof(Shader_Node) * 20, .resizable = true }, HE_MAX_U32);
         add_storage_buffer(render_graph, &world, "node_count", { .size = sizeof(U32) }, 0);
     }
@@ -56,6 +62,10 @@ void setup_render_passes(Render_Graph *render_graph, Renderer_State *renderer_st
     }
 
     set_presentable_attachment(render_graph, "main");
+}
+
+static void light_culling_pass(Renderer *renderer, Renderer_State *renderer_state)
+{
 }
 
 static void depth_prepass(Renderer *renderer, Renderer_State *renderer_state)
