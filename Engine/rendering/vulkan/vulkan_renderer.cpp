@@ -632,9 +632,9 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &transfer_command_pool_create_info, &context->allocation_callbacks, &main_thread_state->transfer_command_pool));
 
     VkCommandPoolCreateInfo compute_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-    transfer_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    transfer_command_pool_create_info.queueFamilyIndex = context->compute_queue_family_index;
-    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &transfer_command_pool_create_info, &context->allocation_callbacks, &main_thread_state->compute_command_pool));
+    compute_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    compute_command_pool_create_info.queueFamilyIndex = context->compute_queue_family_index;
+    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &compute_command_pool_create_info, &context->allocation_callbacks, &main_thread_state->compute_command_pool));
 
     VkCommandBufferAllocateInfo graphics_command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     graphics_command_buffer_allocate_info.commandPool = main_thread_state->graphics_command_pool;
@@ -643,10 +643,12 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &graphics_command_buffer_allocate_info, context->graphics_command_buffers));
 
     VkCommandBufferAllocateInfo compute_command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    graphics_command_buffer_allocate_info.commandPool = main_thread_state->compute_command_pool;
-    graphics_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    graphics_command_buffer_allocate_info.commandBufferCount = HE_MAX_FRAMES_IN_FLIGHT;
-    HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &graphics_command_buffer_allocate_info, context->compute_command_buffers));
+    compute_command_buffer_allocate_info.commandPool = main_thread_state->compute_command_pool;
+    compute_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    compute_command_buffer_allocate_info.commandBufferCount = HE_MAX_FRAMES_IN_FLIGHT;
+    HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &compute_command_buffer_allocate_info, context->compute_command_buffers));
+
+    init(&main_thread_state->command_buffers);
 
     context->descriptor_pool_ratios = {{ 
         { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .ratio = 3.0f },
@@ -1508,16 +1510,15 @@ static void internal_create_texture(const Texture_Descriptor &descriptor, Vulkan
 
     if (descriptor.data_array.count > 0)
     {
-        Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
-        Vulkan_Command_Buffer command_buffer = begin_one_use_command_buffer(context);
+        Vulkan_Command_Buffer command_buffer = push_command_buffer(Command_Buffer_Usage::GRAPHICS, true, context);
         copy_data_to_image(context, &command_buffer, image, descriptor, mip_levels);
-        end_one_use_command_buffer(context, &command_buffer, upload_request_handle);
+        pop_command_buffer(context, upload_request_handle);
     }
     else if (descriptor.is_storage)
     {
-        Vulkan_Command_Buffer command_buffer = begin_one_use_command_buffer(context);
+        Vulkan_Command_Buffer command_buffer = push_command_buffer(Command_Buffer_Usage::GRAPHICS, true, context);
         transtion_image_to_layout(command_buffer.handle, image->handle, 0, mip_levels, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-        end_one_use_command_buffer(context, &command_buffer);
+        pop_command_buffer(context);
     }
 }
 
@@ -2332,29 +2333,7 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     U64 tangent_offset = (U8 *)descriptor.tangents - renderer_state->transfer_allocator.base;
     U64 indicies_offset = (U8 *)descriptor.indices - renderer_state->transfer_allocator.base;
 
-    Vulkan_Thread_State *thread_state = get_thread_state(context);
-
-    VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    command_buffer_allocate_info.commandPool = thread_state->transfer_command_pool;
-    command_buffer_allocate_info.commandBufferCount = 1;
-    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-
-    VkCommandBuffer command_buffer = {};
-    vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
-    vkResetCommandBuffer(command_buffer, 0);
-
-    Vulkan_Upload_Request *vulkan_upload_request = &context->upload_requests[upload_request_handle.index];
-    vulkan_upload_request->graphics_command_pool = VK_NULL_HANDLE;
-    vulkan_upload_request->graphics_command_buffer = VK_NULL_HANDLE;
-
-    vulkan_upload_request->transfer_command_pool = thread_state->transfer_command_pool;
-    vulkan_upload_request->transfer_command_buffer = command_buffer;
-
-    VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    command_buffer_begin_info.flags = 0;
-    command_buffer_begin_info.pInheritanceInfo = 0;
-
-    vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
+    Vulkan_Command_Buffer command_buffer = push_command_buffer(Command_Buffer_Usage::TRANSFER, true, context);
 
     Vulkan_Buffer *transfer_buffer = &context->buffers[renderer_state->transfer_buffer.index];
 
@@ -2368,55 +2347,34 @@ bool vulkan_renderer_create_static_mesh(Static_Mesh_Handle static_mesh_handle, c
     position_copy_region.srcOffset = position_offset;
     position_copy_region.dstOffset = 0;
     position_copy_region.size = position_size;
-    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, positions_buffer->handle, 1, &position_copy_region);
+    vkCmdCopyBuffer(command_buffer.handle, transfer_buffer->handle, positions_buffer->handle, 1, &position_copy_region);
 
     VkBufferCopy normal_copy_region = {};
     normal_copy_region.srcOffset = normal_offset;
     normal_copy_region.dstOffset = 0;
     normal_copy_region.size = normal_size;
-    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, normals_buffer->handle, 1, &normal_copy_region);
+    vkCmdCopyBuffer(command_buffer.handle, transfer_buffer->handle, normals_buffer->handle, 1, &normal_copy_region);
 
     VkBufferCopy uv_copy_region = {};
     uv_copy_region.srcOffset = uv_offset;
     uv_copy_region.dstOffset = 0;
     uv_copy_region.size = uv_size;
-    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, uvs_buffer->handle, 1, &uv_copy_region);
+    vkCmdCopyBuffer(command_buffer.handle, transfer_buffer->handle, uvs_buffer->handle, 1, &uv_copy_region);
 
     VkBufferCopy tangent_copy_region = {};
     tangent_copy_region.srcOffset = tangent_offset;
     tangent_copy_region.dstOffset = 0;
     tangent_copy_region.size = tangent_size;
-    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, tangents_buffer->handle, 1, &tangent_copy_region);
+    vkCmdCopyBuffer(command_buffer.handle, transfer_buffer->handle, tangents_buffer->handle, 1, &tangent_copy_region);
 
     VkBufferCopy index_copy_region = {};
     index_copy_region.srcOffset = indicies_offset;
     index_copy_region.dstOffset = 0;
     index_copy_region.size = index_size;
-    vkCmdCopyBuffer(command_buffer, transfer_buffer->handle, indices_buffer->handle, 1, &index_copy_region);
+    vkCmdCopyBuffer(command_buffer.handle, transfer_buffer->handle, indices_buffer->handle, 1, &index_copy_region);
 
-    vkEndCommandBuffer(command_buffer);
+    pop_command_buffer(context, upload_request_handle);
 
-    VkCommandBufferSubmitInfo command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
-    command_buffer_submit_info.commandBuffer = command_buffer;
-
-    VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
-    submit_info.commandBufferInfoCount = 1;
-    submit_info.pCommandBufferInfos = &command_buffer_submit_info;
-
-    VkSemaphoreSubmitInfoKHR semaphore_submit_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-
-    Upload_Request *upload_request = renderer_get_upload_request(upload_request_handle);
-    upload_request->target_value++;
-    Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[upload_request->semaphore.index];
-
-    semaphore_submit_info.semaphore = vulkan_semaphore->handle;
-    semaphore_submit_info.value = upload_request->target_value;
-    semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
-
-    submit_info.signalSemaphoreInfoCount = 1;
-    submit_info.pSignalSemaphoreInfos = &semaphore_submit_info;
-
-    context->vkQueueSubmit2KHR(context->transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
     return true;
 }
 
@@ -2458,19 +2416,12 @@ void vulkan_renderer_destroy_upload_request(Upload_Request_Handle upload_request
 {
     Vulkan_Context *context = &vulkan_context;
     Vulkan_Upload_Request *vulkan_upload_request = &context->upload_requests[upload_request_handle.index];
-    if (vulkan_upload_request->graphics_command_pool != VK_NULL_HANDLE)
-    {
-        vkFreeCommandBuffers(context->logical_device, vulkan_upload_request->graphics_command_pool, 1, &vulkan_upload_request->graphics_command_buffer);
-        vulkan_upload_request->graphics_command_pool = VK_NULL_HANDLE;
-        vulkan_upload_request->transfer_command_buffer = VK_NULL_HANDLE;
-    }
+    HE_ASSERT(vulkan_upload_request->command_pool != VK_NULL_HANDLE);
+    HE_ASSERT(vulkan_upload_request->command_buffer != VK_NULL_HANDLE);
 
-    if (vulkan_upload_request->transfer_command_pool != VK_NULL_HANDLE)
-    {
-        vkFreeCommandBuffers(context->logical_device, vulkan_upload_request->transfer_command_pool, 1, &vulkan_upload_request->transfer_command_buffer);
-        vulkan_upload_request->transfer_command_pool = VK_NULL_HANDLE;
-        vulkan_upload_request->transfer_command_buffer = VK_NULL_HANDLE;
-    }
+    vkFreeCommandBuffers(context->logical_device, vulkan_upload_request->command_pool, 1, &vulkan_upload_request->command_buffer);
+    vulkan_upload_request->command_pool = VK_NULL_HANDLE;
+    vulkan_upload_request->command_buffer = VK_NULL_HANDLE;
 }
 
 void vulkan_renderer_set_vsync(bool enabled)
@@ -2582,7 +2533,7 @@ void vulkan_renderer_fill_brdf_lut(Texture_Handle brdf_lut_texture_handle)
     VkFramebuffer brdf_lut_frame_buffer = {};
     HE_CHECK_VKRESULT(vkCreateFramebuffer(context->logical_device, &brdf_lut_frame_buffer_create_info, &context->allocation_callbacks, &brdf_lut_frame_buffer));
 
-    Vulkan_Command_Buffer command_buffer = begin_one_use_command_buffer(context);
+    Vulkan_Command_Buffer command_buffer = push_command_buffer(Command_Buffer_Usage::GRAPHICS, true, context);
 
     transtion_image_to_layout(command_buffer.handle, vulkan_brdf_lut_texture->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
@@ -2604,7 +2555,7 @@ void vulkan_renderer_fill_brdf_lut(Texture_Handle brdf_lut_texture_handle)
 
     transtion_image_to_layout(command_buffer.handle, vulkan_brdf_lut_texture->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    end_one_use_command_buffer(context, &command_buffer);
+    pop_command_buffer(context);
 
     vkDestroyFramebuffer(context->logical_device, brdf_lut_frame_buffer, &context->allocation_callbacks);
     brdf_lut_texture->is_attachment = false;
@@ -2749,7 +2700,7 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
     Static_Mesh_Handle cube_mesh_handle = renderer_state->default_static_mesh;
     Static_Mesh *cube_mesh = renderer_get_static_mesh(cube_mesh_handle);
 
-    Vulkan_Command_Buffer command_buffer = begin_one_use_command_buffer(context);
+    Vulkan_Command_Buffer command_buffer = push_command_buffer(Command_Buffer_Usage::GRAPHICS, true, context);
 
     // hdr pass
     transtion_image_to_layout(command_buffer.handle, vulkan_hdr_cubemap->handle, 0, 1, 0, 6, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -2986,7 +2937,7 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
 
     transtion_image_to_layout(command_buffer.handle, vulkan_prefilter_cubemap->handle, 0, prefileter_map_mip_levels, 0, 6, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    end_one_use_command_buffer(context, &command_buffer);
+    pop_command_buffer(context);
 
     destroy_descriptor_pool_allocator(&descriptor_pool_allocator);
 
@@ -3005,8 +2956,6 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
 
     prefilter_cubemap->is_attachment = false;
     prefilter_cubemap->state = Resource_State::SHADER_READ_ONLY;
-
-    // vulkan_renderer_imgui_add_texture(render_data.brdf_lut_texture_handle);
 }
 
 bool vulkan_renderer_init_imgui()

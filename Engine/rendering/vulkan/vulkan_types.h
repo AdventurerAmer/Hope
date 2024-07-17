@@ -113,23 +113,7 @@ struct Vulkan_Render_Pass
     VkRenderPass handle;
 };
 
-struct Vulkan_Upload_Request
-{
-    VkCommandPool graphics_command_pool;
-    VkCommandBuffer graphics_command_buffer;
-    
-    VkCommandPool transfer_command_pool;
-    VkCommandBuffer transfer_command_buffer;
-};
-
-struct Vulkan_Thread_State
-{
-    VkCommandPool graphics_command_pool;
-    VkCommandPool transfer_command_pool;
-    VkCommandPool compute_command_pool;
-};
-
-#define HE_MAX_VULKAN_DESCRIPTOR_POOL_SIZE_RATIO_COUNT 8
+#define HE_MAX_DESCRIPTOR_POOL_SIZE_RATIO_COUNT 16
 
 struct Vulkan_Descriptor_Pool_Size_Ratio
 {
@@ -146,11 +130,26 @@ struct Vulkan_Descriptor_Pool_Allocator
 
 struct Vulkan_Command_Buffer
 {
-    VkCommandPool pool;
-    VkCommandBuffer handle;
+    Command_Buffer_Usage usage;
+    bool                 submit;
+    VkCommandPool        pool;
+    VkCommandBuffer      handle;
 };
 
-#define HE_MAX_DESCRIPTOR_POOL_SIZE_RATIO_COUNT 16
+struct Vulkan_Thread_State
+{
+    VkCommandPool graphics_command_pool;
+    VkCommandPool transfer_command_pool;
+    VkCommandPool compute_command_pool;
+
+    Dynamic_Array< Vulkan_Command_Buffer > command_buffers;
+};
+
+struct Vulkan_Upload_Request
+{
+    VkCommandPool command_pool;
+    VkCommandBuffer command_buffer;
+};
 
 struct Vulkan_Context
 {

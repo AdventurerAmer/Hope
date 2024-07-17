@@ -742,6 +742,13 @@ struct Draw_Command
 // Uploads
 //
 
+enum class Command_Buffer_Usage
+{
+    GRAPHICS,
+    COMPUTE,
+    TRANSFER
+};
+
 #define HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT 8
 
 struct Upload_Request_Descriptor

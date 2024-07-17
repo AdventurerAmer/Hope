@@ -230,8 +230,6 @@ struct Renderer_State
 
     Texture_Handle brdf_lut_texture;
 
-    Pipeline_State_Handle compute_pipeline;
-
     bool imgui_docking;
 };
 

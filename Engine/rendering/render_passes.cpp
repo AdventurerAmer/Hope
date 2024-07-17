@@ -5,8 +5,6 @@
 
 #include "rendering/vulkan/vulkan_renderer.h"
 
-void light_culling_pass(Renderer *renderer, Renderer_State *renderer_state);
-
 void depth_prepass(Renderer *renderer, Renderer_State *renderer_state);
 
 void world_pass(Renderer *renderer, Renderer_State *renderer_state);
@@ -19,10 +17,6 @@ void setup_render_passes(Render_Graph *render_graph, Renderer_State *renderer_st
 {
     using enum Attachment_Operation;
     using enum Texture_Format;
-
-    {
-        Render_Graph_Node &light_culling = add_compute_node(render_graph, "light_culling", &light_culling_pass);
-    }
 
     // depth prepass
     {

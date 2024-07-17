@@ -1,7 +1,7 @@
 version 1
 ambient_color 0.105882 0.105882 0.105882
 skybox_material_asset 11193936441130767775
-node_count 5
+node_count 12
 node_name 4 main
 parent -1
 component_count 1
@@ -27,7 +27,7 @@ node_name 6 Corset
 parent 0
 component_count 2
 component transform
-position 0.500000 0.000000 0.000000
+position 1.000000 0.000000 0.000000
 rotation -0.000001 1.000000 -0.000001 0.000000
 scale 15.000000 15.000000 15.000000
 component mesh
@@ -73,10 +73,83 @@ node_name 5 Glass
 parent 0
 component_count 2
 component transform
-position 0.000000 0.527859 0.000000
+position -0.000061 0.527859 0.000000
 rotation 0.000000 0.000000 0.000000 1.000000
 scale 0.200000 0.200000 0.200000
 component mesh
 static_mesh_asset 6388750915018620212
 material_count 1
 material_asset 9454918637899659995
+node_name 12 flighthelmet
+parent 0
+component_count 1
+component transform
+position -1.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000 1.000000
+scale 1.000000 1.000000 1.000000
+node_name 8 Hose_low
+parent 5
+component_count 2
+component transform
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000 1.000000
+scale 1.000000 1.000000 1.000000
+component mesh
+static_mesh_asset 15853964935075470076
+material_count 1
+material_asset 741917504139528313
+node_name 14 RubberWood_low
+parent 5
+component_count 2
+component transform
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000 1.000000
+scale 1.000000 1.000000 1.000000
+component mesh
+static_mesh_asset 8328010482800864894
+material_count 1
+material_asset 11012759191555023174
+node_name 16 GlassPlastic_low
+parent 5
+component_count 2
+component transform
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000 1.000000
+scale 1.000000 1.000000 1.000000
+component mesh
+static_mesh_asset 1404353958416553056
+material_count 1
+material_asset 1907757246125104018
+node_name 14 MetalParts_low
+parent 5
+component_count 2
+component transform
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000 1.000000
+scale 1.000000 1.000000 1.000000
+component mesh
+static_mesh_asset 13248223133493321324
+material_count 1
+material_asset 18193992490959412599
+node_name 16 LeatherParts_low
+parent 5
+component_count 2
+component transform
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000 1.000000
+scale 1.000000 1.000000 1.000000
+component mesh
+static_mesh_asset 11236259426237611407
+material_count 1
+material_asset 12643919628368748371
+node_name 10 Lenses_low
+parent 5
+component_count 2
+component transform
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000 1.000000
+scale 1.000000 1.000000 1.000000
+component mesh
+static_mesh_asset 741084921264531470
+material_count 1
+material_asset 11218331899606643438

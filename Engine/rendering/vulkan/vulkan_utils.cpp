@@ -156,6 +156,28 @@ VkImageLayout get_image_layout(Resource_State resource_state, Texture_Format for
     return VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
+VkAccessFlags get_access_flags(VkImageLayout image_layout)
+{
+    switch (image_layout)
+    {
+        case VK_IMAGE_LAYOUT_UNDEFINED: return 0;
+        case VK_IMAGE_LAYOUT_GENERAL: return VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
+        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL: return VK_ACCESS_TRANSFER_READ_BIT;
+        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL: return VK_ACCESS_TRANSFER_WRITE_BIT;
+        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL: return VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL: return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL: return VK_ACCESS_SHADER_READ_BIT;
+        case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR: return VK_ACCESS_MEMORY_READ_BIT;
+
+        default:
+        {
+            HE_ASSERT(!"unsupported resource state");
+        } break;
+    }
+
+    return VK_IMAGE_LAYOUT_UNDEFINED;
+}
+
 VkAccessFlags get_access_flags(Resource_State resource_state, Texture_Format format)
 {
     using enum Resource_State;
@@ -245,7 +267,7 @@ VkPipelineStageFlags get_pipeline_stage_flags(VkAccessFlags access_flags, bool c
     return result;
 }
 
-void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U32 base_mip_level, U32 mip_levels, U32 base_layer, U32 layer_count, VkImageLayout old_layout, VkImageLayout new_layout)
+void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U32 base_mip_level, U32 mip_levels, U32 base_layer, U32 layer_count, VkImageLayout old_layout, VkImageLayout new_layout, bool compute_only)
 {
     VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
     barrier.oldLayout = old_layout;
@@ -259,120 +281,11 @@ void transtion_image_to_layout(VkCommandBuffer command_buffer, VkImage image, U3
     barrier.subresourceRange.baseArrayLayer = base_layer;
     barrier.subresourceRange.layerCount = layer_count;
 
-    VkPipelineStageFlags source_stage = 0;
-    VkPipelineStageFlags destination_stage = 0;
+    barrier.srcAccessMask = get_access_flags(old_layout);
+    barrier.dstAccessMask = get_access_flags(new_layout);
 
-    if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-    {
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-        source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-    {
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-
-        source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-    {
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        destination_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-    {
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-
-        source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        destination_stage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
-    {
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = 0;
-
-        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-    {
-        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        source_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_GENERAL)
-    {
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-    {
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-
-        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        destination_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-    {
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-        source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        destination_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-    {
-        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        source_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        destination_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-    {
-        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        source_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-    {
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-    {
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-    {
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        destination_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    }
-    else
-    {
-        HE_ASSERT(false);
-    }
+    VkPipelineStageFlags source_stage = get_pipeline_stage_flags(barrier.srcAccessMask, compute_only);
+    VkPipelineStageFlags destination_stage = get_pipeline_stage_flags(barrier.dstAccessMask, compute_only);
 
     vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
@@ -502,43 +415,109 @@ Vulkan_Thread_State *get_thread_state(Vulkan_Context *context)
     transfer_command_pool_create_info.queueFamilyIndex = context->transfer_queue_family_index;
     HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &transfer_command_pool_create_info, &context->allocation_callbacks, &thread_state->transfer_command_pool));
 
+    VkCommandPoolCreateInfo compute_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    compute_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    compute_command_pool_create_info.queueFamilyIndex = context->compute_queue_family_index;
+    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &compute_command_pool_create_info, &context->allocation_callbacks, &thread_state->compute_command_pool));
+
+    init(&thread_state->command_buffers);
+
     return thread_state;
 }
 
-Vulkan_Command_Buffer begin_one_use_command_buffer(Vulkan_Context *context)
+Vulkan_Command_Buffer push_command_buffer(Command_Buffer_Usage usage, bool submit, Vulkan_Context *context)
 {
+    using enum Command_Buffer_Usage;
+
     Vulkan_Thread_State *thread_state = get_thread_state(context);
 
     VkCommandBufferAllocateInfo command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    command_buffer_allocate_info.commandPool = thread_state->graphics_command_pool;
+    command_buffer_allocate_info.level = submit ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
     command_buffer_allocate_info.commandBufferCount = 1;
-    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+    switch (usage)
+    {
+        case GRAPHICS:
+        {
+            command_buffer_allocate_info.commandPool = thread_state->graphics_command_pool;
+        } break;
+
+        case COMPUTE:
+        {
+            command_buffer_allocate_info.commandPool = thread_state->compute_command_pool;
+        } break;
+
+        case TRANSFER:
+        {
+            command_buffer_allocate_info.commandPool = thread_state->transfer_command_pool;
+        } break;
+    }
 
     VkCommandBuffer command_buffer = {};
     vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
+
     vkResetCommandBuffer(command_buffer, 0);
 
     VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    command_buffer_begin_info.flags = 0;
+    command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     command_buffer_begin_info.pInheritanceInfo = 0;
 
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
 
-    return
+    Vulkan_Command_Buffer vulkan_command_buffer =
     {
-        .pool = thread_state->graphics_command_pool,
+        .usage  = usage,
+        .submit = submit,
+        .pool   = command_buffer_allocate_info.commandPool,
         .handle = command_buffer
     };
+
+    append(&thread_state->command_buffers, vulkan_command_buffer);
+    return vulkan_command_buffer;
 }
 
-void end_one_use_command_buffer(Vulkan_Context *context, Vulkan_Command_Buffer *command_buffer, Upload_Request_Handle upload_request_handle)
+void pop_command_buffer(Vulkan_Context *context, Upload_Request_Handle upload_request_handle)
 {
-    Renderer_State *renderer_state = context->renderer_state;
+    using enum Command_Buffer_Usage;
 
-    vkEndCommandBuffer(command_buffer->handle);
+    Renderer_State *renderer_state = context->renderer_state;
+    Vulkan_Thread_State *thread_state = get_thread_state(context);
+
+    Dynamic_Array< Vulkan_Command_Buffer > &command_buffers = thread_state->command_buffers;
+    HE_ASSERT(command_buffers.count);
+
+    Vulkan_Command_Buffer command_buffer = back(&command_buffers);
+    remove_back(&command_buffers);
+
+    vkEndCommandBuffer(command_buffer.handle);
+
+    if (!command_buffer.submit)
+    {
+        return;
+    }
+
+    VkQueue queue = VK_NULL_HANDLE;
+
+    switch (command_buffer.usage)
+    {
+        case GRAPHICS:
+        {
+            queue = context->graphics_queue;
+        } break;
+
+        case COMPUTE:
+        {
+            queue = context->compute_queue;
+        } break;
+
+        case TRANSFER:
+        {
+            queue = context->transfer_queue;
+        } break;
+    }
 
     VkCommandBufferSubmitInfo command_buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
-    command_buffer_submit_info.commandBuffer = command_buffer->handle;
+    command_buffer_submit_info.commandBuffer = command_buffer.handle;
 
     VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
     submit_info.commandBufferInfoCount = 1;
@@ -547,26 +526,30 @@ void end_one_use_command_buffer(Vulkan_Context *context, Vulkan_Command_Buffer *
     if (is_valid_handle(&renderer_state->upload_requests, upload_request_handle))
     {
         Upload_Request *upload_request = renderer_get_upload_request(upload_request_handle);
-        upload_request->target_value++;
-
         Vulkan_Upload_Request *vulkan_upload_request = &context->upload_requests[upload_request_handle.index];
-        vulkan_upload_request->graphics_command_buffer = command_buffer->handle;
-        vulkan_upload_request->graphics_command_pool = command_buffer->pool;
-
-        vulkan_upload_request->transfer_command_buffer = VK_NULL_HANDLE;
-        vulkan_upload_request->transfer_command_pool = VK_NULL_HANDLE;
+        vulkan_upload_request->command_pool = command_buffer.pool;
+        vulkan_upload_request->command_buffer = command_buffer.handle;
+        U64 wait_value = upload_request->target_value;
+        upload_request->target_value++;
 
         Vulkan_Semaphore *vulkan_semaphore = &context->semaphores[upload_request->semaphore.index];
 
-        VkSemaphoreSubmitInfoKHR semaphore_submit_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-        semaphore_submit_info.semaphore = vulkan_semaphore->handle;
-        semaphore_submit_info.value = upload_request->target_value;
-        semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
+        VkSemaphoreSubmitInfoKHR wait_semaphore_submit_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+        wait_semaphore_submit_info.semaphore = vulkan_semaphore->handle;
+        wait_semaphore_submit_info.value = wait_value;
+        wait_semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
 
+        VkSemaphoreSubmitInfoKHR signal_semaphore_submit_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+        signal_semaphore_submit_info.semaphore = vulkan_semaphore->handle;
+        signal_semaphore_submit_info.value = upload_request->target_value;
+        signal_semaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
+
+        submit_info.waitSemaphoreInfoCount = 1;
+        submit_info.pWaitSemaphoreInfos = &wait_semaphore_submit_info;
         submit_info.signalSemaphoreInfoCount = 1;
-        submit_info.pSignalSemaphoreInfos = &semaphore_submit_info;
+        submit_info.pSignalSemaphoreInfos = &signal_semaphore_submit_info;
 
-        context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+        context->vkQueueSubmit2KHR(queue, 1, &submit_info, VK_NULL_HANDLE);
     }
     else
     {
@@ -574,10 +557,10 @@ void end_one_use_command_buffer(Vulkan_Context *context, Vulkan_Command_Buffer *
         VkFence fence = {};
         vkCreateFence(context->logical_device, &fence_create_info, &context->allocation_callbacks, &fence);
 
-        context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, fence);
+        context->vkQueueSubmit2KHR(queue, 1, &submit_info, fence);
         vkWaitForFences(context->logical_device, 1, &fence, VK_TRUE, HE_MAX_U64);
 
         vkDestroyFence(context->logical_device, fence, &context->allocation_callbacks);
-        vkFreeCommandBuffers(context->logical_device, command_buffer->pool, 1, &command_buffer->handle);
+        vkFreeCommandBuffers(context->logical_device, command_buffer.pool, 1, &command_buffer.handle);
     }
 }

@@ -749,17 +749,6 @@ bool init_renderer_state(Engine *engine)
         renderer_state->brdf_lut_texture = brdf_lut_texture_handle;
     }
 
-    {
-        Shader_Handle compute_shader = load_shader(HE_STRING_LITERAL("compute"));
-        HE_ASSERT(is_valid_handle(&renderer_state->shaders, compute_shader));
-        // set_shader(&renderer_state->render_graph, get_node(&renderer_state->render_graph, HE_STRING_LITERAL("compute0")), compute_shader, 0);
-        Pipeline_State_Descriptor compute_pipeline_descriptor =
-        {
-            .shader = compute_shader,
-        };
-        renderer_state->compute_pipeline = renderer_create_pipeline_state(compute_pipeline_descriptor);
-    }
-
     return true;
 }
 
@@ -2885,7 +2874,7 @@ void begin_rendering(const Camera *camera)
     proj[1][1] *= -1;
     globals->projection = proj;
 
-    glm::vec3 *eye = (glm::vec3*)globals->eye;
+    glm::vec3 *eye = (glm::vec3 *)globals->eye;
     *eye = camera->position;
 
     render_data->view = camera->view;
@@ -3143,7 +3132,7 @@ void end_rendering()
     {
         Shader_Light *light = &lights[light_index];
         glm::vec3 *light_position = (glm::vec3 *)light->position;
-        glm::uvec2 *light_screen_aabb = (glm::uvec2*)light->screen_aabb;
+        glm::uvec2 *light_screen_aabb = (glm::uvec2 *)light->screen_aabb;
 
         Sorted_Light *sorted_light = &sorted_lights[sorted_light_count];
         sorted_light->index = light_index;

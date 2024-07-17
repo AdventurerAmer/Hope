@@ -58,13 +58,13 @@ void vulkan_renderer_draw_sub_mesh(Static_Mesh_Handle static_mesh_handle, U32 fi
 void vulkan_renderer_draw_fullscreen_triangle();
 
 void vulkan_renderer_fill_buffer(Buffer_Handle buffer_handle, U32 value);
+void vulkan_renderer_invalidate_buffer(Buffer_Handle buffer_handle);
 
 void vulkan_renderer_clear_texture(Texture_Handle texture_handle, Clear_Value clear_value);
 void vulkan_renderer_change_texture_state(Texture_Handle texture_handle, Resource_State resource_state);
 
-void vulkan_renderer_invalidate_buffer(Buffer_Handle buffer_handle);
-
 void vulkan_renderer_begin_compute_pass();
+void vulkan_renderer_dispatch_compute(U32 group_size_x, U32 group_size_y, U32 group_size_z);
 void vulkan_renderer_end_compute_pass();
 
 void vulkan_renderer_end_frame();
@@ -76,8 +76,6 @@ ImTextureID vulkan_renderer_imgui_get_texture_id(Texture_Handle texture);
 void vulkan_renderer_imgui_render();
 
 void vulkan_renderer_destroy_resources_at_frame(U32 frame_index);
-
-void vulkan_renderer_dispatch_compute(U32 group_size_x, U32 group_size_y, U32 group_size_z);
 
 struct Enviornment_Map_Render_Data
 {
