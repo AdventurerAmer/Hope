@@ -92,6 +92,11 @@ bool request_renderer(RenderingAPI rendering_api, Renderer *renderer)
             renderer->end_compute_pass = &vulkan_renderer_end_compute_pass;
             renderer->end_frame = &vulkan_renderer_end_frame;
             renderer->set_vsync = &vulkan_renderer_set_vsync;
+            renderer->hdr_to_environment_map = &vulkan_renderer_hdr_to_environment_map;
+            renderer->fill_brdf_lut = &vulkan_renderer_fill_brdf_lut;
+            renderer->begin_command_list = &vulkan_renderer_begin_command_list;
+            renderer->end_command_list = &vulkan_renderer_end_command_list;
+            renderer->execute_command_list = &vulkan_renderer_execute_command_list;
             renderer->get_texture_memory_requirements = &vulkan_renderer_get_texture_memory_requirements;
             renderer->init_imgui = &vulkan_renderer_init_imgui;
             renderer->imgui_new_frame = &vulkan_renderer_imgui_new_frame;
@@ -152,6 +157,7 @@ bool init_renderer_state(Engine *engine)
     bool &vsync = renderer_state->vsync;
     U8 &anisotropic_filtering_setting = (U8&)renderer_state->anisotropic_filtering_setting;
     F32 &gamma = renderer_state->gamma;
+    bool &multithreaded_rendering = renderer_state->multithreaded_rendering;
 
     // default settings
     back_buffer_width = 1280;
@@ -160,6 +166,7 @@ bool init_renderer_state(Engine *engine)
     triple_buffering = true;
     vsync = false;
     gamma = 2.2f;
+    multithreaded_rendering = true;
 
     HE_DECLARE_CVAR("renderer", back_buffer_width, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", back_buffer_height, CVarFlag_None);
@@ -167,6 +174,7 @@ bool init_renderer_state(Engine *engine)
     HE_DECLARE_CVAR("renderer", gamma, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", anisotropic_filtering_setting, CVarFlag_None);
     HE_DECLARE_CVAR("renderer", vsync, CVarFlag_None);
+    HE_DECLARE_CVAR("renderer", multithreaded_rendering, CVarFlag_None);
 
     renderer_state->current_frame_in_flight_index = 0;
     HE_ASSERT(renderer_state->frames_in_flight <= HE_MAX_FRAMES_IN_FLIGHT);
@@ -745,7 +753,7 @@ bool init_renderer_state(Engine *engine)
         };
 
         Texture_Handle brdf_lut_texture_handle = renderer_create_texture(brdf_lut_texture_descriptor);
-        vulkan_renderer_fill_brdf_lut(brdf_lut_texture_handle);
+        renderer->fill_brdf_lut(brdf_lut_texture_handle);
         renderer_state->brdf_lut_texture = brdf_lut_texture_handle;
     }
 
@@ -1036,7 +1044,7 @@ Environment_Map renderer_hdr_to_environment_map(F32 *data, U32 width, U32 height
     };
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
-    vulkan_renderer_hdr_to_environment_map(render_data);
+    renderer->hdr_to_environment_map(render_data);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
     return
@@ -1577,16 +1585,21 @@ Static_Mesh *renderer_get_static_mesh(Static_Mesh_Handle static_mesh_handle)
     return get(&renderer_state->static_meshes, static_mesh_handle);
 }
 
-void renderer_use_static_mesh(Static_Mesh_Handle static_mesh_handle)
+void renderer_use_static_mesh(Static_Mesh_Handle static_mesh_handle, Static_Mesh_Handle *last_static_mesh_handle)
 {
     Frame_Render_Data *render_data = &renderer_state->render_data;
 
-    if (render_data->current_static_mesh_handle == static_mesh_handle)
+    if (last_static_mesh_handle)
     {
-        return;
+        if (*last_static_mesh_handle == static_mesh_handle)
+        {
+            return;
+        }
+        else
+        {
+            *last_static_mesh_handle = static_mesh_handle;
+        }
     }
-
-    render_data->current_static_mesh_handle = static_mesh_handle;
 
     Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
@@ -1835,16 +1848,21 @@ bool set_property(Material_Handle material_handle, S32 property_id, Material_Pro
     return true;
 }
 
-void renderer_use_material(Material_Handle material_handle)
+void renderer_use_material(Material_Handle material_handle, Material_Handle *last_material_handle, Pipeline_State_Handle *last_pipeline_state_handle)
 {
     Frame_Render_Data *render_data = &renderer_state->render_data;
 
-    if (render_data->current_material_handle == material_handle)
+    if (last_material_handle)
     {
-        return;
+        if (*last_material_handle == material_handle)
+        {
+            return;
+        }
+        else
+        {
+            *last_material_handle = material_handle;
+        }
     }
-
-    render_data->current_material_handle = material_handle;
 
     Material *material = get(&renderer_state->materials, material_handle);
 
@@ -1901,13 +1919,23 @@ void renderer_use_material(Material_Handle material_handle)
         material->bind_groups[renderer_state->current_frame_in_flight_index]
     };
 
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->set_bind_groups(SHADER_OBJECT_BIND_GROUP, to_array_view(material_bind_groups));
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
 
-    if (render_data->current_pipeline_state_handle.index != material->pipeline_state_handle.index)
+    if (last_pipeline_state_handle)
     {
-        renderer->set_pipeline_state(material->pipeline_state_handle);
-        render_data->current_pipeline_state_handle = material->pipeline_state_handle;
+        if (*last_pipeline_state_handle == material->pipeline_state_handle)
+        {
+            return;
+        }
+        else
+        {
+            *last_pipeline_state_handle = material->pipeline_state_handle;
+        }
     }
+
+    renderer->set_pipeline_state(material->pipeline_state_handle);
 }
 
 static const char* cull_mode_to_string(Cull_Mode mode)
@@ -2834,6 +2862,11 @@ void renderer_set_triple_buffering(bool enabled)
     }
 
     renderer_state->current_frame_in_flight_index = 0;
+}
+
+void renderer_set_multithreaded_rendering(bool enabled)
+{
+    renderer_state->multithreaded_rendering = enabled;
 }
 
 static U8* get_pointer(Shader_Struct *_struct, U8 *data, String name)

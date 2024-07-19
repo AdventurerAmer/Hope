@@ -738,6 +738,19 @@ struct Draw_Command
     Material_Handle material;
 };
 
+struct Enviornment_Map_Render_Data
+{
+    F32 *hdr_data;
+    U32 hdr_width;
+    U32 hdr_height;
+
+    Buffer_Handle globals_uniform_buffer;
+
+    Texture_Handle hdr_cubemap_handle;
+    Texture_Handle irradiance_cubemap_handle;
+    Texture_Handle prefilter_cubemap_handle;
+};
+
 //
 // Uploads
 //
@@ -747,6 +760,19 @@ enum class Command_Buffer_Usage
     GRAPHICS,
     COMPUTE,
     TRANSFER
+};
+
+struct Command_List_Descriptor
+{
+    Command_Buffer_Usage usage = Command_Buffer_Usage::GRAPHICS;
+    bool submit = true;
+    Render_Pass_Handle render_pass = Resource_Pool< Render_Pass >::invalid_handle;
+    Frame_Buffer_Handle frame_buffer = Resource_Pool< Frame_Buffer >::invalid_handle;
+};
+
+struct Command_List
+{
+    void *handle;
 };
 
 #define HE_MAX_UPLOAD_REQUEST_ALLOCATION_COUNT 8

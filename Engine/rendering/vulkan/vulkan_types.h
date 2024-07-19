@@ -185,8 +185,13 @@ struct Vulkan_Context
     
     Hash_Map< U32, Vulkan_Thread_State > thread_states;
 
+    VkCommandPool graphics_command_pool;
+    VkCommandPool compute_command_pool;
+
     VkCommandBuffer graphics_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
     VkCommandBuffer compute_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+
+    Dynamic_Array< Vulkan_Command_Buffer > secondary_command_buffers[HE_MAX_FRAMES_IN_FLIGHT];
 
     VkCommandBuffer graphics_command_buffer;
     VkCommandBuffer compute_command_buffer;

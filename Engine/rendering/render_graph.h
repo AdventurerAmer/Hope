@@ -2,6 +2,7 @@
 
 #include "core/defines.h"
 #include "core/memory.h"
+#include "core/job_system.h"
 
 #include "rendering/renderer_types.h"
 
@@ -106,6 +107,9 @@ struct Render_Graph_Node
 
     Render_Pass_Handle render_pass;
     Frame_Buffer_Handle frame_buffers[HE_MAX_FRAMES_IN_FLIGHT];
+
+    Job_Handle job_handle;
+    Command_List command_list;
 };
 
 struct Render_Graph

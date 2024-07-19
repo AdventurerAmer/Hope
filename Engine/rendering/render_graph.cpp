@@ -446,6 +446,133 @@ bool compile(Render_Graph *render_graph, Renderer *renderer, Renderer_State *ren
     return true;
 }
 
+static void fill_render_graph_node_bindings(Render_Graph *render_graph, Render_Graph_Node *node, Counted_Array< Update_Binding_Descriptor, 16 > *bindings)
+{
+    Render_Context context = get_render_context();
+    Renderer_State *renderer_state = context.renderer_state;
+    U32 frame_index = renderer_state->current_frame_in_flight_index;
+
+    for (U32 input_index = 0; input_index < node->inputs.count; input_index++)
+    {
+        Render_Graph_Node_Input &input = node->inputs[input_index];
+        Render_Graph_Resource_Handle resource_handle = input.resource_handle;
+        Render_Graph_Resource *resource = &render_graph->resources[resource_handle];
+
+        if (input.usage == Render_Graph_Resource_Usage::SAMPLED_TEXTURE || input.usage == Render_Graph_Resource_Usage::STORAGE_TEXTURE)
+        {
+            U32 binding_numer = bindings->count;
+            Update_Binding_Descriptor &binding = append(bindings);
+            binding.binding_number = binding_numer;
+            binding.element_index = 0;
+            binding.textures = &resource->textures[frame_index];
+            binding.samplers = &renderer_state->default_texture_sampler;
+            binding.count = 1;
+        }
+        else if (input.usage == Render_Graph_Resource_Usage::STORAGE_BUFFER)
+        {
+            U32 binding_numer = bindings->count;
+            Update_Binding_Descriptor &binding = append(bindings);
+            binding.binding_number = binding_numer;
+            binding.element_index = 0;
+            binding.buffers = &resource->buffers[frame_index];
+            binding.count = 1;
+        }
+    }
+
+    for (U32 output_index = 0; output_index < node->outputs.count; output_index++)
+    {
+        Render_Graph_Node_Output &output = node->outputs[output_index];
+        Render_Graph_Resource_Handle resource_handle = output.resource_handle;
+        Render_Graph_Resource *resource = &render_graph->resources[resource_handle];
+
+        if (output.usage == Render_Graph_Resource_Usage::SAMPLED_TEXTURE || output.usage == Render_Graph_Resource_Usage::STORAGE_TEXTURE)
+        {
+            U32 binding_numer = bindings->count;
+            Update_Binding_Descriptor &binding = append(bindings);
+            binding.binding_number = binding_numer;
+            binding.element_index = 0;
+            binding.textures = &resource->textures[frame_index];
+            binding.samplers = &renderer_state->default_texture_sampler;
+            binding.count = 1;
+        }
+        else if (output.usage == Render_Graph_Resource_Usage::STORAGE_BUFFER)
+        {
+            U32 binding_numer = bindings->count;
+            Update_Binding_Descriptor &binding = append(bindings);
+            binding.binding_number = binding_numer;
+            binding.element_index = 0;
+            binding.buffers = &resource->buffers[frame_index];
+            binding.count = 1;
+        }
+    }
+}
+
+struct Record_Commands_Job_Data
+{
+    Render_Graph *render_graph;
+    Render_Graph_Node_Handle node_handle;
+};
+
+Job_Result record_render_graph_node_commands_job(const Job_Parameters &params)
+{
+    HE_ASSERT(params.size == sizeof(Record_Commands_Job_Data));
+    HE_ASSERT(params.alignment == alignof(Record_Commands_Job_Data));
+
+    Record_Commands_Job_Data *job_data = (Record_Commands_Job_Data *)params.data;
+
+    Render_Graph *render_graph = job_data->render_graph;
+    Render_Graph_Node_Handle node_handle = job_data->node_handle;
+    Render_Graph_Node *node = &render_graph->nodes[node_handle];
+
+    Render_Context context = get_render_context();
+    Renderer_State *renderer_state = context.renderer_state;
+    Renderer *renderer = context.renderer;
+
+    U32 frame_index = renderer_state->current_frame_in_flight_index;
+
+    Frame_Buffer *frame_buffer = renderer_get_frame_buffer(node->frame_buffers[frame_index]);
+
+    Command_List_Descriptor command_list_descriptor =
+    {
+        .usage = Command_Buffer_Usage::GRAPHICS,
+        .submit = false,
+        .render_pass = node->render_pass,
+        .frame_buffer = node->frame_buffers[frame_index]
+    };
+
+    renderer->begin_command_list(command_list_descriptor);
+
+    Frame_Render_Data *render_data = &renderer_state->render_data;
+
+    Bind_Group_Handle bind_groups[] =
+    {
+        render_data->globals_bind_groups[frame_index],
+        render_data->pass_bind_groups[frame_index]
+    };
+
+    renderer->set_bind_groups(SHADER_GLOBALS_BIND_GROUP, to_array_view(bind_groups));
+
+    if (is_valid_handle(&renderer_state->bind_groups, node->bind_group))
+    {
+        Counted_Array< Update_Binding_Descriptor, 16 > bindings = {};
+        fill_render_graph_node_bindings(render_graph, node, &bindings);
+        renderer_update_bind_group(node->bind_group, to_array_view(bindings));
+        Bind_Group *pass_bind_group = renderer_get_bind_group(node->bind_group);
+        renderer->set_bind_groups(pass_bind_group->group_index, { .count = 1, .data = &node->bind_group });
+    }
+
+    renderer->set_viewport(frame_buffer->width, frame_buffer->height);
+
+    node->execute(renderer, renderer_state);
+
+    platform_lock_mutex(&renderer_state->render_commands_mutex);
+    Command_List command_list = renderer->end_command_list(Resource_Pool< Upload_Request >::invalid_handle);
+    node->command_list = command_list;
+    platform_unlock_mutex(&renderer_state->render_commands_mutex);
+
+    return Job_Result::SUCCEEDED;
+}
+
 void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *renderer_state)
 {
     U32 frame_index = renderer_state->current_frame_in_flight_index;
@@ -454,15 +581,43 @@ void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *rend
 
     for (Render_Graph_Node_Handle node_handle : sorted_nodes)
     {
-        Counted_Array< Update_Binding_Descriptor, 16 > bindings = {};
-        Counted_Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT > clear_values = {};
-
         Render_Graph_Node &node = render_graph->nodes[node_handle];
 
-        if (node.type == Render_Graph_Node_Type::COMPUTE)
+        Record_Commands_Job_Data record_commands_job_data =
         {
-            renderer->begin_compute_pass();
+            .render_graph = render_graph,
+            .node_handle = node_handle,
+        };
+
+        Job_Parameters job_parameters =
+        {
+            .data = &record_commands_job_data,
+            .size = sizeof(Record_Commands_Job_Data),
+            .alignment = alignof(Record_Commands_Job_Data)
+        };
+
+        if (renderer_state->multithreaded_rendering)
+        {
+            Job_Data job_data =
+            {
+                .parameters = job_parameters,
+                .proc = &record_render_graph_node_commands_job
+            };
+            node.job_handle = execute_job(job_data);
         }
+        else
+        {
+            record_render_graph_node_commands_job(job_parameters);
+            node.job_handle = Resource_Pool< Job >::invalid_handle;
+        }
+    }
+
+    for (Render_Graph_Node_Handle node_handle : sorted_nodes)
+    {
+        Render_Graph_Node &node = render_graph->nodes[node_handle];
+        wait_for_job_to_finish(node.job_handle);
+
+        Counted_Array< Clear_Value, HE_MAX_ATTACHMENT_COUNT > clear_values = {};
 
         for (U32 input_index = 0; input_index < node.inputs.count; input_index++)
         {
@@ -495,26 +650,6 @@ void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *rend
                     Buffer_Handle buffer_handle = resource->buffers[frame_index];
                     renderer->invalidate_buffer(buffer_handle);
                 } break;
-            }
-
-            if (input.usage == Render_Graph_Resource_Usage::SAMPLED_TEXTURE || input.usage == Render_Graph_Resource_Usage::STORAGE_TEXTURE)
-            {
-                U32 binding_numer = bindings.count;
-                Update_Binding_Descriptor &binding = append(&bindings);
-                binding.binding_number = binding_numer;
-                binding.element_index = 0;
-                binding.textures = &resource->textures[frame_index];
-                binding.samplers = &renderer_state->default_texture_sampler;
-                binding.count = 1;
-            }
-            else if (input.usage == Render_Graph_Resource_Usage::STORAGE_BUFFER)
-            {
-                U32 binding_numer = bindings.count;
-                Update_Binding_Descriptor &binding = append(&bindings);
-                binding.binding_number = binding_numer;
-                binding.element_index = 0;
-                binding.buffers = &resource->buffers[frame_index];
-                binding.count = 1;
             }
         }
 
@@ -551,48 +686,11 @@ void render(Render_Graph *render_graph, Renderer *renderer, Renderer_State *rend
                     renderer->fill_buffer(buffer_handle, output.clear_value.ucolor[0]);
                 } break;
             }
-
-            if (output.usage == Render_Graph_Resource_Usage::SAMPLED_TEXTURE || output.usage == Render_Graph_Resource_Usage::STORAGE_TEXTURE)
-            {
-                U32 binding_numer = bindings.count;
-                Update_Binding_Descriptor &binding = append(&bindings);
-                binding.binding_number = binding_numer;
-                binding.element_index = 0;
-                binding.textures = &resource->textures[frame_index];
-                binding.samplers = &renderer_state->default_texture_sampler;
-                binding.count = 1;
-            }
-            else if (output.usage == Render_Graph_Resource_Usage::STORAGE_BUFFER)
-            {
-                U32 binding_numer = bindings.count;
-                Update_Binding_Descriptor &binding = append(&bindings);
-                binding.binding_number = binding_numer;
-                binding.element_index = 0;
-                binding.buffers = &resource->buffers[frame_index];
-                binding.count = 1;
-            }
         }
 
-        if (is_valid_handle(&renderer_state->bind_groups, node.bind_group))
-        {
-            renderer_update_bind_group(node.bind_group, to_array_view(bindings));
-            Bind_Group *pass_bind_group = renderer_get_bind_group(node.bind_group);
-            renderer->set_bind_groups(pass_bind_group->group_index, { .count = 1, .data = &node.bind_group });
-        }
-
-        if (node.type == Render_Graph_Node_Type::GRAPHICS)
-        {
-            Frame_Buffer* frame_buffer = renderer_get_frame_buffer(node.frame_buffers[frame_index]);
-            renderer->begin_render_pass(node.render_pass, node.frame_buffers[frame_index], to_array_view(node.clear_values));
-            renderer->set_viewport(frame_buffer->width, frame_buffer->height);
-            node.execute(renderer, renderer_state);
-            renderer->end_render_pass(node.render_pass);
-        }
-        else if (node.type == Render_Graph_Node_Type::COMPUTE)
-        {
-            node.execute(renderer, renderer_state);
-            renderer->end_compute_pass();
-        }
+        renderer->begin_render_pass(node.render_pass, node.frame_buffers[frame_index], to_array_view(node.clear_values));
+        renderer->execute_command_list(node.command_list);
+        renderer->end_render_pass(node.render_pass);
     }
 }
 

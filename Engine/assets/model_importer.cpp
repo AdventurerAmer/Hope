@@ -213,7 +213,11 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
     Asset_Handle asset_handle = get_asset_handle(relative_path);
     
     cgltf_data *model_data = aquire_model_from_cache(asset_handle.uuid, path);
-    HE_ASSERT(model_data);
+    
+    if (model_data == nullptr)
+    {
+        return {};
+    }
 
     HE_DEFER
     {

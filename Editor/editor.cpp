@@ -480,6 +480,18 @@ static void draw_graphics_window()
         //
         //
 
+
+        {
+            ImGui::Text("Multi Threaded Rendering");
+            ImGui::SameLine();
+
+            static bool multithreaded_rendering = renderer_state->multithreaded_rendering;
+            if (ImGui::Checkbox("##Multi Threaded Rendering", &multithreaded_rendering))
+            {
+                renderer_set_multithreaded_rendering(multithreaded_rendering);
+            }
+        }
+
         ImGui::Text("Light Bin Count");
         ImGui::SameLine();
         ImGui::DragInt("##Light Bin Count", (S32 *)&render_data->light_bin_count, 1, 16, 128);

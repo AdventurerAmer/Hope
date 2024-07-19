@@ -12,3 +12,4 @@
 :gamma 2.200000
 :anisotropic_filtering_setting 4
 :vsync 1
+:multithreaded_rendering 1

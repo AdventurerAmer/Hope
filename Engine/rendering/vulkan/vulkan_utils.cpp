@@ -425,7 +425,7 @@ Vulkan_Thread_State *get_thread_state(Vulkan_Context *context)
     return thread_state;
 }
 
-Vulkan_Command_Buffer push_command_buffer(Command_Buffer_Usage usage, bool submit, Vulkan_Context *context)
+Vulkan_Command_Buffer push_command_buffer(Command_Buffer_Usage usage, bool submit, Vulkan_Context *context, VkRenderPass render_pass, VkFramebuffer framebuffer)
 {
     using enum Command_Buffer_Usage;
 
@@ -456,12 +456,21 @@ Vulkan_Command_Buffer push_command_buffer(Command_Buffer_Usage usage, bool submi
     VkCommandBuffer command_buffer = {};
     vkAllocateCommandBuffers(context->logical_device, &command_buffer_allocate_info, &command_buffer);
 
-    vkResetCommandBuffer(command_buffer, 0);
-
     VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    command_buffer_begin_info.pInheritanceInfo = 0;
 
+    if (!submit)
+    {
+        command_buffer_begin_info.flags |= VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+
+        VkCommandBufferInheritanceInfo command_buffer_inhertiance_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
+        command_buffer_inhertiance_info.renderPass = render_pass;
+        command_buffer_inhertiance_info.subpass = 0;
+        command_buffer_inhertiance_info.framebuffer = framebuffer;
+        command_buffer_begin_info.pInheritanceInfo = &command_buffer_inhertiance_info;
+    }
+
+    vkResetCommandBuffer(command_buffer, 0);
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
 
     Vulkan_Command_Buffer vulkan_command_buffer =
@@ -476,7 +485,7 @@ Vulkan_Command_Buffer push_command_buffer(Command_Buffer_Usage usage, bool submi
     return vulkan_command_buffer;
 }
 
-void pop_command_buffer(Vulkan_Context *context, Upload_Request_Handle upload_request_handle)
+Vulkan_Command_Buffer pop_command_buffer(Vulkan_Context *context, Upload_Request_Handle upload_request_handle)
 {
     using enum Command_Buffer_Usage;
 
@@ -493,7 +502,13 @@ void pop_command_buffer(Vulkan_Context *context, Upload_Request_Handle upload_re
 
     if (!command_buffer.submit)
     {
-        return;
+        Dynamic_Array< Vulkan_Command_Buffer > &secondary_command_buffers = context->secondary_command_buffers[renderer_state->current_frame_in_flight_index];
+        for (U32 i = 0; i < secondary_command_buffers.count; i++)
+        {
+            HE_ASSERT(secondary_command_buffers[i].handle != command_buffer.handle);
+        }
+        append(&secondary_command_buffers, command_buffer);
+        return command_buffer;
     }
 
     VkQueue queue = VK_NULL_HANDLE;
@@ -563,4 +578,37 @@ void pop_command_buffer(Vulkan_Context *context, Upload_Request_Handle upload_re
         vkDestroyFence(context->logical_device, fence, &context->allocation_callbacks);
         vkFreeCommandBuffers(context->logical_device, command_buffer.pool, 1, &command_buffer.handle);
     }
+
+    return { };
+}
+
+Vulkan_Command_Buffer get_commnad_buffer(Vulkan_Context *context)
+{
+    Vulkan_Thread_State *thread_state = get_thread_state(context);
+
+    if (thread_state->command_buffers.count)
+    {
+        Vulkan_Command_Buffer vulkan_command_buffer = back(&thread_state->command_buffers);
+        return vulkan_command_buffer;
+    }
+
+    HE_ASSERT(context->graphics_command_pool == thread_state->graphics_command_pool);
+    HE_ASSERT(context->compute_command_pool == thread_state->compute_command_pool);
+
+    Command_Buffer_Usage usage = Command_Buffer_Usage::GRAPHICS;
+    VkCommandPool pool = context->graphics_command_pool;
+
+    if (context->command_buffer == context->compute_command_buffer)
+    {
+        usage = Command_Buffer_Usage::COMPUTE;
+        pool = context->compute_command_pool;
+    }
+
+    return
+    {
+        .usage  = usage,
+        .submit = false,
+        .pool   = pool,
+        .handle = context->command_buffer,
+    };
 }

@@ -387,9 +387,6 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     vkGetPhysicalDeviceMemoryProperties(context->physical_device, &context->physical_device_memory_properties);
     vkGetPhysicalDeviceProperties(context->physical_device, &context->physical_device_properties);
 
-    VkSampleCountFlags counts = context->physical_device_properties.limits.framebufferColorSampleCounts&
-                                context->physical_device_properties.limits.framebufferDepthSampleCounts;
-
     context->graphics_queue_family_index = 0;
     context->present_queue_family_index = 0;
 
@@ -596,23 +593,19 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     bool swapchain_created = create_swapchain(context, width, height, min_image_count, present_mode, &context->swapchain);
     HE_ASSERT(swapchain_created);
 
-    U64 pipeline_cache_size = 0;
-    U8 *pipeline_cache_data = nullptr;
-    
+    VkPipelineCacheCreateInfo pipeline_cache_create_info = { VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
+
     Read_Entire_File_Result result = read_entire_file(HE_STRING_LITERAL(HE_VULKAN_PIPELINE_CACHE_FILE_PATH), memory_context.temp_allocator);
     if (result.success)
     {
         VkPipelineCacheHeaderVersionOne *pipeline_cache_header = (VkPipelineCacheHeaderVersionOne *)result.data;
         if (pipeline_cache_header->deviceID == context->physical_device_properties.deviceID && pipeline_cache_header->vendorID == context->physical_device_properties.vendorID)
         {
-            pipeline_cache_data = result.data;
-            pipeline_cache_size = result.size;
+            pipeline_cache_create_info.initialDataSize = result.size;
+            pipeline_cache_create_info.pInitialData    = result.data;
         }
     }
 
-    VkPipelineCacheCreateInfo pipeline_cache_create_info = { VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
-    pipeline_cache_create_info.initialDataSize = pipeline_cache_size;
-    pipeline_cache_create_info.pInitialData = pipeline_cache_data;
     HE_CHECK_VKRESULT(vkCreatePipelineCache(context->logical_device, &pipeline_cache_create_info, &context->allocation_callbacks, &context->pipeline_cache));
 
     init(&context->thread_states, get_effective_thread_count(),  memory_context.permenent_allocator);
@@ -626,15 +619,18 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     graphics_command_pool_create_info.queueFamilyIndex = context->graphics_queue_family_index;
     HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &graphics_command_pool_create_info, &context->allocation_callbacks, &main_thread_state->graphics_command_pool));
 
-    VkCommandPoolCreateInfo transfer_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-    transfer_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    transfer_command_pool_create_info.queueFamilyIndex = context->transfer_queue_family_index;
-    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &transfer_command_pool_create_info, &context->allocation_callbacks, &main_thread_state->transfer_command_pool));
-
     VkCommandPoolCreateInfo compute_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     compute_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     compute_command_pool_create_info.queueFamilyIndex = context->compute_queue_family_index;
     HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &compute_command_pool_create_info, &context->allocation_callbacks, &main_thread_state->compute_command_pool));
+
+    context->graphics_command_pool = main_thread_state->graphics_command_pool;
+    context->compute_command_pool = main_thread_state->compute_command_pool;
+
+    VkCommandPoolCreateInfo transfer_command_pool_create_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    transfer_command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    transfer_command_pool_create_info.queueFamilyIndex = context->transfer_queue_family_index;
+    HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &transfer_command_pool_create_info, &context->allocation_callbacks, &main_thread_state->transfer_command_pool));
 
     VkCommandBufferAllocateInfo graphics_command_buffer_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     graphics_command_buffer_allocate_info.commandPool = main_thread_state->graphics_command_pool;
@@ -649,6 +645,12 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &compute_command_buffer_allocate_info, context->compute_command_buffers));
 
     init(&main_thread_state->command_buffers);
+
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        Dynamic_Array< Vulkan_Command_Buffer > &secondary_command_buffer = context->secondary_command_buffers[frame_index];
+        init(&secondary_command_buffer);
+    }
 
     context->descriptor_pool_ratios = {{ 
         { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .ratio = 3.0f },
@@ -874,7 +876,8 @@ void vulkan_renderer_destroy_resources_at_frame(U32 frame_index)
 void vulkan_renderer_dispatch_compute(U32 group_size_x, U32 group_size_y, U32 group_size_z)
 {
     Vulkan_Context *context = &vulkan_context;
-    vkCmdDispatch(context->command_buffer, group_size_x, group_size_y, group_size_z);
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+    vkCmdDispatch(command_buffer.handle, group_size_x, group_size_y, group_size_z);
 }
 
 void vulkan_renderer_on_resize(U32 width, U32 height)
@@ -904,7 +907,6 @@ void vulkan_renderer_begin_frame()
 
     VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     command_buffer_begin_info.flags = 0;
-    command_buffer_begin_info.pInheritanceInfo = 0;
 
     VkCommandBuffer graphics_command_buffer = context->graphics_command_buffers[frame_index];
     vkResetCommandBuffer(graphics_command_buffer, 0);
@@ -918,7 +920,17 @@ void vulkan_renderer_begin_frame()
     context->compute_command_buffer = compute_command_buffer;
     context->command_buffer = graphics_command_buffer;
 
-    vulkan_renderer_destroy_resources_at_frame((frame_index + 1) % HE_MAX_FRAMES_IN_FLIGHT);
+    vulkan_renderer_destroy_resources_at_frame((frame_index + 1) % renderer_state->frames_in_flight);
+
+    Dynamic_Array< Vulkan_Command_Buffer > &secondary_command_buffers = context->secondary_command_buffers[frame_index];
+
+    for (U32 i = 0; i < secondary_command_buffers.count; i++)
+    {
+        Vulkan_Command_Buffer command_buffer = secondary_command_buffers[i];
+        vkFreeCommandBuffers(context->logical_device, command_buffer.pool, 1, &command_buffer.handle);
+    }
+
+    reset(&secondary_command_buffers);
 
     Vulkan_Descriptor_Pool_Allocator *descriptor_pool_allocator = &context->descriptor_pool_allocators[frame_index];
 
@@ -987,7 +999,8 @@ static void internal_set_viewport(VkCommandBuffer command_buffer, U32 width, U32
 void vulkan_renderer_set_viewport(U32 width, U32 height)
 {
     Vulkan_Context *context = &vulkan_context;
-    internal_set_viewport(context->command_buffer, width, height);
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+    internal_set_viewport(command_buffer.handle, width, height);
 }
 
 static void internal_set_vertex_buffers(VkCommandBuffer command_buffer, const Array_View< Buffer_Handle >& vertex_buffer_handles, const Array_View< U64 >& offsets)
@@ -1014,7 +1027,8 @@ static void internal_set_vertex_buffers(VkCommandBuffer command_buffer, const Ar
 void vulkan_renderer_set_vertex_buffers(const Array_View< Buffer_Handle > &vertex_buffer_handles, const Array_View< U64 > &offsets)
 {
     Vulkan_Context *context = &vulkan_context;
-    internal_set_vertex_buffers(context->command_buffer, vertex_buffer_handles, offsets);
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+    internal_set_vertex_buffers(command_buffer.handle, vertex_buffer_handles, offsets);
 }
 
 static void internal_set_index_buffer(VkCommandBuffer command_buffer, Buffer_Handle index_buffer_handle, U64 offset)
@@ -1027,27 +1041,29 @@ static void internal_set_index_buffer(VkCommandBuffer command_buffer, Buffer_Han
 void vulkan_renderer_set_index_buffer(Buffer_Handle index_buffer_handle, U64 offset)
 {
     Vulkan_Context *context = &vulkan_context;
-    internal_set_index_buffer(context->command_buffer, index_buffer_handle, offset);
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+    internal_set_index_buffer(command_buffer.handle, index_buffer_handle, offset);
 }
 
-static void internal_set_pipeline_state(VkCommandBuffer command_buffer, Pipeline_State_Handle pipeline_state_handle)
+static void internal_set_pipeline_state(VkCommandBuffer command_buffer, Pipeline_State_Handle pipeline_state_handle, VkPipelineBindPoint bind_point)
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
 
     Vulkan_Pipeline_State *vulkan_pipeline_state = &context->pipeline_states[pipeline_state_handle.index];
-    VkPipelineBindPoint bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    if (command_buffer == context->compute_command_buffer)
-    {
-        bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
-    }
     vkCmdBindPipeline(command_buffer, bind_point, vulkan_pipeline_state->handle);
 }
 
 void vulkan_renderer_set_pipeline_state(Pipeline_State_Handle pipeline_state_handle)
 {
     Vulkan_Context *context = &vulkan_context;
-    internal_set_pipeline_state(context->command_buffer, pipeline_state_handle);
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+    VkPipelineBindPoint bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    if (command_buffer.usage == Command_Buffer_Usage::COMPUTE)
+    {
+        bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+    }
+    internal_set_pipeline_state(command_buffer.handle, pipeline_state_handle, bind_point);
 }
 
 static void internal_draw_sub_mesh(VkCommandBuffer command_buffer, Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index)
@@ -1067,7 +1083,8 @@ static void internal_draw_sub_mesh(VkCommandBuffer command_buffer, Static_Mesh_H
 void vulkan_renderer_draw_sub_mesh(Static_Mesh_Handle static_mesh_handle, U32 first_instance, U32 sub_mesh_index)
 {
     Vulkan_Context *context = &vulkan_context;
-    internal_draw_sub_mesh(context->command_buffer, static_mesh_handle, first_instance, sub_mesh_index);
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+    internal_draw_sub_mesh(command_buffer.handle, static_mesh_handle, first_instance, sub_mesh_index);
 }
 
 static void internal_draw_fullscreen_triangle(VkCommandBuffer command_buffer)
@@ -1079,14 +1096,17 @@ static void internal_draw_fullscreen_triangle(VkCommandBuffer command_buffer)
 void vulkan_renderer_draw_fullscreen_triangle()
 {
     Vulkan_Context *context = &vulkan_context;
-    internal_draw_fullscreen_triangle(context->command_buffer);
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+    internal_draw_fullscreen_triangle(command_buffer.handle);
 }
 
 void vulkan_renderer_fill_buffer(Buffer_Handle buffer_handle, U32 value)
 {
     Vulkan_Context *context = &vulkan_context;
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+
     Vulkan_Buffer *vulkan_buffer = &context->buffers[buffer_handle.index];
-    vkCmdFillBuffer(context->command_buffer, vulkan_buffer->handle, 0, VK_WHOLE_SIZE, value);
+    vkCmdFillBuffer(command_buffer.handle, vulkan_buffer->handle, 0, VK_WHOLE_SIZE, value);
 
     VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
     barrier.buffer = vulkan_buffer->handle;
@@ -1096,12 +1116,14 @@ void vulkan_renderer_fill_buffer(Buffer_Handle buffer_handle, U32 value)
     barrier.size = VK_WHOLE_SIZE;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
-    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
+    vkCmdPipelineBarrier(command_buffer.handle, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
 }
 
 void vulkan_renderer_clear_texture(Texture_Handle texture_handle, Clear_Value clear_value)
 {
     Vulkan_Context *context = &vulkan_context;
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+
     Texture *texture = renderer_get_texture(texture_handle);
     Vulkan_Image *vulkan_image = &context->textures[texture_handle.index];
 
@@ -1140,14 +1162,14 @@ void vulkan_renderer_clear_texture(Texture_Handle texture_handle, Clear_Value cl
             }
         }
 
-        vkCmdClearColorImage(context->command_buffer, vulkan_image->handle, image_layout, &color_clear_value, 1, &sub_resource_range);
+        vkCmdClearColorImage(command_buffer.handle, vulkan_image->handle, image_layout, &color_clear_value, 1, &sub_resource_range);
     }
     else
     {
         VkClearDepthStencilValue depth_stencil_clear_value = {};
         depth_stencil_clear_value.depth = clear_value.depth;
         depth_stencil_clear_value.stencil = clear_value.stencil;
-        vkCmdClearDepthStencilImage(context->command_buffer, vulkan_image->handle, image_layout, &depth_stencil_clear_value, 1, &sub_resource_range);
+        vkCmdClearDepthStencilImage(command_buffer.handle, vulkan_image->handle, image_layout, &depth_stencil_clear_value, 1, &sub_resource_range);
     }
 
     VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
@@ -1160,11 +1182,11 @@ void vulkan_renderer_clear_texture(Texture_Handle texture_handle, Clear_Value cl
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.subresourceRange = sub_resource_range;
     VkPipelineStageFlags stage_flags = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-    if (context->command_buffer == context->graphics_command_buffer)
+    if (command_buffer.usage == Command_Buffer_Usage::GRAPHICS)
     {
         stage_flags |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     }
-    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, stage_flags, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    vkCmdPipelineBarrier(command_buffer.handle, VK_PIPELINE_STAGE_TRANSFER_BIT, stage_flags, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
 void vulkan_renderer_change_texture_state(Texture_Handle texture_handle, Resource_State new_resource_state)
@@ -1194,10 +1216,12 @@ void vulkan_renderer_change_texture_state(Texture_Handle texture_handle, Resourc
     barrier.srcAccessMask = get_access_flags(old_resource_state, texture->format);
     barrier.dstAccessMask = get_access_flags(new_resource_state, texture->format);
 
-    bool compute_only = context->command_buffer == context->compute_command_buffer;
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+
+    bool compute_only = command_buffer.usage == Command_Buffer_Usage::COMPUTE;
     VkPipelineStageFlags src_stage = get_pipeline_stage_flags(barrier.srcAccessMask, compute_only);
     VkPipelineStageFlags dst_stage = get_pipeline_stage_flags(barrier.dstAccessMask, compute_only);
-    vkCmdPipelineBarrier(context->command_buffer, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    vkCmdPipelineBarrier(command_buffer.handle, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
     texture->state = new_resource_state;
 }
@@ -1215,7 +1239,16 @@ void vulkan_renderer_invalidate_buffer(Buffer_Handle buffer_handle)
     barrier.size = VK_WHOLE_SIZE;
     barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
-    vkCmdPipelineBarrier(context->command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
+
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+
+    VkPipelineStageFlags stage_flags = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+    if (command_buffer.usage == Command_Buffer_Usage::GRAPHICS)
+    {
+        stage_flags |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+
+    vkCmdPipelineBarrier(command_buffer.handle, stage_flags, stage_flags, 0, 0, nullptr, 1, &barrier, 0, nullptr);
 }
 
 void vulkan_renderer_begin_compute_pass()
@@ -1420,6 +1453,43 @@ void vulkan_renderer_end_frame()
     }
 
     context->timeline_value++;
+}
+
+
+void vulkan_renderer_begin_command_list(const Command_List_Descriptor &descriptor)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Renderer_State *renderer_state = context->renderer_state;
+    VkRenderPass render_pass = VK_NULL_HANDLE;
+    VkFramebuffer frame_buffer = VK_NULL_HANDLE;
+    if (is_valid_handle(&renderer_state->render_passes, descriptor.render_pass))
+    {
+        Vulkan_Render_Pass *vulkan_render_pass = &context->render_passes[descriptor.render_pass.index];
+        render_pass = vulkan_render_pass->handle;
+    }
+
+    if (is_valid_handle(&renderer_state->frame_buffers, descriptor.frame_buffer))
+    {
+        Vulkan_Frame_Buffer *vulkan_frame_buffer = &context->frame_buffers[descriptor.frame_buffer.index];
+        frame_buffer = vulkan_frame_buffer->handle;
+    }
+
+    push_command_buffer(descriptor.usage, descriptor.submit, context, render_pass, frame_buffer);
+}
+
+Command_List vulkan_renderer_end_command_list(Upload_Request_Handle upload_request_handle)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Command_Buffer command_buffer = pop_command_buffer(context, upload_request_handle);
+    return { .handle = command_buffer.handle };
+}
+
+void vulkan_renderer_execute_command_list(Command_List command_list)
+{
+    Vulkan_Context *context = &vulkan_context;
+    Vulkan_Command_Buffer vulkan_command_buffer = get_commnad_buffer(context);
+    VkCommandBuffer command_buffer = (VkCommandBuffer)command_list.handle;
+    vkCmdExecuteCommands(vulkan_command_buffer.handle, 1, &command_buffer);
 }
 
 static void internal_create_texture(const Texture_Descriptor &descriptor, Vulkan_Image *image, Upload_Request_Handle upload_request_handle = Resource_Pool<Upload_Request>::invalid_handle)
@@ -1892,7 +1962,7 @@ void vulkan_renderer_update_bind_group(Bind_Group_Handle bind_group_handle, cons
     internal_update_bind_group(&context->descriptor_pool_allocators[frame_index], bind_group_handle, update_binding_descriptors);
 }
 
-static void internal_set_bind_groups(VkCommandBuffer command_buffer, U32 first_bind_group, const Array_View< Bind_Group_Handle >& bind_group_handles)
+static void internal_set_bind_groups(VkCommandBuffer command_buffer, U32 first_bind_group, const Array_View< Bind_Group_Handle > &bind_group_handles, VkPipelineBindPoint bind_point)
 {
     Vulkan_Context *context = &vulkan_context;
     Memory_Context memory_context = grab_memory_context();
@@ -1908,19 +1978,19 @@ static void internal_set_bind_groups(VkCommandBuffer command_buffer, U32 first_b
         descriptor_sets[bind_group_index] = vulkan_bind_group->handle;
     }
 
-    VkPipelineBindPoint bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    if (command_buffer == context->compute_command_buffer)
-    {
-        bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
-    }
-
     vkCmdBindDescriptorSets(command_buffer, bind_point, vulkan_shader->pipeline_layout, first_bind_group, bind_group_handles.count, descriptor_sets, 0, nullptr);
 }
 
 void vulkan_renderer_set_bind_groups(U32 first_bind_group, const Array_View< Bind_Group_Handle > &bind_group_handles)
 {
     Vulkan_Context *context = &vulkan_context;
-    internal_set_bind_groups(context->command_buffer, first_bind_group, bind_group_handles);
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+    VkPipelineBindPoint bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    if (command_buffer.usage == Command_Buffer_Usage::COMPUTE)
+    {
+        bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+    }
+    internal_set_bind_groups(command_buffer.handle, first_bind_group, bind_group_handles, bind_point);
 }
 
 bool vulkan_renderer_create_render_pass(Render_Pass_Handle render_pass_handle, const Render_Pass_Descriptor &descriptor)
@@ -2119,13 +2189,15 @@ void vulkan_renderer_begin_render_pass(Render_Pass_Handle render_pass_handle, Fr
     render_pass_begin_info.clearValueCount = clear_values.count;
     render_pass_begin_info.pClearValues = vulkan_clear_values;
 
-    vkCmdBeginRenderPass(context->command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
+    // Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+    vkCmdBeginRenderPass(context->graphics_command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 }
 
 void vulkan_renderer_end_render_pass(Render_Pass_Handle render_pass_handle)
 {
     Vulkan_Context *context = &vulkan_context;
-    vkCmdEndRenderPass(context->command_buffer);
+    // Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+    vkCmdEndRenderPass(context->graphics_command_buffer);
 }
 
 void vulkan_renderer_destroy_render_pass(Render_Pass_Handle render_pass_handle, bool immediate)
@@ -2548,7 +2620,7 @@ void vulkan_renderer_fill_brdf_lut(Texture_Handle brdf_lut_texture_handle)
     vkCmdBeginRenderPass(command_buffer.handle, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
     internal_set_viewport(command_buffer.handle, brdf_lut_texture->width, brdf_lut_texture->height);
-    internal_set_pipeline_state(command_buffer.handle, renderer_state->brdf_lut_pipeline_state);
+    internal_set_pipeline_state(command_buffer.handle, renderer_state->brdf_lut_pipeline_state, VK_PIPELINE_BIND_POINT_GRAPHICS);
     internal_draw_fullscreen_triangle(command_buffer.handle);
 
     vkCmdEndRenderPass(command_buffer.handle);
@@ -2710,7 +2782,7 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
         VkClearValue clear_value = { .color = { 1.0f, 0.0f, 0.0f, 1.0f } };
 
         VkRenderPassBeginInfo begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-        begin_info.framebuffer = hdr_cubemap_faces[face_index].frame_buffers[0]; // hdr_frame_buffers[face_index];
+        begin_info.framebuffer = hdr_cubemap_faces[face_index].frame_buffers[0];
         begin_info.renderArea = { .offset = { 0, 0 }, .extent { hdr_cubemap->width, hdr_cubemap->height } };
         begin_info.clearValueCount = 1;
         begin_info.pClearValues = &clear_value;
@@ -2719,7 +2791,7 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
 
         internal_set_viewport(command_buffer.handle, hdr_cubemap->width, hdr_cubemap->height);
         vkCmdBindDescriptorSets(command_buffer.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, hdr_shader->pipeline_layout, 0, 1, &hdr_descriptor_set, 0, nullptr);
-        internal_set_pipeline_state(command_buffer.handle, renderer_state->hdr_pipeline_state);
+        internal_set_pipeline_state(command_buffer.handle, renderer_state->hdr_pipeline_state, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
         Buffer_Handle buffers[] = { cube_mesh->positions_buffer };
         U64 offsets[] = { 0 };
@@ -2821,8 +2893,8 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
         vkCmdBeginRenderPass(command_buffer.handle, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
         internal_set_viewport(command_buffer.handle, irradiance_cubemap->width, irradiance_cubemap->height);
-        internal_set_bind_groups(command_buffer.handle, 0, { .count = 1, .data = &irradiance_bind_group_handle });
-        internal_set_pipeline_state(command_buffer.handle, renderer_state->irradiance_pipeline_state);
+        internal_set_bind_groups(command_buffer.handle, 0, { .count = 1, .data = &irradiance_bind_group_handle }, VK_PIPELINE_BIND_POINT_GRAPHICS);
+        internal_set_pipeline_state(command_buffer.handle, renderer_state->irradiance_pipeline_state, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
         Buffer_Handle buffers[] = { cube_mesh->positions_buffer };
         U64 offsets[] = { 0 };
@@ -2901,8 +2973,8 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
             vkCmdBeginRenderPass(command_buffer.handle, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
             internal_set_viewport(command_buffer.handle, width, height);
-            internal_set_bind_groups(command_buffer.handle, 0, { .count = 1, .data = &prefilter_bind_group_handle });
-            internal_set_pipeline_state(command_buffer.handle, renderer_state->prefilter_pipeline_state);
+            internal_set_bind_groups(command_buffer.handle, 0, { .count = 1, .data = &prefilter_bind_group_handle }, VK_PIPELINE_BIND_POINT_GRAPHICS);
+            internal_set_pipeline_state(command_buffer.handle, renderer_state->prefilter_pipeline_state, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
             Buffer_Handle buffers[] = { cube_mesh->positions_buffer };
             U64 offsets[] = { 0 };
@@ -2999,7 +3071,7 @@ bool vulkan_renderer_init_imgui()
     imgui_impl_vulkan_init_info.ImageCount = context->swapchain.image_count;
     imgui_impl_vulkan_init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     imgui_impl_vulkan_init_info.PipelineCache = context->pipeline_cache;
-    
+
     // todo(amer): we should refer to the ui pass from the render graph
     Render_Pass_Descriptor render_pass_descriptor =
     {
@@ -3068,7 +3140,8 @@ void vulkan_renderer_imgui_render()
     }
 
     ImGui::Render();
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), context->command_buffer);
+    Vulkan_Command_Buffer command_buffer = get_commnad_buffer(context);
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffer.handle);
 }
 
 // todo(amer): make this a utility function and use it in vulkan_renderer_create_texture...

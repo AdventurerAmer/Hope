@@ -606,10 +606,7 @@ void release_asset(Asset_Handle asset_handle)
 
     Asset_Registry_Entry &entry = entry_it.value();
 
-    Asset_Cache &asset_cache = asset_manager_state->asset_cache;
-    auto it = asset_cache.find(asset_handle.uuid);
-    HE_ASSERT(it != asset_cache.iend());
-
+    
     HE_ASSERT(entry.ref_count);
     entry.ref_count--;
 
@@ -618,13 +615,16 @@ void release_asset(Asset_Handle asset_handle)
         Asset_Info &info = asset_manager_state->asset_infos[entry.type_info_index];
         HE_ASSERT(info.unload);
 
-        Asset *asset = &it.value();
-        info.unload(asset->load_result);
-
-        HE_LOG(Assets, Trace, "unloaded asset: %.*s\n", HE_EXPAND_STRING(entry.path));
-        asset_cache.erase(it);
-
+        Asset_Cache &asset_cache = asset_manager_state->asset_cache;
+        auto it = asset_cache.find(asset_handle.uuid);
+        if (it != asset_cache.iend())
+        {
+            Asset *asset = &it.value();
+            info.unload(asset->load_result);
+            asset_cache.erase(it);
+        }
         entry.state = Asset_State::UNLOADED;
+        HE_LOG(Assets, Trace, "unloaded asset: %.*s\n", HE_EXPAND_STRING(entry.path));
     }
 }
 

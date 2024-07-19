@@ -69,6 +69,10 @@ void vulkan_renderer_end_compute_pass();
 
 void vulkan_renderer_end_frame();
 
+void vulkan_renderer_begin_command_list(const Command_List_Descriptor &descriptor);
+Command_List vulkan_renderer_end_command_list(Upload_Request_Handle upload_request_handle);
+void vulkan_renderer_execute_command_list(Command_List command_list);
+
 bool vulkan_renderer_init_imgui();
 void vulkan_renderer_imgui_new_frame();
 void vulkan_renderer_imgui_add_texture(Texture_Handle texture);
@@ -77,21 +81,7 @@ void vulkan_renderer_imgui_render();
 
 void vulkan_renderer_destroy_resources_at_frame(U32 frame_index);
 
-struct Enviornment_Map_Render_Data
-{
-    F32 *hdr_data;
-    U32 hdr_width;
-    U32 hdr_height;
-
-    Buffer_Handle globals_uniform_buffer;
-
-    Texture_Handle hdr_cubemap_handle;
-    Texture_Handle irradiance_cubemap_handle;
-    Texture_Handle prefilter_cubemap_handle;
-};
-
 void vulkan_renderer_fill_brdf_lut(Texture_Handle brdf_lut_texture_handle);
-
 void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &render_data);
 
 Memory_Requirements vulkan_renderer_get_texture_memory_requirements(const Texture_Descriptor &descriptor);

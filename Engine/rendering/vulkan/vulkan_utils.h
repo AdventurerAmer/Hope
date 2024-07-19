@@ -16,5 +16,6 @@ void copy_data_to_image(Vulkan_Context *context, Vulkan_Command_Buffer *command_
 
 Vulkan_Thread_State *get_thread_state(Vulkan_Context *context);
 
-Vulkan_Command_Buffer push_command_buffer(Command_Buffer_Usage usage, bool submit, Vulkan_Context *context);
-void pop_command_buffer(Vulkan_Context *context, Upload_Request_Handle upload_request_handle = Resource_Pool< Upload_Request >::invalid_handle);
+Vulkan_Command_Buffer push_command_buffer(Command_Buffer_Usage usage, bool submit, Vulkan_Context *context, VkRenderPass render_pass = VK_NULL_HANDLE, VkFramebuffer frame_buffer = VK_NULL_HANDLE);
+Vulkan_Command_Buffer get_commnad_buffer(Vulkan_Context *context);
+Vulkan_Command_Buffer pop_command_buffer(Vulkan_Context *context, Upload_Request_Handle upload_request_handle = Resource_Pool< Upload_Request >::invalid_handle);

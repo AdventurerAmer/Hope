@@ -97,6 +97,13 @@ struct Renderer
 
     void (*set_vsync)(bool enabled);
 
+    void (*hdr_to_environment_map)(const Enviornment_Map_Render_Data &render_data);
+    void (*fill_brdf_lut)(Texture_Handle brdf_lut_texture_handle);
+
+    void (*begin_command_list)(const Command_List_Descriptor &descriptor);
+    Command_List (*end_command_list)(Upload_Request_Handle upload_request_handle);
+    void (*execute_command_list)(Command_List command_list);
+
     Memory_Requirements (*get_texture_memory_requirements)(const Texture_Descriptor &descriptor);
 
     bool (*init_imgui)();
@@ -181,6 +188,7 @@ struct Renderer_State
     bool triple_buffering;
     bool vsync;
     Anisotropic_Filtering_Setting anisotropic_filtering_setting;
+    bool multithreaded_rendering;
 
     Buffer_Handle transfer_buffer;
     Free_List_Allocator transfer_allocator;
@@ -333,7 +341,7 @@ void renderer_destroy_semaphore(Semaphore_Handle &semaphore_handle);
 
 Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &descriptor);
 Static_Mesh* renderer_get_static_mesh(Static_Mesh_Handle static_mesh_handle);
-void renderer_use_static_mesh(Static_Mesh_Handle static_mesh_handle);
+void renderer_use_static_mesh(Static_Mesh_Handle static_mesh_handle, Static_Mesh_Handle *last_static_mesh_handle = nullptr);
 void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle);
 
 //
@@ -343,7 +351,7 @@ void renderer_destroy_static_mesh(Static_Mesh_Handle &static_mesh_handle);
 Shader_Struct *find_material_properties(Array_View<Shader_Handle> shaders);
 
 Material_Handle renderer_create_material(const Material_Descriptor &descriptor);
-void renderer_use_material(Material_Handle material_handle);
+void renderer_use_material(Material_Handle material_handle, Material_Handle *last_material_handle = nullptr, Pipeline_State_Handle *last_pipeline_state_handle = nullptr);
 Material* renderer_get_material(Material_Handle material_handle);
 void renderer_destroy_material(Material_Handle &material_handle);
 
@@ -365,7 +373,6 @@ void renderer_destroy_scene(Scene_Handle &scene_handle);
 Transform get_identity_transform();
 Transform combine(const Transform &a, const Transform &b);
 glm::mat4 get_world_matrix(const Transform &transform);
-
 
 Scene_Node *get_root_node(Scene *scene);
 Scene_Node *get_node(Scene *scene, S32 node_index);
@@ -408,6 +415,7 @@ void renderer_set_anisotropic_filtering(Anisotropic_Filtering_Setting anisotropi
 void renderer_set_msaa(MSAA_Setting msaa_setting);
 void renderer_set_vsync(bool enabled);
 void renderer_set_triple_buffering(bool enabled);
+void renderer_set_multithreaded_rendering(bool enabled);
 
 //
 // ImGui

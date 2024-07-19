@@ -58,19 +58,17 @@ void setup_render_passes(Render_Graph *render_graph, Renderer_State *renderer_st
     set_presentable_attachment(render_graph, "main");
 }
 
-static void light_culling_pass(Renderer *renderer, Renderer_State *renderer_state)
-{
-}
-
 static void depth_prepass(Renderer *renderer, Renderer_State *renderer_state)
 {
     Frame_Render_Data *render_data = &renderer_state->render_data;
     renderer->set_pipeline_state(renderer_state->depth_prepass_pipeline);
 
+    Static_Mesh_Handle last_static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
+
     for (U32 draw_command_index = 0; draw_command_index < render_data->opaque_commands.count; draw_command_index++)
     {
         const Draw_Command *dc = &render_data->opaque_commands[draw_command_index];
-        renderer_use_static_mesh(dc->static_mesh);
+        renderer_use_static_mesh(dc->static_mesh, &last_static_mesh_handle);
         renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
     }
 }
@@ -79,44 +77,51 @@ static void world_pass(Renderer *renderer, Renderer_State *renderer_state)
 {
     Frame_Render_Data *render_data = &renderer_state->render_data;
 
+    Static_Mesh_Handle last_static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
+    Material_Handle last_material_handle = Resource_Pool< Material >::invalid_handle;
+    Pipeline_State_Handle last_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
+
     for (U32 draw_command_index = 0; draw_command_index < render_data->opaque_commands.count; draw_command_index++)
     {
         const Draw_Command *dc = &render_data->opaque_commands[draw_command_index];
-        renderer_use_material(dc->material);
-        renderer_use_static_mesh(dc->static_mesh);
+        renderer_use_material(dc->material, &last_material_handle, &last_pipeline_state_handle);
+        renderer_use_static_mesh(dc->static_mesh, &last_static_mesh_handle);
         renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
     }
 
     for (U32 draw_command_index = 0; draw_command_index < render_data->alpha_cutoff_commands.count; draw_command_index++)
     {
         const Draw_Command *dc = &render_data->alpha_cutoff_commands[draw_command_index];
-        renderer_use_material(dc->material);
-        renderer_use_static_mesh(dc->static_mesh);
+        renderer_use_material(dc->material, &last_material_handle, &last_pipeline_state_handle);
+        renderer_use_static_mesh(dc->static_mesh, &last_static_mesh_handle);
         renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
     }
 
     if (render_data->skybox_commands.count)
     {
         const Draw_Command &dc = back(&render_data->skybox_commands);
-        renderer_use_material(dc.material);
-        renderer_use_static_mesh(dc.static_mesh);
+        renderer_use_material(dc.material, &last_material_handle, &last_pipeline_state_handle);
+        renderer_use_static_mesh(dc.static_mesh, &last_static_mesh_handle);
         renderer->draw_sub_mesh(dc.static_mesh, dc.instance_index, dc.sub_mesh_index);
     }
 
     for (U32 draw_command_index = 0; draw_command_index < render_data->transparent_commands.count; draw_command_index++)
     {
         const Draw_Command *dc = &render_data->transparent_commands[draw_command_index];
-        renderer_use_material(dc->material);
-        renderer_use_static_mesh(dc->static_mesh);
+        renderer_use_material(dc->material, &last_material_handle, &last_pipeline_state_handle);
+        renderer_use_static_mesh(dc->static_mesh, &last_static_mesh_handle);
         renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
     }
 }
 
 void transparent_pass(Renderer *renderer, Renderer_State *renderer_state)
 {
-    renderer->set_pipeline_state(renderer_state->transparent_pipeline);
+    Static_Mesh_Handle last_static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
+    Material_Handle last_material_handle = Resource_Pool< Material >::invalid_handle;
+    Pipeline_State_Handle last_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
 
-    renderer_use_static_mesh(renderer_state->default_static_mesh);
+    renderer->set_pipeline_state(renderer_state->transparent_pipeline);
+    renderer_use_static_mesh(renderer_state->default_static_mesh, &last_static_mesh_handle);
     renderer->draw_fullscreen_triangle();
 }
 
@@ -124,12 +129,16 @@ static void ui_pass(Renderer *renderer, Renderer_State *renderer_state)
 {
     Frame_Render_Data *render_data = &renderer_state->render_data;
 
+    Static_Mesh_Handle last_static_mesh_handle = Resource_Pool< Static_Mesh >::invalid_handle;
+    Material_Handle last_material_handle = Resource_Pool< Material >::invalid_handle;
+    Pipeline_State_Handle last_pipeline_state_handle = Resource_Pool< Pipeline_State >::invalid_handle;
+
     renderer_use_material(renderer_state->outline_first_pass);
 
     for (U32 draw_command_index = 0; draw_command_index < render_data->outline_commands.count; draw_command_index++)
     {
         const Draw_Command *dc = &render_data->outline_commands[draw_command_index];
-        renderer_use_static_mesh(dc->static_mesh);
+        renderer_use_static_mesh(dc->static_mesh, &last_static_mesh_handle);
         renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
     }
 
@@ -138,7 +147,7 @@ static void ui_pass(Renderer *renderer, Renderer_State *renderer_state)
     for (U32 draw_command_index = 0; draw_command_index < render_data->outline_commands.count; draw_command_index++)
     {
         const Draw_Command *dc = &render_data->outline_commands[draw_command_index];
-        renderer_use_static_mesh(dc->static_mesh);
+        renderer_use_static_mesh(dc->static_mesh, &last_static_mesh_handle);
         renderer->draw_sub_mesh(dc->static_mesh, dc->instance_index, dc->sub_mesh_index);
     }
 
