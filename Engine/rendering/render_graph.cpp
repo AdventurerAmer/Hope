@@ -36,11 +36,6 @@ static Render_Graph_Node& internal_add_node(Render_Graph *render_graph, const ch
     Render_Graph_Node_Handle node_handle = (Render_Graph_Node_Handle)(&node - render_graph->nodes.data);
     insert(&render_graph->node_cache, HE_STRING(node_name), node_handle);
 
-    if (!node.edges.data)
-    {
-        init(&node.edges);
-    }
-
     node.execute = execute;
 
     node.render_pass = Resource_Pool< Render_Pass >::invalid_handle;

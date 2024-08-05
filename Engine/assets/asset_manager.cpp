@@ -323,14 +323,10 @@ bool init_asset_manager(String asset_path)
     asset_manager_state = HE_ALLOCATOR_ALLOCATE(memory_context.permenent_allocator, Asset_Manager);
     asset_manager_state->asset_path = copy_string(asset_path, memory_context.permenent_allocator);
 
-    init(&asset_manager_state->asset_infos);
-
     asset_manager_state->asset_registry = Asset_Registry();
     asset_manager_state->asset_cache = Asset_Cache();
     asset_manager_state->embeded_cache = Embeded_Asset_Cache();
     asset_manager_state->asset_dependency = Asset_Dependency();
-
-    init(&asset_manager_state->pending_reload_assets);
 
     platform_create_mutex(&asset_manager_state->asset_mutex);
 
@@ -656,8 +652,7 @@ static void internal_add_embeded_asset(Asset_Handle embeder_asset_handle, Asset_
     auto it = embeded_cache.find(embeder_asset_handle.uuid);
     if (it == embeded_cache.iend())
     {
-        Dynamic_Array<U64> embeded;
-        init(&embeded);
+        Dynamic_Array<U64> embeded = {};
         append(&embeded, asset_handle.uuid);
         embeded_cache.emplace(embeder_asset_handle.uuid, embeded);
     }
@@ -678,8 +673,7 @@ static void internal_add_asset_dependency(Asset_Handle parent_handle, Asset_Hand
     auto it = dependency.find(parent_handle.uuid);
     if (it == dependency.iend())
     {
-        Dynamic_Array<U64> children;
-        init(&children);
+        Dynamic_Array<U64> children = {};
         append(&children, asset_handle.uuid);
         dependency.emplace(parent_handle.uuid, children);
     }

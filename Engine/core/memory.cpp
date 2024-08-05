@@ -141,7 +141,7 @@ Memory_Context::~Memory_Context()
 {
     if (!dropped)
     {
-        end_temprary_memory(&temprary_memory);
+        end_temprary_memory(temprary_memory);
     }
 }
 
@@ -214,14 +214,12 @@ HE_FORCE_INLINE static bool is_power_of_2(U16 value)
 
 U64 get_number_of_bytes_to_align_address(uintptr_t address, U16 alignment)
 {
-    // todo(amer): branchless version daddy
     U64 result = 0;
 
     if (alignment)
     {
         HE_ASSERT(is_power_of_2(alignment));
         U64 modulo = address & (alignment - 1);
-
         if (modulo != 0)
         {
             result = alignment - modulo;
@@ -255,15 +253,55 @@ void* allocate(Memory_Arena *arena, U64 size, U16 alignment)
     return result;
 }
 
-void *reallocate(Memory_Arena *arena, void *memory, U64 new_size, U16 alignment)
-{
-    HE_ASSERT(false);
-    return nullptr;
+void *reallocate(Memory_Arena *arena, void *memory, U64 old_size, U64 new_size, U16 alignment)
+{ 
+    if (!memory)
+    {
+        return allocate(arena, new_size, alignment);
+    }
+
+    if (new_size == old_size)
+    {
+        return memory;
+    }
+
+    HE_ASSERT((U8 *)memory >= arena->base && (U8 *)memory <= arena->base + arena->size);
+    if (arena->base + arena->offset - old_size == (U8 *)memory) // memory is the last allocation in the arena
+    {
+        if (new_size > old_size)
+        {
+            arena->offset += new_size - old_size;
+        }
+        else
+        {
+            arena->offset -= old_size - new_size;
+        }
+
+        return memory;
+    }
+    
+    void *new_memory = allocate(arena, new_size, alignment);
+    copy_memory(new_memory, memory, HE_MIN(old_size, new_size));
+    return new_memory;
 }
 
 void deallocate(Memory_Arena *arena, void *memory)
 {
-    HE_ASSERT(false);
+}
+
+void *memory_arena_allocate(void *memory_arena, U64 size, U16 alignment)
+{
+    return allocate((Memory_Arena *)memory_arena, size, alignment);
+}
+
+void *memory_arena_reallocate(void *memory_arena, void *memory, U64 old_size, U64 new_size, U16 alignment)
+{
+    return reallocate((Memory_Arena *)memory_arena, memory, old_size, new_size, alignment);
+}
+
+void memory_arena_deallocate(void *memory_arena, void *memory)
+{
+    return deallocate((Memory_Arena *)memory_arena, memory);
 }
 
 //
@@ -277,13 +315,13 @@ Temprary_Memory begin_temprary_memory(Memory_Arena *arena)
     return { .arena = arena, .offset = arena->offset };
 }
 
-void end_temprary_memory(Temprary_Memory *temprary_memory)
+void end_temprary_memory(Temprary_Memory temprary_memory)
 {
-    Memory_Arena *arena = temprary_memory->arena;
+    Memory_Arena *arena = temprary_memory.arena;
     HE_ASSERT(arena);
     HE_ASSERT(arena->temp_count);
     arena->temp_count--;
-    arena->offset = temprary_memory->offset;
+    arena->offset = temprary_memory.offset;
 }
 
 //
@@ -517,7 +555,7 @@ void deallocate(Free_List_Allocator *allocator, void *memory)
     platform_unlock_mutex(&allocator->mutex);
 }
 
-void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16 alignment)
+void* reallocate(Free_List_Allocator *allocator, void *memory, U64 _, U64 new_size, U16 alignment)
 {
     if (!memory)
     {
@@ -540,11 +578,30 @@ void* reallocate(Free_List_Allocator *allocator, void *memory, U64 new_size, U16
     HE_ASSERT(new_size != header.size);
 
     U64 old_size = header.size - header.padding;
+    if (old_size == new_size)
+    {
+        return memory;
+    }
+    
     void *new_memory = allocate_internal(allocator, new_size, alignment);
     copy_memory(new_memory, memory, old_size);
     deallocate_internal(allocator, memory);
-
     platform_unlock_mutex(&allocator->mutex);
 
     return new_memory;
+}
+
+void *free_list_allocator_allocate(void *free_list_allocator, U64 size, U16 alignment)
+{
+    return allocate((Free_List_Allocator *)free_list_allocator, size, alignment);
+}
+
+void *free_list_allocator_reallocate(void *free_list_allocator, void *memory, U64 old_size, U64 new_size, U16 alignment)
+{
+    return reallocate((Free_List_Allocator *)free_list_allocator, memory, old_size, new_size, alignment);
+}
+
+void free_list_allocator_deallocate(void *free_list_allocator, void *memory)
+{
+    return deallocate((Free_List_Allocator *)free_list_allocator, memory);
 }

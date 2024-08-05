@@ -36,6 +36,13 @@ String copy_string(const char *str, U64 count, Allocator allocator)
 {
     HE_ASSERT(str);
     HE_ASSERT(count);
+    
+    if (!allocator.data)
+    {
+        Memory_Context memory_context = grab_memory_context();
+        allocator = memory_context.general_allocator;
+    }
+    
     char *data = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, char, count + 1);
     copy_memory(data, str, count);
     data[count] = 0;

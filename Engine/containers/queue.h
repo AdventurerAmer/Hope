@@ -15,7 +15,7 @@ struct Ring_Queue
 };
 
 template< typename T >
-void init(Ring_Queue< T > *queue, U32 capacity, Allocator allocator)
+void init(Ring_Queue< T > *queue, U32 capacity, Allocator allocator = {})
 {
     if ((capacity & (capacity - 1)) != 0)
     {
@@ -27,6 +27,12 @@ void init(Ring_Queue< T > *queue, U32 capacity, Allocator allocator)
         }
         HE_ASSERT((new_capacity & (new_capacity - 1)) == 0);
         capacity = new_capacity;
+    }
+
+    if (!allocator.data)
+    {
+        Memory_Context memory_context = grab_memory_context();
+        allocator = memory_context.general_allocator;
     }
 
     queue->data = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, T, capacity);

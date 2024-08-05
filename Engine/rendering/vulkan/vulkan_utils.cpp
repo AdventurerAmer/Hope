@@ -420,7 +420,7 @@ Vulkan_Thread_State *get_thread_state(Vulkan_Context *context)
     compute_command_pool_create_info.queueFamilyIndex = context->compute_queue_family_index;
     HE_CHECK_VKRESULT(vkCreateCommandPool(context->logical_device, &compute_command_pool_create_info, &context->allocation_callbacks, &thread_state->compute_command_pool));
 
-    init(&thread_state->command_buffers);
+    // sinit(&thread_state->command_buffers);
 
     return thread_state;
 }

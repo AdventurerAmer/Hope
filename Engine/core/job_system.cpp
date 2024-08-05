@@ -169,7 +169,7 @@ unsigned long execute_thread_work(void *params)
             job->data.completed_proc(result);
         }
 
-        end_temprary_memory(&temprary_memory);
+        end_temprary_memory(temprary_memory);
 
         pop_front(job_queue);
 
@@ -248,17 +248,12 @@ static void init_job(Job *job, Job_Data job_data)
     }
 
     std::atomic_store((std::atomic<bool>*)&job->finished, false);
-
-    if (!job->dependent_jobs.data)
-    {
-        platform_create_mutex(&job->dependent_jobs_mutex);
-        init(&job->dependent_jobs);
-    }
+    platform_create_mutex(&job->dependent_jobs_mutex);
 }
 
 Job_Handle execute_job(Job_Data job_data, Array_View< Job_Handle > wait_for_jobs)
 {
-    Job_Handle job_handle = aquire_handle(&job_system_state.job_pool);
+    Job_Handle job_handle = acquire_handle(&job_system_state.job_pool);
     Job *job = get(&job_system_state.job_pool, job_handle);
     init_job(job, job_data);
 

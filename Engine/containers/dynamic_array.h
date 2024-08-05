@@ -51,52 +51,43 @@ struct Dynamic_Array
 };
 
 template< typename T >
-void init(Dynamic_Array< T > *dynamic_array, U32 initial_count = 0, U32 initial_capacity = 0, Allocator allocator = {})
+Dynamic_Array< T > make_dynamic_array(Allocator allocator)
 {
-    Memory_Context context = grab_memory_context();
-
-    HE_ASSERT(dynamic_array);
-
-    if (!initial_capacity)
-    {
-        initial_capacity = initial_count ? initial_count * 2 : HE_DEFAULT_DYNAMIC_ARRAY_INITIAL_CAPACITY;
-    }
-    
-    if (!allocator.data)
-    {
-        allocator = context.general_allocator;
-    }
-
-    dynamic_array->data = dynamic_array->data = HE_ALLOCATOR_ALLOCATE_ARRAY(allocator, T, initial_capacity);
-    dynamic_array->count = initial_count;
-    dynamic_array->capacity = initial_capacity;
-    dynamic_array->allocator = allocator;
+    HE_ASSERT(allocator.data);
+    Dynamic_Array< T > result = {};
+    result.allocator = allocator;
+    return result;
 }
 
 template< typename T >
 void deinit(Dynamic_Array< T > *dynamic_array)
 {
     HE_ASSERT(dynamic_array);
-    HE_ASSERT(dynamic_array->data);
-
-    HE_ALLOCATOR_DEALLOCATE(dynamic_array->allocator, dynamic_array->data);
-
-    dynamic_array->data = nullptr;
-    dynamic_array->count = 0;
-    dynamic_array->capacity = 0;
+    
+    if (dynamic_array->allocator.data)
+    {
+        HE_ALLOCATOR_DEALLOCATE(dynamic_array->allocator, dynamic_array->data);
+        dynamic_array->data = nullptr;
+    }
 }
 
 template< typename T >
 void set_capacity(Dynamic_Array< T > *dynamic_array, U32 new_capacity)
 {
     HE_ASSERT(dynamic_array);
-
-    if (new_capacity < dynamic_array->capacity * 2)
+    
+    if (!new_capacity)
     {
-        new_capacity = dynamic_array->capacity ? dynamic_array->capacity * 2 : HE_DEFAULT_DYNAMIC_ARRAY_INITIAL_CAPACITY;
+        new_capacity = HE_DEFAULT_DYNAMIC_ARRAY_INITIAL_CAPACITY;
     }
 
-    dynamic_array->data = HE_ALLOCATOR_REALLOCATE_ARRAY(dynamic_array->allocator, dynamic_array->data, T, new_capacity);
+    if (!dynamic_array->allocator.data)
+    {
+        Memory_Context memory_context = grab_memory_context();
+        dynamic_array->allocator = memory_context.general_allocator;
+    }
+
+    dynamic_array->data = HE_ALLOCATOR_REALLOCATE_ARRAY_SIZED(dynamic_array->allocator, dynamic_array->data, T, dynamic_array->capacity, new_capacity);
     dynamic_array->capacity = new_capacity;
 }
 
@@ -121,7 +112,7 @@ void reset(Dynamic_Array< T > *dynamic_array)
 }
 
 template< typename T >
-void append(Dynamic_Array< T > *dynamic_array, const T &datum)
+void append(Dynamic_Array< T > *dynamic_array, const T &item)
 {
     HE_ASSERT(dynamic_array);
 
@@ -129,7 +120,7 @@ void append(Dynamic_Array< T > *dynamic_array, const T &datum)
     {
         set_capacity(dynamic_array, dynamic_array->count * 2);
     }
-    dynamic_array->data[dynamic_array->count++] = datum;
+    dynamic_array->data[dynamic_array->count++] = item;
 }
 
 template< typename T >
@@ -145,19 +136,19 @@ T& append(Dynamic_Array< T > *dynamic_array)
 }
 
 template< typename T >
-U32 index_of(Dynamic_Array< T > *dynamic_array, const T &datum)
+U32 index_of(Dynamic_Array< T > *dynamic_array, const T &item)
 {
     HE_ASSERT(dynamic_array);
-    S64 index = &datum - dynamic_array->data;
+    S64 index = &item - dynamic_array->data;
     HE_ASSERT(index >= 0 && index < dynamic_array->count);
     return (U32)index;
 }
 
 template< typename T >
-U32 index_of(Dynamic_Array< T > *dynamic_array, const T *datum)
+U32 index_of(Dynamic_Array< T > *dynamic_array, const T *item)
 {
     HE_ASSERT(dynamic_array);
-    S64 index = datum - dynamic_array->data;
+    S64 index = item - dynamic_array->data;
     HE_ASSERT(index >= 0 && index < dynamic_array->count);
     return (U32)index;
 }
@@ -224,14 +215,14 @@ S32 find(const Dynamic_Array< T > *dynamic_array, const T &target)
 }
 
 template< typename T >
-HE_FORCE_INLINE U64 size_in_bytes(const Dynamic_Array< T > *dynamic_array)
+HE_FORCE_INLINE U64 get_size_in_bytes(const Dynamic_Array< T > *dynamic_array)
 {
     HE_ASSERT(dynamic_array);
     return sizeof(T) * dynamic_array->count;
 }
 
 template< typename T >
-HE_FORCE_INLINE U64 capacity_in_bytes(const Dynamic_Array< T > *dynamic_array)
+HE_FORCE_INLINE U64 get_capacity_in_bytes(const Dynamic_Array< T > *dynamic_array)
 {
     HE_ASSERT(dynamic_array);
     return sizeof(T) * dynamic_array->capacity;

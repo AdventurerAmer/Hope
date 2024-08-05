@@ -355,9 +355,9 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
         U64 total_vertex_count = 0;
         U64 total_index_count = 0;
 
-        Dynamic_Array< Sub_Mesh > sub_meshes;
-        init(&sub_meshes, u64_to_u32(static_mesh->primitives_count), u64_to_u32(static_mesh->primitives_count));
-
+        Dynamic_Array< Sub_Mesh > sub_meshes = {};
+        set_count(&sub_meshes, u64_to_u32(static_mesh->primitives_count));
+        
         for (U32 sub_mesh_index = 0; sub_mesh_index < (U32)static_mesh->primitives_count; sub_mesh_index++)
         {
             cgltf_primitive *primitive = &static_mesh->primitives[sub_mesh_index];
@@ -591,11 +591,11 @@ Load_Asset_Result load_model(String path, const Embeded_Asset_Params *params)
             scene_node->has_mesh = true;
             Asset_Handle static_mesh_asset = get_asset_handle(static_mesh_path);
             Static_Mesh_Component *mesh_comp = &scene_node->mesh;
+            
             mesh_comp->static_mesh_asset = static_mesh_asset.uuid;
 
             U32 material_count = u64_to_u32(static_mesh->primitives_count);
-            init(&mesh_comp->materials, material_count, material_count);
-
+            
             for (U32 i = 0; i < material_count; i++)
             {
                 cgltf_primitive *primitive = &static_mesh->primitives[i];

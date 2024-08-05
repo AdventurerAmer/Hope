@@ -129,7 +129,7 @@ void game_loop(Engine *engine, F32 delta_time)
 
     hope_app_on_update(engine, delta_time);
 
-    end_temprary_memory(&frame_temprary_memory);
+    end_temprary_memory(frame_temprary_memory);
 }
 
 void shutdown(Engine *engine)

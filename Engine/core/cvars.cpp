@@ -51,8 +51,7 @@ static CVar_Category* find_or_append_category(const String &name, bool should_ap
     {
         CVar_Category category = {};
         category.name = copy_string(name, memory_context.permenent_allocator);
-        init(&category.vars);
-
+        
         append(&categories, category);
         return &back(&categories);
     }
@@ -92,7 +91,6 @@ bool init_cvars(String filepath)
     cvars_state.filepath = filepath;
 
     auto &categories = cvars_state.categories;
-    init(&categories);
     
     Read_Entire_File_Result result = read_entire_file(filepath, memory_context.temp_allocator);
     CVar_Category *category = nullptr;

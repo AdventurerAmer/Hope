@@ -308,10 +308,8 @@ bool init_renderer_state(Engine *engine)
         glm::vec4 *tangents = (glm::vec4 *)(vertex_data + (sizeof(glm::vec3) + sizeof(glm::vec2) + sizeof(glm::vec3)) * vertex_count);
         copy_memory(tangents, _tangents, sizeof(glm::vec4) * HE_ARRAYCOUNT(_tangents));
 
-        Dynamic_Array< Sub_Mesh > sub_meshes;
-        init(&sub_meshes, 1, 1);
-
-        Sub_Mesh &sub_mesh = sub_meshes[0];
+        Dynamic_Array< Sub_Mesh > sub_meshes = {};
+        Sub_Mesh &sub_mesh = append(&sub_meshes);
 
         sub_mesh.vertex_offset = 0;
         sub_mesh.index_offset = 0;
@@ -402,11 +400,11 @@ bool init_renderer_state(Engine *engine)
         Shader *default_shader = get(&renderer_state->shaders, renderer_state->default_shader);
 
         Frame_Render_Data *render_data = &renderer_state->render_data;
-        init(&render_data->skybox_commands);
-        init(&render_data->opaque_commands);
-        init(&render_data->alpha_cutoff_commands);
-        init(&render_data->transparent_commands);
-        init(&render_data->outline_commands);
+        // init(&render_data->skybox_commands);
+        // init(&render_data->opaque_commands);
+        // init(&render_data->alpha_cutoff_commands);
+        // init(&render_data->transparent_commands);
+        // init(&render_data->outline_commands);
 
         render_data->light_bin_count = HE_LIGHT_BIN_COUNT;
 
@@ -843,7 +841,7 @@ void renderer_wait_for_gpu_to_finish_all_work()
 
 Buffer_Handle renderer_create_buffer(const Buffer_Descriptor &descriptor)
 {
-    Buffer_Handle buffer_handle = aquire_handle(&renderer_state->buffers);
+    Buffer_Handle buffer_handle = acquire_handle(&renderer_state->buffers);
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_buffer(buffer_handle, descriptor);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
@@ -876,7 +874,7 @@ Texture_Handle renderer_create_texture(const Texture_Descriptor &descriptor)
 
     Memory_Context memory_context = grab_memory_context();
 
-    Texture_Handle texture_handle = aquire_handle(&renderer_state->textures);
+    Texture_Handle texture_handle = acquire_handle(&renderer_state->textures);
     Texture *texture = renderer_get_texture(texture_handle);
 
     if (descriptor.name.data)
@@ -965,7 +963,7 @@ void renderer_destroy_texture(Texture_Handle &texture_handle)
 
 Sampler_Handle renderer_create_sampler(const Sampler_Descriptor &descriptor)
 {
-    Sampler_Handle sampler_handle = aquire_handle(&renderer_state->samplers);
+    Sampler_Handle sampler_handle = acquire_handle(&renderer_state->samplers);
 
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_sampler(sampler_handle, descriptor);
@@ -1140,9 +1138,9 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
     shaderc_compile_options_set_auto_map_locations(options, true);
 
     static String shader_stage_signature[(U32)Shader_Stage::COUNT];
-    shader_stage_signature[(U32)Shader_Stage::VERTEX] = HE_STRING_LITERAL("vertex");
+    shader_stage_signature[(U32)Shader_Stage::VERTEX]   = HE_STRING_LITERAL("vertex");
     shader_stage_signature[(U32)Shader_Stage::FRAGMENT] = HE_STRING_LITERAL("fragment");
-    shader_stage_signature[(U32)Shader_Stage::COMPUTE] = HE_STRING_LITERAL("compute");
+    shader_stage_signature[(U32)Shader_Stage::COMPUTE]  = HE_STRING_LITERAL("compute");
 
     String sources[(U32)Shader_Stage::COUNT] = {};
 
@@ -1293,7 +1291,7 @@ void renderer_destroy_shader_compilation_result(Shader_Compilation_Result *resul
 Shader_Handle renderer_create_shader(const Shader_Descriptor &descriptor)
 {
     HE_ASSERT(descriptor.compilation_result->success);
-    Shader_Handle shader_handle = aquire_handle(&renderer_state->shaders);
+    Shader_Handle shader_handle = acquire_handle(&renderer_state->shaders);
     Shader *shader = get(&renderer_state->shaders, shader_handle);
     shader->type = descriptor.compilation_result->type;
     platform_lock_mutex(&renderer_state->render_commands_mutex);
@@ -1351,7 +1349,7 @@ void renderer_destroy_shader(Shader_Handle &shader_handle)
 
 Bind_Group_Handle renderer_create_bind_group(const Bind_Group_Descriptor &descriptor)
 {
-    Bind_Group_Handle bind_group_handle = aquire_handle(&renderer_state->bind_groups);
+    Bind_Group_Handle bind_group_handle = acquire_handle(&renderer_state->bind_groups);
     Bind_Group *bind_group = &renderer_state->bind_groups.data[bind_group_handle.index];
     bind_group->shader = descriptor.shader;
     bind_group->group_index = descriptor.group_index;
@@ -1382,7 +1380,7 @@ void renderer_destroy_bind_group(Bind_Group_Handle &bind_group_handle)
 
 Pipeline_State_Handle renderer_create_pipeline_state(const Pipeline_State_Descriptor &descriptor)
 {
-    Pipeline_State_Handle pipeline_state_handle = aquire_handle(&renderer_state->pipeline_states);
+    Pipeline_State_Handle pipeline_state_handle = acquire_handle(&renderer_state->pipeline_states);
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_pipeline_state(pipeline_state_handle, descriptor);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
@@ -1415,7 +1413,7 @@ Render_Pass_Handle renderer_create_render_pass(const Render_Pass_Descriptor &des
 {
     Memory_Context memory_context = grab_memory_context();
 
-    Render_Pass_Handle render_pass_handle = aquire_handle(&renderer_state->render_passes);
+    Render_Pass_Handle render_pass_handle = acquire_handle(&renderer_state->render_passes);
 
     Render_Pass *render_pass = renderer_get_render_pass(render_pass_handle);
     render_pass->name = copy_string(descriptor.name, memory_context.general_allocator);
@@ -1444,7 +1442,7 @@ void renderer_destroy_render_pass(Render_Pass_Handle &render_pass_handle)
 
 Frame_Buffer_Handle renderer_create_frame_buffer(const Frame_Buffer_Descriptor &descriptor)
 {
-    Frame_Buffer_Handle frame_buffer_handle = aquire_handle(&renderer_state->frame_buffers);
+    Frame_Buffer_Handle frame_buffer_handle = acquire_handle(&renderer_state->frame_buffers);
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_frame_buffer(frame_buffer_handle, descriptor);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
@@ -1468,7 +1466,7 @@ void renderer_destroy_frame_buffer(Frame_Buffer_Handle &frame_buffer_handle)
 //
 Semaphore_Handle renderer_create_semaphore(const Renderer_Semaphore_Descriptor &descriptor)
 {
-    Semaphore_Handle semaphore_handle = aquire_handle(&renderer_state->semaphores);
+    Semaphore_Handle semaphore_handle = acquire_handle(&renderer_state->semaphores);
     platform_lock_mutex(&renderer_state->render_commands_mutex);
     renderer->create_semaphore(semaphore_handle, descriptor);
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
@@ -1505,7 +1503,7 @@ Static_Mesh_Handle renderer_create_static_mesh(const Static_Mesh_Descriptor &des
 {
     Memory_Context memory_context = grab_memory_context();
 
-    Static_Mesh_Handle static_mesh_handle = aquire_handle(&renderer_state->static_meshes);
+    Static_Mesh_Handle static_mesh_handle = acquire_handle(&renderer_state->static_meshes);
     Static_Mesh *static_mesh = renderer_get_static_mesh(static_mesh_handle);
 
     if (descriptor.name.data)
@@ -1651,7 +1649,7 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 {
     Memory_Context memory_context = grab_memory_context();
 
-    Material_Handle material_handle = aquire_handle(&renderer_state->materials);
+    Material_Handle material_handle = acquire_handle(&renderer_state->materials);
     Material *material = get(&renderer_state->materials, material_handle);
 
     if (descriptor.name.count)
@@ -1693,8 +1691,8 @@ Material_Handle renderer_create_material(const Material_Descriptor &descriptor)
 
         material->bind_groups[frame_index] = renderer_create_bind_group(object_bind_group_descriptor);
     }
-
-    init(&material->properties, properties->member_count);
+    
+    set_count(&material->properties, properties->member_count);
 
     static constexpr const char* texture_postfixes[] =
     {
@@ -2228,9 +2226,9 @@ glm::mat4 get_world_matrix(const Transform &transform)
 
 Scene_Handle renderer_create_scene(U32 node_capacity)
 {
-    Scene_Handle scene_handle = aquire_handle(&renderer_state->scenes);
+    Scene_Handle scene_handle = acquire_handle(&renderer_state->scenes);
     Scene *scene = get(&renderer_state->scenes, scene_handle);
-    init(&scene->nodes, 0, node_capacity);
+    // init(&scene->nodes, 0, node_capacity);
     scene->node_count = 0;
     scene->first_free_node_index = -1;
     Skybox *skybox = &scene->skybox;
@@ -2715,7 +2713,7 @@ void render_scene(Scene_Handle scene_handle)
 
 Upload_Request_Handle renderer_create_upload_request(const Upload_Request_Descriptor &descriptor)
 {
-    Upload_Request_Handle upload_request_handle = aquire_handle(&renderer_state->upload_requests);
+    Upload_Request_Handle upload_request_handle = acquire_handle(&renderer_state->upload_requests);
     Upload_Request *upload_request = get(&renderer_state->upload_requests, upload_request_handle);
 
     Renderer_Semaphore_Descriptor semaphore_descriptor =

@@ -101,7 +101,7 @@ bool hope_app_init(Engine *engine)
 
     scene_asset = import_asset(HE_STRING_LITERAL("main.hascene"));
     set_scene(scene_asset);
-    
+
     return true;
 }
 

@@ -38,9 +38,9 @@ constexpr U64 comptime_string_hash(const char(&str)[Count])
     return hash;
 }
 
-String copy_string(const char *str, U64 count, Allocator allocator);
+String copy_string(const char *str, U64 count, Allocator allocator = {});
 
-HE_FORCE_INLINE String copy_string(String str, Allocator allocator)
+HE_FORCE_INLINE String copy_string(String str, Allocator allocator = {})
 {
     return copy_string(str.data, str.count, allocator);
 }

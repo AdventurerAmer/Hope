@@ -209,8 +209,7 @@ bool create_shader(Shader_Handle shader_handle, const Shader_Descriptor &descrip
     VkVertexInputBindingDescription *vertex_input_binding_descriptions = nullptr;
     VkVertexInputAttributeDescription *vertex_input_attribute_descriptions = nullptr;
 
-    Dynamic_Array< Shader_Struct > structs;
-    init(&structs);
+    Dynamic_Array< Shader_Struct > structs = {};
     
     bool is_using_a_push_constant = false;
     VkPushConstantRange push_constant = {};

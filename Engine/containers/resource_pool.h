@@ -102,7 +102,7 @@ HE_FORCE_INLINE bool is_valid_handle(Resource_Pool< T > *resource_pool, Resource
 }
 
 template< typename T >
-Resource_Handle< T > aquire_handle(Resource_Pool< T > *resource_pool)
+Resource_Handle< T > acquire_handle(Resource_Pool< T > *resource_pool)
 {
     HE_ASSERT(resource_pool);
     HE_ASSERT(resource_pool->count < resource_pool->capacity);
@@ -121,6 +121,7 @@ Resource_Handle< T > aquire_handle(Resource_Pool< T > *resource_pool)
 
     platform_unlock_mutex(&resource_pool->mutex);
     
+    zero_memory(&resource_pool->data[index], sizeof(T));
     return handle;
 }
 

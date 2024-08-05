@@ -193,11 +193,6 @@ Load_Asset_Result load_scene(String path, const Embeded_Asset_Params *params)
 
                 U32 material_count = u64_to_u32(str_to_u64(result.value));
 
-                if (!static_mesh_comp->materials.data)
-                {
-                    init(&static_mesh_comp->materials);
-                }
-
                 set_count(&static_mesh_comp->materials, material_count);
                 
                 for (U32 i = 0; i < material_count; i++)

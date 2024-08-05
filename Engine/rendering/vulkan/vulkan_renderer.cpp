@@ -184,7 +184,7 @@ static void vulkan_deallocate(void *user_data, void *memory)
 static void* vulkan_reallocate(void *user_data, void *original, size_t size, size_t alignment, VkSystemAllocationScope allocation_scope)
 {
     HE_ASSERT(alignment <= HE_MAX_U16);
-    return reallocate((Free_List_Allocator *)user_data, original, size, (U16)alignment);
+    return reallocate((Free_List_Allocator *)user_data, original, 0, size, (U16)alignment);
 }
 
 static VkDescriptorPool create_descriptor_bool(U32 set_count)
@@ -211,14 +211,13 @@ static VkDescriptorPool create_descriptor_bool(U32 set_count)
     return descriptor_pool;
 }
 
-Vulkan_Descriptor_Pool_Allocator create_descriptor_pool_allocator(U32 initial_set_count)
+Vulkan_Descriptor_Pool_Allocator create_descriptor_pool_allocator(U32 initial_set_count, Allocator allocator = {})
 {
-    Vulkan_Descriptor_Pool_Allocator allocator = {};
-    allocator.set_count_per_pool = initial_set_count;
-    init(&allocator.ready_pools);
-    init(&allocator.full_pools);
-
-    return allocator;
+    Vulkan_Descriptor_Pool_Allocator descriptor_pool_allocator = {};
+    descriptor_pool_allocator.set_count_per_pool    = initial_set_count;
+    descriptor_pool_allocator.ready_pools.allocator = allocator;
+    descriptor_pool_allocator.full_pools.allocator  = allocator;
+    return descriptor_pool_allocator;
 }
 
 void destroy_descriptor_pool_allocator(Vulkan_Descriptor_Pool_Allocator *allocator)
@@ -263,17 +262,6 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     context->frame_buffers = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Frame_Buffer, HE_MAX_FRAME_BUFFER_COUNT);
     context->semaphores = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Semaphore, HE_MAX_SEMAPHORE_COUNT);
     context->upload_requests = HE_ALLOCATOR_ALLOCATE_ARRAY(memory_context.permenent_allocator, Vulkan_Upload_Request, HE_MAX_UPLOAD_REQUEST_COUNT);
-
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        init(&context->pending_delete_buffers[frame_index], 0, HE_MAX_BUFFER_COUNT);
-        init(&context->pending_delete_textures[frame_index], 0, HE_MAX_TEXTURE_COUNT);
-        init(&context->pending_delete_samplers[frame_index], 0, HE_MAX_SAMPLER_COUNT);
-        init(&context->pending_delete_shaders[frame_index], 0, HE_MAX_SHADER_COUNT);
-        init(&context->pending_delete_pipeline_states[frame_index], 0, HE_MAX_PIPELINE_STATE_COUNT);
-        init(&context->pending_delete_render_passes[frame_index], 0, HE_MAX_RENDER_PASS_COUNT);
-        init(&context->pending_delete_frame_buffers[frame_index], 0, HE_MAX_FRAME_BUFFER_COUNT);
-    }
 
     const char *required_instance_extensions[] =
     {
@@ -644,18 +632,10 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     compute_command_buffer_allocate_info.commandBufferCount = HE_MAX_FRAMES_IN_FLIGHT;
     HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &compute_command_buffer_allocate_info, context->compute_command_buffers));
 
-    init(&main_thread_state->command_buffers);
-
-    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
-    {
-        Dynamic_Array< Vulkan_Command_Buffer > &secondary_command_buffer = context->secondary_command_buffers[frame_index];
-        init(&secondary_command_buffer);
-    }
-
     context->descriptor_pool_ratios = {{ 
         { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .ratio = 3.0f },
         { .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .ratio = 1.0f },
-        { .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .ratio = 4.0f }, 
+        { .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .ratio = 4.0f },
     }};
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
@@ -2682,7 +2662,7 @@ void vulkan_renderer_hdr_to_environment_map(const Enviornment_Map_Render_Data &r
 
     Array<Cubemap_Face_Render_Info, 6> prefilter_cubemap_faces = create_cubemap_face_info_array(prefilter_cubemap, vulkan_prefilter_cubemap, cubemap_render_pass, prefileter_map_mip_levels, memory_context.temp_allocator);
 
-    Vulkan_Descriptor_Pool_Allocator descriptor_pool_allocator = create_descriptor_pool_allocator(16);
+    Vulkan_Descriptor_Pool_Allocator descriptor_pool_allocator = create_descriptor_pool_allocator(16, memory_context.temp_allocator);
 
     VkDescriptorSet hdr_descriptor_set = allocate_descriptor_set(&descriptor_pool_allocator, hdr_shader->descriptor_set_layouts[0]);
 
