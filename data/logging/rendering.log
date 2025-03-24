@@ -1,2 +1,1 @@
-[Rendering-Trace]: loader_add_layer_properties: 'layers' tag not supported until file version 1.0.1, but C:\WINDOWS\System32\DriverStore\FileRepository\nv_dispi.inf_amd64_cc569e59ca39c5fe\nv-vk64.json is reporting version 1
 [Rendering-Trace]: Layer VK_LAYER_RTSS uses API version 1.1 which is older than the application specified API version of 1.2. May cause issues.

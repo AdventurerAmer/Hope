@@ -69,7 +69,7 @@ bool init_memory_system()
 
     memory_system_state.debug_allocator = to_allocator(&memory_system_state.debug_arena);
 
-    if (!init_free_list_allocator(&memory_system_state.general_free_list_allocator, nullptr, capacity, HE_MEGA_BYTES(512), "general_free_list_allocator"))
+    if (!init_free_list_allocator(&memory_system_state.general_free_list_allocator, nullptr, capacity, HE_MEGA_BYTES(1024), "general_free_list_allocator"))
     {
         return false;
     }
@@ -359,16 +359,8 @@ static void insert_node(Free_List_Allocator *allocator, Free_List_Node *prev_nod
 {
     if (prev_node)
     {
-        if (prev_node->next)
-        {
-            new_node->next = prev_node->next;
-            prev_node->next = new_node;
-        }
-        else
-        {
-            prev_node->next = new_node;
-            new_node->next = nullptr;
-        }
+        new_node->next = prev_node->next;
+        prev_node->next = new_node;
     }
     else
     {
@@ -395,19 +387,13 @@ static void remove_node(Free_List_Allocator *allocator, Free_List_Node *prev_nod
 
 static void merge(Free_List_Allocator *allocator, Free_List_Node *prev_node, Free_List_Node *node)
 {
-    if (node->next && (U8 *)node + node->size == (U8 *)node->next)
-    {
-        node->size += node->next->size;
-        remove_node(allocator, node, node->next);
-    }
-
-    if (prev_node && prev_node->next && (U8 *)prev_node + prev_node->size == (U8 *)node)
+    HE_ASSERT(prev_node);
+    HE_ASSERT(node);
+    if ((U8 *)prev_node + prev_node->size == (U8 *)node)
     {
         prev_node->size += node->size;
         remove_node(allocator, prev_node, node);
     }
-
-    HE_ASSERT(allocator->head->size);
 }
 
 bool init_free_list_allocator(Free_List_Allocator *allocator, void *memory, U64 capacity, U64 size, const char *debug_name)
@@ -457,6 +443,13 @@ struct Free_List_Allocation_Header
 
 static_assert(sizeof(Free_List_Allocation_Header) == sizeof(Free_List_Node));
 
+static void dump_free_list_allocator(Free_List_Allocator *allocator) {
+    HE_LOG(Core, Debug, "dumping allocator %s\n", allocator->debug_name);
+    for (Free_List_Node *node = allocator->head; node; node = node->next) {
+        HE_LOG(Core, Debug, "node: addr -> %p, size -> %d\n", (void *)node, node->size);
+    }
+}
+
 static void* allocate_internal(Free_List_Allocator *allocator, U64 size, U16 alignment)
 {
     HE_ASSERT(allocator);
@@ -501,6 +494,7 @@ static void* allocate_internal(Free_List_Allocator *allocator, U64 size, U16 ali
 
     void *result = (void *)((U8 *)alloc_node + padding);
     zero_memory(result, size);
+
     return result;
 }
 
@@ -526,6 +520,11 @@ static void deallocate_internal(Free_List_Allocator *allocator, void *memory)
     HE_ASSERT(header->padding >= sizeof(Free_List_Allocation_Header));
     HE_ASSERT(header->size > 0);
 
+    for (Free_List_Node *node = allocator->head; node; node = node->next)
+    {
+        HE_ASSERT((U8*)memory < (U8*)node || (U8*)memory > (U8*)node + node->size);
+    }
+
     U64 size = header->size;
     U64 padding = header->padding;
 
@@ -536,7 +535,7 @@ static void deallocate_internal(Free_List_Allocator *allocator, void *memory)
     Free_List_Node *prev_node = nullptr;
     for (Free_List_Node *node = allocator->head; node; node = node->next)
     {
-        if ((U8 *)memory < (U8 *)node)
+        if ((U8 *)node > (U8 *)memory)
         {
             insert_node(allocator, prev_node, free_node);
             break;
@@ -545,7 +544,15 @@ static void deallocate_internal(Free_List_Allocator *allocator, void *memory)
     }
 
     allocator->used -= size;
-    merge(allocator, prev_node, free_node);
+    if (prev_node)
+    {
+        merge(allocator, prev_node, free_node);
+    }
+
+    if (free_node->next)
+    {
+        merge(allocator, free_node, free_node->next);
+    }
 }
 
 void deallocate(Free_List_Allocator *allocator, void *memory)
@@ -571,21 +578,27 @@ void* reallocate(Free_List_Allocator *allocator, void *memory, U64 _, U64 new_si
     HE_ASSERT(memory >= allocator->base && memory <= allocator->base + allocator->size);
     HE_ASSERT(new_size);
 
-    Free_List_Allocation_Header header = ((Free_List_Allocation_Header *)memory)[-1];
-    HE_ASSERT(header.size >= 0);
-    HE_ASSERT(header.padding >= 0);
-    HE_ASSERT(header.padding < allocator->size);
-    HE_ASSERT(new_size != header.size);
+    Free_List_Allocation_Header *header = (Free_List_Allocation_Header *)((U8*)memory - sizeof(Free_List_Allocation_Header));
+    HE_ASSERT(header->size >= 0);
+    HE_ASSERT(header->padding >= 0);
+    HE_ASSERT(header->padding < allocator->size);
+    HE_ASSERT(new_size != header->size);
 
-    U64 old_size = header.size - header.padding;
+    U64 old_size = header->size - header->padding;
     if (old_size == new_size)
     {
         return memory;
     }
+
+    for (Free_List_Node *node = allocator->head; node; node = node->next)
+    {
+        HE_ASSERT((U8*)memory < (U8*)node || (U8*)memory > (U8*)node + node->size);
+    }
     
     void *new_memory = allocate_internal(allocator, new_size, alignment);
-    copy_memory(new_memory, memory, old_size);
+    copy_memory(new_memory, memory, HE_MIN(old_size, new_size));
     deallocate_internal(allocator, memory);
+
     platform_unlock_mutex(&allocator->mutex);
 
     return new_memory;
