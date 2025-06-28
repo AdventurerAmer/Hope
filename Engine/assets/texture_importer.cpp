@@ -103,7 +103,8 @@ Load_Asset_Result load_environment_map(String path, const Embeded_Asset_Params *
         return {};
     }
 
-    F32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, F32, 4 * width * height);
+    F32 *data = (F32*)allocate(&renderer_state->transfer_allocator, sizeof(F32) * 4 * width * height, 16);
+    // F32 *data = HE_ALLOCATE_ARRAY(&renderer_state->transfer_allocator, F32, 4 * width * height);
     copy_memory(data, pixels, width * height * 4 * sizeof(F32));
     stbi_image_free(pixels);
 

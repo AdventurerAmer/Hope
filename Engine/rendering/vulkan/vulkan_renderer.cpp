@@ -16,6 +16,7 @@
 #include "core/cvars.h"
 
 #include "containers/dynamic_array.h"
+#include "containers/dynamic_array.h"
 #include "ImGui/backends/imgui_impl_vulkan.cpp"
 
 #include <filesystem> // todo(amer): to be removed
@@ -24,6 +25,9 @@
 #include <vk_mem_alloc.h>
 
 static Vulkan_Context vulkan_context;
+
+static bool created_fances = false;
+static VkFence fences[3];
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity, VkDebugUtilsMessageTypeFlagsEXT message_type, const VkDebugUtilsMessengerCallbackDataEXT *callback_data, void *user_data)
 {
@@ -271,8 +275,10 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
         "VK_KHR_win32_surface",
 #endif
 
-#if HE_GRAPHICS_DEBUGGING
         "VK_EXT_debug_utils",
+        // "VK_EXT_device_address_binding_report",
+
+#if HE_GRAPHICS_DEBUGGING
 #endif
     };
 
@@ -310,7 +316,10 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     VkDebugUtilsMessengerCreateInfoEXT debug_messenger_create_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
 
     debug_messenger_create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    debug_messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT;
+
+    // debug_messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT;
+    debug_messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+
     debug_messenger_create_info.pfnUserCallback = vulkan_debug_callback;
     debug_messenger_create_info.pUserData = nullptr;
 
@@ -633,17 +642,18 @@ static bool init_vulkan(Vulkan_Context *context, Engine *engine, Renderer_State 
     HE_CHECK_VKRESULT(vkAllocateCommandBuffers(context->logical_device, &compute_command_buffer_allocate_info, context->compute_command_buffers));
 
     context->descriptor_pool_ratios = {{ 
-        { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .ratio = 3.0f },
+        { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .ratio = 1.0f },
         { .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .ratio = 1.0f },
-        { .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .ratio = 4.0f },
+        { .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .ratio = 5.0f },
+        { .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .ratio = 1.0f },
     }};
 
     for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
     {
-        context->descriptor_pool_allocators[frame_index] = create_descriptor_pool_allocator(1024);
+        context->descriptor_pool_allocators[frame_index] = create_descriptor_pool_allocator(16192); // 16k
     }
 
-    context->timeline_value = HE_MAX_FRAMES_IN_FLIGHT;
+    context->timeline_value = 0;
 
     VkSemaphoreTypeCreateInfo timeline_semaphore_type_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
     timeline_semaphore_type_create_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
@@ -708,6 +718,11 @@ void deinit_vulkan(Vulkan_Context *context)
     {
         vkDestroySemaphore(context->logical_device, context->image_available_semaphores[frame_index], &context->allocation_callbacks);
         vkDestroySemaphore(context->logical_device, context->rendering_finished_semaphores[frame_index], &context->allocation_callbacks);
+    }
+
+    for (U32 frame_index = 0; frame_index < HE_MAX_FRAMES_IN_FLIGHT; frame_index++)
+    {
+        vkDestroyFence(context->logical_device, fences[frame_index], &context->allocation_callbacks);
     }
 
     for (U32 slot_index = 0; slot_index < context->thread_states.capacity; slot_index++)
@@ -862,12 +877,12 @@ void vulkan_renderer_dispatch_compute(U32 group_size_x, U32 group_size_y, U32 gr
 
 void vulkan_renderer_on_resize(U32 width, U32 height)
 {
-    Vulkan_Context *context = &vulkan_context;
+    /*Vulkan_Context *context = &vulkan_context;
     if (width != 0 && height != 0)
     {
-        vkDeviceWaitIdle(context->logical_device);
         recreate_swapchain(context, &context->swapchain, width, height, context->swapchain.present_mode);
-    }
+        context->current_swapchain_image_index = 0;
+    }*/
 }
 
 void vulkan_renderer_begin_frame()
@@ -876,15 +891,37 @@ void vulkan_renderer_begin_frame()
     Renderer_State *renderer_state = context->renderer_state;
     U32 frame_index = renderer_state->current_frame_in_flight_index;
 
-    U64 wait_value = context->timeline_value - (renderer_state->frames_in_flight - 1);
-    VkSemaphoreWaitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
-    wait_info.semaphoreCount = 1;
-    wait_info.pSemaphores = &context->frame_timeline_semaphore;
-    wait_info.pValues = &wait_value;
-    vkWaitSemaphores(context->logical_device, &wait_info, UINT64_MAX);
+    if (!created_fances)
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            VkFenceCreateInfo fence_create_info{
+                VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
+            };
+            fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+            VkResult result = vkCreateFence(context->logical_device, &fence_create_info, &context->allocation_callbacks, &fences[i]);
+            HE_ASSERT(result == VK_SUCCESS);
+        }
+        created_fances = true;
+    }
 
-    VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[frame_index], VK_NULL_HANDLE, &context->current_swapchain_image_index);
+    /*if (context->timeline_value > 1)
+    {
+        U64 wait_value = context->timeline_value - 1;
+        VkSemaphoreWaitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
+        wait_info.semaphoreCount = 1;
+        wait_info.pSemaphores = &context->frame_timeline_semaphore;
+        wait_info.pValues = &wait_value;
+        vkWaitSemaphores(context->logical_device, &wait_info, UINT64_MAX);
+    }*/
 
+    vkWaitForFences(context->logical_device, 1, &fences[0], true, UINT64_MAX);
+    vkResetFences(context->logical_device, 1, &fences[0]);
+
+    U32 swapchain_image_index = 0;
+    VkResult result = vkAcquireNextImageKHR(context->logical_device, context->swapchain.handle, UINT64_MAX, context->image_available_semaphores[frame_index], VK_NULL_HANDLE, &swapchain_image_index);
+
+    context->current_swapchain_image_index = swapchain_image_index;
     VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     command_buffer_begin_info.flags = 0;
 
@@ -1249,8 +1286,9 @@ void vulkan_renderer_end_frame()
 {
     Vulkan_Context *context = &vulkan_context;
     Renderer_State *renderer_state = context->renderer_state;
+    const U32 frame_index = renderer_state->current_frame_in_flight_index;
     
-    VkImage swapchain_image = context->swapchain.images[context->current_swapchain_image_index];
+    VkImage swapchain_image = context->swapchain.images[frame_index];
 
     VkImageCopy region = {};
     region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1282,7 +1320,7 @@ void vulkan_renderer_end_frame()
     Vulkan_Image *scene_image = &context->textures[scene_texture.index];
     transtion_image_to_layout(context->graphics_command_buffer, scene_image->handle, 0, 1, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-    Buffer_Handle scene_buffer = renderer_state->render_data.scene_buffers[renderer_state->current_frame_in_flight_index];
+    Buffer_Handle scene_buffer = renderer_state->render_data.scene_buffers[frame_index];
     Vulkan_Buffer *vulkan_scene_buffer = &context->buffers[scene_buffer.index];
 
     U32 x = glm::clamp((U32)renderer_state->engine->input.mouse_x, 0u, renderer_state->back_buffer_width - 1);
@@ -1314,15 +1352,15 @@ void vulkan_renderer_end_frame()
     platform_lock_mutex(&renderer_state->render_commands_mutex);
 
     {
-        // VkSemaphoreSubmitInfoKHR wait_semaphore_infos[] =
-        // {
-        //     {
-        //         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
-        //         .semaphore = context->compute_timeline_semaphore,
-        //         .value = context->timeline_value,
-        //         .stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
-        //     }
-        // };
+        VkSemaphoreSubmitInfoKHR wait_semaphore_infos[] =
+        {
+            {
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+                .semaphore = context->compute_timeline_semaphore,
+                .value = context->timeline_value,
+                .stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+            }
+        };
 
         VkSemaphoreSubmitInfoKHR signal_semaphore_infos[] =
         {
@@ -1338,8 +1376,8 @@ void vulkan_renderer_end_frame()
         command_buffer_submit_info.commandBuffer = context->compute_command_buffer;
 
         VkSubmitInfo2KHR submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR };
-        // submit_info.waitSemaphoreInfoCount = HE_ARRAYCOUNT(wait_semaphore_infos);
-        // submit_info.pWaitSemaphoreInfos = wait_semaphore_infos;
+        submit_info.waitSemaphoreInfoCount = HE_ARRAYCOUNT(wait_semaphore_infos);
+        submit_info.pWaitSemaphoreInfos = wait_semaphore_infos;
 
         submit_info.signalSemaphoreInfoCount = HE_ARRAYCOUNT(signal_semaphore_infos);
         submit_info.pSignalSemaphoreInfos = signal_semaphore_infos;
@@ -1354,29 +1392,23 @@ void vulkan_renderer_end_frame()
         {
             {
                 .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
-                .semaphore = context->image_available_semaphores[renderer_state->current_frame_in_flight_index],
+                .semaphore = context->image_available_semaphores[frame_index],
                 .value = 0,
                 .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR
             },
             {
                 .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
                 .semaphore = context->compute_timeline_semaphore,
-                .value = context->timeline_value + 1,
+                .value = context->timeline_value,
                 .stageMask = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT
             },
-            {
-                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
-                .semaphore = context->frame_timeline_semaphore,
-                .value = context->timeline_value - (renderer_state->frames_in_flight - 1),
-                .stageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR
-            }
         };
 
         VkSemaphoreSubmitInfoKHR signal_semaphore_infos[] =
         {
             {
                 .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
-                .semaphore = context->rendering_finished_semaphores[renderer_state->current_frame_in_flight_index],
+                .semaphore = context->rendering_finished_semaphores[frame_index],
                 .value = 0,
                 .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
             },
@@ -1399,7 +1431,7 @@ void vulkan_renderer_end_frame()
         submit_info.commandBufferInfoCount = 1;
         submit_info.pCommandBufferInfos = &command_buffer_submit_info;
 
-        context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+        context->vkQueueSubmit2KHR(context->graphics_queue, 1, &submit_info, fences[0]);
     }
 
     platform_unlock_mutex(&renderer_state->render_commands_mutex);
@@ -1413,18 +1445,18 @@ void vulkan_renderer_end_frame()
 
     VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores = &context->rendering_finished_semaphores[renderer_state->current_frame_in_flight_index];
+    present_info.pWaitSemaphores = &context->rendering_finished_semaphores[frame_index];
     present_info.swapchainCount = 1;
     present_info.pSwapchains = &context->swapchain.handle;
     present_info.pImageIndices = &context->current_swapchain_image_index;
 
     VkResult result = vkQueuePresentKHR(context->present_queue, &present_info);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || renderer_state->resizing)
     {
-        if (renderer_state->back_buffer_width != 0 && renderer_state->back_buffer_height != 0)
+        if (renderer_state->resize_width != 0 && renderer_state->resize_height != 0)
         {
             vkDeviceWaitIdle(context->logical_device);
-            recreate_swapchain(context, &context->swapchain, renderer_state->back_buffer_width, renderer_state->back_buffer_height, context->swapchain.present_mode);
+            recreate_swapchain(context, &context->swapchain, renderer_state->resize_width, renderer_state->resize_height, context->swapchain.present_mode);
         }
     }
     else

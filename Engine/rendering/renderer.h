@@ -164,6 +164,10 @@ struct Renderer_State
     Renderer renderer;
     Mutex render_commands_mutex;
 
+    bool resizing = false;
+    U32 resize_width;
+    U32 resize_height;
+
     U32 back_buffer_width;
     U32 back_buffer_height;
 

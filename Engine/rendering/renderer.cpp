@@ -817,16 +817,9 @@ void renderer_on_resize(U32 width, U32 height)
 
     if (renderer_state)
     {
-        renderer_state->back_buffer_width = width;
-        renderer_state->back_buffer_height = height;
-
-        if (renderer)
-        {
-            renderer->on_resize(width, height);
-        }
-
-        renderer->wait_for_gpu_to_finish_all_work();
-        invalidate(&renderer_state->render_graph, renderer, renderer_state);
+        renderer_state->resizing = true;
+        renderer_state->resize_width = width;
+        renderer_state->resize_height = height;
     }
 }
 
@@ -1088,7 +1081,6 @@ static shaderc_shader_kind shader_stage_to_shaderc_kind(Shader_Stage stage)
 
 struct Shaderc_UserData
 {
-    Allocator allocator;
     String include_path;
 };
 
@@ -1100,9 +1092,9 @@ shaderc_include_result *shaderc_include_resolve(void *user_data, const char *req
 
     String source = HE_STRING(requested_source);
     String path = format_string(memory_context.temp_allocator, "%.*s/%.*s", HE_EXPAND_STRING(ud->include_path), HE_EXPAND_STRING(source));
-    Read_Entire_File_Result file_result = read_entire_file(path, ud->allocator);
+    Read_Entire_File_Result file_result = read_entire_file(path, memory_context.general_allocator);
     HE_ASSERT(file_result.success);
-    shaderc_include_result *result = HE_ALLOCATOR_ALLOCATE(ud->allocator, shaderc_include_result);
+    shaderc_include_result *result = HE_ALLOCATOR_ALLOCATE(memory_context.general_allocator, shaderc_include_result);
     result->source_name = requested_source;
     result->source_name_length = string_length(requested_source);
     result->user_data = ud;
@@ -1113,9 +1105,10 @@ shaderc_include_result *shaderc_include_resolve(void *user_data, const char *req
 
 void shaderc_include_result_release(void *user_data, shaderc_include_result *include_result)
 {
+    Memory_Context memory_context = grab_memory_context();
     Shaderc_UserData *ud = (Shaderc_UserData *)user_data;
-    HE_ALLOCATOR_DEALLOCATE(ud->allocator, (void *)include_result->content);
-    HE_ALLOCATOR_DEALLOCATE(ud->allocator, include_result);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, (void *)include_result->content);
+    HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, include_result);
 }
 
 Shader_Compilation_Result renderer_compile_shader(String source, String include_path)
@@ -1126,13 +1119,12 @@ Shader_Compilation_Result renderer_compile_shader(String source, String include_
     Memory_Context memory_context = grab_memory_context();
 
     Shaderc_UserData *shaderc_userdata = HE_ALLOCATOR_ALLOCATE(memory_context.general_allocator, Shaderc_UserData);
-    shaderc_userdata->allocator = memory_context.general_allocator;
-    shaderc_userdata->include_path = include_path;
+    shaderc_userdata->include_path = copy_string(include_path, memory_context.general_allocator);
 
     HE_DEFER { HE_ALLOCATOR_DEALLOCATE(memory_context.general_allocator, shaderc_userdata); };
 
     shaderc_compile_options_set_include_callbacks(options, shaderc_include_resolve, shaderc_include_result_release, shaderc_userdata);
-    shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
+    shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
     shaderc_compile_options_set_generate_debug_info(options);
     shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_zero); // todo(amer): shaderc_optimization_level_performance
     shaderc_compile_options_set_auto_map_locations(options, true);
@@ -3262,6 +3254,16 @@ void end_rendering()
     render(&renderer_state->render_graph, renderer, renderer_state);
     renderer->end_frame();
     
+    if (renderer_state->resizing)
+    {
+        // renderer->wait_for_gpu_to_finish_all_work();
+        // renderer->on_resize(renderer_state->back_buffer_width, renderer_state->back_buffer_height);
+        renderer_state->back_buffer_width = renderer_state->resize_width;
+        renderer_state->back_buffer_height = renderer_state->resize_height;
+        invalidate(&renderer_state->render_graph, renderer, renderer_state);
+        renderer_state->resizing = false;
+    }
+
     renderer_state->current_frame_in_flight_index++;
     if (renderer_state->current_frame_in_flight_index >= renderer_state->frames_in_flight)
     {

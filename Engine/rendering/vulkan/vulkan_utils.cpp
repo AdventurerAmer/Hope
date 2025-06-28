@@ -459,14 +459,14 @@ Vulkan_Command_Buffer push_command_buffer(Command_Buffer_Usage usage, bool submi
     VkCommandBufferBeginInfo command_buffer_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-    if (!submit)
-    {
-        command_buffer_begin_info.flags |= VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
-
-        VkCommandBufferInheritanceInfo command_buffer_inhertiance_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
+    VkCommandBufferInheritanceInfo command_buffer_inhertiance_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
         command_buffer_inhertiance_info.renderPass = render_pass;
         command_buffer_inhertiance_info.subpass = 0;
         command_buffer_inhertiance_info.framebuffer = framebuffer;
+
+    if (!submit)
+    {
+        command_buffer_begin_info.flags |= VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
         command_buffer_begin_info.pInheritanceInfo = &command_buffer_inhertiance_info;
     }
 

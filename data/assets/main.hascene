@@ -15,7 +15,7 @@ component_count 2
 component transform
 position 0.000000 0.000000 0.000000
 rotation -0.707107 -0.000000 0.000000 0.707107
-scale 0.999986 0.999818 0.999429
+scale 0.999986 0.999819 0.999430
 component light
 type directional
 color 1.000000 1.000000 1.000000
@@ -29,7 +29,7 @@ component_count 2
 component transform
 position 1.000000 0.000000 0.000000
 rotation -0.000001 1.000000 -0.000001 0.000000
-scale 15.000000 15.000000 15.000000
+scale 14.995546 15.000000 14.995546
 component mesh
 static_mesh_asset 1596034640347025962
 material_count 1
